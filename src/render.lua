@@ -14,6 +14,11 @@ R.t = 0
 
 local lg = love.graphics
 
+function R.dimensions()
+  if R.viewportOverride then return R.viewportOverride[1], R.viewportOverride[2] end
+  return lg.getDimensions()
+end
+
 function R.init()
   R.fonts = {
     tiny  = lg.newFont(10),

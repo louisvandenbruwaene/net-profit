@@ -18,11 +18,25 @@ Graph.INF = INF
 -- connections a node can host) against throughput (how much can pass through
 -- it). No archetype is good at both.
 Graph.KINDS = {
-  source  = { name = "SOURCE",  ports = 16, throughput = INF, cost = 0,  color = {0.36, 0.85, 0.62} },
-  sink    = { name = "TERMINAL",ports = 6, throughput = INF, cost = 0,  color = {0.98, 0.62, 0.35} },
-  relay   = { name = "RELAY",   ports = 3, throughput = 8,   cost = 14, color = {0.55, 0.71, 0.98} },
-  hub     = { name = "HUB",     ports = 6, throughput = 4,   cost = 26, color = {0.78, 0.63, 0.98} },
-  conduit = { name = "CONDUIT", ports = 2, throughput = 16,  cost = 24, color = {0.42, 0.88, 0.92} },
+  -- Produced infrastructure.
+  source   = { name = "SOURCE",   ports = 16, throughput = INF, cost = 0,   color = {0.36, 0.85, 0.62} },
+  sink = { name = "TERMINAL", ports = 6, throughput = INF, cost = 0, color = {0.98, 0.62, 0.35} },
+  relay = { name = "RELAY", ports = 3, throughput = 8, cost = 14, color = {0.55, 0.71, 0.98} },
+  hub = { name = "HUB", ports = 6, throughput = 4, cost = 26, color = {0.78, 0.63, 0.98} },
+  conduit = { name = "CONDUIT", ports = 2, throughput = 16, cost = 24, color = {0.42, 0.88, 0.92} },
+  junction = { name = "JUNCTION", ports = 3,  throughput = 999, cost = 22,  color = {0.55, 0.71, 0.98} },
+  manifold = { name = "MANIFOLD", ports = 6,  throughput = 999, cost = 46,  color = {0.78, 0.63, 0.98} },
+  pump     = { name = "PUMP",     ports = 2,  throughput = 999, cost = 38,  color = {0.42, 0.88, 0.92} },
+  tower    = { name = "TOWER",    ports = 4,  throughput = 999, cost = 92,  color = {0.98, 0.82, 0.38} },
+  -- Customers. Placed by the world, never by the player.
+  client   = { name = "CLIENT",   ports = 3,  throughput = INF, cost = 0,   color = {0.98, 0.62, 0.35} },
+}
+
+-- What flows. Each commodity is a separate network sharing the same ground.
+Graph.COMMODITIES = {
+  water = { name = "WATER", color = {0.38, 0.72, 0.98} },
+  beer  = { name = "BEER",  color = {0.95, 0.72, 0.28} },
+  oil   = { name = "OIL",   color = {0.72, 0.55, 0.95} },
 }
 
 function Graph.new()
@@ -216,31 +230,39 @@ end
 -- A super source feeds every source node; every terminal drains to a super sink.
 -- `uncapped` ignores per-terminal demand, giving the network's structural
 -- throughput and its true bottleneck. Capped gives what is actually delivered.
-function Graph:buildNetwork(uncapped)
+-- `commodity` selects which network to solve: only pipes carrying it, wells
+-- producing it and customers asking for it take part. Junctions are shared
+-- ground, so a manifold can host water and beer without the two ever mixing.
+function Graph:buildNetwork(uncapped, commodity)
   local n = #self.nodes
   local net = netNew(2 * n + 2)
   local SS, TT = 2 * n + 1, 2 * n + 2
   net.adj[SS] = {}; net.adj[TT] = {}
 
   for _, node in ipairs(self.nodes) do
+    -- Cleared every build: a node that drained in the water network must not
+    -- keep a stale arc index when the beer network is solved next.
+    node._drainArc = nil
     if node.alive then
       local vin, vout = 2 * node.id - 1, 2 * node.id
-      -- The node's own throughput arc. Cutting this is a vertex cut.
-      net:arc(vin, vout, node.throughput, { kind = "node", id = node.id })
-      if node.kind == "source" then net:arc(SS, vin, INF) end
-      if node.kind == "sink" then
-        -- Capped at this terminal's own demand, so surplus cannot be dumped
-        -- into one terminal to cover another. Deliberately carries no meta:
-        -- the adversary must never be able to target a terminal itself.
-        net:arc(vout, TT, uncapped and INF or (node.demand or INF))
+      local endpoint = commodity and node.kind == "client"
+      net:arc(vin, vout, endpoint and 0 or node.throughput, { kind = "node", id = node.id })
+      if node.kind == "source" and (not commodity or node.commodity == commodity) then
+        -- A well produces a finite amount per day.
+        net:arc(SS, vin, node.output or INF)
+      end
+      if (node.kind == "client" or node.kind == "sink") and not node.prospect
+         and (not commodity or node.commodity == commodity) then
+        net:arc(endpoint and vin or vout, TT, uncapped and INF or (node.demand or INF))
         node._drainArc = #net.arcs - 1
       end
     end
   end
 
   for _, e in ipairs(self.edges) do
-    if e.alive and self.nodes[e.a].alive and self.nodes[e.b].alive then
-      -- Undirected capacity: an arc each way, each at full capacity.
+    e._arcAB, e._arcBA = nil, nil
+    if e.alive and self.nodes[e.a].alive and self.nodes[e.b].alive
+       and (not commodity or e.commodity == commodity) then
       net:arc(2 * e.a, 2 * e.b - 1, e.cap, { kind = "edge", id = e.id })
       e._arcAB = #net.arcs - 1
       net:arc(2 * e.b, 2 * e.a - 1, e.cap, { kind = "edge", id = e.id })
@@ -254,14 +276,14 @@ end
 -- Returns: flow value, list of cut members {kind="node"|"edge", id=...},
 -- and a per-terminal delivery table. Cut members are deduplicated, because an
 -- undirected edge contributes two arcs.
-function Graph:maxflow(uncapped)
-  local net, SS, TT = self:buildNetwork(uncapped)
+function Graph:maxflow(uncapped, commodity)
+  local net, SS, TT = self:buildNetwork(uncapped, commodity)
   local flow = net:maxflow(SS, TT)
   local seen = net:reachable(SS)
 
   local served = {}
   for _, node in ipairs(self.nodes) do
-    if node.alive and node.kind == "sink" and node._drainArc then
+    if node.alive and (node.kind == "client" or node.kind == "sink") and node._drainArc then
       local a = net.arcs[node._drainArc]
       served[node.id] = a.cap0 - a.cap
     end
