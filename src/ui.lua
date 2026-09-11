@@ -5,6 +5,7 @@ local R     = require("render")
 local Graph = require("graph")
 local Game  = require("game")
 local Meta  = require("meta")
+local A     = require("audio")
 
 local U = {}
 local lg = love.graphics
@@ -19,7 +20,12 @@ function U.click(mx, my)
   for i = #U.hits, 1, -1 do
     local h = U.hits[i]
     if mx >= h.x and mx <= h.x + h.w and my >= h.y and my <= h.y + h.h then
-      if h.enabled then h.action() end
+      if h.enabled then
+        A.play("click", 0.8)
+        h.action()
+      else
+        A.play("denied", 0.6)
+      end
       return true
     end
   end
@@ -287,13 +293,15 @@ function U.drawInspector(run, state)
     if tp then
       U.button(x + 12, y + h - 34, 118, 24,
         string.format("+1 tp  %d", tp), can,
-        function() run:upgradeNode(n.id) end, { font = R.fonts.small, color = P.flow })
+        function() if run:upgradeNode(n.id) then A.play("upgrade") end end,
+        { font = R.fonts.small, color = P.flow })
     end
     local canDemo = run.phase == "build" and n.kind ~= "source" and n.kind ~= "sink"
     U.button(x + w - 130, y + h - 34, 118, 24, "demolish", canDemo,
       function()
         local refund = run:demolishNode(n.id)
         if refund then
+          A.play("demolish")
           R.burst(n.x, n.y, P.textFaint, 10)
           R.floatText(n.x, n.y, "+" .. refund, P.energy)
         end
@@ -317,12 +325,14 @@ function U.drawInspector(run, state)
     local cc = run:capCost(e.id)
     U.button(x + 12, y + h - 34, 118, 24, string.format("+1 cap  %d", cc),
       run.phase == "build" and run.energy >= cc,
-      function() run:upgradeLink(e.id) end, { font = R.fonts.small, color = P.flow })
+      function() if run:upgradeLink(e.id) then A.play("upgrade") end end,
+      { font = R.fonts.small, color = P.flow })
     U.button(x + w - 130, y + h - 34, 118, 24, "demolish", run.phase == "build",
       function()
         local na, nb = g.nodes[e.a], g.nodes[e.b]
         local refund = run:demolishLink(e.id)
         if refund then
+          A.play("demolish")
           R.burst((na.x + nb.x) / 2, (na.y + nb.y) / 2, P.textFaint, 10)
           R.floatText((na.x + nb.x) / 2, (na.y + nb.y) / 2, "+" .. refund, P.energy)
         end
@@ -412,7 +422,66 @@ local function fieldCentre(w)
   local W = lg.getWidth()
   local avail = W - U.SIDEBAR
   if avail < w + 24 then return math.max(8, (W - w) / 2) end
-  return U.SIDEBAR + (avail - w) / 2
+  --------------------------------------------------------------------------------
+-- Tutorial
+--------------------------------------------------------------------------------
+
+-- Drawn at the top of the field so it never covers the sidebar numbers the
+-- instructions keep referring to.
+function U.drawTutorial(run, state, T)
+  local step = T.current()
+  if not step then return end
+
+  local W, H = lg.getDimensions()
+  local avail = W - U.SIDEBAR
+  local w = math.min(600, avail - 32)
+  local x = U.SIDEBAR + (avail - w) / 2
+  local y = 16
+
+  local pad = 18
+  local bodyFont = R.fonts.body
+  local _, lines = bodyFont:getWrap(step.body, w - pad * 2)
+  local bodyH = #lines * (bodyFont:getHeight() + 3)
+  local h = pad + 24 + 8 + bodyH + 46
+
+  lg.setColor(P.panel[1], P.panel[2], P.panel[3], 0.97)
+  lg.rectangle("fill", x, y, w, h, 7)
+  lg.setColor(P.with(P.accent, 0.85))
+  lg.setLineWidth(1.5)
+  lg.rectangle("line", x, y, w, h, 7)
+
+  lg.setFont(R.fonts.tiny)
+  lg.setColor(P.textFaint)
+  local counter = string.format("%d / %d", T.step, #T.steps)
+  lg.print(counter, x + w - pad - R.fonts.tiny:getWidth(counter), y + pad + 4)
+
+  lg.setFont(R.fonts.mid)
+  lg.setColor(P.accent)
+  lg.print(step.title, x + pad, y + pad - 2)
+
+  lg.setFont(bodyFont)
+  lg.setColor(P.text)
+  lg.printf(step.body, x + pad, y + pad + 30, w - pad * 2, "left")
+
+  local by = y + h - 38
+  U.button(x + pad, by, 96, 26, "SKIP", true,
+    function() T.stop(); state.tutorialSkipped = true end,
+    { font = R.fonts.small, color = P.panelEdge })
+
+  if step.kind == "explain" then
+    U.button(x + w - pad - 132, by, 132, 26, "NEXT   (space)", true,
+      function() T.advance() end, { font = R.fonts.small, color = P.accent })
+  else
+    -- Action steps wait on the graph, so say what is being waited for.
+    lg.setFont(R.fonts.small)
+    local pulse = 0.55 + 0.45 * math.sin(R.t * 4)
+    lg.setColor(P.good[1], P.good[2], P.good[3], pulse)
+    local msg = "waiting for you..."
+    lg.print(msg, x + w - pad - R.fonts.small:getWidth(msg), by + 6)
+  end
+end
+
+return U.SIDEBAR + (avail - w) / 2
 end
 
 local function dim(a)
@@ -545,7 +614,10 @@ function U.drawMeta(state, meta)
     else
       U.button(x + w - 108, y + 20, 92, 28, string.format("%d", t.cost), afford,
         function()
-          if Meta.unlock(meta, t.key) then state.metaFlash = t.name end
+          if Meta.unlock(meta, t.key) then
+            state.metaFlash = t.name
+            A.play("unlock")
+          end
         end, { font = R.fonts.small, color = P.accent })
     end
     y = y + hh + 8
@@ -629,12 +701,90 @@ function U.drawTitle(state, meta)
     lg.print(r, cx - R.fonts.small:getWidth(r) / 2, cy + 4)
   end
 
-  U.button(cx - 110, cy + 50, 220, 46, "BEGIN RUN", true,
-    function() state.restart = true end, { color = P.good, font = R.fonts.mid })
-  U.button(cx - 110, cy + 106, 105, 34, "THEOREMS", true,
-    function() state.screen = "meta" end, { color = P.accent, font = R.fonts.small })
-  U.button(cx + 5, cy + 106, 105, 34, "HOW", true,
-    function() state.screen = "help" end, { color = P.flow, font = R.fonts.small })
+  -- A first-time player is pointed at the tutorial, not at a blank field.
+  local fresh = not meta.tutorialDone
+  if fresh then
+    U.button(cx - 110, cy + 50, 220, 46, "TUTORIAL", true,
+      function() state.startTutorial = true end, { color = P.accent, font = R.fonts.mid })
+    U.button(cx - 110, cy + 106, 220, 34, "SKIP TO FREE PLAY", true,
+      function() state.restart = true end, { color = P.good, font = R.fonts.small })
+    lg.setFont(R.fonts.tiny)
+    lg.setColor(P.textFaint)
+    local n = "first time? the tutorial takes about two minutes"
+    lg.print(n, cx - R.fonts.tiny:getWidth(n) / 2, cy + 148)
+    U.button(cx - 110, cy + 170, 105, 30, "THEOREMS", true,
+      function() state.screen = "meta" end, { color = P.accent, font = R.fonts.small })
+    U.button(cx + 5, cy + 170, 105, 30, "HOW", true,
+      function() state.screen = "help" end, { color = P.flow, font = R.fonts.small })
+  else
+    U.button(cx - 110, cy + 50, 220, 46, "BEGIN RUN", true,
+      function() state.restart = true end, { color = P.good, font = R.fonts.mid })
+    U.button(cx - 110, cy + 106, 68, 34, "TUTORIAL", true,
+      function() state.startTutorial = true end, { color = P.accent, font = R.fonts.small })
+    U.button(cx - 37, cy + 106, 74, 34, "THEOREMS", true,
+      function() state.screen = "meta" end, { color = P.accent, font = R.fonts.small })
+    U.button(cx + 42, cy + 106, 68, 34, "HOW", true,
+      function() state.screen = "help" end, { color = P.flow, font = R.fonts.small })
+  end
+end
+
+--------------------------------------------------------------------------------
+-- Tutorial
+--------------------------------------------------------------------------------
+
+-- Drawn at the top of the field so it never covers the sidebar numbers the
+-- instructions keep referring to.
+function U.drawTutorial(run, state, T)
+  local step = T.current()
+  if not step then return end
+
+  local W, H = lg.getDimensions()
+  local avail = W - U.SIDEBAR
+  local w = math.min(600, avail - 32)
+  local x = U.SIDEBAR + (avail - w) / 2
+  local y = 16
+
+  local pad = 18
+  local bodyFont = R.fonts.body
+  local _, lines = bodyFont:getWrap(step.body, w - pad * 2)
+  local bodyH = #lines * (bodyFont:getHeight() + 3)
+  local h = pad + 24 + 8 + bodyH + 46
+
+  lg.setColor(P.panel[1], P.panel[2], P.panel[3], 0.97)
+  lg.rectangle("fill", x, y, w, h, 7)
+  lg.setColor(P.with(P.accent, 0.85))
+  lg.setLineWidth(1.5)
+  lg.rectangle("line", x, y, w, h, 7)
+
+  lg.setFont(R.fonts.tiny)
+  lg.setColor(P.textFaint)
+  local counter = string.format("%d / %d", T.step, #T.steps)
+  lg.print(counter, x + w - pad - R.fonts.tiny:getWidth(counter), y + pad + 4)
+
+  lg.setFont(R.fonts.mid)
+  lg.setColor(P.accent)
+  lg.print(step.title, x + pad, y + pad - 2)
+
+  lg.setFont(bodyFont)
+  lg.setColor(P.text)
+  lg.printf(step.body, x + pad, y + pad + 30, w - pad * 2, "left")
+
+  local by = y + h - 38
+  U.button(x + pad, by, 96, 26, "SKIP", true,
+    function() T.stop(); state.tutorialSkipped = true end,
+    { font = R.fonts.small, color = P.panelEdge })
+
+  if step.kind == "explain" then
+    U.button(x + w - pad - 132, by, 132, 26, "NEXT   (space)", true,
+      function() T.advance() end, { font = R.fonts.small, color = P.accent })
+  else
+    -- Action steps wait on the graph, so say what is being waited for.
+    lg.setFont(R.fonts.small)
+    local pulse = 0.55 + 0.45 * math.sin(R.t * 4)
+    lg.setColor(P.good[1], P.good[2], P.good[3], pulse)
+    local msg = "waiting for you..."
+    lg.print(msg, x + w - pad - R.fonts.small:getWidth(msg), by + 6)
+  end
 end
 
 return U

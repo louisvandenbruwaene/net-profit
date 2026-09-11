@@ -27,7 +27,7 @@ Meta.THEOREMS = {
 local FILE = "augment_save.lua"
 
 local function blank()
-  return { insight = 0, unlocked = {}, runs = 0, bestWave = 0, bestFlow = 0 }
+  return { insight = 0, unlocked = {}, runs = 0, bestWave = 0, bestFlow = 0, tutorialDone = false }
 end
 
 function Meta.load()
@@ -41,6 +41,7 @@ function Meta.load()
   d.runs     = tonumber(data.runs) or 0
   d.bestWave = tonumber(data.bestWave) or 0
   d.bestFlow = tonumber(data.bestFlow) or 0
+  d.tutorialDone = data.tutorialDone and true or false
   if type(data.unlocked) == "table" then
     for _, t in ipairs(Meta.THEOREMS) do
       if data.unlocked[t.key] then d.unlocked[t.key] = true end
@@ -56,6 +57,7 @@ function Meta.save(d)
   parts[#parts + 1] = string.format("  runs = %d,\n", d.runs or 0)
   parts[#parts + 1] = string.format("  bestWave = %d,\n", d.bestWave or 0)
   parts[#parts + 1] = string.format("  bestFlow = %d,\n", d.bestFlow or 0)
+  parts[#parts + 1] = string.format("  tutorialDone = %s,\n", tostring(d.tutorialDone and true or false))
   parts[#parts + 1] = "  unlocked = {\n"
   for _, t in ipairs(Meta.THEOREMS) do
     if d.unlocked[t.key] then parts[#parts + 1] = string.format("    [%q] = true,\n", t.key) end

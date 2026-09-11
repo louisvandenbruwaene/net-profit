@@ -55,9 +55,10 @@ end
 
 --------------------------------------------------------------------------------
 
-function Game.new(meta)
+function Game.new(meta, opts)
   local self = setmetatable({}, Game)
   self.meta = meta or { unlocked = {} }
+  self.opts = opts or {}
   self.g = Graph.new()
   self.wave = 1
   self.phase = "build"           -- build | report | dead
@@ -73,7 +74,17 @@ function Game.new(meta)
 
   local cx, cy = b.fieldW / 2, b.fieldH / 2
   self.source = self.g:addNode(cx, cy, "source")
-  self:spawnTerminal()
+  if self.opts.tutorial then
+    -- Deterministic and inside link range, so "drag source to terminal" is
+    -- always a single link. A random spawn can land out of reach and make the
+    -- first instruction impossible to follow.
+    local t = self.g:addNode(cx + 215, cy, "sink")
+    t.bornWave = 1
+    t.demand = Game.terminalDemand(1)
+    self.terminalsPlaced = 1
+  else
+    self:spawnTerminal()
+  end
 
   -- Menger's theorem: begin with a relay already standing, pre-linked.
   if self:has("menger") then

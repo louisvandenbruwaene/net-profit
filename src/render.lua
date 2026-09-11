@@ -400,4 +400,20 @@ function R.drawPlaceGhost(cam, run, kind, mx, my)
   lg.printf(msg, mx - 100, my + r + 8, 200, "center")
 end
 
+-- A pulsing ring the tutorial puts around whatever it is currently talking
+-- about, so an instruction never leaves the player hunting for the subject.
+function R.drawFocusRing(cam, wx, wy)
+  local sx, sy = cam:toScreen(wx, wy)
+  local pulse = (R.t * 1.5) % 1
+  for i = 0, 1 do
+    local k = (pulse + i * 0.5) % 1
+    lg.setColor(P.accent[1], P.accent[2], P.accent[3], (1 - k) * 0.65)
+    lg.setLineWidth(2.5)
+    lg.circle("line", sx, sy, 22 + k * 46)
+  end
+  lg.setColor(P.accent[1], P.accent[2], P.accent[3], 0.30 + 0.20 * math.sin(R.t * 4))
+  lg.setLineWidth(2)
+  lg.circle("line", sx, sy, 20)
+end
+
 return R

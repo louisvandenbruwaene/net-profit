@@ -1,4 +1,4 @@
-.PHONY: run test sim tune dist clean
+.PHONY: run test smoke soak tutorial audio sim tune shots dist clean
 
 run:
 	love .
@@ -10,6 +10,18 @@ test:
 # Input layer, driven through the real love callbacks.
 smoke:
 	@love . --smoke
+
+# Every tutorial step, walked through the real input callbacks.
+tutorial:
+	@love . --tut
+
+# Peak and RMS of every synthesised sound.
+audio:
+	@love . --audio
+
+# Plays whole runs to collapse with every screen rendered.
+soak:
+	@love . --soak
 
 # Balance telemetry: how far does the reference bot survive?
 sim:
