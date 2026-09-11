@@ -30,7 +30,7 @@ do
   check(Save.unpack("return os.execute('false')")==nil,"save has no access to OS APIs")
 end
 
-print("signed contracts, finite output, and endpoint isolation")
+print("signed contracts, finite output, and household service valves")
 do
   local c=fresh()
   c.money=5000
@@ -55,9 +55,27 @@ do
   local second=c:addClient("house")
   first.x,first.y=1100,700
   second.x,second.y=1200,700
-  c:layPipe(c.firstSource.id,first.id,"water",10)
-  c:layPipe(first.id,second.id,"water",10)
-  check((c.served[second.id] or 0)==0,"houses cannot be used as free transit junctions")
+  first.demand,second.demand=3,4
+  local main=assert(c:layPipe(c.firstSource.id,first.id,"water",7))
+  local downstream=assert(c:layPipe(first.id,second.id,"water",7))
+  check(c.served[first.id]==3 and c.served[second.id]==4,"seven units serve the first house and pass four onward")
+  check(c.detail.edge[main.id]==7 and c.detail.edge[downstream.id]==4,"mains carry delivery plus onward flow")
+  main.cap=4; c:refresh()
+  assert(c:toggleSupply(first.id))
+  check((c.served[first.id] or 0)==0 and c.served[second.id]==4,"shutting the upstream service gives scarce water to the downstream house")
+  check(c.detail.edge[main.id]==4 and c.detail.edge[downstream.id]==4,"closed service valve does not close either main")
+  local restored=assert(Save.unpack(Save.pack(c)))
+  check(restored.g.nodes[first.id].supplyClosed and restored.served[second.id]==4,"service valves and through-flow survive reload")
+  assert(c:toggleSupply(first.id))
+  check(c.served[first.id]>0,"reopening the valve restores the first house's delivery")
+  assert(c:toggleSupply(first.id))
+  c.leakChance=function() return 0 end
+  local reputation=c.reputation
+  for _=1,first.patience do c:endDay() end
+  check(first.alive and first.kind=="junction" and c.lostClients==1,"an abandoned account leaves its installed junction")
+  check(main.alive and downstream.alive and c.served[second.id]==4,"customer departure preserves downstream service")
+  check(c.reputation<reputation,"choosing to deny water still harms reputation")
+  check(c:demolishNode(first.id)==0,"a former customer's junction cannot yield a free construction refund")
 end
 
 print("maintenance, construction, and grants")

@@ -82,6 +82,11 @@ local function network()
       if n.prospect then
         button("accept","Sign contract",22,y+115,173,34,function() act("acceptClient",n.id) end,true,"Delivery deadline starts when signed")
         button("decline","Decline",202,y+115,94,34,function() act("declineClient",n.id) end,true,"Decline without a reputation penalty")
+      else
+        button("supply-valve",n.supplyClosed and "[ ]  Customer supply" or "[x]  Customer supply",22,y+115,274,34,
+          function() act("toggleSupply",n.id) end,true,
+          "Controls this customer's delivery only. The main stays open; unsupplied customers still lose patience.",
+          not n.supplyClosed,P.good)
       end
     else
       row("Ports",city.g:degree(n.id).." / "..n.ports,y)
@@ -89,7 +94,7 @@ local function network()
       elseif n.kind=="tower" then row("Local leak risk","-55%",y+26,P.energy)
       elseif n.kind=="pump" then row("Reach","520m",y+26,P.flow) end
       if n.kind~="source" then
-        button("demolish-node","Demolish  +$"..math.floor(city:nodeCost(n.kind)*0.4),22,y+68,274,34,
+        button("demolish-node","Demolish  +$"..math.floor((n.paid or city:nodeCost(n.kind))*0.4),22,y+68,274,34,
           function() act("demolishNode",n.id) end,true,"Removes attached pipes; recovers 40% of structure price")
       end
     end
@@ -164,7 +169,7 @@ local function customers()
     if #clients==0 then text(prospect and "No open enquiries" or "No signed contracts",22,y,"small",P.textFaint); y=y+35 end
     for _,c in ipairs(clients) do
       local met=(city.served[c.id] or 0)>=c.demand
-      local status=prospect and "Offer" or met and "Supplied" or c.grace.." days left"
+      local status=prospect and "Offer" or met and "Supplied" or (c.supplyClosed and "Valve shut / " or "")..c.grace.." days left"
       button("client-"..c.id,City.CLIENTS[c.clientType].name.." "..c.id.."   $"..c.rate*c.demand.."/day",22,y,274,33,function() act("focusNode",c.id) end,true,"Locate and inspect customer",state.node==c.id,Graph.COMMODITIES[c.commodity].color)
       text(c.demand.." "..c.commodity.." / "..status,30,y+40,"small",prospect and P.energy or met and P.good or P.warn)
       y=y+73

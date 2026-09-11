@@ -76,7 +76,11 @@ windows. Undo works within the current session and day; closing a day is final.
   construction while cash is negative.
 
 Pipes can be laid at their intended capacity immediately. Client buildings are
-endpoints, so they cannot replace paid junctions as free transit infrastructure.
+through-junctions: they draw up to their demand and pass remaining water onward.
+The Customer supply toggle in the inspector closes only that customer's service
+valve, so you can reserve scarce supply for customers farther downstream.
+Denied customers still lose patience and leave; their through-pipes remain
+installed when the account ends.
 Source output is finite and shared between connected customers.
 
 ## Move To Another Device

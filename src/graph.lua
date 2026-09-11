@@ -245,15 +245,15 @@ function Graph:buildNetwork(uncapped, commodity)
     node._drainArc = nil
     if node.alive then
       local vin, vout = 2 * node.id - 1, 2 * node.id
-      local endpoint = commodity and node.kind == "client"
-      net:arc(vin, vout, endpoint and 0 or node.throughput, { kind = "node", id = node.id })
+      net:arc(vin, vout, node.throughput, { kind = "node", id = node.id })
       if node.kind == "source" and (not commodity or node.commodity == commodity) then
         -- A well produces a finite amount per day.
         net:arc(SS, vin, node.output or INF)
       end
-      if (node.kind == "client" or node.kind == "sink") and not node.prospect
+      if (node.kind == "client" or node.kind == "sink") and not node.prospect and not node.supplyClosed
          and (not commodity or node.commodity == commodity) then
-        net:arc(endpoint and vin or vout, TT, uncapped and INF or (node.demand or INF))
+        -- The service valve controls only this customer's draw, not the main.
+        net:arc(vout, TT, uncapped and INF or (node.demand or INF))
         node._drainArc = #net.arcs - 1
       end
     end

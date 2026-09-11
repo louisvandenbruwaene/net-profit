@@ -116,7 +116,7 @@ function Draw.world(city, cam, state)
       else
         lg.line(x-9,y-1,x,y-9,x+9,y-1); lg.rectangle("line",x-6,y-1,12,9)
       end
-      local title = n.prospect and "OFFER" or string.format("%d/%d",served,n.demand)
+      local title = n.prospect and "OFFER" or n.supplyClosed and "SHUT" or string.format("%d/%d",served,n.demand)
       label(title,x,y+r+6,n.prospect and P.energy or (served>=n.demand and P.good or P.warn))
       if cam.scale > 0.72 then label(City.CLIENTS[n.clientType].name.." "..n.id,x,y-r-21,P.textDim,R.fonts.tiny) end
     elseif n.kind == "source" then
