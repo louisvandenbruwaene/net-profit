@@ -18,8 +18,8 @@ Graph.INF = INF
 -- connections a node can host) against throughput (how much can pass through
 -- it). No archetype is good at both.
 Graph.KINDS = {
-  source  = { name = "SOURCE",  ports = 8, throughput = INF, cost = 0,  color = {0.36, 0.85, 0.62} },
-  sink    = { name = "TERMINAL",ports = 5, throughput = INF, cost = 0,  color = {0.98, 0.62, 0.35} },
+  source  = { name = "SOURCE",  ports = 16, throughput = INF, cost = 0,  color = {0.36, 0.85, 0.62} },
+  sink    = { name = "TERMINAL",ports = 6, throughput = INF, cost = 0,  color = {0.98, 0.62, 0.35} },
   relay   = { name = "RELAY",   ports = 3, throughput = 8,   cost = 14, color = {0.55, 0.71, 0.98} },
   hub     = { name = "HUB",     ports = 6, throughput = 4,   cost = 26, color = {0.78, 0.63, 0.98} },
   conduit = { name = "CONDUIT", ports = 2, throughput = 16,  cost = 24, color = {0.42, 0.88, 0.92} },
@@ -302,6 +302,67 @@ function Graph:maxflow(uncapped)
     end
   end
   return flow, cut, served, detail
+end
+
+--------------------------------------------------------------------------------
+-- Resilience: what the adversary can take.
+--------------------------------------------------------------------------------
+
+-- The adversary removes k things, one at a time, each time taking whichever
+-- single removal costs the most delivery. Greedy across steps but exact within
+-- each step, which makes it both strong and explainable: "it takes the link that
+-- hurts most, k times".
+--
+-- Delivery (demand-capped) is the objective, because that is the win condition.
+-- Candidates are every live edge rather than the members of one minimum cut: a
+-- graph can have several distinct minimum cuts, and picking from only one of
+-- them would understate the threat and make the readout a lie.
+--
+-- Returns: delivery after the removals, and the list of what was removed.
+function Graph:worstCase(k, kind)
+  kind = kind or "edge"
+  if not k or k <= 0 then return (self:maxflow(false)), {} end
+
+  local removed = {}
+  for _ = 1, k do
+    local bestFlow, bestPick
+
+    if kind == "edge" then
+      for _, e in ipairs(self.edges) do
+        if e.alive and self.nodes[e.a].alive and self.nodes[e.b].alive then
+          e.alive = false
+          local f = self:maxflow(false)
+          e.alive = true
+          if not bestFlow or f < bestFlow then bestFlow, bestPick = f, e end
+        end
+      end
+      if not bestPick then break end
+      bestPick.alive = false
+      removed[#removed + 1] = { kind = "edge", id = bestPick.id }
+    else
+      for _, n in ipairs(self.nodes) do
+        if n.alive and n.kind ~= "source" and n.kind ~= "sink" then
+          n.alive = false
+          local f = self:maxflow(false)
+          n.alive = true
+          if not bestFlow or f < bestFlow then bestFlow, bestPick = f, n end
+        end
+      end
+      if not bestPick then break end
+      bestPick.alive = false
+      removed[#removed + 1] = { kind = "node", id = bestPick.id }
+    end
+  end
+
+  local finalFlow = self:maxflow(false)
+
+  -- Restore: this is a query, not a mutation.
+  for _, r in ipairs(removed) do
+    if r.kind == "edge" then self.edges[r.id].alive = true
+    else self.nodes[r.id].alive = true end
+  end
+
+  return finalFlow, removed
 end
 
 --------------------------------------------------------------------------------

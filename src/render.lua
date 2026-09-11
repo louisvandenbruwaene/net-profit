@@ -6,6 +6,7 @@
 -- If the player can read those four things, they can read a flow network.
 local P = require("palette")
 local Graph = require("graph")
+local Contract = require("contract")
 
 local R = {}
 R.fx = {}
@@ -115,6 +116,28 @@ function R.drawGrid(cam, fieldW, fieldH)
   local ax, ay = cam:toScreen(0, 0)
   local bx, by = cam:toScreen(fieldW, fieldH)
   lg.rectangle("line", ax, ay, bx - ax, by - ay)
+end
+
+-- Blocked ground. Nothing may be built on it and no link may cross it, so it
+-- reads as solid rather than decorative.
+function R.drawObstacles(cam, obstacles)
+  for _, o in ipairs(obstacles or {}) do
+    local sx, sy = cam:toScreen(o.x, o.y)
+    local r = o.r * cam.scale
+    lg.setColor(0.12, 0.10, 0.14, 0.95)
+    lg.circle("fill", sx, sy, r)
+    lg.setColor(P.bad[1] * 0.5, P.bad[2] * 0.35, P.bad[3] * 0.4, 0.5)
+    lg.setLineWidth(1.5)
+    lg.circle("line", sx, sy, r)
+    -- Hatching, so it never reads as empty space you simply have not used.
+    lg.setColor(P.bad[1] * 0.45, P.bad[2] * 0.3, P.bad[3] * 0.35, 0.22)
+    lg.setLineWidth(1)
+    local step = math.max(7, 13 * cam.scale)
+    for d = -r, r, step do
+      local h = math.sqrt(math.max(0, r * r - d * d))
+      lg.line(sx + d, sy - h, sx + d, sy + h)
+    end
+  end
 end
 
 --------------------------------------------------------------------------------
@@ -340,22 +363,19 @@ function R.drawLinkDrag(cam, run, fromId, mx, my, targetId)
   -- Range circle: everything reachable in one link.
   lg.setColor(P.with(P.ghost, 0.22))
   lg.setLineWidth(1.5)
-  lg.circle("line", ax, ay, require("game").balance.maxLinkRange * cam.scale)
+  lg.circle("line", ax, ay, run:rangeBetween(fromId, fromId) * cam.scale)
 
   local bx, by = mx, my
   local ok, why = true, nil
   if targetId then
     local t = g.nodes[targetId]
     bx, by = cam:toScreen(t.x, t.y)
-    ok, why = g:canLink(fromId, targetId)
-    if ok then
-      local d = math.sqrt((from.x - t.x) ^ 2 + (from.y - t.y) ^ 2)
-      if d > require("game").balance.maxLinkRange then ok, why = false, "beyond link range" end
-    end
+    why = run:linkError(fromId, targetId)
+    ok = (why == nil)
   else
     local wx, wy = cam:toWorld(mx, my)
     local d = math.sqrt((from.x - wx) ^ 2 + (from.y - wy) ^ 2)
-    ok = d <= require("game").balance.maxLinkRange
+    ok = d <= run:rangeBetween(fromId, fromId)
   end
 
   lg.setLineWidth(3)
@@ -369,7 +389,7 @@ function R.drawLinkDrag(cam, run, fromId, mx, my, targetId)
   elseif targetId and ok then
     local cost = run:linkCost(fromId, targetId)
     lg.setFont(R.fonts.small)
-    lg.setColor(run.energy >= cost and P.energy or P.bad)
+    lg.setColor(run:remaining() >= cost and P.energy or P.bad)
     lg.printf(string.format("%d energy", cost), (ax + bx) / 2 - 70, (ay + by) / 2 - 26, 140, "center")
   end
 end
@@ -378,7 +398,7 @@ function R.drawPlaceGhost(cam, run, kind, mx, my)
   local wx, wy = cam:toWorld(mx, my)
   local err = run:placementError(wx, wy)
   local cost = run:nodeCost(kind)
-  local afford = run.energy >= cost
+  local afford = run:remaining() >= cost
   local spec = Graph.KINDS[kind]
   local r = nodeRadius(kind, cam.scale)
   local good = (not err) and afford
@@ -391,7 +411,8 @@ function R.drawPlaceGhost(cam, run, kind, mx, my)
   -- Show how far this node could reach, so placement is a spatial decision.
   lg.setColor(P.with(P.ghost, 0.13))
   lg.setLineWidth(1)
-  lg.circle("line", mx, my, require("game").balance.maxLinkRange * cam.scale)
+  local reach = (kind == "conduit") and Contract.conduitRange or Contract.maxLinkRange
+  lg.circle("line", mx, my, reach * cam.scale)
 
   lg.setFont(R.fonts.small)
   local msg = err or (afford and string.format("%s  -  %d energy", spec.name, cost)

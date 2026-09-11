@@ -1,149 +1,114 @@
 # AUGMENT
 
-A roguelike about growing a flow network that survives its own minimum cut.
+A puzzle roguelike about building networks that survive their own minimum cut.
 
-You start as a single source. Terminals appear across the field, each demanding
-its own supply every wave. You buy nodes and lay links to reach them. Then an
-adversary computes your minimum cut and severs it.
+Each **contract** is one site, one fixed budget and one declared threat: *the
+adversary severs 2 links*. You build from scratch, and the network must still
+meet every terminal's demand **after** it cuts. A run is twelve contracts of
+rising difficulty.
 
-That last part is the game. Your maximum flow equals the capacity of your
-minimum cut, so whatever is cheapest to cut is exactly what limits you, and the
-adversary attacks precisely there. One thick trunk is a cut of width one: lose
-it and you lose everything. Five thin disjoint routes are a cut of width five:
-lose one and you keep four fifths. Redundancy is not caution, it is survival.
+The threat is not a surprise. The red marks on the field show exactly what will
+be taken if you commit right now, recomputed against your network every time you
+change it. So committing is never a gamble, and the whole game is the question
+the budget asks: *what is the cheapest network that the cut cannot break?*
 
-Fail to meet demand and the run ends. You keep the theorems you unlocked.
+## Start here
+
+Press **TUTORIAL** on the title screen. It takes about two minutes and teaches on
+your own graph, one idea at a time: deliver, discover that delivering is not
+surviving, then fix it.
 
 ## Running
 
 Needs [LÖVE](https://love2d.org) 11.x (`pacman -S love`).
 
     make run          # play
-    make test         # graph algorithm unit tests (lua5.4, headless)
-    make smoke        # input layer driven through the real love callbacks
-    make soak         # plays whole runs to collapse with every screen rendered
-    make tutorial     # walks all twelve tutorial steps through the real callbacks
+    make test         # graph algorithms and contract rules, headless
+    make smoke        # input paths through the real love callbacks
+    make soak         # a whole campaign solved and committed, every screen drawn
+    make tutorial     # every tutorial step walked through the real callbacks
     make audio        # peak and RMS of every synthesised sound
-    make sim          # balance telemetry from the reference bot
-    make tune         # parameter sweep over the economy
     make dist         # build dist/augment.love
-
-## Start here
-
-If you have not played it, press **TUTORIAL** on the title screen. It takes about
-two minutes and teaches the game on your own graph: it watches what you build and
-each step completes when your network actually satisfies it. It introduces
-capacity, flow, the minimum cut, the adversary and redundancy in that order,
-because that is the order in which each one becomes the thing blocking you.
 
 ## Controls
 
 | | |
 |---|---|
-| `1` `2` `3` | arm relay / hub / conduit, then click the field to place |
+| `1` `2` `3` | arm relay / hub / conduit, then click the site to place |
 | drag node to node | lay a link |
 | click | inspect a node or link |
-| `U` | upgrade the selection (link capacity, node throughput) |
-| `X` | demolish the selection, for a partial refund |
-| `space` | resolve the wave |
-| right-drag, wheel | pan, zoom |
-| `C` `T` | centre on source, cycle terminals |
-| `H` `M` | help, theorems |
-| `S` | mute or unmute sound |
+| `U` | add capacity to the selected link |
+| `X` | demolish, refunded in full |
+| `Enter` | commit the contract |
+| `R` `F` | clear the site, refit the camera |
+| drag empty space, wheel | pan, zoom |
+| `H` `S` | help, mute |
 
-## Reading the field
+## The tension the puzzle is built on
 
-- **Link thickness** is capacity: what it could carry.
-- **Moving dots** are flow: what it does carry.
-- **The ring** around a node is its ports, one tick per link it can hold.
-- **A node's inner fill** is how close it is to its throughput limit.
-- **The red pulse** is the minimum cut, and it is where the next strike lands.
+Capacity is cheap and fragile. Routes are expensive and robust.
 
-## The graph theory, and where it lives
+With `r` disjoint routes against a threat that takes `k`, you keep `r-k` of them,
+so each needs `demand/(r-k)` capacity. Total capacity bought is
+`r*ceil(demand/(r-k))`, which **falls** as you add routes, while structural cost
+**rises**. There is a cheapest `r` somewhere in the middle, and it moves with the
+geometry, the obstacles and the threat. Finding it is the game.
 
-Nothing here is decorative. Each mechanic is a theorem you have to act on.
+When the threat destroys **nodes** rather than links, routes that share a relay
+die together: you need routes that share no vertex, not merely no edge. That is
+Menger's theorem, and it is the difference between two contracts that otherwise
+look identical.
 
-| Concept | How you meet it |
-|---|---|
-| Max-flow min-cut | Delivery is a max flow; the adversary strikes the min cut |
-| Menger's theorem | Surviving *k* strikes requires *k+1* disjoint routes |
-| Degree constraints | Ports cap how many links a node can hold |
-| Vertex capacities | Node throughput, modelled by splitting each node in two |
-| Vertex connectivity | From wave 8 the adversary destroys nodes, not just links |
-| Articulation points | Cut vertices are flagged live; each one is a single point of failure |
-| Connectivity | A terminal severed from the source is served nothing |
+## Every puzzle is provably solvable
+
+Generation is not hope-based. A candidate map is handed to the reference solver
+before the player ever sees it; if the solver cannot finish it, the map is
+thrown away. The cost of the solution it finds becomes **par**, and the budget is
+par plus slack that tightens as the run goes on.
+
+This is only possible because the whole game runs on exact max-flow and min-cut,
+so a generated contract can never turn out to be impossible, and "beat par" is a
+real target rather than a guess.
 
 ## Layout
 
-    main.lua            love callbacks, input, camera, screenshot and smoke modes
-    conf.lua            window config
-    src/graph.lua       graph structure, Dinic max flow, min cut, Tarjan, stats
-    src/game.lua        run state, economy, wave pacing, the adversary
-    src/render.lua      the field: links, nodes, flow, cut, effects
-    src/ui.lua          sidebar, inspector, overlays
-    src/meta.lua        persistence and the theorem unlocks
-    src/tutorial.lua    the twelve guided steps and their completion predicates
-    src/audio.lua       procedural synthesis; the game ships with no audio files
-    src/camera.lua      pan and zoom
-    src/palette.lua     every colour, in one place
-    test/test_graph.lua unit tests with hand-computed expectations
-    test/bot.lua        reference player, shared by sim and tune
-    test/sim.lua        balance telemetry
-    test/tune.lua       parameter sweep
+    main.lua             love callbacks, input, camera, the test modes
+    src/graph.lua        graph structure, Dinic max flow, min cut, worst-case removals
+    src/contract.lua     one puzzle: budget, geometry, build rules, commit
+    src/campaign.lua     a run of twelve contracts
+    src/generate.lua     procedural maps, verified solvable, priced against par
+    src/solver.lua       reference builder: proves solvability, sets par, powers the soak
+    src/render.lua       the field: obstacles, links, nodes, flow, the doomed set
+    src/ui.lua           sidebar, inspector, overlays
+    src/tutorial.lua     the guided first contract
+    src/audio.lua        procedural synthesis; no audio files ship
+    src/meta.lua         persistence
+    src/camera.lua       pan and zoom
+    src/palette.lua      every colour, in one place
+    test/test_graph.lua    46 assertions on the algorithms
+    test/test_contract.lua 215 assertions on the rules and on generation
 
-`src/graph.lua` and `src/game.lua` have no LÖVE dependency, which is why the
-rules and the algorithms can be tested headless with `lua5.4`.
-
-## Sound
-
-Every sound is synthesised at load from oscillators and envelopes in
-`src/audio.lua`, so there are no audio files in the repository. The palette is
-narrow on purpose: soft sine blips for what you build, filtered noise over a low
-thump for what breaks, and a rising major triad for a wave held. `make audio`
-prints peak and RMS per sound, which is how a silent or clipped voice gets
-caught without an ear in the loop.
-
-## Design notes
-
-The economy was tuned by simulation rather than by feel. `test/bot.lua` plays
-the strategy the game means to teach, `test/tune.lua` sweeps the constants, and
-the target was a median around the mid-teens for that bot, leaving a thinking
-player real headroom. Current numbers: median wave 13, range 9 to 24 over 40
-runs.
-
-Three findings from that process shaped the design, and each is worth knowing
-before changing the balance:
-
-1. **Strikes must be capped.** Redundancy is bounded above by ports, so a strike
-   count that grows without limit eventually exceeds any achievable cut width
-   and kills even perfect play. Pressure comes from the economy of rebuilding.
-2. **Demand is per terminal and scales with that terminal's own age.** Pooled
-   demand made expansion optional; demand at full current value made a new
-   terminal cost more in one wave than the whole network earned.
-3. **Delivery and capacity are different flows.** Delivery caps each terminal at
-   its demand and decides survival. Capacity ignores those caps and yields the
-   cut the adversary attacks. Without the split, meeting demand exactly left the
-   minimum cut empty and made the player untouchable.
-4. **Insight is paced against the theorem list.** Earning `wave/2 + peak/4`
-   against 108 total cost puts a full unlock around a dozen runs. An earlier
-   rate handed out every theorem within three.
+`graph.lua`, `contract.lua`, `solver.lua` and `generate.lua` carry no LÖVE
+dependency, which is why the rules, the generator and the solver can all be
+tested headless with `lua5.4`.
 
 ## State
 
-Complete and playable end to end: title, runs, waves, collapse, persistent
-unlocks. Verified by 33 unit tests, an 18-assertion input smoke test, and a soak
-that plays whole runs to collapse with every screen rendered. A normal launch
-writes nothing to stdout or stderr.
+Complete and playable: title, tutorial, twelve contracts, commit and reveal, run
+summary. Verified by 46 graph assertions, 215 contract assertions, 23 input
+assertions, a soak that solves and commits a whole campaign, and an audio report.
+A normal launch writes nothing to stdout or stderr.
 
-Not done, in rough order of what would add most:
+Not done, roughly in order of what would add most:
 
-- The three node types are the whole build vocabulary. Hubs and conduits are
-  situational enough that relays carry most runs.
-- One adversary with one behaviour. Variants that target articulation points, or
-  that strike twice in one wave, would use the existing machinery.
-- No run modifiers or branching choices between waves, which is where roguelite
-  variety usually comes from.
-- Terminal placement is random within a growing radius, not designed.
+- No upgrade draft between contracts. The tools unlock on a fixed schedule
+  (hub at 3, conduit at 5) rather than being chosen.
+- No daily seed, though generation is already deterministic in one, so it is
+  mostly a menu.
+- One adversary behaviour. Variants that prefer articulation points, or that
+  announce a specific target, would use the machinery that is already here.
+- No music, and the mute state is not saved between sessions.
+- Obstacles are circles. Walls and corridors would shape routes far more.
 - Mouse and keyboard only.
 
 ## Running under a tiling WM
