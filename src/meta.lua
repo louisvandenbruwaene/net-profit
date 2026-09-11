@@ -27,7 +27,7 @@ Meta.THEOREMS = {
 local FILE = "augment_save.lua"
 
 local function blank()
-  return { insight = 0, unlocked = {}, runs = 0, bestWave = 0, bestFlow = 0, tutorialDone = false }
+  return { insight = 0, unlocked = {}, runs = 0, bestContract = 0, bestUnder = 0, tutorialDone = false }
 end
 
 function Meta.load()
@@ -39,8 +39,8 @@ function Meta.load()
   local d = blank()
   d.insight  = tonumber(data.insight) or 0
   d.runs     = tonumber(data.runs) or 0
-  d.bestWave = tonumber(data.bestWave) or 0
-  d.bestFlow = tonumber(data.bestFlow) or 0
+  d.bestContract = tonumber(data.bestContract) or 0
+  d.bestUnder = tonumber(data.bestUnder) or 0
   d.tutorialDone = data.tutorialDone and true or false
   if type(data.unlocked) == "table" then
     for _, t in ipairs(Meta.THEOREMS) do
@@ -55,8 +55,8 @@ function Meta.save(d)
   local parts = { "return {\n" }
   parts[#parts + 1] = string.format("  insight = %d,\n", d.insight or 0)
   parts[#parts + 1] = string.format("  runs = %d,\n", d.runs or 0)
-  parts[#parts + 1] = string.format("  bestWave = %d,\n", d.bestWave or 0)
-  parts[#parts + 1] = string.format("  bestFlow = %d,\n", d.bestFlow or 0)
+  parts[#parts + 1] = string.format("  bestContract = %d,\n", d.bestContract or 0)
+  parts[#parts + 1] = string.format("  bestUnder = %d,\n", d.bestUnder or 0)
   parts[#parts + 1] = string.format("  tutorialDone = %s,\n", tostring(d.tutorialDone and true or false))
   parts[#parts + 1] = "  unlocked = {\n"
   for _, t in ipairs(Meta.THEOREMS) do
@@ -81,11 +81,12 @@ function Meta.unlock(d, key)
   return true
 end
 
-function Meta.record(d, run)
+-- Called when a run ends, however it ends.
+function Meta.record(d, camp)
   d.runs = (d.runs or 0) + 1
-  d.bestWave = math.max(d.bestWave or 0, run.wave)
-  d.bestFlow = math.max(d.bestFlow or 0, run.peakFlow)
-  d.insight = (d.insight or 0) + run:insightEarned()
+  local reached = select(1, camp:progress())
+  d.bestContract = math.max(d.bestContract or 0, reached)
+  d.bestUnder = math.max(d.bestUnder or 0, camp.totalUnder or 0)
   Meta.save(d)
 end
 

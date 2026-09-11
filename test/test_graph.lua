@@ -189,5 +189,74 @@ do
 end
 
 --------------------------------------------------------------------------------
+print("resilience: worst case after k removals")
+do
+  -- Two disjoint unit routes to a terminal demanding 2. One cut costs half.
+  local g = Graph.new()
+  local s = unbound(g, g:addNode(0, 0, "source").id)
+  local t = unbound(g, g:addNode(3, 0, "sink").id)
+  local a = unbound(g, g:addNode(1, 1, "relay").id)
+  local b = unbound(g, g:addNode(1, -1, "relay").id)
+  g.nodes[t].demand = 2
+  g:addEdge(s, a, 1); g:addEdge(a, t, 1)
+  g:addEdge(s, b, 1); g:addEdge(b, t, 1)
+
+  check("delivers 2 intact", (g:maxflow(false)), 2)
+  local f1 = g:worstCase(1, "edge")
+  check("one cut leaves 1", f1, 1)
+  local f2 = g:worstCase(2, "edge")
+  check("two cuts leave 0", f2, 0)
+
+  -- The query must not mutate the graph.
+  check("graph restored after query", (g:maxflow(false)), 2)
+  check("all edges still alive", g:stats().size, 4)
+end
+
+do
+  -- Three disjoint routes survive one cut with demand still met.
+  local g = Graph.new()
+  local s = unbound(g, g:addNode(0, 0, "source").id)
+  local t = unbound(g, g:addNode(3, 0, "sink").id)
+  g.nodes[t].demand = 2
+  for i = 1, 3 do
+    local r = unbound(g, g:addNode(1, i, "relay").id)
+    g:addEdge(s, r, 1); g:addEdge(r, t, 1)
+  end
+  check("capacity 3, demand 2", (g:maxflow(false)), 2)
+  check("survives one cut", (g:worstCase(1, "edge")), 2)
+  check("two cuts break it", (g:worstCase(2, "edge")), 1)
+end
+
+do
+  -- A fat single trunk has capacity but no resilience: the lesson, as a test.
+  local g = Graph.new()
+  local s = unbound(g, g:addNode(0, 0, "source").id)
+  local r = unbound(g, g:addNode(1, 0, "relay").id)
+  local t = unbound(g, g:addNode(2, 0, "sink").id)
+  g.nodes[t].demand = 5
+  g:addEdge(s, r, 9); g:addEdge(r, t, 9)
+  check("fat trunk delivers 5", (g:maxflow(false)), 5)
+  check("one cut takes everything", (g:worstCase(1, "edge")), 0)
+end
+
+do
+  -- Node threats need vertex-disjoint routes, not merely edge-disjoint ones.
+  -- Both routes pass through one relay, so edge redundancy does not help.
+  local g = Graph.new()
+  local s = unbound(g, g:addNode(0, 0, "source").id)
+  local hub = unbound(g, g:addNode(1, 0, "relay").id)
+  local t = unbound(g, g:addNode(2, 0, "sink").id)
+  g.nodes[t].demand = 2
+  g:addEdge(s, hub, 2); g:addEdge(hub, t, 2)
+  check("delivers through the shared node", (g:maxflow(false)), 2)
+  check("losing that node costs everything", (g:worstCase(1, "node")), 0)
+
+  -- A second, vertex-disjoint route fixes it.
+  local r2 = unbound(g, g:addNode(1, 2, "relay").id)
+  g:addEdge(s, r2, 2); g:addEdge(r2, t, 2)
+  check("vertex-disjoint route survives a node loss", (g:worstCase(1, "node")), 2)
+end
+
+--------------------------------------------------------------------------------
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

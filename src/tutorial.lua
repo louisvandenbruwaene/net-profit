@@ -1,169 +1,126 @@
--- tutorial.lua -- a guided first run.
+-- tutorial.lua -- a guided first contract.
 --
--- It is not a text dump and it does not script the world: every action step
--- watches the player's real graph and completes when the graph satisfies it.
--- The order is chosen so each idea arrives at the moment it is the thing
--- standing in the player's way, which is the only time a definition sticks.
-local Graph = require("graph")
-
+-- Action steps watch the player's real network and complete when it satisfies
+-- them. The order follows the order in which each idea becomes the thing in the
+-- way: deliver first, discover that delivering is not surviving, then fix it.
 local T = {}
 
 T.active = false
 T.step = 1
 T.finished = false
 
-local function source(run) return run.g.nodes[run.source.id] end
-local function terminal(run) return run.g:nodesOfKind("sink")[1] end
+-- A fixed site, not a generated one: both routes must be laid with a single
+-- relay each, and a random map cannot promise that.
+T.SPEC = {
+  index = 0,
+  bounds = { x = 0, y = 0, w = 1100, h = 800 },
+  source = { x = 300, y = 400 },
+  -- 270 apart: inside the 300 link range, so step 3 is a single drag.
+  terminals = { { x = 570, y = 400, demand = 2 } },
+  obstacles = {},
+  threat = { kind = "edge", count = 1 },
+  tools = { relay = true },
+  budget = 200,
+  par = 56,
+}
 
-local function liveEdges(run)
+local function liveEdges(ct)
   local n = 0
-  for _, e in ipairs(run.g.edges) do
-    if e.alive then n = n + 1 end
-  end
+  for _, e in ipairs(ct.g.edges) do if e.alive then n = n + 1 end end
   return n
 end
 
--- kind "explain" waits for the player to press on. kind "action" waits for the
--- graph to satisfy `done`.
+local function terminal(ct) return ct.terminals[1] end
+
 T.steps = {
   {
     kind = "explain",
-    title = "This is your source",
-    body = "The green node supplies the network. Every unit of flow in the game starts here.",
-    focus = source,
-  },
-  {
-    kind = "explain",
-    title = "This is a terminal",
-    body = "The orange node demands supply. The number under it reads delivered / demanded. " ..
-           "Every wave it wants more, and if any terminal goes unsupplied the run ends.",
+    title = "A contract, not a wave",
+    body = "One site, one budget, no income. The green node supplies, the orange one demands 2. " ..
+           "Spend the budget well enough and the contract holds.",
     focus = terminal,
   },
   {
+    kind = "explain",
+    title = "The adversary is declared up front",
+    body = "The sidebar says it severs 1 link. It is not random and it does not wait: " ..
+           "it takes whichever single link hurts you most, the moment you commit.",
+  },
+  {
     kind = "action",
-    title = "Lay your first link",
-    body = "Press and drag from the source onto the terminal.",
+    title = "Lay a link",
+    body = "Drag from the source onto the terminal.",
     focus = terminal,
-    done = function(run) return liveEdges(run) >= 1 end,
-  },
-  {
-    kind = "explain",
-    title = "Capacity and flow are different things",
-    body = "The link's thickness is its capacity, what it could carry. The moving dots are " ..
-           "the flow, what it actually carries. A new link has capacity 1, and the terminal asks for 2.",
-    focus = terminal,
+    done = function(ct) return liveEdges(ct) >= 1 end,
   },
   {
     kind = "action",
-    title = "Widen the link",
-    body = "Click the link to select it, then press U to add capacity. Watch DELIVERY in the sidebar reach the number it needs.",
-    done = function(run) return run.flow >= run.demand end,
+    title = "Widen it until you deliver 2",
+    body = "Click the link, then press U. Watch the small line under AFTER THE STRIKE: it reads how much you deliver right now.",
+    done = function(ct) return ct.flow >= ct.demand end,
+  },
+  {
+    kind = "explain",
+    title = "You deliver 2, and you survive 0",
+    body = "Look at the big number: AFTER THE STRIKE is zero. Your only link is marked red, " ..
+           "because losing it loses everything. Capacity is not resilience.",
   },
   {
     kind = "action",
-    title = "Resolve the wave",
-    body = "Delivery now meets demand. Press SPACE, or the button at the bottom right.",
-    done = function(run) return run.wave > 1 end,
+    title = "Build a second route",
+    body = "Press 1 and place a relay below the straight line, link source to relay and relay to terminal, " ..
+           "then widen those two links as well. The step completes when AFTER THE STRIKE reads 2.",
+    done = function(ct) return ct:resilience() >= ct.demand end,
   },
   {
     kind = "explain",
-    title = "That red line is your minimum cut",
-    body = "It marks the cheapest set of links that would separate supply from demand. Its total " ..
-           "capacity is exactly your maximum flow, so nothing you build elsewhere raises delivery " ..
-           "until the cut itself gets wider.",
-    focus = function(run)
-      for _, c in ipairs(run.cut or {}) do
-        if c.kind == "edge" then
-          local e = run.g.edges[c.id]
-          if e and e.alive then
-            local a, b = run.g.nodes[e.a], run.g.nodes[e.b]
-            return { x = (a.x + b.x) / 2, y = (a.y + b.y) / 2 }
-          end
-        end
-      end
-      return terminal(run)
-    end,
-  },
-  {
-    kind = "explain",
-    title = "The adversary cuts exactly there",
-    body = "Every wave from now on it severs a link from that cut. Your cut is one link wide, " ..
-           "so one strike takes everything. Capacity alone will not save you.",
+    title = "Now it holds",
+    body = "Two routes sharing no link. The adversary can still take one, and the other carries the demand. " ..
+           "That is the whole game: not more capacity, but capacity the cut cannot reach.",
   },
   {
     kind = "action",
-    title = "Place a relay",
-    body = "Press 1, then click an empty spot to one side of the straight line between source and terminal.",
-    done = function(run) return #run.g:aliveNodes() >= 3 end,
-  },
-  {
-    kind = "action",
-    title = "Route around",
-    body = "Drag source to relay, then relay to terminal. That gives you a second path that shares no link with the first.",
-    done = function(run) return #(run.cut or {}) >= 2 end,
+    title = "Commit",
+    body = "Press the COMMIT button, or Enter. The adversary takes exactly what the red marks promised.",
+    done = function(ct) return ct.committed end,
   },
   {
     kind = "explain",
-    title = "Now the cut is two wide",
-    body = "A strike costs you half your throughput instead of all of it. This is the whole game: " ..
-           "keep delivery at or above demand, and keep the cut wider than the number of strikes. " ..
-           "The sidebar tells you both numbers every wave.",
-  },
-  {
-    kind = "explain",
-    title = "You have it",
-    body = "1 2 3 pick a node and click to place. Drag node to node to link. U upgrades, X demolishes. " ..
-           "SPACE resolves. H reopens the full reference. The line at the bottom always names your next problem.",
+    title = "Budget and par",
+    body = "Par is the cost of a known good solution. Beating it is the real game once you can hold a contract at all. " ..
+           "Demolition refunds in full, so re-laying the whole site is free: use it.",
   },
 }
 
-function T.start()
-  T.active = true
-  T.finished = false
-  T.step = 1
-end
-
-function T.stop()
-  T.active = false
-  T.finished = true
-end
-
-function T.current()
-  if not T.active then return nil end
-  return T.steps[T.step]
-end
+function T.start() T.active, T.finished, T.step = true, false, 1 end
+function T.stop() T.active, T.finished = false, true end
+function T.current() return T.active and T.steps[T.step] or nil end
 
 function T.isExplain()
   local s = T.current()
   return s ~= nil and s.kind == "explain"
 end
 
--- Advance an explain step. Action steps ignore this.
 function T.advance()
   if not T.active then return false end
-  if T.step >= #T.steps then
-    T.stop()
-    return true
-  end
-  T.step = T.step + 1
+  if T.step >= #T.steps then T.stop() else T.step = T.step + 1 end
   return true
 end
 
--- Called every frame: completes action steps when the graph satisfies them.
-function T.update(run)
+function T.update(ct)
   local s = T.current()
   if not s or s.kind ~= "action" then return false end
-  if s.done and s.done(run) then
+  if s.done and s.done(ct) then
     if T.step >= #T.steps then T.stop() else T.step = T.step + 1 end
     return true
   end
   return false
 end
 
-function T.focusPoint(run)
+function T.focusPoint(ct)
   local s = T.current()
   if not s or not s.focus then return nil end
-  local ok, node = pcall(s.focus, run)
+  local ok, node = pcall(s.focus, ct)
   if not ok or not node then return nil end
   return node.x, node.y
 end
