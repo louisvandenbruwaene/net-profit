@@ -17,6 +17,7 @@ local state = {
   selNode = nil, selEdge = nil,
   dragFrom = nil,
   panning = false,
+  maybePan = nil,
   showReport = false,
   pendingResolve = false,
   restart = false,
@@ -282,13 +283,49 @@ local function runSmoke()
   expect(run.wave == w0 + 1 or run.phase == "dead", "resolving advances the wave")
   expect(run.phase ~= "dead", "wave 1 is survivable")
 
-  -- Panning and zooming must not throw.
+  -- Panning and zooming must actually move the camera. Asserting only that the
+  -- callbacks do not throw is how a dead control slips through a green suite.
+  local camx, camy = cam.x, cam.y
   love.mousepressed(sx, sy, 2)
   love.mousemoved(sx + 30, sy + 20, 30, 20)
   love.mousereleased(sx, sy, 2)
-  love.wheelmoved(0, 1)
-  love.wheelmoved(0, -1)
-  expect(true, "pan and zoom callbacks run clean")
+  expect(cam.x ~= camx or cam.y ~= camy, "right-drag pans the camera")
+
+  camx, camy = cam.x, cam.y
+  love.mousepressed(sx, sy, 3)
+  love.mousemoved(sx - 25, sy - 15, -25, -15)
+  love.mousereleased(sx, sy, 3)
+  expect(cam.x ~= camx or cam.y ~= camy, "middle-drag pans the camera")
+
+  -- Left-drag on empty space is what most people reach for first.
+  camx, camy = cam.x, cam.y
+  local emptyx, emptyy = cam:toScreen(src.x + 300, src.y + 300)
+  expect(emptyx > U.SIDEBAR and emptyy < love.graphics.getHeight() - U.BOTTOM,
+    "test point lies inside the field")
+  love.mousepressed(emptyx, emptyy, 1)
+  love.mousemoved(emptyx + 40, emptyy + 30, 40, 30)
+  love.mousereleased(emptyx + 40, emptyy + 30, 1)
+  expect(cam.x ~= camx or cam.y ~= camy, "left-drag on empty space pans the camera")
+
+  -- And a press with no movement must still clear the selection, not pan.
+  state.selNode = src.id
+  love.mousepressed(emptyx, emptyy, 1)
+  love.mousereleased(emptyx, emptyy, 1)
+  expect(state.selNode == nil, "a click without movement still deselects")
+
+  local fx, fy = cam:toScreen(src.x, src.y)
+  love.mouse.setPosition(fx, fy)
+  local gx, gy = love.mouse.getPosition()
+  local sc = cam.targetScale
+  if math.abs(gx - fx) < 2 and math.abs(gy - fy) < 2 then
+    love.wheelmoved(0, 1)
+    expect(cam.targetScale ~= sc, "wheel zooms")
+  else
+    -- Unfocused window: the cursor cannot be warped, so exercise the camera itself.
+    cam:zoomAt(fx, fy, 1)
+    expect(cam.targetScale ~= sc, "wheel zooms (camera driven directly, cursor warp unavailable)")
+  end
+  cam.targetScale, cam.scale = 0.85, 0.85
 
   -- A player leaves the report before building again; so must the test.
   run:beginNextWave()
@@ -695,12 +732,26 @@ function love.mousepressed(mx, my, button)
   end
 
   local e = pickEdge(mx, my)
-  state.selEdge, state.selNode = e, nil
+  if e then
+    state.selEdge, state.selNode = e, nil
+    return
+  end
+
+  -- Empty space: this may be a pan or may be a click that clears the selection.
+  -- Which one it is gets decided by whether the mouse moves.
+  state.maybePan = { moved = 0 }
 end
 
 function love.mousereleased(mx, my, button)
   if button == 2 or button == 3 then state.panning = false; return end
   if button ~= 1 then return end
+
+  if state.maybePan then
+    -- Never moved, so it was a click after all.
+    if not state.panning then state.selNode, state.selEdge = nil, nil end
+    state.maybePan, state.panning = nil, false
+    return
+  end
 
   if state.dragFrom then
     local target = pickNode(mx, my)
@@ -720,7 +771,14 @@ function love.mousereleased(mx, my, button)
 end
 
 function love.mousemoved(mx, my, dx, dy)
-  if state.panning then cam:pan(dx, dy) end
+  if state.panning then cam:pan(dx, dy); return end
+  if state.maybePan then
+    state.maybePan.moved = state.maybePan.moved + math.abs(dx) + math.abs(dy)
+    if state.maybePan.moved > 4 then
+      state.panning = true
+      cam:pan(dx, dy)
+    end
+  end
 end
 
 function love.wheelmoved(_, dy)
