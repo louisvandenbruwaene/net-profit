@@ -31,6 +31,12 @@ local shot = { active = false, frames = 0, stage = 1 }
 -- input layer is exercised, not just the rules. The sim never touches this code.
 local smoke = { active = false, frames = 0, fails = 0 }
 
+-- Soak (`love . --soak`): plays whole runs to collapse with rendering live, so
+-- every screen gets drawn, including the wave report and the death overlay that
+-- a screenshot pass never reaches. Any error in a draw path crashes the run.
+local soak = { active = false, runs = 0, maxRuns = 3, frames = 0, waves = 0,
+               deadFrames = 0, reportFrames = 0, draws = 0 }
+
 local function expect(cond, what)
   if cond then
     print("  ok    " .. what)
@@ -53,6 +59,7 @@ local function newRun()
   layout()
   state.tool, state.selNode, state.selEdge = nil, nil, nil
   state.showReport, state.recorded, state.restart = false, false, false
+  state.backdrop = false
   state.screen = "run"
 end
 
@@ -66,6 +73,22 @@ function love.load(args)
   for _, a in ipairs(args or {}) do
     if a == "--shot" then shot.active = true end
     if a == "--smoke" then smoke.active = true end
+    if a == "--soak" then soak.active = true end
+  end
+
+  if shot.active or smoke.active or soak.active then
+    -- Never write the player's save from a test mode, and turn any runtime
+    -- error into a non-zero exit instead of an interactive error screen.
+    Meta.save = function() end
+    meta = { insight = 0, unlocked = {}, runs = 0, bestWave = 0, bestFlow = 0 }
+    local function die(msg)
+      io.stderr:write("RUNTIME ERROR: " .. tostring(msg) .. "\n")
+      io.stderr:write(debug.traceback("", 2) .. "\n")
+      love.event.quit(1)
+      return function() end
+    end
+    love.errorhandler = die
+    love.errhand = die
   end
 
   if shot.active then
@@ -75,6 +98,8 @@ function love.load(args)
     state.screen = "run"
   else
     -- A run plays itself out behind the title screen so the field is never empty.
+    -- It is scenery: mark it so a collapse there never counts as a played run.
+    state.backdrop = true
     run = Game.new(meta)
     local ok, Bot = pcall(require, "bot")
     if ok then
@@ -96,7 +121,7 @@ end
 function love.resize() layout() end
 
 -- Walks a full build interaction through the public callbacks.
-function runSmoke()
+local function runSmoke()
   print("smoke test: input layer")
   newRun()
   local src = run.g.nodes[run.source.id]
@@ -262,6 +287,12 @@ function love.update(dt)
 
   if state.screen == "title" then cam:pan(-12 * dt, -4 * dt) end
 
+  if run.phase == "dead" and not state.recorded and not state.backdrop then
+    state.recorded = true
+    Meta.record(meta, run)
+  end
+
+
   if shot.active then
     shot.frames = shot.frames + 1
     if shot.frames == 14 then
@@ -279,21 +310,87 @@ function love.update(dt)
       cam:centerOn(run.source.x, run.source.y)
     elseif shot.frames == 24 then
       love.graphics.captureScreenshot("01-run.png")
-    elseif shot.frames == 30 then
-      state.selEdge = nil
+    elseif shot.frames == 26 then
+      doResolve()
+    elseif shot.frames == 34 then
+      love.graphics.captureScreenshot("05-report.png")
+    elseif shot.frames == 36 then
+      -- Force a collapse so the death overlay can be inspected.
+      run:beginNextWave()
+      state.showReport = false
+      local sinks = run.g:nodesOfKind("sink")
+      for _, t in ipairs(sinks) do t.demand = 999 end
+      run.demand = 999 * #sinks
+      run:refresh()
+      doResolve()
+    elseif shot.frames == 44 then
+      love.graphics.captureScreenshot("06-death.png")
+    elseif shot.frames == 48 then
       state.screen = "help"
-    elseif shot.frames == 40 then
-      love.graphics.captureScreenshot("02-help.png")
-    elseif shot.frames == 46 then
-      state.screen = "meta"
     elseif shot.frames == 56 then
+      love.graphics.captureScreenshot("02-help.png")
+    elseif shot.frames == 60 then
+      state.screen = "meta"
+    elseif shot.frames == 68 then
       love.graphics.captureScreenshot("03-theorems.png")
-    elseif shot.frames == 62 then
-      state.screen = "title"
     elseif shot.frames == 72 then
+      state.screen = "title"
+    elseif shot.frames == 80 then
       love.graphics.captureScreenshot("04-title.png")
-    elseif shot.frames > 84 then
+    elseif shot.frames > 92 then
       love.event.quit()
+    end
+    return
+  end
+
+  if soak.active then
+    soak.frames = soak.frames + 1
+    -- Start from a real run, not the title backdrop, so the soak exercises the
+    -- path a player actually takes (including the save on collapse).
+    if soak.frames == 1 then newRun() end
+
+    -- Keep the inspector pointed at something, cycling node and link variants
+    -- (including source and terminals, whose panels differ).
+    if soak.frames % 11 == 0 then
+      local ns = run.g:aliveNodes()
+      if #ns > 0 then state.selNode, state.selEdge = ns[math.random(#ns)].id, nil end
+    elseif soak.frames % 11 == 5 then
+      local live = {}
+      for _, e in ipairs(run.g.edges) do if e.alive then live[#live + 1] = e.id end end
+      if #live > 0 then state.selEdge, state.selNode = live[math.random(#live)], nil end
+    end
+
+    if run.phase == "dead" then
+      soak.deadFrames = soak.deadFrames + 1
+      if soak.deadFrames == 3 then state.screen = "meta"
+      elseif soak.deadFrames == 7 then state.screen = "help"
+      elseif soak.deadFrames == 11 then state.screen = "title"
+      elseif soak.deadFrames >= 15 then
+        soak.runs = soak.runs + 1
+        soak.deadFrames = 0
+        print(string.format("  run %d collapsed on wave %d (peak delivery %d)",
+          soak.runs, run.wave, run.peakFlow))
+        if soak.runs >= soak.maxRuns then
+          print(string.format("soak: %d runs, %d waves, %d frames drawn, no errors",
+            soak.runs, soak.waves, soak.draws))
+          love.event.quit(0)
+        else
+          state.screen = "run"
+          newRun()
+        end
+      end
+    elseif state.showReport then
+      soak.reportFrames = soak.reportFrames + 1
+      if soak.reportFrames >= 3 then
+        soak.reportFrames = 0
+        run:beginNextWave()
+        state.showReport = false
+      end
+    elseif run.phase == "build" then
+      soak.bot = soak.bot or require("bot").make(Game)
+      soak.bot(run)
+      soak.waves = soak.waves + 1
+      doResolve()
     end
     return
   end
@@ -316,11 +413,6 @@ function love.update(dt)
     doResolve()
   end
 
-  if run.phase == "dead" and not state.recorded then
-    state.recorded = true
-    Meta.record(meta, run)
-  end
-
   -- Edge pan when dragging a link near the viewport border.
   if state.dragFrom then
     local mx, my = love.mouse.getPosition()
@@ -340,6 +432,7 @@ end
 
 function love.draw()
   local W, H = love.graphics.getDimensions()
+  soak.draws = soak.draws + 1
   U.begin()
 
   if state.screen == "title" then

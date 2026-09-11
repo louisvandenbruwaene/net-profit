@@ -4,22 +4,22 @@
 local Meta = {}
 
 Meta.THEOREMS = {
-  { key = "konig", name = "Konig", cost = 4,
+  { key = "konig", name = "Konig", cost = 5,
     line = "Start each run with +40 energy.",
     note = "Konig's theorem: in bipartite graphs, maximum matching equals minimum vertex cover." },
-  { key = "menger", name = "Menger", cost = 6,
+  { key = "menger", name = "Menger", cost = 9,
     line = "Begin with a relay already linked to the source.",
     note = "Menger's theorem: the maximum number of disjoint paths equals the size of the minimum cut." },
-  { key = "ford_fulkerson", name = "Ford-Fulkerson", cost = 9,
+  { key = "ford_fulkerson", name = "Ford-Fulkerson", cost = 14,
     line = "+15 energy every wave you hold.",
     note = "The augmenting path method: push flow along any path with slack until none remains." },
-  { key = "dirac", name = "Dirac", cost = 11,
+  { key = "dirac", name = "Dirac", cost = 20,
     line = "Every relay carries one extra port.",
     note = "Dirac's theorem: minimum degree at least n/2 forces a Hamiltonian cycle." },
-  { key = "whitney", name = "Whitney", cost = 12,
+  { key = "whitney", name = "Whitney", cost = 26,
     line = "Links cost 20% less.",
     note = "Whitney's inequality: vertex connectivity <= edge connectivity <= minimum degree." },
-  { key = "euler", name = "Euler", cost = 16,
+  { key = "euler", name = "Euler", cost = 34,
     line = "Absorb the first strike of every run.",
     note = "Euler: a connected graph has a closed walk over every edge exactly when all degrees are even." },
 }

@@ -21,6 +21,7 @@ Needs [LÖVE](https://love2d.org) 11.x (`pacman -S love`).
     make run          # play
     make test         # graph algorithm unit tests (lua5.4, headless)
     make smoke        # input layer driven through the real love callbacks
+    make soak         # plays whole runs to collapse with every screen rendered
     make sim          # balance telemetry from the reference bot
     make tune         # parameter sweep over the economy
     make dist         # build dist/augment.love
@@ -101,8 +102,31 @@ before changing the balance:
    its demand and decides survival. Capacity ignores those caps and yields the
    cut the adversary attacks. Without the split, meeting demand exactly left the
    minimum cut empty and made the player untouchable.
+4. **Insight is paced against the theorem list.** Earning `wave/2 + peak/4`
+   against 108 total cost puts a full unlock around a dozen runs. An earlier
+   rate handed out every theorem within three.
 
-If you run it under a tiling window manager, floating the window suits it
-better. For Hyprland:
+## State
+
+Complete and playable end to end: title, runs, waves, collapse, persistent
+unlocks. Verified by 33 unit tests, an 18-assertion input smoke test, and a soak
+that plays whole runs to collapse with every screen rendered. A normal launch
+writes nothing to stdout or stderr.
+
+Not done, in rough order of what would add most:
+
+- No audio at all.
+- The three node types are the whole build vocabulary. Hubs and conduits are
+  situational enough that relays carry most runs.
+- One adversary with one behaviour. Variants that target articulation points, or
+  that strike twice in one wave, would use the existing machinery.
+- No run modifiers or branching choices between waves, which is where roguelite
+  variety usually comes from.
+- Terminal placement is random within a growing radius, not designed.
+- Mouse and keyboard only.
+
+## Running under a tiling WM
+
+Floating the window suits it better. For Hyprland:
 
     windowrulev2 = float, class:^(love)$
