@@ -98,16 +98,19 @@ This produces:
 - `dist/net-profit.bundle`: the committed source and complete Git history,
   requiring no hosting account or network access.
 
-To work on the source on another device:
+To work on the source on another device, sign in to GitHub with an account that
+has access to the private repository, then clone it:
 
 ```sh
-git clone /path/to/net-profit.bundle net-profit
+git clone https://github.com/louisvandenbruwaene/net-profit.git
 cd net-profit
 make run
 ```
 
-The bundle includes committed work only. Commit your changes before exporting.
-There is no remote configured and nothing is published online automatically.
+For an offline transfer, use `git clone /path/to/net-profit.bundle net-profit`
+instead. The bundle includes committed work only; commit before exporting.
+The `origin` remote points to the private GitHub repository. Push committed
+changes with `git push`; local edits and company saves do not sync automatically.
 The runtime is not bundled; the export currently requires LÖVE to be installed.
 
 To move your company too, copy `company.lua` from the LÖVE save directory:
