@@ -353,7 +353,7 @@ function City:demolishNode(id)
   local n = self.g.nodes[id]
   if not (n and n.alive) then return nil, "no such structure" end
   if n.kind == "source" or n.kind == "client" then return nil, "cannot demolish that" end
-  local refund = math.floor(self:nodeCost(n.kind) * 0.4)
+  local refund = math.floor((n.paid or self:nodeCost(n.kind)) * 0.4)
   self.g:killNode(id)
   self.money = self.money + refund
   self:refresh()
@@ -584,7 +584,7 @@ function City:endDay()
       report.unhappy = report.unhappy + 1
       if c.grace <= 0 then
         report.left[#report.left + 1] = { name = City.CLIENTS[c.clientType].name, x = c.x, y = c.y }
-        self.g:killNode(c.id)
+        self:retireClient(c)
         self.reputation = math.max(0, self.reputation - City.rules.repLoss)
         self.lostClients = self.lostClients + 1
         self:note("%s left: unsupplied too long. Reputation %d",
@@ -646,7 +646,7 @@ function City:endDay()
   end
   if self.adDaysLeft > 0 then self.adDaysLeft = self.adDaysLeft - 1 end
   for _, c in ipairs(self:clientList(true)) do
-    if c.expires <= self.day then self.g:killNode(c.id) end
+    if c.expires <= self.day then self:retireClient(c) end
   end
 
   report.bonus = self:awardMilestones()
@@ -691,10 +691,32 @@ function City:acceptClient(id)
   return c
 end
 
+function City:toggleSupply(id)
+  local c = self.g.nodes[id]
+  if not (c and c.alive and c.kind == "client" and not c.prospect) then
+    return nil, "no active customer"
+  end
+  c.supplyClosed = not c.supplyClosed
+  self:note("%s %d service valve %s", City.CLIENTS[c.clientType].name, id,
+    c.supplyClosed and "closed" or "opened")
+  self:refresh()
+  return c
+end
+
+function City:retireClient(c)
+  if self.g:degree(c.id) == 0 then
+    self.g:killNode(c.id)
+  else
+    -- The customer leaves the company; their installed through-pipes remain.
+    c.kind, c.paid = "junction", 0
+    c.commodity, c.demand, c.prospect, c.supplyClosed = nil, nil, nil, nil
+  end
+end
+
 function City:declineClient(id)
   local c = self.g.nodes[id]
   if not (c and c.alive and c.prospect) then return nil, "no open offer" end
-  self.g:killNode(id)
+  self:retireClient(c)
   self:refresh()
   return true
 end
