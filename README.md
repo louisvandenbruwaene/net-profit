@@ -22,9 +22,19 @@ Needs [LÖVE](https://love2d.org) 11.x (`pacman -S love`).
     make test         # graph algorithm unit tests (lua5.4, headless)
     make smoke        # input layer driven through the real love callbacks
     make soak         # plays whole runs to collapse with every screen rendered
+    make tutorial     # walks all twelve tutorial steps through the real callbacks
+    make audio        # peak and RMS of every synthesised sound
     make sim          # balance telemetry from the reference bot
     make tune         # parameter sweep over the economy
     make dist         # build dist/augment.love
+
+## Start here
+
+If you have not played it, press **TUTORIAL** on the title screen. It takes about
+two minutes and teaches the game on your own graph: it watches what you build and
+each step completes when your network actually satisfies it. It introduces
+capacity, flow, the minimum cut, the adversary and redundancy in that order,
+because that is the order in which each one becomes the thing blocking you.
 
 ## Controls
 
@@ -39,6 +49,7 @@ Needs [LÖVE](https://love2d.org) 11.x (`pacman -S love`).
 | right-drag, wheel | pan, zoom |
 | `C` `T` | centre on source, cycle terminals |
 | `H` `M` | help, theorems |
+| `S` | mute or unmute sound |
 
 ## Reading the field
 
@@ -71,6 +82,8 @@ Nothing here is decorative. Each mechanic is a theorem you have to act on.
     src/render.lua      the field: links, nodes, flow, cut, effects
     src/ui.lua          sidebar, inspector, overlays
     src/meta.lua        persistence and the theorem unlocks
+    src/tutorial.lua    the twelve guided steps and their completion predicates
+    src/audio.lua       procedural synthesis; the game ships with no audio files
     src/camera.lua      pan and zoom
     src/palette.lua     every colour, in one place
     test/test_graph.lua unit tests with hand-computed expectations
@@ -80,6 +93,15 @@ Nothing here is decorative. Each mechanic is a theorem you have to act on.
 
 `src/graph.lua` and `src/game.lua` have no LÖVE dependency, which is why the
 rules and the algorithms can be tested headless with `lua5.4`.
+
+## Sound
+
+Every sound is synthesised at load from oscillators and envelopes in
+`src/audio.lua`, so there are no audio files in the repository. The palette is
+narrow on purpose: soft sine blips for what you build, filtered noise over a low
+thump for what breaks, and a rising major triad for a wave held. `make audio`
+prints peak and RMS per sound, which is how a silent or clipped voice gets
+caught without an ear in the loop.
 
 ## Design notes
 
@@ -115,7 +137,6 @@ writes nothing to stdout or stderr.
 
 Not done, in rough order of what would add most:
 
-- No audio at all.
 - The three node types are the whole build vocabulary. Hubs and conduits are
   situational enough that relays carry most runs.
 - One adversary with one behaviour. Variants that target articulation points, or

@@ -8,6 +8,8 @@ local Meta   = require("meta")
 local Camera = require("camera")
 local R      = require("render")
 local U      = require("ui")
+local A      = require("audio")
+local T      = require("tutorial")
 
 local state = {
   screen = "title",     -- title | run | meta | help
@@ -22,6 +24,7 @@ local state = {
 }
 
 local meta, run, cam
+local doResolve  -- defined below, referenced by the scripted test walkthroughs
 
 -- Screenshot mode (`love . --shot`): plays a few waves with the reference bot so
 -- the captured frame shows a real mid-game network, then writes PNGs and exits.
@@ -36,6 +39,13 @@ local smoke = { active = false, frames = 0, fails = 0 }
 -- a screenshot pass never reaches. Any error in a draw path crashes the run.
 local soak = { active = false, runs = 0, maxRuns = 3, frames = 0, waves = 0,
                deadFrames = 0, reportFrames = 0, draws = 0 }
+local audiotest = false
+
+-- Tutorial test (`love . --tut`): walks all twelve steps through the same
+-- callbacks a player uses. If a step's completion predicate can never be met,
+-- or an instruction is not affordable, this is where it shows up.
+local tut = { active = false, frames = 0, fails = 0 }
+local shottut, shottutFrames = false, 0
 
 local function expect(cond, what)
   if cond then
@@ -51,8 +61,9 @@ local function layout()
   cam:setViewport(U.SIDEBAR, 0, W - U.SIDEBAR, H - U.BOTTOM)
 end
 
-local function newRun()
-  run = Game.new(meta)
+local function newRun(opts)
+  opts = opts or {}
+  run = Game.new(meta, opts)
   cam = Camera.new(Game.balance.fieldW, Game.balance.fieldH)
   cam.targetScale, cam.scale = 0.85, 0.85
   cam:centerOn(run.source.x, run.source.y)
@@ -60,6 +71,8 @@ local function newRun()
   state.tool, state.selNode, state.selEdge = nil, nil, nil
   state.showReport, state.recorded, state.restart = false, false, false
   state.backdrop = false
+  state.startTutorial = false
+  if opts.tutorial then T.start() else T.active = false end
   state.screen = "run"
 end
 
@@ -68,18 +81,24 @@ function love.load(args)
   love.graphics.setLineStyle("smooth")
   math.randomseed(os.time())
   R.init()
+  A.init()
   meta = Meta.load()
+  A.muted = false
 
   for _, a in ipairs(args or {}) do
     if a == "--shot" then shot.active = true end
     if a == "--smoke" then smoke.active = true end
     if a == "--soak" then soak.active = true end
+    if a == "--audio" then audiotest = true end
+    if a == "--tut" then tut.active = true end
+    if a == "--shottut" then shottut = true end
   end
 
-  if shot.active or smoke.active or soak.active then
+  if shot.active or smoke.active or soak.active or tut.active or audiotest or shottut then
     -- Never write the player's save from a test mode, and turn any runtime
     -- error into a non-zero exit instead of an interactive error screen.
     Meta.save = function() end
+    A.setEnabled(false)
     meta = { insight = 0, unlocked = {}, runs = 0, bestWave = 0, bestFlow = 0 }
     local function die(msg)
       io.stderr:write("RUNTIME ERROR: " .. tostring(msg) .. "\n")
@@ -119,6 +138,93 @@ function love.load(args)
 end
 
 function love.resize() layout() end
+
+local function runTutorial()
+  print("tutorial: walking every step")
+  local fails = 0
+  local function expectStep(n, what)
+    if T.step == n and T.active then
+      print(string.format("  ok    step %-2d %s", n, what))
+    else
+      fails = fails + 1
+      print(string.format("  FAIL  expected step %d (%s), at step %s active=%s",
+        n, what, tostring(T.step), tostring(T.active)))
+    end
+  end
+  local function tick() T.update(run) end
+  local function press() T.advance() end
+
+  newRun({ tutorial = true })
+  local src = run.g.nodes[run.source.id]
+  local term = run.g:nodesOfKind("sink")[1]
+
+  expectStep(1, "source intro")
+  press(); expectStep(2, "terminal intro")
+  press(); expectStep(3, "lay first link")
+
+  -- Drag source onto terminal.
+  local ax, ay = cam:toScreen(src.x, src.y)
+  local bx, by = cam:toScreen(term.x, term.y)
+  love.mousepressed(ax, ay, 1)
+  love.mousereleased(bx, by, 1)
+  tick(); expectStep(4, "capacity vs flow")
+
+  press(); expectStep(5, "widen the link")
+
+  -- Upgrade until delivery meets demand, exactly as instructed.
+  local eid = run.g:hasEdge(src.id, term.id)
+  if not eid then fails = fails + 1; print("  FAIL  no link was created") end
+  state.selEdge = eid
+  local guard = 0
+  while run.flow < run.demand and guard < 20 do
+    love.keypressed("u"); guard = guard + 1
+  end
+  tick(); expectStep(6, "resolve the wave")
+
+  love.keypressed("space")
+  state.pendingResolve = false
+  doResolve()
+  tick(); expectStep(7, "the minimum cut")
+
+  -- A report overlay is up; dismiss it the way a player does.
+  if state.showReport then
+    run:beginNextWave(); state.showReport = false
+  end
+
+  press(); expectStep(8, "the adversary")
+  press(); expectStep(9, "place a relay")
+
+  -- Place a relay off the straight line.
+  love.keypressed("1")
+  local rx, ry = cam:toScreen(src.x + 107, src.y - 120)
+  love.mousepressed(rx, ry, 1)
+  tick(); expectStep(10, "route around")
+
+  local relay = run.g.nodes[#run.g.nodes]
+  if relay.kind ~= "relay" then fails = fails + 1; print("  FAIL  relay was not placed") end
+  local px, py = cam:toScreen(relay.x, relay.y)
+  love.mousepressed(ax, ay, 1); love.mousereleased(px, py, 1)
+  love.mousepressed(px, py, 1); love.mousereleased(bx, by, 1)
+  tick(); expectStep(11, "cut is two wide")
+
+  if #run.cut < 2 then
+    fails = fails + 1
+    print(string.format("  FAIL  cut width is %d, expected 2 or more", #run.cut))
+  else
+    print(string.format("  ok    cut width reached %d via a disjoint route", #run.cut))
+  end
+
+  press(); expectStep(12, "controls recap")
+  press()
+  if T.active or not T.finished then
+    fails = fails + 1; print("  FAIL  tutorial did not finish")
+  else
+    print("  ok    tutorial completed and closed")
+  end
+  if meta.tutorialDone == nil then meta.tutorialDone = false end
+
+  tut.fails = fails
+end
 
 -- Walks a full build interaction through the public callbacks.
 local function runSmoke()
@@ -253,26 +359,32 @@ end
 -- Resolving a wave
 --------------------------------------------------------------------------------
 
-local function doResolve()
+doResolve = function()
   local rep = run:resolve()
   if not rep then return end
 
-  for _, s in ipairs(rep.strikes) do
+  A.play("resolve", 0.9)
+  for i, s in ipairs(rep.strikes) do
     if s.x and s.y then
       R.burst(s.x, s.y, P.cut, s.kind == "node" and 30 or 18)
       R.ring(s.x, s.y, P.cut)
       R.floatText(s.x, s.y, s.kind == "node" and "NODE DESTROYED" or "SEVERED", P.cut)
+      A.play(s.kind == "node" and "destroy" or "sever", 1.0, 0.94 + i * 0.05)
     end
   end
   cam:shakeBy(rep.survived and (0.30 + 0.22 * #rep.strikes) or 1.1)
 
   if rep.survived then
+    A.play("held", 0.85)
     state.showReport = true
     if rep.newTerminal then
+      A.play("terminal", 0.8)
       for _, t in ipairs(run.g:nodesOfKind("sink")) do
         if t.bornWave == run.wave then R.ring(t.x, t.y, P.warn) end
       end
     end
+  else
+    A.play("collapse", 1.0, 1.0)
   end
   state.selNode, state.selEdge = nil, nil
 end
@@ -343,6 +455,48 @@ function love.update(dt)
     return
   end
 
+  if shottut then
+    shottutFrames = shottutFrames + 1
+    if shottutFrames == 4 then
+      newRun({ tutorial = true })
+    elseif shottutFrames == 12 then
+      love.graphics.captureScreenshot("07-tutorial-1.png")
+    elseif shottutFrames == 16 then
+      T.advance(); T.advance()   -- to the first action step
+    elseif shottutFrames == 24 then
+      love.graphics.captureScreenshot("08-tutorial-3.png")
+    elseif shottutFrames > 34 then
+      love.event.quit()
+    end
+    return
+  end
+
+  if tut.active then
+    tut.frames = tut.frames + 1
+    if tut.frames == 3 then runTutorial() end
+    if tut.frames > 8 then
+      print(tut.fails == 0 and "tutorial: all steps completable"
+                            or string.format("tutorial: %d FAILURES", tut.fails))
+      love.event.quit(tut.fails == 0 and 0 or 1)
+    end
+    return
+  end
+
+  if audiotest then
+    print(string.format("%-10s %8s %8s %7s", "sound", "peak", "rms", "dur"))
+    local bad = 0
+    for _, r in ipairs(A.report()) do
+      local flag = ""
+      if r.rms < 0.004 then flag = "  <- SILENT"; bad = bad + 1 end
+      if r.peak > 0.999 then flag = flag .. "  <- CLIPPED"; bad = bad + 1 end
+      print(string.format("%-10s %8.3f %8.4f %6.2fs%s", r.name, r.peak, r.rms, r.dur, flag))
+    end
+    print(bad == 0 and "\naudio: all sounds have content, none clipped"
+                   or string.format("\naudio: %d PROBLEMS", bad))
+    love.event.quit(bad == 0 and 0 or 1)
+    return
+  end
+
   if soak.active then
     soak.frames = soak.frames + 1
     -- Start from a real run, not the title backdrop, so the soak exercises the
@@ -406,7 +560,21 @@ function love.update(dt)
     return
   end
 
+  if state.startTutorial then
+    state.startTutorial = false
+    newRun({ tutorial = true })
+  end
+
   if state.restart then newRun() end
+
+  -- Action steps complete when the player's own graph satisfies them.
+  if T.active then
+    if T.update(run) then A.play("step", 0.8) end
+    if not T.active and not meta.tutorialDone then
+      meta.tutorialDone = true
+      Meta.save(meta)
+    end
+  end
 
   if state.pendingResolve then
     state.pendingResolve = false
@@ -461,12 +629,20 @@ function love.draw()
     R.drawPlaceGhost(cam, run, state.tool, mx, my)
   end
 
+  if T.active and state.screen == "run" and not state.showReport and run.phase ~= "dead" then
+    local fx, fy = T.focusPoint(run)
+    if fx then R.drawFocusRing(cam, fx, fy) end
+  end
+
   R.drawEffects(cam)
   love.graphics.setScissor()
 
   U.drawSidebar(run, state)
   U.drawBottom(run, state)
   U.drawInspector(run, state)
+  if T.active and state.screen == "run" and not state.showReport and run.phase ~= "dead" then
+    U.drawTutorial(run, state, T)
+  end
 
   if state.screen == "meta" then
     U.drawMeta(state, meta)
@@ -509,9 +685,11 @@ function love.mousepressed(mx, my, button)
     local node, err = run:buildNode(wx, wy, state.tool)
     if node then
       R.ring(wx, wy, Graph.KINDS[state.tool].color)
+      A.play("place")
       if not love.keyboard.isDown("lshift", "rshift") then state.tool = nil end
     elseif err then
       R.floatText(wx, wy, err, P.bad)
+      A.play("denied", 0.7)
     end
     return
   end
@@ -531,8 +709,10 @@ function love.mousereleased(mx, my, button)
       local a, b = run.g.nodes[state.dragFrom], run.g.nodes[target]
       if e then
         R.burst((a.x + b.x) / 2, (a.y + b.y) / 2, P.linkLive, 10)
+        A.play("link")
       elseif err then
         R.floatText((a.x + b.x) / 2, (a.y + b.y) / 2, err, P.bad)
+        A.play("denied", 0.7)
       end
     end
     state.dragFrom = nil
@@ -550,6 +730,11 @@ end
 
 function love.keypressed(key)
   if key == "escape" then
+    if T.active and state.screen == "run" and not state.tool then
+      T.stop()
+      state.tutorialSkipped = true
+      return
+    end
     if state.screen == "meta" or state.screen == "help" then
       state.screen = "run"
     elseif state.tool then
@@ -573,6 +758,13 @@ function love.keypressed(key)
 
   if state.screen == "title" then
     if key == "return" or key == "space" then state.restart = true end
+    return
+  end
+
+  if T.active and T.isExplain() and (key == "space" or key == "return")
+     and not state.showReport and run.phase ~= "dead" and state.screen == "run" then
+    T.advance()
+    A.play("step", 0.8)
     return
   end
 
@@ -608,11 +800,13 @@ function love.keypressed(key)
     if state.selEdge then
       local x, y = edgeMid(state.selEdge)
       local ok, err = run:upgradeLink(state.selEdge)
-      if not ok and err and x then R.floatText(x, y, err, P.bad) end
+      if ok then A.play("upgrade") end
+      if not ok and err and x then R.floatText(x, y, err, P.bad); A.play("denied", 0.7) end
     elseif state.selNode then
       local n = run.g.nodes[state.selNode]
       local ok, err = run:upgradeNode(state.selNode)
-      if not ok and err and n then R.floatText(n.x, n.y, err, P.bad) end
+      if ok then A.play("upgrade") end
+      if not ok and err and n then R.floatText(n.x, n.y, err, P.bad); A.play("denied", 0.7) end
     end
   end
 
@@ -623,9 +817,11 @@ function love.keypressed(key)
       if refund then
         R.burst(x, y, P.textFaint, 10)
         R.floatText(x, y, "+" .. refund, P.energy)
+        A.play("demolish")
         state.selEdge = nil
       elseif err and x then
         R.floatText(x, y, err, P.bad)
+        A.play("denied", 0.7)
       end
     elseif state.selNode then
       local n = run.g.nodes[state.selNode]
@@ -633,11 +829,17 @@ function love.keypressed(key)
       if refund then
         R.burst(n.x, n.y, P.textFaint, 10)
         R.floatText(n.x, n.y, "+" .. refund, P.energy)
+        A.play("demolish")
         state.selNode = nil
       elseif err and n then
         R.floatText(n.x, n.y, err, P.bad)
+        A.play("denied", 0.7)
       end
     end
+  end
+  if key == "s" then
+    local m = A.toggleMute()
+    R.floatText(run.source.x, run.source.y, m and "SOUND OFF" or "SOUND ON", P.textDim)
   end
   if key == "c" then cam:centerOn(run.source.x, run.source.y) end
   if key == "t" then
