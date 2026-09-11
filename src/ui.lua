@@ -394,7 +394,7 @@ function U.drawBottom(run, state)
   local obj, objColor = U.objective(run)
   local hint = state.tool
     and string.format("click the field to place a %s   -   esc to cancel", Graph.KINDS[state.tool].name)
-    or (obj or "drag node to node to link   -   click to inspect   -   right-drag pans   -   wheel zooms   -   H for help")
+    or (obj or "drag node to node to link   -   click to inspect   -   drag empty space to pan   -   wheel zooms   -   H for help")
   if obj and not state.tool then lg.setColor(objColor) end
   -- Clipped to the space the resolve button leaves, so the two never collide.
   local avail = (W - bw - 32) - (x + 18)
