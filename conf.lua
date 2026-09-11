@@ -1,6 +1,6 @@
 function love.conf(t)
-  t.identity = "augment"
-  t.window.title = "AUGMENT"
+  t.identity = "net-profit"
+  t.window.title = "Net Profit"
   t.window.width = 1440
   t.window.height = 880
   t.window.minwidth = 1100

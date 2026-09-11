@@ -1,118 +1,154 @@
-# AUGMENT
+# Net Profit
 
-A puzzle roguelike about building networks that survive their own minimum cut.
+A turn-based utility-company game about networks, cash, and promises.
 
-Each **contract** is one site, one fixed budget and one declared threat: *the
-adversary severs 2 links*. You build from scratch, and the network must still
-meet every terminal's demand **after** it cuts. A run is twelve contracts of
-rising difficulty.
+Start with one water source, two houses, and $300. Build a network, sign new
+customers, keep the pipes flowing, and decide how much of today's cash you can
+afford to put into tomorrow's company. The map and company persist between days.
 
-The threat is not a surprise. The red marks on the field show exactly what will
-be taken if you commit right now, recomputed against your network every time you
-change it. So committing is never a gamble, and the whole game is the question
-the budget asks: *what is the cheapest network that the cut cannot break?*
+## Play
 
-## Start here
+On this device, open **Net Profit** from the application menu. No terminal opens.
+The installed application is a snapshot: run `make install` after changing the
+source to update it.
 
-Press **TUTORIAL** on the title screen. It takes about two minutes and teaches on
-your own graph, one idea at a time: deliver, discover that delivering is not
-surviving, then fix it.
+From a source checkout, install LÖVE 11.x and run:
 
-## Running
+```sh
+make run
+make install       # Linux app-menu entry, icon, and packaged game
+```
 
-Needs [LÖVE](https://love2d.org) 11.x (`pacman -S love`).
-
-    make run          # play
-    make test         # graph algorithms and contract rules, headless
-    make smoke        # input paths through the real love callbacks
-    make soak         # a whole campaign solved and committed, every screen drawn
-    make tutorial     # every tutorial step walked through the real callbacks
-    make audio        # peak and RMS of every synthesised sound
-    make dist         # build dist/augment.love
+The game opens directly into your company and automatically saves after each
+decision and day close. Test modes use isolated companies and never overwrite
+your normal save.
 
 ## Controls
 
-| | |
-|---|---|
-| `1` `2` `3` | arm relay / hub / conduit, then click the site to place |
-| drag node to node | lay a link |
-| click | inspect a node or link |
-| `U` | add capacity to the selected link |
-| `X` | demolish, refunded in full |
-| `Enter` | commit the contract |
-| `R` `F` | clear the site, refit the camera |
-| drag empty space, wheel | pan, zoom |
-| `H` `S` | help, mute |
+| Action | Control |
+| --- | --- |
+| Lay a pipe | Drag from a source or structure to another node |
+| Choose pipe capacity | Minus / plus in Network before laying it |
+| Inspect | Click a structure, customer, or pipe |
+| Build junction / manifold / pump / treatment station | Toolbar or keys 1 / 2 / 3 / 4, then place |
+| Add a source | Choose a trade, select New source, then place |
+| Pan | Drag empty ground, or use right / middle drag |
+| Zoom / scroll sidebar | Mouse wheel |
+| Fit the entire network | F or the fit button |
+| Upgrade / repair a selected pipe | U / R, or inspector buttons |
+| Demolish selection | Delete, or inspector button |
+| Undo a decision | Z or the undo button |
+| Close the day | Enter or Close day |
+| Cancel a tool / selection | Escape |
+| Mute | M or sound button |
 
-## The tension the puzzle is built on
+Hover over controls for prices and effects. Sidebar sections scroll in smaller
+windows. Undo works within the current session and day; closing a day is final.
 
-Capacity is cheap and fragile. Routes are expensive and robust.
+## Company Decisions
 
-With `r` disjoint routes against a threat that takes `k`, you keep `r-k` of them,
-so each needs `demand/(r-k)` capacity. Total capacity bought is
-`r*ceil(demand/(r-k))`, which **falls** as you add routes, while structural cost
-**rises**. There is a cheapest `r` somewhere in the middle, and it moves with the
-geometry, the obstacles and the threat. Finding it is the game.
+- **Connections:** new customers appear as offers. Sign when you can deliver;
+  unsigned offers consume no supply and cause no reputation penalty. Offers
+  expire after several days. Accepted customers have a visible patience clock.
+- **Cash:** customers pay for delivered units. Each source earns $12 wholesale
+  per day. Offices cost $8/day, each source $6, each built structure $1, and each
+  installed pipe $0.50, rounded up on the daily expense total.
+- **Failure:** a pipe has a daily chance to develop a leak. Once leaking, it
+  loses one capacity every close until repaired, including on the first day.
+  At zero it stays installed and repairable. Lost customers damage reputation.
+- **Protection:** pipe lining halves local risk. Global treatment upgrades
+  reduce base risk by 13 percentage points of its original value per grade.
+  Treatment stations reduce risk by another 55% for mains whose midpoint is
+  within 220m. Multiple stations do not stack.
+- **Growth:** advertising increases enquiries for five closes. Pumps reach
+  520m instead of 300m; manifolds have six ports instead of three.
+- **Ground:** bedrock blocks construction and pipes. Park crossings cost twice
+  the base route price, river crossings three times. Nodes cannot occupy either.
+- **Premium trades:** beer and oil licences unlock separate networks, sources,
+  and customer types. Pubs and factories pay much more and have shorter patience.
+  Different commodities can share structures and routes without mixing.
+- **Investments:** deposits are locked for exactly seven closes. Return is
+  normally distributed with mean 10% and standard deviation 5%; losses are possible.
+- **Milestones:** serving 2, 5, 10, and 20 customers at a day close earns one-time
+  municipal grants. Continue building after the final milestone.
+- **Insolvency:** negative cash with no outstanding investments ends the company.
+  Outstanding investments allow a company to wait for maturity but do not fund
+  construction while cash is negative.
 
-When the threat destroys **nodes** rather than links, routes that share a relay
-die together: you need routes that share no vertex, not merely no edge. That is
-Menger's theorem, and it is the difference between two contracts that otherwise
-look identical.
+Pipes can be laid at their intended capacity immediately. Client buildings are
+endpoints, so they cannot replace paid junctions as free transit infrastructure.
+Source output is finite and shared between connected customers.
 
-## Every puzzle is provably solvable
+## Move To Another Device
 
-Generation is not hope-based. A candidate map is handed to the reference solver
-before the player ever sees it; if the solver cannot finish it, the map is
-thrown away. The cost of the solution it finds becomes **par**, and the budget is
-par plus slack that tightens as the run goes on.
+```sh
+make export
+```
 
-This is only possible because the whole game runs on exact max-flow and min-cut,
-so a generated contract can never turn out to be impossible, and "beat par" is a
-real target rather than a guess.
+This produces:
 
-## Layout
+- `dist/net-profit.love`: the game, runnable with LÖVE 11.x on Linux, Windows,
+  or macOS. Install LÖVE on the destination, then open the file with it.
+- `dist/net-profit-portable.zip`: the game, README, icon, and Linux installer.
+  Extract it and run `sh install-linux.sh` once to add an app-menu entry.
+- `dist/net-profit.bundle`: the committed source and complete Git history,
+  requiring no hosting account or network access.
 
-    main.lua             love callbacks, input, camera, the test modes
-    src/graph.lua        graph structure, Dinic max flow, min cut, worst-case removals
-    src/contract.lua     one puzzle: budget, geometry, build rules, commit
-    src/campaign.lua     a run of twelve contracts
-    src/generate.lua     procedural maps, verified solvable, priced against par
-    src/solver.lua       reference builder: proves solvability, sets par, powers the soak
-    src/render.lua       the field: obstacles, links, nodes, flow, the doomed set
-    src/ui.lua           sidebar, inspector, overlays
-    src/tutorial.lua     the guided first contract
-    src/audio.lua        procedural synthesis; no audio files ship
-    src/meta.lua         persistence
-    src/camera.lua       pan and zoom
-    src/palette.lua      every colour, in one place
-    test/test_graph.lua    46 assertions on the algorithms
-    test/test_contract.lua 215 assertions on the rules and on generation
+To work on the source on another device:
 
-`graph.lua`, `contract.lua`, `solver.lua` and `generate.lua` carry no LÖVE
-dependency, which is why the rules, the generator and the solver can all be
-tested headless with `lua5.4`.
+```sh
+git clone /path/to/net-profit.bundle net-profit
+cd net-profit
+make run
+```
 
-## State
+The bundle includes committed work only. Commit your changes before exporting.
+There is no remote configured and nothing is published online automatically.
+The runtime is not bundled; the export currently requires LÖVE to be installed.
 
-Complete and playable: title, tutorial, twelve contracts, commit and reveal, run
-summary. Verified by 46 graph assertions, 215 contract assertions, 23 input
-assertions, a soak that solves and commits a whole campaign, and an audio report.
-A normal launch writes nothing to stdout or stderr.
+To move your company too, copy `company.lua` from the LÖVE save directory:
 
-Not done, roughly in order of what would add most:
+| Platform | Save folder |
+| --- | --- |
+| Linux | `~/.local/share/love/net-profit/` (or your XDG data directory) |
+| Windows | `%APPDATA%\\LOVE\\net-profit\\` |
+| macOS | `~/Library/Application Support/LOVE/net-profit/` |
 
-- No upgrade draft between contracts. The tools unlock on a fixed schedule
-  (hub at 3, conduit at 5) rather than being chosen.
-- No daily seed, though generation is already deterministic in one, so it is
-  mostly a menu.
-- One adversary behaviour. Variants that prefer articulation points, or that
-  announce a specific target, would use the machinery that is already here.
-- No music, and the mute state is not saved between sessions.
-- Obstacles are circles. Walls and corridors would shape routes far more.
-- Mouse and keyboard only.
+The installer preserves saved companies. Simulation randomness is stored with
+the company, so loading preserves future outcomes.
 
-## Running under a tiling WM
+## Verification
 
-Floating the window suits it better. For Hyprland:
+```sh
+make test          # graph, archived contracts, company rules, persistence and growth
+make smoke         # real input callbacks, company screens, save checks
+make soak          # 60+ rendered company days
+make tutorial      # the opening input walkthrough
+make shots         # exact 1440x880 and 1100x700 rendered screenshots
+make audio         # synthesized audio report
+make dist          # package the game
+```
 
-    windowrulev2 = float, class:^(love)$
+Headless tests need Lua 5.4. Window tests need LÖVE and a display. All window test
+targets have a timeout with forced termination. GitHub Actions runs the rules
+and window tests under Xvfb and uploads the packaged game.
+
+## Source Map
+
+| File | Responsibility |
+| --- | --- |
+| `src/city.lua` | Company, construction, customers, daily economy and wear |
+| `src/graph.lua` | Dinic max flow, finite source output, separate commodities |
+| `src/company_app.lua` | Input, camera, action history and game lifecycle |
+| `src/company_ui.lua` | Network inspector, treasury, clients, journal and report |
+| `src/company_render.lua` | City map, flowing pipes and customer symbols |
+| `src/company_save.lua` | Versioned saves and random-state persistence |
+| `src/company_walkthrough.lua` | Rendered input and screenshot checks |
+| `test/test_company.lua` | Regression and multi-company economy tests |
+
+The previous contract game is retained for comparison with
+`love . --contracts`. Its graph and generation tests remain part of the suite.
+
+This is a playable management prototype. Economy tuning and whether the choices
+stay interesting over a long human playthrough still need playtesting; passing
+the tests establishes mechanics and solvency, not how addictive it feels.
