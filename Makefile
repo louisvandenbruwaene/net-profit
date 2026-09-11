@@ -10,22 +10,22 @@ test:
 
 # Input paths, driven through the real love callbacks.
 smoke:
-	@love . --smoke
+	@timeout -k 5 90 love . --smoke
 
 # Plays a whole campaign with the reference solver, every screen rendered.
 soak:
-	@love . --soak
+	@timeout -k 5 180 love . --soak
 
 # Every tutorial step, walked through the real input callbacks.
 tutorial:
-	@love . --tut
+	@timeout -k 5 90 love . --tut
 
 # Peak and RMS of every synthesised sound.
 audio:
-	@love . --audio
+	@timeout -k 5 120 love . --audio
 
 shots:
-	@love . --shot && echo "written to $$HOME/.local/share/love/augment/"
+	@timeout -k 5 120 love . --shot && echo "written to $$HOME/.local/share/love/augment/"
 
 dist:
 	@mkdir -p dist
