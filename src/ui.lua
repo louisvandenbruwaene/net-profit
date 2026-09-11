@@ -168,6 +168,13 @@ function U.drawSidebar(run, state)
   if strikes == 0 then
     lg.setColor(P.textDim)
     lg.printf("Dormant. It wakes on wave " .. Game.balance.firstStrikeWave .. ".", x + 12, y + 26, w - 24, "left")
+  elseif cw == 0 then
+    lg.setColor(P.bad)
+    lg.printf("No route reaches a terminal. There is no cut left to sever.",
+      x + 12, y + 24, w - 24, "left")
+    lg.setFont(R.fonts.tiny)
+    lg.setColor(P.bad)
+    lg.printf("Reconnect the network before resolving.", x + 12, y + 54, w - 24, "left")
   else
     lg.setColor(cw > strikes and P.warn or P.bad)
     lg.printf(string.format("Severs %d of the %d link%s in your minimum cut.",
@@ -398,6 +405,16 @@ end
 -- Overlays
 --------------------------------------------------------------------------------
 
+-- Centre a panel over the field area. Centring on the whole window puts these
+-- on top of the sidebar once the window is narrow, which a tiling WM makes the
+-- common case rather than the exception.
+local function fieldCentre(w)
+  local W = lg.getWidth()
+  local avail = W - U.SIDEBAR
+  if avail < w + 24 then return math.max(8, (W - w) / 2) end
+  return U.SIDEBAR + (avail - w) / 2
+end
+
 local function dim(a)
   local W, H = lg.getDimensions()
   lg.setColor(0, 0, 0, a or 0.72)
@@ -409,7 +426,7 @@ function U.drawReport(run, state)
   if not rep then return end
   local W, H = lg.getDimensions()
   local w, h = 470, 320
-  local x, y = (W - w) / 2, (H - h) / 2
+  local x, y = fieldCentre(w), (H - h) / 2
   dim(0.62)
   panel(x, y, w, h, 1)
 
@@ -455,7 +472,7 @@ end
 function U.drawDeath(run, state, meta)
   local W, H = lg.getDimensions()
   local w, h = 470, 300
-  local x, y = (W - w) / 2, (H - h) / 2
+  local x, y = fieldCentre(w), (H - h) / 2
   dim(0.80)
   panel(x, y, w, h, 1)
 

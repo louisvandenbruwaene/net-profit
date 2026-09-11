@@ -443,8 +443,11 @@ function Game:beginNextWave()
   if self.phase == "report" then self.phase = "build" end
 end
 
+-- Paced so the full theorem set takes roughly a dozen runs. The earlier rate
+-- handed out every unlock inside three runs, which spent the whole meta layer
+-- before the player had learned to read a cut.
 function Game:insightEarned()
-  return math.floor(self.wave * 1.5 + self.peakFlow * 0.8)
+  return math.floor(self.wave * 0.5 + self.peakFlow * 0.25)
 end
 
 return Game
