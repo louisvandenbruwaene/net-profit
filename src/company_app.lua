@@ -51,6 +51,21 @@ local function clear()
   state.district=nil
 end
 
+-- Everything that belongs to the company being played rather than to the
+-- player, reset when a different company is opened.
+local function resetSession()
+  clear()
+  state.undo={}
+  state.modal,state.slotConfirm=nil,nil
+  state.scroll=0
+  state.tab="network"
+  state.commodity="water"
+  state.capacity=3
+  state.borrow=500
+  state.invest=100
+  state.rail=nil
+end
+
 -- Selecting anything on the map is a question, and the sidebar is the answer.
 -- Rather than leaving the player on whichever tab they happened to be reading,
 -- every selection opens the tab that can act on it and scrolls straight to the
@@ -61,6 +76,19 @@ local function reveal(kind)
   else
     state.tab="network"; state.scroll=UI.revealInspector()
   end
+end
+
+-- A test run must not read, show or touch the player's real companies, so the
+-- harness gets a fabricated set of slots to drive the picker with.
+local function slotSummaries()
+  if not testMode then return Save.summaries() end
+  local t={}
+  for i=1,Save.SLOTS do
+    t[i]=(i==1)
+      and {slot=1,empty=false,day=3,money=400,clients=2,worth=900,districts=1,trades={"water"}}
+      or {slot=i,empty=true}
+  end
+  return t
 end
 
 local function action(name,...)
@@ -97,10 +125,55 @@ local function action(name,...)
     if worst then action("focusEdge",worst.id) else toast("No leaking mains") end
     return
   end
+  -- Six companies. Leaving one always saves it first: switching away should
+  -- never be a way to lose a day's work.
+  if name=="openSlots" then
+    save()
+    state.modal="slots"; state.slotConfirm=nil
+    state.slots=slotSummaries()
+    return
+  end
+  if name=="loadSlot" then
+    local slot=...
+    if slot==(city.slot or 1) then state.modal=nil; return end
+    if testMode then state.modal=nil; return end
+    save()
+    local loaded,err=Save.read(slot)
+    if not loaded then toast(err or "That company could not be opened",true); return end
+    city=loaded
+    resetSession(); Save.writeCurrent(slot)
+    fit(); toast("Company "..slot.." opened")
+    return
+  end
+  if name=="newSlot" then
+    local slot=...
+    save()
+    city=City.new(); city.slot=slot
+    resetSession()
+    if not testMode then Save.writeSlot(city,slot) end
+    fit(); toast("New company in slot "..slot)
+    return
+  end
+  if name=="deleteSlot" then
+    local slot=...
+    if not testMode then Save.deleteSlot(slot) end
+    state.slotConfirm=nil
+    if slot==(city.slot or 1) then
+      city=City.new(); city.slot=slot
+      clear(); state.undo={}; state.scroll=0; state.tab="network"
+      if not testMode then Save.writeSlot(city,slot) end
+      fit()
+    end
+    state.slots=slotSummaries()
+    toast("Company "..slot.." deleted")
+    return
+  end
   if name=="restart" then
-    city=City.new(); clear(); state.undo={}; state.modal=nil; state.scroll=0; state.tab="network"
-    state.commodity="water"; state.capacity=3; state.borrow=500
-    fit(); save(); return
+    local slot=city.slot or 1
+    city=City.new(); city.slot=slot
+    resetSession()
+    if not testMode then Save.writeSlot(city,slot) end
+    fit(); return
   end
   if name=="undo" then
     local snap=table.remove(state.undo)
@@ -174,16 +247,19 @@ function love.load(args)
   -- quits. The one question that is genuinely hard to answer any other way,
   -- because the answer depends on how the game was launched.
   if testMode=="--probe" then
-    local loaded,err=Save.read()
     print("save directory: "..love.filesystem.getSaveDirectory())
     print("fused:          "..tostring(love.filesystem.isFused()))
     for _,dir in ipairs(Save.candidates()) do print("candidate:      "..dir) end
-    if loaded then
-      print(string.format("company:        day %d, $%d, %d structures%s",
-        loaded.day,loaded.money,#loaded.g:aliveNodes(),
-        loaded.adoptedFrom and (" (carried over from "..loaded.adoptedFrom..")") or ""))
-    else
-      print("company:        none found"..(err and (" ("..tostring(err)..")") or ""))
+    print("current slot:   "..Save.readCurrent())
+    for slot=1,Save.SLOTS do
+      local loaded=Save.readSlot(slot)
+      if loaded then
+        print(string.format("  slot %d:       day %d, $%d, %d structures%s",slot,
+          loaded.day,loaded.money,#loaded.g:aliveNodes(),
+          loaded.adoptedFrom and ("  (carried over from "..loaded.adoptedFrom..")") or ""))
+      else
+        print(string.format("  slot %d:       empty",slot))
+      end
     end
     love.event.quit()
     return
@@ -198,6 +274,7 @@ function love.load(args)
   local err
   if not testMode then city,err=Save.read() end
   city=city or City.new(testMode and {seed=23,obstacles=4} or nil)
+  city.slot=city.slot or (testMode and 1 or Save.readCurrent())
   cam=Camera.new(city.bounds.w,city.bounds.h); fit()
   if err then toast("Could not load saved company: "..err,true) end
   if city.bankrupt then state.modal="report" end

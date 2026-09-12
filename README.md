@@ -36,9 +36,11 @@ make run
 make install       # Linux app-menu entry, icon, and packaged game
 ```
 
-The game opens directly into your company and automatically saves after each
-decision and day close. Test modes use isolated companies and never overwrite
-your normal save.
+The game opens directly into whichever company you last played and saves after
+every decision and day close. **Companies**, in the bottom bar, keeps six of them
+side by side: switch between them, start another, or delete one. The company you
+are leaving is always saved first, so switching can never cost you a day's work.
+Test modes use isolated companies and never read or overwrite your saves.
 
 ## Controls
 
@@ -62,6 +64,7 @@ your normal save.
 | Demolish selection | Delete, or the inspector button |
 | Undo a decision | Z, or the undo button |
 | Close the day | Enter, or Close day |
+| Switch or start a company | Companies, in the bottom bar |
 | Cancel a tool or selection | Escape |
 | Mute | M, or the sound button |
 
@@ -209,7 +212,9 @@ The `origin` remote points to the private GitHub repository. Push committed
 changes with `git push`; local edits and company saves do not sync automatically.
 The runtime is not bundled; the export currently requires LÖVE to be installed.
 
-To move your company too, copy `company.lua` from the LÖVE save directory:
+To move your companies too, copy `company1.lua` through `company6.lua` and
+`current.lua` from the LÖVE save directory. A company from before there were
+slots is called `company.lua` and is picked up as the first slot:
 
 | Platform | Save folder |
 | --- | --- |
@@ -245,9 +250,10 @@ and window tests under Xvfb and uploads the packaged game.
 | `src/company_app.lua` | Input, camera, action history and game lifecycle |
 | `src/company_ui.lua` | Network inspector, treasury, clients, journal and report |
 | `src/company_render.lua` | City map, districts, trade symbols, flowing pipes and track |
-| `src/company_save.lua` | Versioned saves and random-state persistence |
+| `src/company_save.lua` | Six save slots, versioned saves, random-state persistence |
 | `src/company_walkthrough.lua` | Rendered input and screenshot checks |
 | `test/test_company.lua` | Regression and multi-company economy tests |
+| `test/test_save_location.lua` | Save slots, and finding a company either build wrote |
 
 The previous contract game is retained for comparison with
 `love . --contracts`. Its graph and generation tests remain part of the suite.

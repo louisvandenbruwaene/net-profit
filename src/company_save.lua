@@ -20,7 +20,10 @@ end
 function Save.pack(city)
   local data = {}
   for k, v in pairs(city) do
-    if k ~= "g" and k ~= "firstSource" and k ~= "served" and k ~= "detail" and k ~= "flowBy" then
+    -- Everything refresh() recomputes stays out of the file.
+    if k ~= "g" and k ~= "firstSource" and k ~= "served" and k ~= "detail"
+       and k ~= "flowBy" and k ~= "produced" and k ~= "spare" and k ~= "wellSpare"
+       and k ~= "capacityBy" and k ~= "unserved" and k ~= "adoptedFrom" then
       data[k] = v
     end
   end
@@ -67,67 +70,48 @@ function Save.unpack(text)
   return city
 end
 
--- Writing the company. The primary write goes through LOVE, which creates the
--- directory and lets the rename be atomic.
---
--- It is then mirrored into any other save directory this game is known to use,
--- but only one that already exists. Finding the company in the other location
--- (below) is enough to rescue it once; mirroring is what stops the two copies
--- drifting apart afterwards, so playing the app and running the checkout are
--- always the same company rather than two that slowly diverge.
-function Save.write(city)
-  local text = Save.pack(city)
-  local ok, err = love.filesystem.write("company.tmp", text)
-  if not ok then return nil, err end
-  local root = love.filesystem.getSaveDirectory()
-  local moved, moveErr = os.rename(root .. "/company.tmp", root .. "/company.lua")
-  if not moved then return nil, moveErr end
-  Save.mirror(text, root)
-  return true
-end
+--------------------------------------------------------------------------------
+-- Six companies
+--------------------------------------------------------------------------------
 
-function Save.mirror(text, root)
-  for _, dir in ipairs(Save.candidates()) do
-    if dir ~= root then
-      -- Only mirror where the game has actually saved before. Creating the
-      -- other directory would invent a company nobody asked for.
-      local probe = io.open(dir .. "/" .. Save.SAVE_NAME, "r")
-      if probe then
-        probe:close()
-        local out = io.open(dir .. "/" .. Save.SAVE_NAME, "w")
-        if out then
-          out:write(text)
-          out:close()
-        end
-      end
-    end
-  end
+-- Six slots, so a company can be put down and come back to, and so an
+-- experiment -- a big loan, a district bought early, a network built entirely
+-- on havens -- does not have to be played out on the run you care about.
+--
+-- The slots sit beside each other as company1.lua .. company6.lua, and
+-- current.lua remembers which one was last played, so the game still opens
+-- straight into a company rather than into a menu.
+Save.SLOTS = 6
+Save.SAVE_NAME = "company.lua"      -- what the game used before there were slots
+Save.LEGACY_NAME = "company.lua"
+Save.CURRENT_NAME = "current.lua"
+
+function Save.slotName(slot) return "company" .. tostring(slot) .. ".lua" end
+
+function Save.validSlot(slot)
+  return type(slot) == "number" and slot % 1 == 0 and slot >= 1 and slot <= Save.SLOTS
 end
 
 --------------------------------------------------------------------------------
--- Finding the company, wherever the last build left it
+-- Finding a company, wherever the last build left it
 --------------------------------------------------------------------------------
 
 -- LOVE puts a fused game's save directory in a different place from a game run
 -- out of a source folder: ~/Library/Application Support/net-profit rather than
 -- ~/Library/Application Support/LOVE/net-profit, and the equivalent on Windows
 -- and Linux. That is an implementation detail of how the game happened to be
--- launched, and it must never cost anybody their company. So a save directory
--- with nothing in it falls back to the other one, and the next write adopts the
--- company into the current location while leaving the original untouched.
+-- launched, and it must never cost anybody their company. So a slot that is
+-- empty here falls back to the same slot in the other location.
 --
 -- Written against injected lookups so the fallback can be tested without LOVE.
-Save.SAVE_NAME = "company.lua"
-
-function Save.locate(env)
-  if env.primaryExists(Save.SAVE_NAME) then
-    return env.primaryRead(Save.SAVE_NAME), nil
-  end
+function Save.locate(env, name)
+  name = name or Save.LEGACY_NAME
+  if env.primaryExists(name) then return env.primaryRead(name), nil end
   local here = env.saveDirectory or ""
   for _, dir in ipairs(env.candidates or {}) do
     -- Never re-read the directory we have already found to be empty.
     if dir ~= here then
-      local text = env.fileRead(dir .. "/" .. Save.SAVE_NAME)
+      local text = env.fileRead(dir .. "/" .. name)
       if text and #text > 0 then return text, dir end
     end
   end
@@ -141,8 +125,8 @@ function Save.candidates()
   return { base .. "/LOVE/" .. id, base .. "/" .. id }
 end
 
-function Save.read()
-  local text, adopted = Save.locate({
+function Save.env()
+  return {
     saveDirectory = love.filesystem.getSaveDirectory(),
     candidates = Save.candidates(),
     primaryExists = function(name) return love.filesystem.getInfo(name) ~= nil end,
@@ -154,14 +138,161 @@ function Save.read()
       f:close()
       return data
     end,
-  })
+  }
+end
+
+--------------------------------------------------------------------------------
+-- Reading and writing a slot
+--------------------------------------------------------------------------------
+
+-- Filenames a slot will answer to, in order of preference. The company that
+-- existed before there were slots is the first slot: it is adopted rather than
+-- moved, so nothing is rewritten until it is actually played.
+function Save.namesForSlot(slot)
+  if slot == 1 then return { Save.slotName(1), Save.LEGACY_NAME } end
+  return { Save.slotName(slot) }
+end
+
+function Save.readSlot(slot)
+  if not Save.validSlot(slot) then return nil, "no such slot" end
+  local env = Save.env()
+  local text, adopted
+  for _, name in ipairs(Save.namesForSlot(slot)) do
+    text, adopted = Save.locate(env, name)
+    if text then break end
+  end
   if not text then return nil end
   local city, err = Save.unpack(text)
-  if city and adopted then
-    city:note("Company found in the previous save location and carried over")
+  if not city then return nil, err end
+  city.slot = slot
+  if adopted then
+    city:note("Company carried over from the previous save location")
     city.adoptedFrom = adopted
   end
-  return city, err
+  return city
 end
+
+-- The primary write goes through LOVE, which creates the directory and lets the
+-- rename be atomic. It is then mirrored into the other save directory when that
+-- one already holds companies, so playing the app and running the checkout stay
+-- one company rather than two that slowly drift apart.
+function Save.writeSlot(city, slot)
+  slot = slot or city.slot or 1
+  if not Save.validSlot(slot) then return nil, "no such slot" end
+  city.slot = slot
+  local name = Save.slotName(slot)
+  local text = Save.pack(city)
+  local ok, err = love.filesystem.write("company.tmp", text)
+  if not ok then return nil, err end
+  local root = love.filesystem.getSaveDirectory()
+  local moved, moveErr = os.rename(root .. "/company.tmp", root .. "/" .. name)
+  if not moved then return nil, moveErr end
+  Save.mirror(text, root, name)
+  Save.writeCurrent(slot)
+  return true
+end
+
+function Save.deleteSlot(slot)
+  if not Save.validSlot(slot) then return nil, "no such slot" end
+  local name = Save.slotName(slot)
+  love.filesystem.remove(name)
+  -- Slot one may still be standing on the pre-slot file; leaving it behind
+  -- would make the deleted company reappear on the next launch.
+  if slot == 1 then love.filesystem.remove(Save.LEGACY_NAME) end
+  local root = love.filesystem.getSaveDirectory()
+  for _, dir in ipairs(Save.candidates()) do
+    if dir ~= root then
+      os.remove(dir .. "/" .. name)
+      if slot == 1 then os.remove(dir .. "/" .. Save.LEGACY_NAME) end
+    end
+  end
+  return true
+end
+
+-- Does this directory hold any company at all? Used to decide where a mirror is
+-- welcome: writing into a directory that has never held a save would invent a
+-- company nobody asked for.
+local function dirHoldsCompany(dir)
+  local names = { Save.LEGACY_NAME }
+  for slot = 1, Save.SLOTS do names[#names + 1] = Save.slotName(slot) end
+  for _, name in ipairs(names) do
+    local f = io.open(dir .. "/" .. name, "r")
+    if f then f:close(); return true end
+  end
+  return false
+end
+
+function Save.mirror(text, root, name)
+  name = name or Save.SAVE_NAME
+  for _, dir in ipairs(Save.candidates()) do
+    if dir ~= root and dirHoldsCompany(dir) then
+      local out = io.open(dir .. "/" .. name, "w")
+      if out then
+        out:write(text)
+        out:close()
+      end
+    end
+  end
+end
+
+--------------------------------------------------------------------------------
+-- Which slot is being played, and what is in the others
+--------------------------------------------------------------------------------
+
+function Save.writeCurrent(slot)
+  if not Save.validSlot(slot) then return nil end
+  local text = "return " .. tostring(slot) .. "\n"
+  love.filesystem.write(Save.CURRENT_NAME, text)
+  Save.mirror(text, love.filesystem.getSaveDirectory(), Save.CURRENT_NAME)
+  return true
+end
+
+-- Read by pattern rather than by executing the file: it is one small integer,
+-- and there is no reason to hand it an interpreter.
+function Save.readCurrent()
+  local text = Save.locate(Save.env(), Save.CURRENT_NAME)
+  local slot = text and tonumber(string.match(text, "%d+"))
+  if Save.validSlot(slot) then return slot end
+  return 1
+end
+
+-- Enough of a company to choose between six of them, without the caller having
+-- to know that reading a summary means loading the whole thing.
+function Save.summarize(slot)
+  local city = Save.readSlot(slot)
+  if not city then return { slot = slot, empty = true } end
+  local clients = 0
+  for _, n in ipairs(city.g.nodes) do
+    if n.alive and n.kind == "client" and not n.prospect then clients = clients + 1 end
+  end
+  local trades = {}
+  for _, name in ipairs({ "water", "power", "beer", "oil" }) do
+    if city.licences and city.licences[name] then trades[#trades + 1] = name end
+  end
+  return {
+    slot = slot, empty = false,
+    day = city.day, money = city.money, clients = clients,
+    worth = city:valuation(), bankrupt = city.bankrupt,
+    districts = #city:ownedDistricts(), trades = trades,
+  }
+end
+
+function Save.summaries()
+  local t = {}
+  for slot = 1, Save.SLOTS do t[slot] = Save.summarize(slot) end
+  return t
+end
+
+function Save.firstEmptySlot()
+  for slot = 1, Save.SLOTS do
+    if not Save.readSlot(slot) then return slot end
+  end
+  return nil
+end
+
+--------------------------------------------------------------------------------
+
+function Save.read(slot) return Save.readSlot(slot or Save.readCurrent()) end
+function Save.write(city) return Save.writeSlot(city, city.slot) end
 
 return Save

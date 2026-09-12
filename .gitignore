@@ -2,3 +2,6 @@
 dist/
 luac.out
 .DS_Store
+
+# Personal save backups kept alongside the source, never committed.
+net-profit-save-backups/
