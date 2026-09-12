@@ -271,19 +271,28 @@ local function inspectSource(n,y)
   row("Spare capacity",spare.." "..n.commodity,y+64,
     maxed and P.bad or spare>0 and P.good or P.textDim)
   row("Maximum output",capacity.." "..n.commodity.." / day",y+90,P.good)
-  -- The ground's own ceiling, which no amount of money moves. It is the reason
-  -- the map has to keep going: more supply means further out.
   local ceiling=n.cap or capacity
-  row("What this ground gives",ceiling.." / day",y+116,
-    capacity>=ceiling and P.warn or P.textDim,
-    "A deposit has a daily limit and the works on it cannot pass it. Deposits "..
-    "further from the old city give more. This one is "..
-    (capacity>=ceiling and "worked out." or ("worked to "..capacity.." of "..ceiling..".")))
-  row("Well depth","level "..level.." / "..City.sourceMaxLevel,y+142)
+  if n.plant then
+    local spec=City.PLANTS[n.plant] or {}
+    row("Plant",spec.name or "PLANT",y+116,P.energy,spec.blurb)
+    row("Fuel",(n.fuel or 0)>0 and ("-$"..string.format("%.2f",n.fuel).." / unit made")
+      or "none at all",y+142,(n.fuel or 0)>0 and P.warn or P.good,
+      "A reactor burns imported fuel. A wind park burns nothing, which is the "..
+      "whole argument for the islands.")
+  else
+    -- The ground's own ceiling, which no amount of money moves. It is the reason
+    -- the map has to keep going: more supply means further out.
+    row("What this ground gives",ceiling.." / day",y+116,
+      capacity>=ceiling and P.warn or P.textDim,
+      "A deposit has a daily limit and the works on it cannot pass it. Deposits "..
+      "further from the old city give more. This one is "..
+      (capacity>=ceiling and "worked out." or ("worked to "..capacity.." of "..ceiling..".")))
+    row("Well depth","level "..level.." / "..City.sourceMaxLevel,y+142)
+  end
   row("Wholesale income","+$"..city:sourceIncome(n).." / day",y+168,P.good)
-  row("Upkeep","-$"..(trade.sourceUpkeep+(level-1)*2).." / day",y+194,P.warn)
+  row("Upkeep","-$"..((n.upkeep or trade.sourceUpkeep)+(level-1)*2).." / day",y+194,P.warn)
   row("Ports",city.g:degree(n.id).." / "..n.ports,y+220)
-  if level<City.sourceMaxLevel and capacity<ceiling then
+  if not n.plant and level<City.sourceMaxLevel and capacity<ceiling then
     local cost=city:sourceUpgradeCost(n)
     button("upgrade-source","Deepen well   +"..trade.upgradeStep.." output   $"..cost,
       M,y+258,CW,38,function() act("upgradeSource",n.id) end,city.money>=cost,
@@ -293,7 +302,8 @@ local function inspectSource(n,y)
          " plus the route to reach it.",M,y+304,"small",P.textDim,CW)
     y=y+336
   else
-    text(capacity>=ceiling
+    text(n.plant and ((City.PLANTS[n.plant] or {}).blurb or "")
+      or capacity>=ceiling
       and ("This ground is worked out at "..ceiling.." a day. Deposits further from the old city give more.")
       or "This well is at full depth. Sink another, or buy ground with a richer deposit.",
       M,y+262,"body",P.textDim,CW)
@@ -324,8 +334,8 @@ local function inspectSource(n,y)
       M,y+42,"small",P.textDim,CW)
     y=y+82
   else
-    y=demolishBlock(n,y,"Close the well",
-      "Nothing is tied into this well, so it can be removed outright.")
+    y=demolishBlock(n,y,n.plant and "Decommission" or "Close the well",
+      "Nothing is tied into it, so it can be removed outright.")
   end
   return y
 end
@@ -529,6 +539,22 @@ local function buildPanel()
     button("source","Beer is landed at a haven",M,y,CW,36,function() end,false,
       "Nobody brews. Beer arrives at a haven like any other import: build one on the edge of the map and run track inland.",
       false,P.textFaint)
+  elseif state.commodity=="power" then
+    -- Two ways to make electricity, and they want opposite ground.
+    for i,key in ipairs(City.PLANT_ORDER) do
+      local spec=City.PLANTS[key]
+      local cost=city:plantCost(key)
+      local bw=(CW-8)/2
+      button("plant-"..key,({nuclear="Reactor",wind="Wind park"})[key].."  $"..cost,
+        M+(i-1)*(bw+8),y,bw,36,
+        function()
+          if state.tool=="source" and state.plant==key then state.tool=nil
+          else state.tool,state.plant="source",key end
+        end,
+        city.money>=cost,spec.blurb.." Output "..spec.output.." a day, upkeep $"..spec.upkeep..".",
+        state.tool=="source" and state.plant==key,P.good)
+    end
+    y=y+8
   else
     local scost=city:sourceCost(state.commodity)
     local title=({water="Sink a water well",oil="Sink an oil rig",power="Build a nuclear plant"})[state.commodity]
@@ -609,8 +635,8 @@ local function inspectorPanel(n,e)
   if n then
     local title=n.kind=="client" and E.clientName(city,n)
       -- A well is called a well, and an electricity well is called a station.
-      or (n.kind=="source" and (string.upper(n.commodity)..
-          (n.commodity=="power" and " STATION " or " WELL ")..n.id))
+      or (n.kind=="source" and ((n.plant and (City.PLANTS[n.plant] or {}).name
+          or (string.upper(n.commodity).." WELL")).." "..n.id))
       or (Graph.KINDS[n.kind].name.." "..n.id)
     if n.commodity then drop(n.commodity,M+9,y+10,10); single(title,M+24,y,"mid",P.text,CW-24)
     else single(title,M,y,"mid",P.text,CW) end
