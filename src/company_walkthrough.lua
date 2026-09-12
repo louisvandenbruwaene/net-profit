@@ -146,6 +146,32 @@ function Walk.start(app,mode)
     check(findButton("back-to-build")~=nil,"and a single button returns to the build tools")
   end
 
+  -- The customer who is short is told why, and handed the fix.
+  do
+    c.money=9999
+    local src=c.firstSource
+    local a,b=c:clientList()[1],c:clientList()[2]
+    for _,e in ipairs(c.g.edges) do if e.alive then c:demolishPipe(e.id) end end
+    a.demand,b.demand=3,4
+    a.x,a.y=src.x+200,src.y
+    b.x,b.y=src.x+400,src.y
+    local narrow=assert(c:layPipe(src.id,a.id,"water",3))
+    assert(c:layPipe(a.id,b.id,"water",4))
+    check((c.served[b.id] or 0)==0,"the downstream house is starved behind a narrow main")
+    app.action("focusNode",b.id)
+    local widen=findButton("widen-bottleneck")
+    check(widen and widen.enabled,"the customer panel offers to widen the main that is at fault")
+    for _=1,4 do
+      love.draw()
+      local btn=findButton("widen-bottleneck")
+      if not btn then break end
+      love.mousepressed(btn.x+btn.w/2,btn.y+btn.h/2,1)
+      love.mousereleased(btn.x+btn.w/2,btn.y+btn.h/2,1)
+    end
+    check(c.served[b.id]==b.demand,"pressing it until it goes away supplies the customer")
+    check(findButton("widen-bottleneck")==nil,"and then there is nothing left to widen")
+  end
+
   -- Repair everything, in one decision.
   do
     c.money=4000
