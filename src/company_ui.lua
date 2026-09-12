@@ -120,10 +120,11 @@ local toolTips = {
   gate="Gate: 2 ports, $30, $1 a day. A valve you set by hand -- throttle a branch to starve it on purpose and send scarce supply to the customers who pay more.",
   depot="Depot: 3 ports, $190, $3 a day. Takes in output you could not sell today, up to 18 units, and feeds it back into the network tomorrow.",
   exchange="Hub: 8 ports, $1400, $9 a day plus $0.70 a customer. Stands in a neighbourhood and serves everyone inside 700m who pays at least the rate you set, with no main drawn to any of them. Offers in range sign themselves. Its feed widens itself when it runs short, at the usual price, until you switch that off.",
+  dc="Depot yard: 10 ports, $3000, $12 a day. The only thing inland that a railway, a highway or a ship can terminate at. Bulk arrives here and the city's own mains and roads leave from it.",
   terminal="Haven: 4 ports, $2200, $26 a day. The city's door to the outside world: every trade but power lands here in unlimited quantity, billed per unit as it moves. It can only stand on the strip of ground along the estuary, the highway or the apron, one haven to each, and it ships by track only.",
 }
 
-local TOOLS = {"junction","manifold","pump","tower","gate","depot","exchange","terminal"}
+local TOOLS = {"junction","manifold","pump","tower","gate","depot","exchange","terminal","dc"}
 
 -- Replacing a structure where it stands. The mains never come off, so this is
 -- the difference between buying three more ports and rebuilding a junction box
@@ -497,17 +498,48 @@ local function inspectEdge(e,y)
   local broken=e.leaking or e.cap<(e.capMax or e.cap)
   local grade=city:gradeOf(e)
   if e.rail then
-    row("Kind","RAILWAY",y,P.accent)
+    local spec=City.MODES[e.bulk or "rail"]
+    local _,haul=city:haulageBill()
+    row("Kind",spec.name,y,P.accent,spec.blurb)
     row("Flow / capacity",math.abs(city.detail.edge[e.id] or 0).." / "..e.cap,y+26)
     row("Length",math.floor(city:pipeLength(e)).."m",y+52)
-    row("Daily upkeep",string.format("-$%.2f",city:pipeUpkeep(e)),y+78,P.warn)
-    row("Leak risk","none: track does not corrode",y+104,P.good)
-    local bore=city:boreCost(e,1)
-    button("upgrade","+1 capacity   $"..bore,M,y+142,CW,34,function() act("upgradePipe",e.id) end,
-      city.money>=bore and e.capMax<24,"One more wagon path along this line")
-    button("demolish-pipe","Lift the track  +$"..math.floor((e.paid or 0)*0.4),M,y+184,CW,32,
+    row("Haulage today",string.format("-$%.2f",haul[e.id] or 0),y+78,P.warn,
+      "$"..spec.haulPerUnit.." a unit at the yard plus $"..
+      string.format("%.5f",spec.haulPerM).." a unit a metre. This is what distance costs.")
+    row("Standing upkeep",string.format("-$%.2f",city:pipeUpkeep(e)),y+104,P.warn)
+    row("Leak risk","none: freight lines do not corrode",y+130,P.good)
+    -- The wagons. This is what a bulk line is: not a wider pipe but a train
+    -- with things loaded onto it.
+    text("Loaded with",M,y+162,"small",P.textDim)
+    local ly=y+184
+    for _,name in ipairs(Graph.ALL) do
+      local cap=(e.wagons or {})[name]
+      if cap then
+        row(string.upper(name),cap,ly,Graph.COMMODITIES[name].color)
+        ly=ly+24
+      end
+    end
+    if not e.wagons then row(string.upper(e.commodity),e.cap,ly,Graph.COMMODITIES[e.commodity].color); ly=ly+24 end
+    local cost=city:wagonCost(e.id)
+    if cost and (e.wagonCount or 1)<8 then
+      text("Fit another wagon   $"..cost,M,ly+8,"small",P.textDim,CW)
+      local col=0
+      for _,name in ipairs(Graph.ALL) do
+        if not city:wagonError(e.id,name) and col<10 then
+          local bx=M+(col%5)*61
+          local by=ly+30+math.floor(col/5)*30
+          button("wagon-"..name,string.upper(name):sub(1,5),bx,by,57,26,
+            function() act("addWagon",e.id,name) end,city.money>=cost,
+            "Fit a wagon for "..name..": "..City.MODES[e.bulk or "rail"].wagonCap.." more capacity, for that alone.",
+            false,Graph.COMMODITIES[name].color)
+          col=col+1
+        end
+      end
+      ly=ly+30+math.ceil(math.max(1,col)/5)*30
+    end
+    button("demolish-pipe","Lift the line  +$"..math.floor((e.paid or 0)*0.4),M,ly+10,CW,32,
       function() act("demolishPipe",e.id) end,true,"Recovers 40% of everything paid into this line")
-    return y+230
+    return ly+56
   end
   -- Repair sits at the top and pulses while there is anything to repair.
   button("repair",broken and ("Repair now   $"..city:repairCost(e)) or "Nothing to repair",
@@ -614,13 +646,33 @@ local function buildPanel()
     y=y+math.ceil(#goods/5)*30+6
   end
   y=y+4
-  text("Capacity",M,y+9,"body",P.textDim)
-  button("capacity-minus","-",M+78,y,32,32,function() state.capacity=math.max(1,state.capacity-1) end,true,"Narrower bore")
+  -- Bore for a main, wagons for a bulk line. They are different things bought
+  -- in different units, so the label says which one you are buying.
+  local bulk=City.modeOf(state.rail)
+  local ceiling=bulk and 8 or 24
+  state.capacity=math.max(1,math.min(ceiling,state.capacity))
+  text(bulk and "Wagons" or "Capacity",M,y+9,"body",P.textDim)
+  button("capacity-minus","-",M+78,y,32,32,function() state.capacity=math.max(1,state.capacity-1) end,true,
+    bulk and "One wagon fewer" or "Narrower bore")
   text(state.capacity,M+114,y+8,"body",P.text,26,"center")
-  button("capacity-plus","+",M+144,y,32,32,function() state.capacity=math.min(24,state.capacity+1) end,true,"Wider bore")
-  button("rail-toggle",state.rail and "TRACK" or "PIPE",M+186,y,114,32,function() state.rail=not state.rail end,
-    #city.g:nodesOfKind("terminal")>0,"Track must start or end at a haven (T)",state.rail,P.accent)
-  y=y+44
+  button("capacity-plus","+",M+144,y,32,32,function() state.capacity=math.min(ceiling,state.capacity+1) end,true,
+    bulk and "One wagon more" or "Wider bore")
+  y=y+40
+  -- How this line is built. A main, a cable or a road is decided by what is
+  -- going down it; the four bulk modes are a decision the player makes.
+  local haveBulk=#city.g:nodesOfKind("terminal")+#city.g:nodesOfKind("dc")>0
+  local localName=({liquid="MAIN",energy="CABLE",solid="ROAD"})[Graph.formOf(state.commodity)]
+  button("mode-local",localName,M,y,60,28,function() state.rail=nil end,true,
+    "The city's own network: "..string.lower(localName).." laid between structures, priced by the metre.",
+    not bulk,Graph.COMMODITIES[state.commodity].color)
+  for i,key in ipairs(City.MODE_ORDER) do
+    local spec=City.MODES[key]
+    button("mode-"..key,({rail="RAIL",highway="HWY",sea="SEA",air="AIR"})[key],
+      M+62+(i-1)*61,y,57,28,function() state.rail=key end,haveBulk,
+      spec.name..": "..spec.blurb.."  Each wagon carries "..spec.wagonCap..
+      ", and it runs between havens and depot yards only.",bulk==key,spec.colour)
+  end
+  y=y+40
   -- One supply button, and it says what the selected trade actually allows:
   -- a well or a rig on a marked deposit, a reactor on any ground, and for beer
   -- nothing at all, because beer is landed rather than made.
@@ -666,12 +718,12 @@ local function buildPanel()
         afford,toolTips[name],state.tool==name,Graph.KINDS[name].color)
       lg.setColor(afford and Graph.KINDS[name].color or P.textFaint)
       Draw.structureGlyph(name,bx+17,by+24)
-      text(({junction="Junction",manifold="Manifold",pump="Pump",tower="Treat",gate="Valve",depot="Depot",exchange="Hub",terminal="Haven"})[name],
+      text(({junction="Junction",manifold="Manifold",pump="Pump",tower="Treat",gate="Valve",depot="Depot",exchange="Hub",terminal="Haven",dc="Yard"})[name],
         bx+32,by+8,"tiny",P.text)
       text("$"..City.price[name],bx+32,by+28,"small",P.textDim)
     end
   end
-  y=y+(advanced and 232 or 58)+8
+  y=y+(advanced and 290 or 58)+8
   -- The works. Nine buildings that turn one thing into another, listed with
   -- what they eat, because that is the only thing worth knowing about them.
   if advanced then

@@ -199,6 +199,15 @@ function Draw.structureGlyph(kind, x, y, s)
     lg.rectangle("fill", -9.4 * s, -6.9 * s, 2.6 * s, 15.4 * s)
     lg.rectangle("fill", 6.8 * s, -6.9 * s, 2.6 * s, 15.4 * s)
     lg.rectangle("fill", -3.6 * s, 1.6 * s, 7.2 * s, 6.9 * s, 0.6 * s)
+  elseif kind == "dc" then
+    -- A depot yard: a shed with a loading bay and two crates on the apron. The
+    -- bay is what says freight rather than storage.
+    lg.rectangle("fill", -10 * s, -7 * s, 20 * s, 11 * s, 0.8 * s)
+    lg.setColor(P.bg)
+    lg.rectangle("fill", -5.6 * s, -2.6 * s, 11.2 * s, 6.6 * s, 0.5 * s)
+    lg.setColor(r, g, b, a)
+    lg.rectangle("fill", -9 * s, 5 * s, 7 * s, 4 * s, 0.5 * s)
+    lg.rectangle("fill", 1.4 * s, 5 * s, 7 * s, 4 * s, 0.5 * s)
   elseif kind == "works" then
     -- A works: a shed with a saw-tooth roof and a stack, which is what a
     -- factory looks like to everybody. It is deliberately close to the customer
@@ -573,19 +582,43 @@ function Draw.world(city, cam, state)
       -- Track reads as track: two steel rails on sleepers, tinted by what it
       -- happens to be hauling.
       if e.rail then
+        -- A bulk line is drawn as the mode it is, with one stripe per wagon in
+        -- the colour of what that wagon carries. A glance says both what this
+        -- line is and what is on it.
+        local mode = City.MODES[e.bulk or "rail"]
         local dx,dy = bx-ax,by-ay
         local len = math.max(1,math.sqrt(dx*dx+dy*dy))
-        local nx,ny = -dy/len*(width*0.45+1.5), dx/len*(width*0.45+1.5)
-        lg.setColor(P.with(P.textFaint,0.75)); lg.setLineWidth(math.max(1,1.6*cam.scale))
-        local step = math.max(9,16*cam.scale)
-        for d = 0,len,step do
-          local t = d/len
-          local sx,sy = ax+dx*t, ay+dy*t
-          lg.line(sx-nx*1.6,sy-ny*1.6,sx+nx*1.6,sy+ny*1.6)
+        local nx,ny = -dy/len, dx/len
+        local wide = math.max(2, 3.4*cam.scale)
+        lg.setColor(P.with(mode.colour,0.9)); lg.setLineWidth(wide)
+        lg.line(ax,ay,bx,by)
+        if e.bulk == "rail" or not e.bulk then
+          lg.setColor(P.with(P.textFaint,0.6)); lg.setLineWidth(math.max(1,1.4*cam.scale))
+          local step = math.max(9,16*cam.scale)
+          for d = 0,len,step do
+            local t = d/len
+            lg.line(ax+dx*t-nx*wide, ay+dy*t-ny*wide, ax+dx*t+nx*wide, ay+dy*t+ny*wide)
+          end
+        elseif e.bulk == "sea" then
+          lg.setColor(P.with(mode.colour,0.35)); lg.setLineWidth(wide*2.4)
+          lg.line(ax,ay,bx,by)
         end
-        lg.setColor(P.with(c,0.85)); lg.setLineWidth(math.max(1.2,2*cam.scale))
-        lg.line(ax+nx,ay+ny,bx+nx,by+ny)
-        lg.line(ax-nx,ay-ny,bx-nx,by-ny)
+        local loaded = {}
+        for _,name in ipairs(Graph.TRADES) do
+          if (e.wagons or {})[name] then loaded[#loaded+1] = name end
+        end
+        for _,name in ipairs(Graph.ALL) do
+          if (e.wagons or {})[name] and not (Graph.COMMODITIES[name].role == "utility") then
+            loaded[#loaded+1] = name
+          end
+        end
+        if #loaded == 0 and e.commodity then loaded[1] = e.commodity end
+        for i,name in ipairs(loaded) do
+          local off = (i - (#loaded+1)/2) * math.max(1.6, 2.6*cam.scale)
+          lg.setColor(P.with(Graph.COMMODITIES[name].color,0.95))
+          lg.setLineWidth(math.max(1,1.8*cam.scale))
+          lg.line(ax+nx*off, ay+ny*off, bx+nx*off, by+ny*off)
+        end
       end
       -- Oil mains are drawn as their contents: a black bore in a steel casing.
       if e.rail then

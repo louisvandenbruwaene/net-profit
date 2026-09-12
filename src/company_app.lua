@@ -99,6 +99,12 @@ local function slotSummaries()
 end
 
 local function action(name,...)
+  if name=="addWagon" then
+    local id,commodity=...
+    local ok,err=city:addWagon(id,commodity)
+    if not ok then toast(err,true) else A.play("upgrade") end
+    return
+  end
   if name=="setHubFloor" then
     local id,value=...
     local n=city.g.nodes[id]
@@ -430,7 +436,7 @@ function love.keypressed(key)
   if key=="escape" then clear()
   elseif key=="return" then action("endDay")
   elseif key=="f" then fit()
-  elseif key=="t" then state.rail=not state.rail
+  elseif key=="t" then state.rail=(state.rail==nil) and "rail" or nil
   elseif key=="z" then action("undo")
   elseif key=="m" then action("mute")
   elseif key=="u" and state.edge then action("upgradePipe",state.edge)
@@ -442,8 +448,8 @@ function love.keypressed(key)
     action("upgradeSource",state.node)
   elseif key=="delete" then
     if state.edge then action("demolishPipe",state.edge) elseif state.node then action("demolishNode",state.node) end
-  elseif tonumber(key) and tonumber(key)>=1 and tonumber(key)<=8 then
-    state.tool=({"junction","manifold","pump","tower","gate","depot","exchange","terminal"})[tonumber(key)]
+  elseif tonumber(key) and tonumber(key)>=1 and tonumber(key)<=9 then
+    state.tool=({"junction","manifold","pump","tower","gate","depot","exchange","terminal","dc"})[tonumber(key)]
   end
 end
 

@@ -51,6 +51,10 @@ Graph.KINDS = {
   -- customer and a well in one building. What it makes and what it wants are
   -- written on the node by the city, so the solver never has to know a recipe.
   works    = { name = "WORKS",    ports = 6,  throughput = 999, cost = 2000, color = {0.98, 0.72, 0.45} },
+  -- A distribution centre is where bulk meets local: the only thing inland that
+  -- a railway, a highway or a ship can terminate at, and an ordinary structure
+  -- in every other way, so mains and roads run out of it to the city.
+  dc       = { name = "DEPOT YARD", ports = 10, throughput = 999, cost = 3000, color = {0.98, 0.84, 0.52} },
   -- A depot buffers a commodity overnight: surplus production goes in at the
   -- close, and the next day it feeds the network like a small second well.
   depot    = { name = "DEPOT",    ports = 3,  throughput = 999, cost = 190, color = {0.62, 0.56, 0.98} },
@@ -412,11 +416,16 @@ function Graph:buildNetwork(uncapped, commodity)
 
   for _, e in ipairs(self.edges) do
     e._arcAB, e._arcBA = nil, nil
-    if e.alive and self.nodes[e.a].alive and self.nodes[e.b].alive
-       and (not commodity or e.commodity == commodity) then
-      net:arc(2 * e.a, 2 * e.b - 1, e.cap, { kind = "edge", id = e.id })
+    -- A main carries one thing. A bulk line carries whatever it has wagons for,
+    -- each wagon with its own capacity, which is why beer and water can share a
+    -- train and never a pipe.
+    local cap
+    if e.wagons then cap = commodity and e.wagons[commodity] or nil
+    elseif not commodity or e.commodity == commodity then cap = e.cap end
+    if e.alive and cap and self.nodes[e.a].alive and self.nodes[e.b].alive then
+      net:arc(2 * e.a, 2 * e.b - 1, cap, { kind = "edge", id = e.id })
       e._arcAB = #net.arcs - 1
-      net:arc(2 * e.b, 2 * e.a - 1, e.cap, { kind = "edge", id = e.id })
+      net:arc(2 * e.b, 2 * e.a - 1, cap, { kind = "edge", id = e.id })
       e._arcBA = #net.arcs - 1
     end
   end

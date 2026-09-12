@@ -14,7 +14,7 @@ City.__index = City
 -- their price does not depend on what flows through them.
 City.price = {
   junction = 22, manifold = 46, pump = 38, tower = 92, gate = 30, depot = 190,
-  exchange = 1400,
+  exchange = 1400, dc = 3000,
   terminal = 2200,
   powerLicence = 340, beerLicence = 600, oilLicence = 1500, foodLicence = 900,
   qualityBase = 140,
@@ -124,6 +124,71 @@ City.FORMS = {
 -- expensive part, the run itself is cheap by the metre once it exists, it
 -- reaches across whole districts, and it does not corrode. Track never leaks,
 -- so it is the one link in the game you build and then forget about.
+--------------------------------------------------------------------------------
+-- Bulk freight
+--
+-- The second network. A main carries one thing to one place and is priced by
+-- the metre; a bulk line carries whatever you load onto it, in wagons or holds,
+-- between two places big enough to handle freight. It costs a fortune to build
+-- and moves amounts a pipe cannot.
+--
+-- The four modes exist because each one owns a niche the others cannot take.
+-- Rail is the workhorse: enormous to lay, almost free to run, and it reaches
+-- across districts. A highway is quick and cheap to put down and expensive
+-- every day it is used, because it is paid for in drivers and diesel. Shipping
+-- is the cheapest thing on the map per unit per metre and only touches the
+-- coast. Air costs more than the freight is usually worth and goes anywhere,
+-- immediately, which is exactly what you want for something small and dear.
+--------------------------------------------------------------------------------
+City.MODES = {
+  rail    = { name = "RAILWAY",  order = 1, tiein = 240, perM = 0.52, perWagon = 120,
+              haulPerUnit = 0.10, haulPerM = 0.00035, wagonCap = 40, range = 4000,
+              needs = "land", colour = {0.72, 0.74, 0.80},
+              blurb = "Huge to build, nearly free to run, and it crosses districts." },
+  highway = { name = "HIGHWAY",  order = 2, tiein = 140, perM = 0.30, perWagon = 50,
+              haulPerUnit = 0.55, haulPerM = 0.0022, wagonCap = 18, range = 2000,
+              needs = "land", diesel = true, colour = {0.92, 0.80, 0.42},
+              blurb = "Cheap to lay and dear to run: every load is a driver and a tank of diesel." },
+  sea     = { name = "SHIPPING", order = 3, tiein = 520, perM = 0.08, perWagon = 150,
+              haulPerUnit = 0.08, haulPerM = 0.00012, wagonCap = 90, range = 1e9,
+              needs = "coast", diesel = true, colour = {0.40, 0.68, 0.92},
+              blurb = "The cheapest freight there is, and it only calls at the coast." },
+  air     = { name = "AIR FREIGHT", order = 4, tiein = 680, perM = 0.10, perWagon = 90,
+              haulPerUnit = 3.20, haulPerM = 0.0040, wagonCap = 10, range = 1e9,
+              needs = "air", colour = {0.86, 0.62, 0.98},
+              blurb = "Costs more than most freight is worth, and arrives anywhere. One aircraft type per route." },
+}
+City.MODE_ORDER = { "rail", "highway", "sea", "air" }
+
+-- Where freight can be handled at all: a haven, or a distribution centre.
+City.BULK_NODES = { terminal = true, dc = true }
+
+function City:isBulkNode(n)
+  return n and n.alive and City.BULK_NODES[n.kind] == true
+end
+
+-- Whether a mode may run between these two, and why not.
+function City:bulkError(a, b, mode)
+  local spec = City.MODES[mode]
+  if not spec then return "no such mode" end
+  local na, nb = self.g.nodes[a], self.g.nodes[b]
+  if not (self:isBulkNode(na) and self:isBulkNode(nb)) then
+    return "bulk runs between havens and distribution centres"
+  end
+  if spec.needs == "coast" then
+    local function afloat(n)
+      local d = self:districtAt(n.x, n.y)
+      return self:onCoast(n.x, n.y) or (d and d.island)
+    end
+    if not (afloat(na) and afloat(nb)) then return "a ship calls at the coast, not inland" end
+  elseif spec.needs == "air" then
+    if not (na.haven == "airfield" and nb.haven == "airfield") then
+      return "air freight flies between air freight havens"
+    end
+  end
+  return nil
+end
+
 -- Haulage is charged the way freight is really charged: a handling fee per unit
 -- at the yard, and a rate per unit per metre for the run. It is the reason
 -- water is rarely worth importing across the whole city and oil almost always
@@ -871,31 +936,40 @@ end
 
 function City:rangeBetween(a, b, rail)
   local ka, kb = self.g.nodes[a].kind, self.g.nodes[b].kind
+  local mode = City.modeOf(rail)
+  if mode then return City.MODES[mode].range end
   if rail then return City.rail.range end
   if ka == "pump" or kb == "pump" then return City.rules.pumpRange end
   return City.rules.linkRange
 end
 
--- Track runs from a haven inland. One end must be a terminal, which is what
--- makes rail infrastructure rather than a second kind of pipe.
-function City:railEndpoint(a, b)
-  return self.g.nodes[a].kind == "terminal" or self.g.nodes[b].kind == "terminal"
+-- `true` still means rail, because that is what the toggle used to be.
+function City.modeOf(mode)
+  if mode == true then return "rail" end
+  return (type(mode) == "string" and City.MODES[mode]) and mode or nil
 end
 
-function City:railQuote(a, b, capacity)
-  capacity = capacity or 1
+-- A bulk line is priced as infrastructure: two terminals, the run itself, and
+-- one charge per wagon or hold fitted to it.
+function City:railQuote(a, b, wagons, mode)
+  mode = City.modeOf(mode) or "rail"
+  local spec = City.MODES[mode]
+  wagons = math.max(1, wagons or 1)
   local metres = self:nodeDistance(a, b)
   local na, nb = self.g.nodes[a], self.g.nodes[b]
-  local mult = self:crossingCost(na.x, na.y, nb.x, nb.y) or 1
+  -- Ships and aircraft do not care what the ground is doing.
+  local mult = (spec.needs == "land") and (self:crossingCost(na.x, na.y, nb.x, nb.y) or 1) or 1
   local q = {
-    metres = metres, ground = mult, capacity = capacity, rail = true,
-    tiein = math.ceil(City.rail.tiein * 2),
-    trench = math.ceil(metres * City.rail.perM * mult),
-    bore = math.ceil(math.max(0, capacity - 1) * (City.rail.bore + metres * City.rail.borePerM)),
+    metres = metres, ground = mult, capacity = wagons, rail = true, mode = mode,
+    tiein = math.ceil(spec.tiein * 2),
+    trench = math.ceil(metres * spec.perM * mult),
+    bore = math.ceil(wagons * spec.perWagon),
   }
   q.total = q.tiein + q.trench + q.bore
   return q
 end
+
+function City:bulkQuote(a, b, wagons, mode) return self:railQuote(a, b, wagons, mode) end
 
 -- Only the trades the company sells by the day are licensed. Feedstock and
 -- materials are things you buy, make and move: nobody licenses a lorry load of
@@ -909,11 +983,20 @@ end
 
 function City:pipeError(a, b, commodity, rail)
   if not self:licensed(commodity) then return "no licence for that" end
-  if rail and not self:railEndpoint(a, b) then return "track must start or end at a haven" end
-  -- Freight lands at the edge of the map and is hauled inland. A main running
-  -- straight out of a haven would be a pipeline to a port that has no pipeline,
-  -- and it would dodge the haulage bill that makes distance cost something.
-  if not rail and self:railEndpoint(a, b) then return "a haven ships by track only" end
+  local mode = City.modeOf(rail)
+  if rail and not mode then return "no such mode" end
+  if mode then
+    local why = self:bulkError(a, b, mode)
+    if why then return why end
+  else
+    -- Freight is handled at a freight terminal. A main running straight out of
+    -- a haven would be a pipeline to a port that has no pipeline, and it would
+    -- dodge the haulage bill that makes distance cost something.
+    if self:isBulkNode(self.g.nodes[a]) and self.g.nodes[a].kind == "terminal"
+       or self:isBulkNode(self.g.nodes[b]) and self.g.nodes[b].kind == "terminal" then
+      return "a haven ships by bulk line only"
+    end
+  end
   local ok, why = self.g:canLink(a, b)
   -- Two structures may carry one pipe of each commodity between them.
   if not ok and why ~= "link already exists" then return why end
@@ -924,7 +1007,8 @@ function City:pipeError(a, b, commodity, rail)
   local na, nb = self.g.nodes[a], self.g.nodes[b]
   local d = math.sqrt((na.x - nb.x) ^ 2 + (na.y - nb.y) ^ 2)
   if d > self:rangeBetween(a, b, rail) then
-    return rail and "too far even for track" or "too far: use a pump"
+    return mode and ("too far even for " .. string.lower(City.MODES[mode].name))
+      or "too far: use a pump"
   end
   local mult, blocker = self:crossingCost(na.x, na.y, nb.x, nb.y)
   if not mult then return "cannot cross " .. string.lower(City.OBSTACLES[blocker.kind].name) end
@@ -1292,7 +1376,7 @@ end
 
 City.BUILDABLE = { junction = true, manifold = true, pump = true, tower = true,
                    gate = true, depot = true, terminal = true, exchange = true,
-                   works = true }
+                   works = true, dc = true }
 
 --------------------------------------------------------------------------------
 -- Hubs
@@ -1606,8 +1690,67 @@ function City:layPipe(a, b, commodity, capacity, rail)
   e.capMax = capacity
   e.paid = cost
   e.grade = 1
-  e.rail = rail or nil
   e.leaking = false
+  local mode = City.modeOf(rail)
+  if mode then
+    -- A bulk line is bought by the wagon, and the first wagon carries whatever
+    -- the player was holding when they drew it. `capacity` is wagons here, not
+    -- bore, and the line's capacity is what those wagons can hold.
+    local spec = City.MODES[mode]
+    e.bulk, e.rail = mode, true
+    e.wagons = { [commodity] = capacity * spec.wagonCap }
+    e.wagonCount = capacity
+    e.cap = capacity * spec.wagonCap
+    e.capMax = e.cap
+  end
+  self:refresh()
+  return e
+end
+
+-- Wagons, holds and aircraft. A bulk line carries as many commodities as it has
+-- wagons fitted, which is the whole difference between it and a main: beer, oil
+-- and water cannot share a pipe and can share a train.
+function City:wagonError(id, commodity)
+  local e = self.g.edges[id]
+  if not (e and e.alive and e.bulk) then return "not a bulk line" end
+  if not Graph.COMMODITIES[commodity] then return "no such commodity" end
+  if Graph.COMMODITIES[commodity].form == "energy" then
+    return "electricity travels by cable, not by freight"
+  end
+  if not self:licensed(commodity) then return "no licence for that" end
+  if (e.wagons or {})[commodity] then return "it already carries that" end
+  if e.bulk == "air" then
+    -- One aircraft type per route: a tanker cannot carry ore.
+    for other in pairs(e.wagons or {}) do
+      if Graph.COMMODITIES[other].form ~= Graph.COMMODITIES[commodity].form then
+        return "this route flies " .. Graph.COMMODITIES[other].form .. " freight"
+      end
+    end
+  end
+  if (e.wagonCount or 1) >= 8 then return "eight wagons is the limit" end
+  return nil
+end
+
+function City:wagonCost(id)
+  local e = self.g.edges[id]
+  if not (e and e.bulk) then return nil end
+  return math.ceil(City.MODES[e.bulk].perWagon * (1 + (e.wagonCount or 1) * 0.1))
+end
+
+function City:addWagon(id, commodity)
+  local err = self:wagonError(id, commodity)
+  if err then return nil, err end
+  local e = self.g.edges[id]
+  local cost = self:wagonCost(id)
+  if cost > self.money then return nil, "not enough cash" end
+  self:spend(cost)
+  local spec = City.MODES[e.bulk]
+  e.wagons[commodity] = (e.wagons[commodity] or 0) + spec.wagonCap
+  e.wagonCount = (e.wagonCount or 1) + 1
+  e.cap = e.cap + spec.wagonCap
+  e.capMax = e.cap
+  e.paid = (e.paid or 0) + cost
+  self:note("%s fitted for %s", City.MODES[e.bulk].name, commodity)
   self:refresh()
   return e
 end
@@ -2922,6 +3065,17 @@ function City:migrate()
         (City.HAVENS[n.haven] or City.HAVENS.port).name)
     end
   end
+  -- Track was the only bulk line there was, and it carried one commodity in
+  -- whatever bore it was built to. It becomes a railway with a wagon big enough
+  -- for exactly what it was already carrying, so nothing on the map moves less
+  -- than it did yesterday.
+  for _, e in ipairs(self.g.edges or {}) do
+    if e.rail and not e.bulk then
+      e.bulk = "rail"
+      e.wagons = { [e.commodity] = e.cap }
+      e.wagonCount = 1
+    end
+  end
   -- Nobody brews any more, so a beer deposit is a water deposit that was
   -- mislabelled by an older survey.
   for _, d in ipairs(self.deposits or {}) do
@@ -3099,16 +3253,26 @@ end
 -- per unit at the yard and a rate per unit per metre for the run. Only track
 -- carries it, and only what actually moved today is charged.
 function City:haulageBill()
-  local total, by = 0, {}
+  local total, by, fuelled = 0, {}, 0
   for _, e in ipairs(self.g.edges) do
     if e.alive and e.rail then
+      local spec = City.MODES[e.bulk or "rail"]
       local units = math.abs(((self.detail or {}).edge or {})[e.id] or 0)
-      local cost = units * (City.rail.haulPerUnit + self:pipeLength(e) * City.rail.haulPerM)
+      local cost = units * (spec.haulPerUnit + self:pipeLength(e) * spec.haulPerM)
+      if spec.diesel then fuelled = fuelled + cost end
       total = total + cost
       by[e.id] = cost
     end
   end
-  return total, by
+  -- Lorries and ships burn diesel. A company that refines its own runs its
+  -- fleet on it and keeps the difference, which is the whole reason to put a
+  -- refinery next to your own crude instead of selling it.
+  local spare = (self.spare or {}).diesel or 0
+  if fuelled > 0 and spare > 0 then
+    local covered = math.min(1, spare / math.max(1, fuelled / 4))
+    total = total - fuelled * 0.4 * covered
+  end
+  return math.max(0, total), by
 end
 
 -- Fuel for the reactors. A nuclear plant costs almost nothing to run per unit
@@ -3134,6 +3298,7 @@ function City:expenseBreakdown()
       b.sources = b.sources + (n.upkeep or trade.sourceUpkeep) + ((n.level or 1) - 1) * 2
     elseif n.kind == "works" then
       b.structures = b.structures + ((City.RECIPES[n.recipe or ""] or {}).upkeep or 20)
+    elseif n.kind == "dc" then b.structures = b.structures + 12
     elseif n.kind == "exchange" then b.structures = b.structures + 0
     elseif n.kind == "terminal" then b.structures = b.structures + City.terminalUpkeep
     elseif n.kind == "depot" then b.structures = b.structures + 3
