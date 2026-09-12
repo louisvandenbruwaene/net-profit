@@ -125,6 +125,84 @@ City.FORMS = {
 -- reaches across whole districts, and it does not corrode. Track never leaks,
 -- so it is the one link in the game you build and then forget about.
 --------------------------------------------------------------------------------
+-- Building out of what the network carries
+--
+-- Cash is not the only thing a building costs. Steel and concrete are things
+-- the company either imports through a haven or makes for itself, and either
+-- way they have to be delivered: materials are taken in at the depot yards and
+-- spent from there, which is the loop the whole map exists to close. The
+-- network carries the materials that extend the network.
+--
+-- Nothing the company needs on day one is on this list. A haven and a yard are
+-- cash, because otherwise there would be no way to land the first ton of steel,
+-- and pipes, junctions and wells are cash because a utility can be run without
+-- ever building a factory.
+--------------------------------------------------------------------------------
+City.MATERIALS = {
+  exchange = { steel = 20 },
+  works    = { steel = 40, concrete = 20 },
+  nuclear  = { steel = 120, concrete = 200 },
+  wind     = { steel = 60, concrete = 40 },
+  -- Rail is steel by the kilometre. A highway is tarmac, and takes none at
+  -- all, which is what stops the whole thing deadlocking: the first steel a
+  -- company ever sees comes off a ship and goes inland by road, because there
+  -- is no railway yet and no way to build one.
+  rail     = { steel = 12 },      -- per kilometre of line
+  highway  = {},
+}
+
+-- How much room a yard has for materials, and how fast it takes delivery.
+City.yardStock = 400
+City.yardIntakeRate = 25
+
+function City:materialStock(key)
+  return math.floor((self.stock or {})[key] or 0)
+end
+
+-- What a yard is still willing to take in today: what it has room for, capped
+-- by what it can handle in a day.
+function City:yardIntake(material)
+  local yards = #self.g:nodesOfKind("dc")
+  if yards == 0 then return 0 end
+  local room = math.max(0, yards * City.yardStock - self:materialStock(material))
+  return math.min(yards * City.yardIntakeRate, room)
+end
+
+-- The bill of materials for a thing, and whether it can be paid.
+function City:materialsFor(kind, key)
+  if kind == "source" then return City.MATERIALS[key or ""] or {} end
+  if kind == "bulk" then return City.MATERIALS[key or ""] or {} end
+  return City.MATERIALS[kind] or {}
+end
+
+-- Walked in commodity order rather than with `pairs`, so the shortage the
+-- player is told about is the same one every time rather than whichever key the
+-- hash happened to hand back first.
+function City:materialError(bill, scale)
+  scale = scale or 1
+  if not bill then return nil end
+  for _, material in ipairs(Graph.ALL) do
+    local amount = bill[material]
+    if amount then
+      local want = math.ceil(amount * scale)
+      if self:materialStock(material) < want then
+        return "needs " .. want .. " " .. material .. ", and the yards hold "
+          .. self:materialStock(material)
+      end
+    end
+  end
+  return nil
+end
+
+function City:spendMaterials(bill, scale)
+  scale = scale or 1
+  self.stock = self.stock or {}
+  for material, amount in pairs(bill or {}) do
+    self.stock[material] = math.max(0, (self.stock[material] or 0) - math.ceil(amount * scale))
+  end
+end
+
+--------------------------------------------------------------------------------
 -- Bulk freight
 --
 -- The second network. A main carries one thing to one place and is priced by
@@ -349,6 +427,7 @@ function City.new(opts)
   self.pipeGrade = {}
   self.milestones = {}
   self.crews = 0
+  self.stock = {}
   self.tenders = {}
   self.tendersDone = 0
   self.nextTender = 1
@@ -1613,7 +1692,11 @@ function City:build(x, y, kind, commodity)
     or (recipe and recipe.cost)
     or self:nodeCost(kind)
   if cost > self.money then return nil, "not enough cash" end
+  local bill = self:materialsFor(kind)
+  local short = self:materialError(bill)
+  if short then return nil, short end
   self:spend(cost)
+  self:spendMaterials(bill)
   local n = self.g:addNode(x, y, kind)
   n.paid = cost
   if kind == "works" then
@@ -1677,7 +1760,15 @@ function City:layPipe(a, b, commodity, capacity, rail)
   if err then return nil, err end
   local cost = self:pipeCost(a, b, commodity, capacity, rail)
   if cost > self.money then return nil, "not enough cash" end
+  -- A bulk line is built out of steel by the kilometre. Mains are not: a water
+  -- main is a trench and a pipe, and the game has always priced it that way.
+  local mode = City.modeOf(rail)
+  local bill = mode and self:materialsFor("bulk", mode) or {}
+  local scale = self:nodeDistance(a, b) / 1000
+  local short = self:materialError(bill, scale)
+  if short then return nil, short end
   self:spend(cost)
+  self:spendMaterials(bill, scale)
   local e = self.g:addEdge(a, b, capacity)
   -- canLink refuses a duplicate, so a second commodity needs the raw insert.
   if not e then
@@ -2092,8 +2183,12 @@ function City:buySource(commodity, px, py, plant)
     if err then return nil, err end
     local cost, seam = self:sourceCost(commodity, px, py, plant)
     if cost > self.money then return nil, "not enough cash" end
+    local bill = plant and self:materialsFor("source", plant) or {}
+    local short = self:materialError(bill)
+    if short then return nil, short end
     local trade = City.trade[commodity] or City.trade.water
     self:spend(cost)
+    self:spendMaterials(bill)
     local s = self.g:addNode(px, py, "source")
     s.commodity, s.paid, s.level = commodity, cost, 1
     -- The ground, not the equipment, decides the ceiling. A works can be
@@ -2465,6 +2560,18 @@ function City:refresh()
   self.wellSpare = {}
   self.capacityBy = {}
 
+  -- What the yards will take in today, shared out between them.
+  local yards = self.g:nodesOfKind("dc")
+  for _, yard in ipairs(yards) do
+    yard.intake = {}
+    for _, name in ipairs(Graph.ALL) do
+      if Graph.COMMODITIES[name].role == "material" then
+        local share = math.floor(self:yardIntake(name) / #yards)
+        if share > 0 then yard.intake[name] = share end
+      end
+    end
+  end
+
   -- What every works is asking for, before anything is solved.
   local works = self.g:nodesOfKind("works")
   for _, w in ipairs(works) do
@@ -2499,6 +2606,8 @@ function City:refresh()
       end
     elseif n.kind == "exchange" then
       for key in pairs(n.demandBy or {}) do wants[key] = true end
+    elseif n.kind == "dc" then
+      for key in pairs(n.intake or {}) do wants[key] = true end
     elseif n.kind == "client" and not n.hub and not n.prospect then
       wants[n.commodity] = true
     end
@@ -2525,6 +2634,9 @@ function City:refresh()
         self.detail.hub[id][name] = v
       elseif n and n.kind == "works" then
         self.detail.works[id][name] = v
+      elseif n and n.kind == "dc" then
+        self.detail.yard = self.detail.yard or {}
+        self.detail.yard[name] = (self.detail.yard[name] or 0) + v
       else
         self.served[id] = v
       end
@@ -2807,6 +2919,18 @@ function City:endDay()
     end
   end
 
+  -- 3a1. Materials delivered into the yards today. This is the only way
+  --      anything gets onto the books: steel in a wagon is not steel you can
+  --      build with until it has been taken in somewhere.
+  self.stock = self.stock or {}
+  report.delivered = {}
+  for material, units in pairs((self.detail or {}).yard or {}) do
+    if units > 0 then
+      self.stock[material] = (self.stock[material] or 0) + units
+      report.delivered[material] = units
+    end
+  end
+
   -- 3a2. Connections made today. A hub picks customers up the moment it can
   --      reach them, and the joining fee falls due at the close.
   if (self.hubConnectionDue or 0) > 0 then
@@ -2976,6 +3100,7 @@ function City:migrate()
     self.nextTender = math.max(self.nextTender, t.id + 1)
   end
   self.crews = self.crews or 0
+  self.stock = self.stock or {}
   self.premiumBought = self.premiumBought or {}
   self.districtsBought = self.districtsBought or 0
   self.loan = self.loan or 0
