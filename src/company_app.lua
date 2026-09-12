@@ -105,6 +105,14 @@ local function action(name,...)
     if not ok then toast(err,true) else A.play("upgrade") end
     return
   end
+  if name=="hireOrder" or name=="dismissOrder" then
+    local key=...
+    local ok,err=city[name=="hireOrder" and "hireOrder" or "dismissOrder"](city,key)
+    if not ok then toast(err,true) else A.play("upgrade") end
+    return
+  end
+  if name=="setDispatchRate" then city.dispatchRate=math.max(0,select(1,...)); return end
+  if name=="setReserve" then city.estateReserve=math.max(0,select(1,...)); return end
   if name=="setHubFloor" then
     local id,value=...
     local n=city.g.nodes[id]

@@ -949,6 +949,45 @@ local function company()
     "$"..City.crewWage.." a day each. At every close, each crew repairs the worst leaking main on the books and bills you for the work. The wage is the price of not clicking.")
   button("fire-crew","Stand down",M+214,gy+82,86,34,function() act("dismissCrew") end,crews>0,
     "Remove one crew from the payroll")
+  -- The rest of the ladder. Each rung is a rule the player writes once and pays
+  -- for daily, and none of them appears until the company is big enough that
+  -- doing that job by hand is clerical work.
+  local oy=gy+124
+  for _,key in ipairs(City.ORDER_LIST) do
+    local spec=City.ORDERS[key]
+    local held=(city.orders or {})[key]
+    local can=city:orderAvailable(key)
+    button("order-"..key,held and (spec.name.."   on the books, $"..spec.wage.."/day")
+      or (spec.name.."   $"..spec.hire),M,oy,CW-92,32,
+      function() act(held and "dismissOrder" or "hireOrder",key) end,
+      held or (can and city.money>=spec.hire),
+      spec.blurb.."  $"..spec.wage.." a day."..
+      (can and "" or ("  Available at "..spec.clients.." customers.")),
+      held,held and P.good or P.energy)
+    if held then
+      button("order-stop-"..key,"Stop",M+CW-86,oy,86,32,function() act("dismissOrder",key) end,
+        true,"Take "..string.lower(spec.name).." off the payroll")
+    end
+    oy=oy+38
+  end
+  -- The two rules that need a number attached.
+  if (city.orders or {}).dispatchers then
+    row("Sign anything paying","$"..(city.dispatchRate or 0).." / unit or better",oy,P.energy)
+    button("dispatch-down","-",M+CW-80,oy-4,34,28,function() act("setDispatchRate",(city.dispatchRate or 0)-1) end,
+      (city.dispatchRate or 0)>0,"Take cheaper customers too")
+    button("dispatch-up","+",M+CW-40,oy-4,34,28,function() act("setDispatchRate",(city.dispatchRate or 0)+1) end,
+      true,"Only better payers")
+    oy=oy+34
+  end
+  if (city.orders or {}).estates then
+    row("Buy ground above","$"..(city.estateReserve or 4000).." in hand",oy,P.energy)
+    button("reserve-down","-",M+CW-80,oy-4,34,28,function() act("setReserve",(city.estateReserve or 4000)-1000) end,
+      (city.estateReserve or 4000)>1000,"Keep less back")
+    button("reserve-up","+",M+CW-40,oy-4,34,28,function() act("setReserve",(city.estateReserve or 4000)+1000) end,
+      true,"Keep more back")
+    oy=oy+34
+  end
+  gy=oy-124
   for i,name in ipairs({"power","beer","oil","food"}) do
     local cost=City.price[name.."Licence"]
     local held=city.licences[name]

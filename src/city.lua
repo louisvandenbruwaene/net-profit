@@ -197,6 +197,9 @@ end
 function City:spendMaterials(bill, scale)
   scale = scale or 1
   self.stock = self.stock or {}
+  self.orders = self.orders or {}
+  self.dispatchRate = self.dispatchRate or 0
+  self.estateReserve = self.estateReserve or 4000
   for material, amount in pairs(bill or {}) do
     self.stock[material] = math.max(0, (self.stock[material] or 0) - math.ceil(amount * scale))
   end
@@ -428,6 +431,9 @@ function City.new(opts)
   self.milestones = {}
   self.crews = 0
   self.stock = {}
+  self.orders = {}
+  self.dispatchRate = 0
+  self.estateReserve = 4000
   self.tenders = {}
   self.tendersDone = 0
   self.nextTender = 1
@@ -2948,6 +2954,9 @@ function City:endDay()
     self:refresh()
   end
 
+  -- 3a4. The standing orders, if there are any on the books.
+  self:runOrders(report)
+
   -- 3b. The crews work the backlog. This is what the wage buys: the worst main
   --     on the books gets fixed without anybody clicking on it.
   report.crewFixed, report.crewCost = 0, 0
@@ -3348,6 +3357,126 @@ function City:declineClient(id)
   return true
 end
 
+--------------------------------------------------------------------------------
+-- Standing orders
+--
+-- The point where the company stops being a thing the player operates and
+-- becomes a thing they run. Each rung is a rule they write once and then pay
+-- for every day, and each one unlocks only when the company is big enough that
+-- doing it by hand has become clerical work rather than a decision.
+--
+-- Nothing here does anything the player could not do themselves. That is the
+-- test every one of them had to pass: automation buys back attention, never
+-- money.
+--------------------------------------------------------------------------------
+City.ORDERS = {
+  surveyors   = { name = "Surveyors",   hire = 420,  wage = 20, clients = 6,
+                  blurb = "The survey reports on ground you have not bought yet, so deposits show up before you pay for the district." },
+  dispatchers = { name = "Dispatchers", hire = 900,  wage = 30, clients = 12,
+                  blurb = "Signs any offer paying at least the rate you set, the day it arrives." },
+  engineers   = { name = "Engineers",   hire = 1600, wage = 45, clients = 20,
+                  blurb = "Widens any main that has run full for three days running, at the usual price." },
+  estates     = { name = "Estates",     hire = 2600, wage = 60, clients = 32,
+                  blurb = "Buys the cheapest ground next door whenever cash is over the reserve you set." },
+}
+City.ORDER_LIST = { "surveyors", "dispatchers", "engineers", "estates" }
+
+function City:orderAvailable(key)
+  local spec = City.ORDERS[key]
+  if not spec then return false end
+  return #self:clientList() >= spec.clients
+end
+
+function City:hireOrder(key)
+  local spec = City.ORDERS[key]
+  if not spec then return nil, "no such department" end
+  self.orders = self.orders or {}
+  if self.orders[key] then return nil, "already on the books" end
+  if not self:orderAvailable(key) then
+    return nil, spec.name .. " are worth hiring at " .. spec.clients .. " customers"
+  end
+  if spec.hire > self.money then return nil, "not enough cash" end
+  self:spend(spec.hire)
+  self.orders[key] = true
+  self:note("%s hired: $%d a day", spec.name, spec.wage)
+  return true
+end
+
+function City:dismissOrder(key)
+  self.orders = self.orders or {}
+  if not self.orders[key] then return nil, "not on the books" end
+  self.orders[key] = nil
+  self:note("%s stood down", City.ORDERS[key].name)
+  return true
+end
+
+function City:orderWages()
+  local total = 0
+  for key in pairs(self.orders or {}) do total = total + (City.ORDERS[key] or {}).wage end
+  return total
+end
+
+-- What the departments do at the close, in the order a company would do them:
+-- sign the work, then build for it, then buy the ground for the next lot.
+function City:runOrders(report)
+  local orders = self.orders or {}
+  report.signed, report.widened = report.signed or 0, report.widened or 0
+
+  if orders.dispatchers then
+    local floor = self.dispatchRate or 0
+    for _, c in ipairs(self:clientList(true)) do
+      if (c.rate or 0) >= floor then
+        c.prospect, c.joined = false, self.day
+        report.signed = report.signed + 1
+      end
+    end
+    if report.signed > 0 then
+      self:note("Dispatchers signed %d offer%s", report.signed,
+        report.signed == 1 and "" or "s")
+      self:refresh()
+    end
+  end
+
+  if orders.engineers then
+    for _, e in ipairs(self.g.edges) do
+      if e.alive and not e.bulk then
+        local flow = math.abs((self.detail.edge or {})[e.id] or 0)
+        if flow >= e.cap and e.cap > 0 then
+          e.fullFor = (e.fullFor or 0) + 1
+        else
+          e.fullFor = 0
+        end
+        if (e.fullFor or 0) >= 3 and (e.capMax or e.cap) < 24 then
+          local cost = self:boreCost(e, 1)
+          if cost <= self.money then
+            self:upgradePipe(e.id)
+            e.fullFor = 0
+            report.widened = report.widened + 1
+            report.widenCost = (report.widenCost or 0) + cost
+          end
+        end
+      end
+    end
+  end
+
+  if orders.estates then
+    local reserve = self.estateReserve or 4000
+    local best, bestCost
+    for _, d in ipairs(self.districts) do
+      if not d.owned and not self:districtError(d.id) then
+        local cost = self:districtCost(d)
+        if self.money - cost >= reserve and (not bestCost or cost < bestCost) then
+          best, bestCost = d, cost
+        end
+      end
+    end
+    if best then
+      self:buyDistrict(best.id)
+      report.bought = best.name
+    end
+  end
+end
+
 City.crewWage = 14
 City.crewHire = 340
 City.crewMax = 4
@@ -3437,7 +3566,7 @@ function City:expenseBreakdown()
   for _, e in ipairs(self.g.edges) do
     if e.alive then b.pipes = b.pipes + self:pipeUpkeep(e) end
   end
-  b.crews = (self.crews or 0) * City.crewWage
+  b.crews = (self.crews or 0) * City.crewWage + self:orderWages()
   b.interest = self:loanInterest()
   b.total = math.ceil(b.office + b.sources + b.structures + b.pipes + b.crews
     + b.interest + b.imports + b.haulage + b.fuel + b.hubs)
