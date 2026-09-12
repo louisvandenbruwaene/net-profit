@@ -85,7 +85,7 @@ Draw.droplet = Draw.mark
 --
 -- Five silhouettes that differ at the outline, because the outline is all
 -- there is at map size: a pitched roof, a stepped block, a saw-tooth shed, a
--- tankard, a chimney.
+-- tankard, a pair of stacks.
 --------------------------------------------------------------------------------
 
 function Draw.clientGlyph(kind, x, y, s)
@@ -96,16 +96,17 @@ function Draw.clientGlyph(kind, x, y, s)
   lg.setColor(r, g, b, a)
 
   if kind == "factory" then
-    -- A works: a shed with a stack. Two rectangles in one colour merge into
-    -- one silhouette, which is the whole drawing.
-    lg.rectangle("fill", 4.8 * s, -11.5 * s, 3.6 * s, 10 * s)
-    lg.rectangle("fill", 3.8 * s, -12.2 * s, 5.6 * s, 1.8 * s, 0.4 * s)
-    lg.rectangle("fill", -10 * s, -2 * s, 20 * s, 10 * s, 0.8 * s)
+    -- A works: a block with two capped stacks. One thin stack read as a
+    -- flagpole; two of them, side by side and shorter, read as a plant.
+    lg.rectangle("fill", -10 * s, -3.4 * s, 20 * s, 11.4 * s, 0.8 * s)
+    lg.rectangle("fill", -8.6 * s, -10.4 * s, 4.2 * s, 7.6 * s)
+    lg.rectangle("fill", -9.4 * s, -11.6 * s, 5.8 * s, 1.5 * s, 0.4 * s)
   elseif kind == "pub" then
-    -- A tankard. The handle is a single arc, not a ring with a hole in it.
-    lg.polygon("fill", -7 * s, -8 * s, 4.4 * s, -8 * s, 3 * s, 8 * s, -5.6 * s, 8 * s)
-    stroke(20 * s, 0.13)
-    lg.arc("line", "open", 4 * s, -1 * s, 4.4 * s, -math.pi * 0.46, math.pi * 0.46)
+    -- A tankard: straight sides, and a handle whose ends run back under the
+    -- body. An arc that stops short of the mug floats off it at map size.
+    lg.rectangle("fill", -8 * s, -8.4 * s, 10.6 * s, 16.8 * s, 1 * s)
+    stroke(20 * s, 0.12)
+    lg.arc("line", "open", 3.4 * s, 0, 3.8 * s, -math.pi * 0.72, math.pi * 0.72)
   elseif kind == "workshop" then
     -- The saw-tooth roof every light-industrial shed in the world has: the
     -- shed, and one triangle per tooth, all of them convex.
@@ -115,16 +116,37 @@ function Draw.clientGlyph(kind, x, y, s)
       lg.polygon("fill", bx, -1 * s, bx, -7.6 * s, bx + 6.3 * s, -1 * s)
     end
   elseif kind == "estate" then
-    -- Two flat-roofed blocks: housing stacked rather than spread, and nothing
-    -- like the house or the saw-tooth shed in outline.
-    lg.rectangle("fill", -9.5 * s, -9.5 * s, 9 * s, 17.5 * s, 0.6 * s)
-    lg.rectangle("fill", 1 * s, -3.5 * s, 8.5 * s, 11.5 * s, 0.6 * s)
+    -- Two flat-roofed blocks with windows punched out of them. Bare rectangles
+    -- read as a bar chart, and a parapet lip turned them into jars; windows are
+    -- the only detail that says "people live here", and they are cut in the
+    -- background colour so they simply close up as the camera pulls back.
+    lg.rectangle("fill", -9.4 * s, -8.2 * s, 8.8 * s, 16.2 * s, 0.6 * s)
+    lg.rectangle("fill", 1 * s, -2.4 * s, 8.4 * s, 10.4 * s, 0.6 * s)
+    -- Under about fifteen pixels across, a window is smaller than a pixel: it
+    -- stops being a window and becomes grit on the silhouette, so below that
+    -- the blocks are drawn solid.
+    if s >= 1 then
+      lg.setColor(P.bg)
+      for col = 0, 1 do
+        for rowi = 0, 2 do
+          lg.rectangle("fill", (-7.9 + col * 4.2) * s, (-6.4 + rowi * 5) * s,
+            2.4 * s, 2.8 * s, 0.3 * s)
+        end
+        for rowi = 0, 1 do
+          lg.rectangle("fill", (2.5 + col * 4) * s, (-0.8 + rowi * 4.6) * s,
+            2.2 * s, 2.6 * s, 0.3 * s)
+        end
+      end
+      lg.setColor(r, g, b, a)
+    end
   else
-    -- A house: walls, and a roof that overhangs them. Two convex pieces in one
-    -- colour, because a concave outline filled in one go comes out of LOVE's
-    -- triangulator with a corner sliced off.
-    lg.rectangle("fill", -7.4 * s, -2.8 * s, 14.8 * s, 10.8 * s, 0.4 * s)
-    lg.polygon("fill", -10.6 * s, -2.4 * s, 0, -10 * s, 10.6 * s, -2.4 * s)
+    -- A house: a roof sitting on its walls, not hanging past them. The old
+    -- eaves stuck out far enough that the roof read as a separate triangle
+    -- parked on a box; keep the overhang to a hair and the silhouette is one
+    -- pentagon. Still two convex pieces, because a concave outline filled in
+    -- one go comes out of LOVE's triangulator with a corner sliced off.
+    lg.rectangle("fill", -7 * s, -2.6 * s, 14 * s, 10.6 * s, 0.4 * s)
+    lg.polygon("fill", -7.7 * s, -2.2 * s, 0, -10.4 * s, 7.7 * s, -2.2 * s)
   end
   lg.pop()
 end
@@ -227,16 +249,28 @@ end
 
 --------------------------------------------------------------------------------
 
-local function drawDistricts(city, cam, state)
+-- The plots themselves, and nothing else. A district is a piece of ground,
+-- drawn as one: it used to carry rows of decorative houses and a street cross,
+-- which is scenery the player cannot touch competing for attention with the
+-- icons they can.
+--
+-- Ground goes down in two passes with the terrain sandwiched between them, so
+-- that a tree never lands on top of a price and unowned land dims whatever is
+-- standing on it.
+local function drawDistrictGround(city, cam)
+  for _, d in ipairs(city.districts or {}) do
+    local x, y = cam:toScreen(d.x, d.y)
+    local w, h = d.w * cam.scale, d.h * cam.scale
+    lg.setColor(d.owned and {0.075,0.12,0.13,0.8} or {0.09,0.11,0.14,0.5})
+    lg.rectangle("fill",x+4,y+4,w-8,h-8,8)
+  end
+end
+
+local function drawDistrictChrome(city, cam, state)
   lg.setLineWidth(1)
   for _, d in ipairs(city.districts or {}) do
     local x, y = cam:toScreen(d.x, d.y)
     local w, h = d.w * cam.scale, d.h * cam.scale
-    -- A district is a plot of ground, drawn as one. It used to carry rows of
-    -- decorative houses and a street cross, which is scenery the player cannot
-    -- touch competing for attention with the icons they can.
-    lg.setColor(d.owned and {0.075,0.12,0.13,0.8} or {0.09,0.11,0.14,0.5})
-    lg.rectangle("fill",x+4,y+4,w-8,h-8,8)
     if d.owned then
       lg.setColor(P.with(P.panelEdge, 0.55))
       lg.rectangle("line", x, y, w, h)
@@ -349,7 +383,7 @@ function Draw.world(city, cam, state)
   local _,height = R.dimensions()
   lg.setScissor(cam.vx, 80, cam.vw, height-138)
   R.drawGrid(cam, city.bounds.w, city.bounds.h)
-  drawDistricts(city, cam, state)
+  drawDistrictGround(city, cam)
 
   for _, o in ipairs(city.obstacles) do
     local spec = City.OBSTACLES[o.kind]
@@ -368,6 +402,7 @@ function Draw.world(city, cam, state)
       label(tag, x, y+r+3, freed and P.good or P.textDim, R.fonts.tiny)
     end
   end
+  drawDistrictChrome(city, cam, state)
   drawSeams(city, cam)
 
   local selected = city.g.nodes[state.node or 0]
