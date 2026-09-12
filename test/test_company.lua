@@ -435,4 +435,66 @@ for _,seed in ipairs({4,17,31,52}) do
   check(c:valuation()>City.rules.startMoney*6,"and is worth materially more than it started with")
 end
 
+print("a tender is a contract with a bond, not free money")
+do
+  local c=fresh()
+  c.money=9999
+  c.licences.water=true
+  c.flowBy={water=6}
+  local t=assert(c:rollTender())
+  c.nextTender=2
+  c.tenders[1]=t
+  check(t.status=="offered","a tender arrives as an offer")
+  check(t.bond>0 and t.bond<t.reward,"with a bond smaller than the reward")
+  check(t.units>6,"asking for more than the company currently delivers")
+
+  -- Ignoring one costs nothing.
+  local money=c.money
+  c.day=t.offerExpires
+  c:tenderProgress()
+  check(#c.tenders==0 and c.money==money,"an unanswered offer is withdrawn for free")
+
+  -- Declining costs nothing either.
+  c.tenders[1]=assert(c:rollTender()); c.tenders[1].id=7
+  money=c.money
+  assert(c:declineTender(7))
+  check(#c.tenders==0 and c.money==money,"declining costs nothing")
+
+  -- Accepting stakes the bond.
+  local t2=assert(c:rollTender()); t2.id=9; t2.units=4; t2.days=2
+  c.tenders[1]=t2
+  money=c.money
+  assert(c:acceptTender(9))
+  check(c.money==money-t2.bond,"accepting posts the bond out of the till")
+  check(t2.status=="accepted" and t2.expires>c.day,"and starts the delivery clock")
+  check(not c:acceptTender(9),"a signed tender cannot be signed twice")
+  check(not c:declineTender(9),"nor declined after signing")
+
+  -- Delivering returns the bond with the reward.
+  c.flowBy={water=t2.units}
+  c.day=c.day+1
+  local paid=c:tenderProgress()
+  check(paid==0 and t2.met==1,"one close met is not yet delivery")
+  c.day=c.day+1
+  paid=c:tenderProgress()
+  check(paid==t2.reward+t2.bond,"delivering pays the reward and returns the bond")
+  check(#c.tenders==0 and c.tendersDone==1,"and closes the contract")
+
+  -- Failing forfeits it.
+  local t3=assert(c:rollTender()); t3.id=11; t3.units=99; t3.days=2
+  c.tenders[1]=t3
+  assert(c:acceptTender(11))
+  local rep=c.reputation
+  c.flowBy={water=0}
+  c.day=t3.expires
+  local _,lost=c:tenderProgress()
+  check(lost==t3.bond,"missing the deadline forfeits the bond")
+  check(c.reputation<rep,"and costs reputation")
+  check(#c.tenders==0,"and closes the contract")
+
+  check(c:tenderShortfall({commodity="water",units=10})==10,"shortfall is what is still missing")
+  c.flowBy={water=7}
+  check(c:tenderShortfall({commodity="water",units=10})==3,"and shrinks as supply grows")
+end
+
 print(checks.." company checks passed")

@@ -312,6 +312,33 @@ function Walk.start(app,mode)
     check(bill.imports>=0,"the ledger carries an import line")
   end
 
+  -- A tender is an offer you answer, not a scoreboard that ticks.
+  do
+    c.money=9999
+    c.flowBy={water=6}
+    local t=assert(c:rollTender())
+    t.id=101; t.commodity="water"; t.units=9; t.days=3
+    t.bond=math.ceil(t.reward*C.tenderBond)
+    c.tenders={t}
+    app.state.node,app.state.edge=nil,nil
+    click("tab-customers")
+    check(findButton("tender-accept-101")~=nil,"an offered tender can be accepted")
+    check(findButton("tender-decline-101")~=nil,"or declined")
+    local money=c.money
+    click("tender-accept-101")
+    check(t.status=="accepted","accepting signs the contract")
+    check(c.money==money-t.bond,"and posts the bond")
+    love.draw()
+    check(findButton("tender-accept-101")==nil,"a signed tender stops offering to be signed")
+    -- Declining a different one costs nothing and clears it.
+    local t2=assert(c:rollTender()); t2.id=102
+    c.tenders={t2}
+    money=c.money
+    love.draw()
+    click("tender-decline-102")
+    check(#c.tenders==0 and c.money==money,"declining removes it and costs nothing")
+  end
+
   -- Six companies, kept side by side.
   do
     app.state.node,app.state.edge=nil,nil
@@ -363,13 +390,25 @@ function Walk.update(app,mode,frame)
       app.action("endDay"); capture("net-profit-03-report",app)
     elseif frame==20 then
       app.state.modal=nil; app.state.tab="finance"; capture("net-profit-04-company",app)
+    elseif frame==21 then
+      local c=app.city()
+      c.money=9999
+      -- One offered and one signed, so the shot shows both halves of the deal.
+      local a=assert(c:rollTender()); a.id=201; a.commodity="water"; a.units=9; a.days=3
+      a.bond=math.ceil(a.reward*C.tenderBond); a.offerExpires=c.day+3
+      local b=assert(c:rollTender()); b.id=202; b.commodity="water"; b.units=5; b.days=4
+      b.bond=math.ceil(b.reward*C.tenderBond); b.status="accepted"; b.met=2
+      b.expires=c.day+5
+      c.tenders={a,b}
+      app.state.modal=nil; app.state.node=nil; app.state.edge=nil
+      app.state.tab="customers"; app.state.scroll=0
+      capture("net-profit-10-tenders",app)
     elseif frame==22 then
       local c=app.city()
       c.money=99999
       app.state.tab="map"; app.state.scroll=0
       app.action("fitWorld")
       capture("net-profit-06-map",app)
-    elseif frame==22.5 then
     elseif frame==23 then
       local c=app.city()
       app.state.tab="network"; app.state.scroll=0

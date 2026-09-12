@@ -184,6 +184,7 @@ function City.new(opts)
   self.crews = 0
   self.tenders = {}
   self.tendersDone = 0
+  self.nextTender = 1
   self.loan = 0
   self.event = nil
   self.districtsBought = 0
@@ -1099,11 +1100,19 @@ end
 -- Municipal tenders: a reason to build ahead of demand
 --------------------------------------------------------------------------------
 
--- A tender asks the company to hold a delivery level it does not yet have, for
--- long enough that meeting it means building first and earning later. Nothing is
--- lost by failing one, which is what makes accepting an ambitious one a real
--- decision rather than a trap.
+-- A tender is the council asking the company to hold a delivery level it does
+-- not yet have, for long enough that meeting it means building first and
+-- earning later.
+--
+-- It is a contract, not a prize. Accepting posts a bid bond out of the till,
+-- which comes back with the reward if the delivery is made and is forfeited if
+-- it is not. That is what makes an ambitious tender a wager rather than free
+-- money lying on the floor: the question is whether the network can be grown in
+-- time, and being wrong costs something.
 City.tenderRate = { water = 4, power = 10, beer = 16, oil = 26 }
+City.tenderBond = 0.22         -- of the reward, posted on acceptance
+City.tenderDecide = 3          -- days to accept before the offer is withdrawn
+City.tenderSlack = 4           -- days beyond the required closes to deliver in
 
 function City:rollTender()
   local pool = {}
@@ -1117,31 +1126,82 @@ function City:rollTender()
   local days = self:random(4, 7)
   local reward = math.ceil(units * days * City.tenderRate[commodity] * self:rand(0.55, 0.80))
   return {
-    id = (self.tendersDone or 0) + #self.tenders + 1,
+    id = (self.nextTender or 1),
     commodity = commodity, units = units, days = days, met = 0,
-    reward = reward, expires = self.day + days + 5,
+    reward = reward, bond = math.ceil(reward * City.tenderBond),
+    status = "offered", offerExpires = self.day + City.tenderDecide,
   }
 end
 
+function City:tenderById(id)
+  for _, t in ipairs(self.tenders) do
+    if t.id == id then return t end
+  end
+  return nil
+end
+
+-- How far the network is from the level a tender asks for, right now.
+function City:tenderShortfall(t)
+  return math.max(0, t.units - ((self.flowBy or {})[t.commodity] or 0))
+end
+
+function City:acceptTender(id)
+  local t = self:tenderById(id)
+  if not t then return nil, "no such tender" end
+  if t.status ~= "offered" then return nil, "already accepted" end
+  if t.bond > self.money then return nil, "not enough cash for the bond" end
+  self:spend(t.bond)
+  t.status = "accepted"
+  t.accepted = self.day
+  t.expires = self.day + t.days + City.tenderSlack
+  self:note("Tender accepted: %d units of %s on %d closes by day %d, $%d bond posted",
+    t.units, t.commodity, t.days, t.expires, t.bond)
+  return t
+end
+
+function City:declineTender(id)
+  local t = self:tenderById(id)
+  if not t then return nil, "no such tender" end
+  if t.status ~= "offered" then return nil, "that tender is already signed" end
+  for i, other in ipairs(self.tenders) do
+    if other.id == id then table.remove(self.tenders, i); break end
+  end
+  self:note("Tender for %d units of %s declined", t.units, t.commodity)
+  return true
+end
+
 function City:tenderProgress()
-  local paid = 0
+  local paid, lost = 0, 0
   for i = #self.tenders, 1, -1 do
     local t = self.tenders[i]
-    if (self.flowBy[t.commodity] or 0) >= t.units then t.met = t.met + 1 end
-    if t.met >= t.days then
-      self.money = self.money + t.reward
-      paid = paid + t.reward
-      self.tendersDone = (self.tendersDone or 0) + 1
-      self.reputation = math.min(100, self.reputation + 3)
-      self:note("Tender delivered: %d units of %s held for %d days, $%d paid",
-        t.units, t.commodity, t.days, t.reward)
-      table.remove(self.tenders, i)
-    elseif self.day >= t.expires then
-      self:note("Tender for %d units of %s lapsed unmet", t.units, t.commodity)
-      table.remove(self.tenders, i)
+    if t.status == "offered" then
+      -- An offer nobody answered is withdrawn. Nothing is lost by ignoring one.
+      if self.day >= (t.offerExpires or 0) then
+        self:note("Tender for %d units of %s was withdrawn unanswered", t.units, t.commodity)
+        table.remove(self.tenders, i)
+      end
+    else
+      if (self.flowBy[t.commodity] or 0) >= t.units then t.met = t.met + 1 end
+      if t.met >= t.days then
+        local payout = t.reward + (t.bond or 0)
+        self.money = self.money + payout
+        paid = paid + payout
+        self.tendersDone = (self.tendersDone or 0) + 1
+        self.reputation = math.min(100, self.reputation + 3)
+        self:note("Tender delivered: %d units of %s held for %d closes. $%d paid, $%d bond returned",
+          t.units, t.commodity, t.days, t.reward, t.bond or 0)
+        table.remove(self.tenders, i)
+      elseif self.day >= (t.expires or 0) then
+        -- The bond is forfeited. This is the half of the wager that stings.
+        lost = lost + (t.bond or 0)
+        self.reputation = math.max(0, self.reputation - 4)
+        self:note("Tender failed: %d of %d closes met. $%d bond forfeited",
+          t.met, t.days, t.bond or 0)
+        table.remove(self.tenders, i)
+      end
     end
   end
-  return paid
+  return paid, lost
 end
 
 --------------------------------------------------------------------------------
@@ -1484,7 +1544,7 @@ function City:endDay()
 
   -- 5b. Tenders, and whatever the market decided to do this week.
   self:refresh()
-  report.tender = self:tenderProgress()
+  report.tender, report.tenderLost = self:tenderProgress()
   if self.event then
     self.event.left = self.event.left - 1
     if self.event.left <= 0 then self.event = nil end
@@ -1501,6 +1561,7 @@ function City:endDay()
   if #self.tenders < 2 and self.day > 4 and (self:random() < 0.22 or (self.day % 9 == 0 and #self.tenders == 0)) then
     local t = self:rollTender()
     if t then
+      self.nextTender = (self.nextTender or 1) + 1
       self.tenders[#self.tenders + 1] = t
       report.tenderNew = t
       self:note("Municipal tender posted: %d units of %s on %d closes for $%d",
@@ -1546,6 +1607,15 @@ function City:migrate()
   self.deposits = self.deposits or {}
   self.tenders = self.tenders or {}
   self.tendersDone = self.tendersDone or 0
+  self.nextTender = self.nextTender or 1
+  for _, t in ipairs(self.tenders) do
+    -- Tenders that were already running when they were still automatic keep
+    -- their progress and owe no bond.
+    t.status = t.status or "accepted"
+    t.bond = t.bond or 0
+    t.id = t.id or self.nextTender
+    self.nextTender = math.max(self.nextTender, t.id + 1)
+  end
   self.crews = self.crews or 0
   self.premiumBought = self.premiumBought or {}
   self.districtsBought = self.districtsBought or 0
