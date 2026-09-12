@@ -2,10 +2,18 @@
 
 A turn-based utility-company game about networks, cash, and promises.
 
-Start with one water well, two houses, one district of a twelve-district city,
-and $380. Build a network, sign new customers, keep the pipes flowing, buy the
-ground you want to grow into, and decide how much of today's cash you can afford
-to put into tomorrow's company. The map and company persist between days.
+Start with one water well, two houses, one district and $380. Build a network,
+sign new customers, keep the pipes flowing, buy the ground you want to grow
+into, and decide how much of today's cash you can afford to put into tomorrow's
+company. The map and company persist between days.
+
+The city does not end. South, east and west it carries on for as long as you can
+pay to go, generated as you survey it and richer the further out you get. North
+is sea, with islands in it. What begins as one well and a pipe to a house
+becomes a distribution business: hubs that wire a neighbourhood without a main
+being drawn to any of it, works that turn wheat into malt into beer, railways
+and shipping lanes moving materials in wagons, and departments that do the
+clerical half of the job for a wage.
 
 ## Play
 
@@ -49,11 +57,15 @@ Test modes use isolated companies and never read or overwrite your saves.
 | Lay a pipe or cable | Drag from one structure to another |
 | Choose the trade | Water / Power / Beer / Oil in Build |
 | Choose the bore | Capacity minus / plus in Build before laying |
-| Lay track instead of pipe | The PIPE / TRACK toggle, or T |
+| Choose how it is carried | MAIN / RAIL / HWY / SEA / AIR under the capacity row, or T |
 | Inspect | Click a structure, a customer, a main, or empty ground |
-| Build a structure | Toolbar or keys 1-7, then place |
+| Build a structure | Toolbar or keys 1-9, then place |
 | Sink a well or rig | Choose water or oil, select the supply button, then place it on a marked deposit |
-| Build a nuclear plant | Choose Power, select the supply button, then place it on ground you hold |
+| Build a power station | Choose Power, then Reactor on your ground or Wind park on an island |
+| Build a works | More equipment, then any of the nine works, then place |
+| Fit a wagon to a bulk line | Select the line, then the commodity under "Fit another wagon" |
+| Set what a hub will serve | Select the hub, then the rate floor minus / plus |
+| Hire a department | Company tab, under the maintenance crews |
 | Pan | Drag empty ground, or right / middle drag |
 | Zoom / scroll sidebar | Mouse wheel |
 | Fit the network | F, or the fit button |
@@ -81,9 +93,10 @@ first municipal grant. Everyday build tools stay near the top of Build;
 **More equipment** reveals treatment, valves, storage and freight. The guide can
 be dismissed, and existing companies continue with their original saves.
 
-Neighbourhood streets, quiet background buildings, trees, rock formations and
-water give the map a sense of place. Only badged structures and customers are
-interactive. Terrain boundaries still show the exact area used by construction
+Trees, rock formations and water give the map a sense of place, and two of them
+are worth owning: parkland is where a forestry stands and bedrock is where a
+quarry goes, so the permits that make them passable are an investment rather
+than a toll. Only badged structures and customers are interactive. Terrain boundaries still show the exact area used by construction
 rules. Supplied houses light their windows; supplied industry becomes active.
 District landmarks and stories explain the character of each area.
 
@@ -101,7 +114,7 @@ operating-profit chart. The supply overlay marks full or damaged mains in amber
 and traces a route from a selected customer to supply in blue. A full main is
 not necessarily a service problem, and alternative routes may exist.
 
-Choose an optional ambition in Goals: own all twelve districts, maintain seven
+Choose an optional ambition in Goals: hold twelve districts, maintain seven
 consecutive closes of full service, finish ten council tenders, or fully supply
 fifty customers. The selected ambition is evaluated at each day close and pays
 its grant once. Progress and completed ambitions survive switching goals and
@@ -113,6 +126,44 @@ the panel that can act on it and puts its most urgent control first, so clicking
 a burst main lands on its Repair button rather than somewhere you have to scroll
 from. "Build tools" returns. Undo works within the current session and day;
 closing a day is final.
+
+## The Second Half of the Game
+
+- **Ground has no edge.** Buy outward in any direction. Every district past the
+  authored twelve is generated from the company seed and its own coordinates, so
+  it is the same ground whoever surveys it first, and it is richer and dearer the
+  further out it lies. Every natural deposit has a daily ceiling no amount of
+  deepening passes, and the ceiling rises with distance, so more supply always
+  means more map.
+- **Hubs.** A hub serves everyone inside 700m who pays at least the rate you set,
+  with no main drawn to any of them and offers in range signing themselves. Raise
+  the floor and the cheap houses drop off. When a hub is short, what it landed
+  goes to the best payers first. Its feed widens itself at the usual price until
+  you switch that off.
+- **The sea.** North of the first row is water that does not end. Islands in it
+  are bought outright rather than next door, and need a harbour to reach. What
+  they are for is the wind: a wind park burns nothing at all and will stand
+  nowhere else.
+- **Bulk freight.** A depot yard is the only thing inland a railway, a highway or
+  a ship can terminate at. Rail is enormous to lay and nearly free to run;
+  a highway is the opposite and is paid for in drivers and diesel; shipping is
+  the cheapest freight there is and only calls at the coast; air costs more than
+  most freight is worth and flies one aircraft type per route. Beer, oil and
+  water need three different mains and share one train, each in its own wagon.
+- **Works.** Nine of them, one output each: maltings, brewery, foodworks,
+  refinery, sawmill, steelworks, glassworks, cement works, concrete plant. Every
+  one needs electricity, which is what makes a power station the spine of the
+  map. A works makes whatever its shortest input allows, and its inspector names
+  that input.
+- **Materials.** A hub is twenty steel, a works is forty steel and twenty
+  concrete, a railway is twelve steel a kilometre. Materials are imported or made,
+  taken in at the yards, and spent from there. A highway needs none, which is
+  how the first steel ever reaches the city.
+- **Departments.** Surveyors report on ground you have not bought. Dispatchers
+  sign any offer over a rate you set. Engineers widen any main that has run full
+  for three days. Estates buy ground when cash is over your reserve. Each is
+  hired once, paid daily, and unlocks at a company size where doing it by hand
+  has become clerical work.
 
 ## What Things Cost
 
@@ -185,10 +236,13 @@ a long oil trunk is a standing liability and a garden stub is not.
   inspector says how many will be cut, what they cost, and how many customers
   would stop being supplied, before anything is pressed. With nothing standing
   there, no pipe can be connected or laid to that spot at all.
-- **Ground:** the city is twelve districts and you start owning one. Districts
-  are bought outward from what you already hold, each costing more than the last,
-  and each has a character that decides who asks you for a connection: houses in
-  Northgate, estates in Southfield, pubs in Brewers Row, factories in Docklands.
+- **Ground:** the authored city is twelve districts and you start owning one,
+  with generated ground in every direction past it. Districts are bought outward
+  from what you already hold, each costing more than the last and more again the
+  further out it is, and each has a character that decides who asks you for a
+  connection: houses in Northgate, estates in Southfield, pubs in Brewers Row,
+  factories in Docklands, and out past those, suburbs, farmland, woodland,
+  quarries, industry and wilderness.
 - **Forbidden ground:** parkland, rivers and bedrock block or tax every route.
   Three permits convert them from walls into tolls and let you build on them. The
   richest seams are under bedrock, which is what a blasting licence is really for.
