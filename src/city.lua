@@ -879,15 +879,203 @@ function City:demolishPipe(id)
   return refund
 end
 
+--------------------------------------------------------------------------------
+-- Taking things out again
+--------------------------------------------------------------------------------
+
+-- Every pipe in the network hangs off a node at each end. That is the whole
+-- reason removing one is a real decision: take away the node and every main
+-- that was tied into it goes with it, and nothing can be laid to that spot
+-- again until something is standing there to tie into.
+--
+-- So a well is never simply deleted. If mains are tied into it, demolishing it
+-- caps the wellhead: the production stops and the money comes back, but a
+-- connection chamber is left behind holding every pipe exactly where it was.
+-- The chamber is an ordinary structure after that, and removing *it* is the
+-- move that actually costs you the network.
+
+-- The cheapest structure that can hold this many pipes. A chamber left behind
+-- by a well may be carrying more mains than any structure normally allows; it
+-- keeps them, but it will not accept another until one is freed.
+function City:chamberFor(degree)
+  if degree <= Graph.KINDS.junction.ports then return "junction" end
+  return "manifold"
+end
+
+-- What a node would take with it. Pulling out a structure does not recover the
+-- mains tied into it -- they are cut, not lifted -- so this is a loss and not a
+-- refund, and the inspector says so out loud before anything is pressed.
+function City:demolitionCost(id)
+  local n = self.g.nodes[id]
+  if not (n and n.alive) then return nil end
+  local pipes, sunk = 0, 0
+  for _, ei in ipairs(self.g.adj[id] or {}) do
+    local e = self.g.edges[ei]
+    if e.alive then
+      pipes = pipes + 1
+      sunk = sunk + (e.paid or 0)
+    end
+  end
+  return pipes, sunk
+end
+
+-- Customers who would stop being supplied if this structure came out. The
+-- number that actually matters: pipes can be relaid, a lost account cannot.
+function City:dependentsOf(id)
+  local n = self.g.nodes[id]
+  if not (n and n.alive) or n.kind == "client" then return 0 end
+  local rev = self.revision
+  local before = {}
+  for _, c in ipairs(self:clientList()) do
+    before[c.id] = (self.served[c.id] or 0)
+  end
+  -- Ask the graph, rather than guessing from the shape of the network.
+  local kindWas, aliveWas = n.kind, n.alive
+  n.alive = false
+  self:refresh()
+  local hurt = 0
+  for _, c in ipairs(self:clientList()) do
+    if (self.served[c.id] or 0) < (before[c.id] or 0) then hurt = hurt + 1 end
+  end
+  n.alive, n.kind = aliveWas, kindWas
+  self:refresh()
+  -- The probe changed nothing, so it must not look as though it did.
+  self.revision = rev
+  return hurt
+end
+
+-- The company's origin: used to anchor the camera and new enquiries. It starts
+-- as the first well, but that well can be capped or removed like any other, so
+-- it has to be able to move.
+function City:rebaseOrigin()
+  local current = self.firstSource
+  if current and current.alive and current.kind == "source" then return current end
+  local best
+  for _, n in ipairs(self.g:nodesOfKind("source")) do
+    best = best or n
+  end
+  if not best then
+    -- No wells at all. Anchor on anything the company still owns, and failing
+    -- that on the middle of the home district.
+    for _, n in ipairs(self.g:aliveNodes()) do best = best or n end
+  end
+  if not best then
+    local home = self.districts and self.districts[City.MAP.start]
+    best = { x = home and home.x + home.w / 2 or self.bounds.w / 2,
+             y = home and home.y + home.h / 2 or self.bounds.h / 2, id = 0 }
+  end
+  self.firstSource = best
+  return best
+end
+
 function City:demolishNode(id)
   local n = self.g.nodes[id]
   if not (n and n.alive) then return nil, "no such structure" end
-  if n.kind == "source" or n.kind == "client" then return nil, "cannot demolish that" end
+  if n.kind == "client" then return nil, "cannot demolish that" end
+  local degree = self.g:degree(id)
+
+  if n.kind == "source" then
+    local refund = math.floor((n.paid or self:sourceCost(n.commodity or "water")) * 0.4)
+    if degree == 0 then
+      -- Nothing tied into it, so nothing to preserve.
+      self.g:killNode(id)
+      self:note("%s well closed for $%d", string.upper(n.commodity or "water"), refund)
+    else
+      -- Cap it. The chamber costs the company its own price out of the refund,
+      -- because something has to be built to hold the pipes up.
+      local kind = self:chamberFor(degree)
+      local chamber = self:nodeCost(kind)
+      refund = math.max(0, refund - chamber)
+      n.kind = kind
+      n.ports = Graph.KINDS[kind].ports
+      n.throughput = Graph.KINDS[kind].throughput
+      n.paid = chamber
+      n.commodity, n.output, n.level, n.seam = nil, nil, nil, nil
+      n.capped = true
+      self:note("%s well capped for $%d: a %s keeps its %d main%s connected",
+        string.upper((n.commodity) or "water"), refund, string.lower(Graph.KINDS[kind].name),
+        degree, degree == 1 and "" or "s")
+    end
+    self.money = self.money + refund
+    self:rebaseOrigin()
+    self:refresh()
+    return refund
+  end
+
   local refund = math.floor((n.paid or self:nodeCost(n.kind)) * 0.4)
   self.g:killNode(id)
   self.money = self.money + refund
+  self:rebaseOrigin()
   self:refresh()
   return refund
+end
+
+--------------------------------------------------------------------------------
+-- Replacing a structure without taking the network down
+--------------------------------------------------------------------------------
+
+-- Swapping a junction for a manifold used to mean demolishing it, losing every
+-- main tied into it, rebuilding, and laying them all again. That is a lot of
+-- clicking and a lot of money to buy three more ports. A structure can now be
+-- replaced where it stands: the pipes never come off, and you pay the
+-- difference between what is there and what you want.
+City.CONVERTIBLE = {
+  junction = true, manifold = true, pump = true, tower = true, gate = true, depot = true,
+}
+
+function City:convertCost(id, kind)
+  local n = self.g.nodes[id]
+  if not n then return nil end
+  -- The old structure is traded in at the same rate demolition would pay.
+  local tradeIn = math.floor((n.paid or self:nodeCost(n.kind)) * 0.4)
+  return math.max(0, self:nodeCost(kind) - tradeIn)
+end
+
+function City:convertError(id, kind)
+  local n = self.g.nodes[id]
+  if not (n and n.alive) then return "no such structure" end
+  if not City.CONVERTIBLE[n.kind] then
+    return n.kind == "source" and "a well must be capped, not replaced"
+      or "that cannot be replaced"
+  end
+  if not City.CONVERTIBLE[kind] then return "cannot build that here" end
+  if kind == n.kind then return "it is already that" end
+  local degree = self.g:degree(id)
+  if degree > Graph.KINDS[kind].ports then
+    return string.format("a %s has %d ports and %d mains are tied in",
+      string.lower(Graph.KINDS[kind].name), Graph.KINDS[kind].ports, degree)
+  end
+  if self:convertCost(id, kind) > self.money then return "not enough cash" end
+  return nil
+end
+
+function City:convertNode(id, kind, commodity)
+  local err = self:convertError(id, kind)
+  if err then return nil, err end
+  local n = self.g.nodes[id]
+  local was = Graph.KINDS[n.kind].name
+  local cost = self:convertCost(id, kind)
+  self:spend(cost)
+  n.kind = kind
+  n.ports = Graph.KINDS[kind].ports
+  n.paid = self:nodeCost(kind)
+  n.capped = nil
+  -- Kind-specific state has to be set up or cleared, exactly as build() would.
+  n.stored, n.capacityStore, n.haven, n.output = nil, nil, nil, nil
+  if kind == "gate" then
+    n.throughput = 6
+  elseif kind == "depot" then
+    n.throughput = Graph.KINDS.depot.throughput
+    n.commodity = commodity or n.commodity or "water"
+    n.stored, n.capacityStore = 0, City.depotCapacity
+  else
+    n.throughput = Graph.KINDS[kind].throughput
+    n.commodity = nil
+  end
+  self:note("%s %d replaced with a %s for $%d, mains left connected",
+    was, id, string.lower(Graph.KINDS[kind].name), cost)
+  self:refresh()
+  return n
 end
 
 --------------------------------------------------------------------------------
@@ -1251,6 +1439,7 @@ function City:refresh()
     self.spare[name] = math.max(0, headroom - flow)
   end
 
+  self.revision = (self.revision or 0) + 1
   self.unserved = 0
   for _, c in ipairs(self:clientList()) do
     if (self.served[c.id] or 0) < c.demand then self.unserved = self.unserved + 1 end
@@ -1676,6 +1865,7 @@ function City:migrate()
     end
   end
   for _, e in ipairs(self.g.edges) do e.grade = e.grade or 1 end
+  self:rebaseOrigin()
   return self
 end
 

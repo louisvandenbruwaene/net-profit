@@ -60,6 +60,40 @@ end
 
 local function heading(s,y) text(s,M,y,"small",P.textDim) end
 
+-- Working out who loses supply if a structure came out means running the flow
+-- solver twice, so the answer is kept until the network actually changes.
+local consequenceCache = {}
+local function consequences(n)
+  if consequenceCache.id ~= n.id or consequenceCache.rev ~= city.revision then
+    local pipes, sunk = city:demolitionCost(n.id)
+    consequenceCache = { id = n.id, rev = city.revision, pipes = pipes or 0,
+                         sunk = sunk or 0, cut = city:dependentsOf(n.id) }
+  end
+  return consequenceCache
+end
+
+-- One demolish button, with the damage spelled out underneath it. Removing a
+-- structure cuts every main tied into it, and those mains are not recovered,
+-- so the player is told the count, the money and the customers before pressing.
+local function demolishBlock(n,y,label,tip)
+  local c = consequences(n)
+  local refund = math.floor((n.paid or city:nodeCost(n.kind))*0.4)
+  button("demolish-node",(label or "Demolish").."   +$"..refund,M,y,CW,36,
+    function() act("demolishNode",n.id) end,true,
+    tip or "Removes this structure and cuts every main tied into it",
+    false,c.cut>0 and P.bad or P.flow,false)
+  if c.pipes > 0 then
+    text("Cuts "..c.pipes.." main"..(c.pipes==1 and "" or "s").." ($"..c.sunk..
+         " of work, not recovered)"..
+         (c.cut>0 and (" and leaves "..c.cut.." customer"..(c.cut==1 and "" or "s")..
+          " unsupplied.") or "."),
+      M,y+42,"small",c.cut>0 and P.bad or P.warn,CW)
+  else
+    text("Nothing is tied into it.",M,y+42,"small",P.textDim,CW)
+  end
+  return y+(c.pipes>0 and 82 or 66)
+end
+
 -- The same droplet the map draws, inline in the sidebar.
 local function drop(commodity,x,y,r) Draw.droplet(commodity,x,y,r or 8) end
 
@@ -76,6 +110,39 @@ local toolTips = {
 }
 
 local TOOLS = {"junction","manifold","pump","tower","gate","depot","terminal"}
+
+-- Replacing a structure where it stands. The mains never come off, so this is
+-- the difference between buying three more ports and rebuilding a junction box
+-- from scratch with every pipe relaid by hand.
+local REPLACEMENTS = {"junction","manifold","pump","tower","gate","depot"}
+
+local function replaceStrip(n,y)
+  if not City.CONVERTIBLE[n.kind] then return y end
+  heading("REPLACE WITH",y)
+  text("The mains stay connected.",M+CW-170,y,"small",P.textFaint,170,"right")
+  y=y+22
+  for i,kind in ipairs(REPLACEMENTS) do
+    local col,rw=(i-1)%3,math.floor((i-1)/3)
+    local bx,by=M+col*102,y+rw*50
+    local err=city:convertError(n.id,kind)
+    local cost=city:convertCost(n.id,kind)
+    local here=(kind==n.kind)
+    button("replace-"..kind,"",bx,by,96,42,
+      function() act("convertNode",n.id,kind,state.commodity) end,err==nil,
+      here and ("This is already a "..string.lower(Graph.KINDS[kind].name)..".")
+        or (err and (Graph.KINDS[kind].name..": "..err))
+        or ("Replace with a "..string.lower(Graph.KINDS[kind].name).." for $"..cost..
+            ", keeping every main tied in. "..Graph.KINDS[kind].ports.." ports."),
+      here,Graph.KINDS[kind].color)
+    lg.setColor(here and Graph.KINDS[kind].color or (err==nil and P.text or P.textFaint))
+    Draw.structureGlyph(kind,bx+19,by+21)
+    text(string.upper(kind):sub(1,8),bx+33,by+6,"tiny",
+      here and Graph.KINDS[kind].color or (err==nil and P.text or P.textFaint))
+    text(here and "here" or (cost==0 and "free" or ("$"..cost)),bx+33,by+22,"small",
+      err==nil and P.energy or P.textFaint)
+  end
+  return y+100
+end
 
 -- The Network tab has two faces. With nothing selected it is a workshop: the
 -- trade selector, the bore, the structures, and the state of the system. The
@@ -191,11 +258,41 @@ local function inspectSource(n,y)
       false,P.good,maxed and city.money>=cost)
     text("A new "..n.commodity.." well costs $"..city:sourceCost(n.commodity)..
          " plus the route to reach it.",M,y+278,"small",P.textDim,CW)
+    y=y+310
   else
     text("This well is at full yield. Sink another, or buy ground with a seam on it.",
       M,y+236,"body",P.textDim,CW)
+    y=y+274
   end
-  if n.seam then text("Sunk on a seam: yield multiplied at the wellhead.",M,y+312,"small",P.energy,CW) end
+  if n.seam then
+    text("Sunk on a seam: yield multiplied at the wellhead.",M,y,"small",P.energy,CW)
+    y=y+24
+  end
+  line(y); y=y+20
+
+  -- Closing a well never takes the network with it. If mains are tied in, the
+  -- wellhead is capped and a chamber is left holding them exactly where they
+  -- were; that chamber is then an ordinary structure like any other.
+  local degree=city.g:degree(n.id)
+  local refund=math.floor((n.paid or city:sourceCost(n.commodity))*0.4)
+  if degree>0 then
+    local kind=city:chamberFor(degree)
+    local chamber=city:nodeCost(kind)
+    button("demolish-node","Cap the well   +$"..math.max(0,refund-chamber),M,y,CW,36,
+      function() act("demolishNode",n.id) end,true,
+      "Stops production and pays back part of the well. A "..string.lower(Graph.KINDS[kind].name)..
+      " is built in its place for $"..chamber.." to hold the "..degree..
+      " main"..(degree==1 and "" or "s").." that are tied in, so nothing is disconnected.",
+      false,P.warn)
+    text("Production stops. A "..string.lower(Graph.KINDS[kind].name).." is left holding its "..
+      degree.." main"..(degree==1 and "" or "s")..", so nothing is cut.",
+      M,y+42,"small",P.textDim,CW)
+    y=y+82
+  else
+    y=demolishBlock(n,y,"Close the well",
+      "Nothing is tied into this well, so it can be removed outright.")
+  end
+  return y
 end
 
 local function inspectGate(n,y)
@@ -209,8 +306,8 @@ local function inspectGate(n,y)
   button("gate-plus","+",M+216,y+90,44,36,function() act("setGate",n.id,t+1) end,t<24,"One unit looser")
   text("Everything downstream of this gate shares what it lets through. Tighten it to starve a cheap branch and send scarce supply to a better-paying one.",
     M,y+138,"small",P.textDim,CW)
-  button("demolish-node","Demolish  +$"..math.floor((n.paid or city:nodeCost(n.kind))*0.4),
-    M,y+196,CW,34,function() act("demolishNode",n.id) end,true,"Removes attached pipes; recovers 40%")
+  local tail=replaceStrip(n,y+186)
+  return demolishBlock(n,tail+12)
 end
 
 local function inspectDepot(n,y)
@@ -229,8 +326,8 @@ local function inspectDepot(n,y)
   text("Takes in output the network could not sell, up to "..City.depotFillRate..
        " a day, and feeds it back the next morning. Worth having when a market event doubles what a trade pays.",
        M,y+128,"small",P.textDim,CW)
-  button("demolish-node","Demolish  +$"..math.floor((n.paid or city:nodeCost(n.kind))*0.4),
-    M,y+200,CW,34,function() act("demolishNode",n.id) end,true,"Removes attached pipes; recovers 40%")
+  local tail=replaceStrip(n,y+186)
+  return demolishBlock(n,tail+12)
 end
 
 local function inspectTerminal(n,y)
@@ -257,8 +354,8 @@ local function inspectTerminal(n,y)
   row("Berth upkeep","-$"..City.terminalUpkeep.." / day",y+220,P.warn)
   text("A haven is supply bought, not supply owned: it lands more than any well and charges for every unit that moves. Run track inland to spend it.",
     M,y+250,"small",P.textDim,CW)
-  button("demolish-node","Demolish  +$"..math.floor((n.paid or city:nodeCost(n.kind))*0.4),
-    M,y+310,CW,34,function() act("demolishNode",n.id) end,true,"Removes attached links; recovers 40%")
+  return demolishBlock(n,y+310,"Demolish the haven",
+    "Closes the terminal. Every link tied into it is cut.")
 end
 
 local function inspectEdge(e,y)
@@ -445,19 +542,22 @@ local function inspectorPanel(n,e)
     else text(title,M,y,"mid") end
     y=y+36
     if n.kind=="client" then inspectClient(n,y); tail=y+400
-    elseif n.kind=="source" then inspectSource(n,y); tail=y+350
-    elseif n.kind=="gate" then inspectGate(n,y); tail=y+240
-    elseif n.kind=="depot" then inspectDepot(n,y); tail=y+244
-    elseif n.kind=="terminal" then inspectTerminal(n,y); tail=y+390
+    elseif n.kind=="source" then tail=inspectSource(n,y)
+    elseif n.kind=="gate" then tail=inspectGate(n,y)
+    elseif n.kind=="depot" then tail=inspectDepot(n,y)
+    elseif n.kind=="terminal" then tail=inspectTerminal(n,y)
     else
-      row("Ports",city.g:degree(n.id).." / "..n.ports,y)
+      local degree=city.g:degree(n.id)
+      row("Ports",degree.." / "..n.ports,y,degree>=n.ports and P.warn or P.text)
       row("Carrying",math.floor(city.detail.node[n.id] or 0),y+26)
       if n.kind=="tower" then row("Local leak risk","-55% within 220m",y+52,P.energy)
       elseif n.kind=="pump" then row("Reach","520m",y+52,P.flow) end
-      button("demolish-node","Demolish  +$"..math.floor((n.paid or city:nodeCost(n.kind))*0.4),
-        M,y+94,CW,34,function() act("demolishNode",n.id) end,true,
-        "Removes attached pipes; recovers 40% of the structure price")
-      tail=y+140
+      if n.capped then
+        text("A capped wellhead. It holds the mains the well was carrying.",
+          M,y+80,"small",P.textDim,CW)
+      end
+      tail=replaceStrip(n,y+(n.capped and 128 or 84))
+      tail=demolishBlock(n,tail+12)
     end
   else
     drop(e.commodity,M+9,y+10,10)

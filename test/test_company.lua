@@ -497,4 +497,102 @@ do
   check(c:tenderShortfall({commodity="water",units=10})==3,"and shrinks as supply grows")
 end
 
+print("a well can be closed without taking the network with it")
+do
+  local c=fresh()
+  c.money=9999
+  local src=c.firstSource
+  local a,b=c:clientList()[1],c:clientList()[2]
+  assert(c:layPipe(src.id,a.id,"water",a.demand))
+  assert(c:layPipe(src.id,b.id,"water",b.demand))
+  local far=assert(c:build(src.x,src.y+200,"junction"))
+  assert(c:layPipe(src.id,far.id,"water",4))
+  check(c.g:degree(src.id)==3,"three mains are tied into the well")
+
+  local money=c.money
+  local refund=assert(c:demolishNode(src.id))
+  check(src.alive,"capping leaves the wellhead standing")
+  check(src.kind=="junction","as a junction, because three mains fit one")
+  check(src.commodity==nil and src.output==nil,"with nothing left of the well")
+  check(src.capped,"and it knows what it used to be")
+  check(c.g:degree(src.id)==3,"every main is still tied in")
+  check(c.money==money+refund and refund>0,"and part of the well comes back")
+  check(c.flowBy.water==0,"there is nothing to carry, because the well is gone")
+
+  -- The chamber is an ordinary structure. It can be replaced where it stands.
+  local before=c.g:degree(src.id)
+  check(c:convertError(src.id,"pump")~=nil,"a pump has too few ports for three mains")
+  local cost=c:convertCost(src.id,"manifold")
+  money=c.money
+  assert(c:convertNode(src.id,"manifold"))
+  check(src.kind=="manifold" and src.ports==6,"but a manifold fits")
+  check(c.g:degree(src.id)==before,"and no main came off to do it")
+  check(c.money==money-cost,"paying only the difference")
+  check(not c:convertNode(src.id,"manifold"),"and it will not be replaced with itself")
+
+  -- Removing the chamber is the move that costs the network.
+  local pipes,sunk=c:demolitionCost(src.id)
+  check(pipes==3 and sunk>0,"the game says how much would be cut")
+  assert(c:demolishNode(src.id))
+  check(not src.alive,"the chamber can be removed")
+  local live=0
+  for _,e in ipairs(c.g.edges) do if e.alive then live=live+1 end end
+  check(live==0,"and every main tied into it goes too")
+  check(c:placementError(src.x,src.y)==nil,"the ground is free to build on again")
+end
+
+print("a well with nothing tied in is simply closed")
+do
+  local c=fresh()
+  c.money=9999
+  local lone=assert(c:buySource("water",c.firstSource.x+300,c.firstSource.y))
+  check(c.g:degree(lone.id)==0,"nothing is connected to it")
+  assert(c:demolishNode(lone.id))
+  check(not lone.alive,"so it is removed outright rather than capped")
+end
+
+print("closing the first well does not break the company")
+do
+  local c=fresh()
+  c.money=9999
+  local src=c.firstSource
+  local second=assert(c:buySource("water",src.x+320,src.y+120))
+  assert(c:layPipe(src.id,c:clientList()[1].id,"water",3))
+  assert(c:demolishNode(src.id))
+  check(c.firstSource~=src,"the origin moves off a capped well")
+  check(c.firstSource.kind=="source","onto one that is still producing")
+  local clone=assert(Save.unpack(Save.pack(c)))
+  check(clone~=nil,"and the company still saves and loads")
+  check(clone.g.nodes[src.id].kind=="junction","with the capped wellhead intact")
+  -- Even with no wells left at all.
+  assert(c:demolishNode(second.id))
+  check(#c.g:nodesOfKind("source")==0,"every well can be closed")
+  local bare=assert(Save.unpack(Save.pack(c)))
+  check(bare.firstSource~=nil,"a company with no wells still loads")
+end
+
+print("replacing a structure keeps its mains")
+do
+  local c=fresh()
+  c.money=9999
+  local src=c.firstSource
+  local j=assert(c:build(src.x,src.y+200,"junction"))
+  assert(c:layPipe(src.id,j.id,"water",4))
+  check(c:convertError(j.id,"junction")=="it is already that","a junction is already a junction")
+  check(c:convertError(src.id,"junction")=="a well must be capped, not replaced",
+    "a well is capped rather than replaced")
+  local edges={}
+  for _,ei in ipairs(c.g.adj[j.id]) do edges[#edges+1]=ei end
+  assert(c:convertNode(j.id,"gate"))
+  check(j.kind=="gate" and j.throughput==6,"a junction can become a gate")
+  check(#c.g.adj[j.id]==#edges,"with the same mains attached")
+  assert(c:convertNode(j.id,"depot","water"))
+  check(j.kind=="depot" and j.stored==0 and j.commodity=="water",
+    "and a depot, set up as build would have made it")
+  assert(c:convertNode(j.id,"junction"))
+  check(j.stored==nil and j.commodity==nil,"switching away clears what it was")
+  c.money=0
+  check(not c:convertNode(j.id,"tower"),"and it has to be paid for")
+end
+
 print(checks.." company checks passed")
