@@ -47,8 +47,8 @@ Test modes use isolated companies and never read or overwrite your saves.
 | Action | Control |
 | --- | --- |
 | Lay a pipe or cable | Drag from one structure to another |
-| Choose the trade | Water / Power / Beer / Oil in Network |
-| Choose the bore | Minus / plus in Network before laying |
+| Choose the trade | Water / Power / Beer / Oil in Build |
+| Choose the bore | Capacity minus / plus in Build before laying |
 | Lay track instead of pipe | The PIPE / TRACK toggle, or T |
 | Inspect | Click a structure, a customer, a main, or empty ground |
 | Build a structure | Toolbar or keys 1-7, then place |
@@ -67,6 +67,45 @@ Test modes use isolated companies and never read or overwrite your saves.
 | Switch or start a company | Companies, in the bottom bar |
 | Cancel a tool or selection | Escape |
 | Mute | M, or the sound button |
+| Filter the map by trade | All trades / Water / Power / Beer / Oil above the map |
+| Show full or damaged mains and a selected customer's route | Supply overlay above the map |
+| Return to construction from any panel | Build tools above the map |
+| Choose a long-term ambition | Goals tab |
+| Rename your company | Company → Rename; type, then Enter or Save name |
+
+## A City Worth Growing
+
+The opening guide walks through connecting the two houses and collecting the
+first municipal grant. Everyday build tools stay near the top of Build;
+**More equipment** reveals treatment, valves, storage and freight. The guide can
+be dismissed, and existing companies continue with their original saves.
+
+Neighbourhood streets, quiet background buildings, trees, rock formations and
+water give the map a sense of place. Only badged structures and customers are
+interactive. Terrain boundaries still show the exact area used by construction
+rules. Supplied houses light their windows; supplied industry becomes active.
+District landmarks and stories explain the character of each area.
+
+While dragging a line, the quote shows the projected supply, change in daily net
+income (including upkeep), and remaining cash. Offer inspectors estimate the
+cheapest direct connection that could fully supply the customer, or explain
+that a more involved route or more supply is needed. These are simulations of
+the current network, not promises about future leaks or market changes. Shared
+supply can reduce another customer's delivery; previews flag that risk.
+
+Day reports lead with operating profit and awards. Accounting expands on demand,
+and enquiries and repair actions open the relevant inspector directly. Clients
+can be sorted by urgency or potential daily income; Company includes a recent
+operating-profit chart. The supply overlay marks full or damaged mains in amber
+and traces a route from a selected customer to supply in blue. A full main is
+not necessarily a service problem, and alternative routes may exist.
+
+Choose an optional ambition in Goals: own all twelve districts, maintain seven
+consecutive closes of full service, finish ten council tenders, or fully supply
+fifty customers. The selected ambition is evaluated at each day close and pays
+its grant once. Progress and completed ambitions survive switching goals and
+reloading. The service streak counts from play with this version; it resets on
+a shortfall. Company names and guide dismissal also persist.
 
 Hover over controls for prices and effects. Selecting anything on the map opens
 the panel that can act on it and puts its most urgent control first, so clicking
@@ -272,6 +311,7 @@ and window tests under Xvfb and uploads the packaged game.
 | `src/company_ui.lua` | Network inspector, treasury, clients, journal and report |
 | `src/company_render.lua` | City map, districts, trade symbols, flowing pipes and track |
 | `src/company_save.lua` | Six save slots, versioned saves, random-state persistence |
+| `src/experience.lua` | Isolated planning previews, ambitions, names, district stories and route overlays |
 | `src/company_walkthrough.lua` | Rendered input and screenshot checks |
 | `test/test_company.lua` | Regression and multi-company economy tests |
 | `test/test_save_location.lua` | Save slots, and finding a company either build wrote |

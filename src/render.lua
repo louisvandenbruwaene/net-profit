@@ -21,13 +21,31 @@ end
 
 function R.init()
   R.fonts = {
-    tiny  = lg.newFont(10),
+    tiny  = lg.newFont(11),
     small = lg.newFont(12),
     body  = lg.newFont(14),
     mid   = lg.newFont(18),
     big   = lg.newFont(30),
     huge  = lg.newFont(54),
   }
+end
+
+--------------------------------------------------------------------------------
+-- Zoom
+--------------------------------------------------------------------------------
+
+-- How large a symbol is drawn at a given camera scale.
+--
+-- A symbol must never grow as the camera pulls back, and clamping its size with
+-- math.max(floor, k * scale) does precisely that: past the floor the world keeps
+-- shrinking underneath a symbol that has stopped, so a city seen from far out
+-- fills with blobs larger than the streets they stand on. The cure is to
+-- compress the curve rather than clamp it. scale^0.55 is strictly increasing --
+-- zooming out always makes a symbol smaller -- but it falls away slowly enough
+-- that a node is still five pixels across at the furthest zoom instead of two.
+local SYM = 0.55
+function R.sym(base, scale)
+  return base * scale ^ SYM
 end
 
 --------------------------------------------------------------------------------
@@ -210,7 +228,7 @@ function R.drawLinks(cam, run, hoverEdge, selectedEdge)
               local px = ax + dx * phase
               local py = ay + dy * phase
               lg.setColor(P.flow[1], P.flow[2], P.flow[3], 0.92)
-              lg.circle("fill", px, py, math.max(1.5, 2.5 * cam.scale))
+              lg.circle("fill", px, py, math.max(1, R.sym(2.5, cam.scale)))
             end
           end
         end
@@ -301,10 +319,10 @@ function R.drawNodes(cam, run, hoverNode, selectedNode)
           local px, py = sx + math.cos(a) * rr, sy + math.sin(a) * rr
           if i <= used then
             lg.setColor(P.with(spec.color, 0.95))
-            lg.circle("fill", px, py, math.max(1.2, 2.1 * cam.scale))
+            lg.circle("fill", px, py, math.max(1, R.sym(2.1, cam.scale)))
           else
             lg.setColor(P.with(P.textFaint, 0.75))
-            lg.circle("line", px, py, math.max(1.2, 2.0 * cam.scale))
+            lg.circle("line", px, py, math.max(1, R.sym(2.0, cam.scale)))
           end
         end
       end

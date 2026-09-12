@@ -36,6 +36,15 @@ local function findButton(id)
   return nil
 end
 
+local function scrollTo(app,id)
+  app.state.scroll=0
+  for _=1,40 do
+    if findButton(id) then return end
+    app.state.scroll=math.min(UI.maxScroll or 0,app.state.scroll+120)
+  end
+  error("button not reachable by scrolling: "..id)
+end
+
 local function connect(app,c)
   local src=app.city().firstSource
   local cam=app.camera()
@@ -251,6 +260,7 @@ function Walk.start(app,mode)
   do
     c.money=99999
     click("tab-finance")
+    scrollTo(app,"licence-power")
     click("licence-power")
     check(c.licences.power,"the power licence can be bought")
     click("tab-network")
@@ -422,6 +432,58 @@ function Walk.start(app,mode)
     check(app.state.modal==nil,"and closes")
   end
 
+  -- New planning, identity, goals and map controls through actual callbacks.
+  do
+    local E=require("experience")
+    local Draw=require("company_render")
+    local c=app.city()
+    click("tab-finance")
+    click("rename-company")
+    app.state.rename=""
+    love.textinput("Brightwater")
+    love.keypressed("return")
+    check(c.companyName=="Brightwater" and not app.state.rename,"text input saves a company name without closing the day")
+    click("tab-ambitions")
+    click("ambition-service")
+    check(c.ambition=="service","goal selection is actionable")
+    click("filter-water")
+    check(app.state.filter=="water","trade filters update the map")
+    click("bottlenecks")
+    check(app.state.bottlenecks,"supply overlay is available from every tab")
+    click("quick-build")
+    check(findButton("source") and findButton("tool-junction"),"quick build reveals essential tools")
+    click("advanced")
+    check(findButton("tool-depot"),"specialist equipment can be expanded")
+    local n=c:clientList()[1]
+    c.money=9999; c.licences.power=true
+    assert(c:layPipe(c.firstSource.id,n.id,"water",3))
+    local power=assert(c:layPipe(c.firstSource.id,n.id,"power",3))
+    local ax,ay,bx,by=Draw.edgePoints(app.camera(),c,power)
+    check(ax==ax and ay==ay and bx==bx and by==by,"shared power lines have finite rendering coordinates")
+    click("filter-all")
+    app.state.node=n.id
+    love.draw()
+    check(next(E.route(c,n.id))~=nil,"overlay traces a customer to supply")
+    click("end-day")
+    click("report-details")
+    check(app.state.reportDetails,"accounting can be expanded")
+    love.draw()
+    click("report-details")
+    click("continue")
+    local offer=assert(c:addClient("house",true))
+    c.lastReport.arrived={name="House",x=offer.x,y=offer.y}
+    app.state.modal="report"
+    click("report-enquiry")
+    check(not app.state.modal and app.state.node==offer.id,"report enquiry opens its inspector directly")
+    power.leaking=true; power.cap=1; c:refresh()
+    app.state.modal="report"
+    click("report-leak")
+    check(not app.state.modal and app.state.edge,"report repair action opens a main directly")
+    click("tab-customers")
+    click("sort-clients")
+    check(app.state.clientSort=="income","customer list supports income sorting")
+  end
+
   click("tab-finance")
   love.window.setMode(1100,700,{resizable=true,minwidth=1100,minheight=700})
   love.resize(1100,700)
@@ -509,6 +571,50 @@ function Walk.update(app,mode,frame)
       love.resize(1100,700); app.state.tab="network"; app.state.node=nil; app.state.edge=nil
       app.state.scroll=0; app.action("fit")
       capture("net-profit-05-compact",app,1100,700)
+    elseif frame==27 then
+      local c=app.city()
+      c.guideDismissed=true
+      c.firstSource.kind="source"; c.firstSource.commodity="water"; c.firstSource.output=14
+      c.firstSource.capped=nil; c.firstSource.ports=16
+      c:repairAll(); c:refresh()
+      app.state.modal=nil; app.state.bottlenecks=true
+      app.action("focusNode",c:clientList()[1].id)
+      capture("net-profit-12-supply-overlay",app,1100,700)
+    elseif frame==28 then
+      local c=app.city()
+      local n=assert(c:addClient("house",true))
+      n.x,n.y=c.firstSource.x+100,c.firstSource.y+80
+      c:refresh()
+      app.action("focusNode",n.id)
+      capture("net-profit-13-offer-preview",app,1100,700)
+    elseif frame==29 then
+      local c=app.city()
+      c:chooseAmbition("service"); c.serviceStreak=4
+      app.state.tab="ambitions"; app.state.scroll=0
+      capture("net-profit-14-goals",app,1100,700)
+    elseif frame==30 then
+      local c=app.city()
+      c.history={}
+      for day=1,12 do c.history[day]={day=day,revenue=20+day*6,expenses=35+day*2} end
+      app.state.tab="finance"; app.state.scroll=0
+      love.draw(); app.state.scroll=UI.maxScroll
+      capture("net-profit-15-profit-history",app,1100,700)
+    elseif frame==31 then
+      app.action("endDay"); app.state.reportDetails=true
+      capture("net-profit-16-accounting",app,1100,700)
+    elseif frame==32 then
+      app.state.modal=nil; app.state.tab="network"; app.state.scroll=0
+      local c=app.city()
+      local n=c:clientList(true)[1]
+      if n and not c:pipeError(c.firstSource.id,n.id,"water") then
+        app.action("fit")
+        local x,y=app.camera():toScreen(n.x,n.y)
+        love.mouse.setPosition(x,y)
+        app.state.drag=c.firstSource.id; app.state.hoverNode=n.id
+        app.state.commodity="water"; app.state.capacity=n.demand
+        capture("net-profit-17-construction-preview",app,1100,700)
+        app.state.drag=nil
+      else error("construction preview fixture needs a reachable offer") end
     elseif frame==34 then print("screenshots complete"); love.event.quit() end
     return
   end
