@@ -37,6 +37,16 @@ Graph.KINDS = {
   -- for itself arrives through it without limit, at a price charged on every
   -- unit that moves and a haulage bill for every metre it travels.
   terminal = { name = "HAVEN",    ports = 6,  throughput = 999, cost = 2200, color = {0.86, 0.74, 0.52} },
+  -- The company's presence in a neighbourhood, rather than a pipe to one
+  -- building. Everything inside its radius that pays enough is served from it
+  -- without a main being drawn, which is what lets a company run a thousand
+  -- customers without the player drawing a thousand pipes and without the
+  -- solver carrying a thousand nodes.
+  --
+  -- The key is "exchange" and the name on screen is HUB, because the archived
+  -- contract game above already owns "hub" in this table and a duplicate key in
+  -- a Lua constructor silently wins. Do not rename either one.
+  exchange = { name = "HUB",      ports = 8,  throughput = 999, cost = 1400, color = {0.45, 0.86, 0.72} },
   -- A depot buffers a commodity overnight: surplus production goes in at the
   -- close, and the next day it feeds the network like a small second well.
   depot    = { name = "DEPOT",    ports = 3,  throughput = 999, cost = 190, color = {0.62, 0.56, 0.98} },
@@ -282,10 +292,15 @@ function Graph:buildNetwork(uncapped, commodity)
     -- Cleared every build: a node that drained in the water network must not
     -- keep a stale arc index when the beer network is solved next.
     node._drainArc = nil
-    if node.alive then
+    node._feedArc = nil
+    -- A node with nothing tied into it can neither carry, receive nor deliver.
+    -- On a map where thousands of customers are covered by a hub rather than
+    -- piped, leaving them out is the difference between a solve that fits in a
+    -- frame and one that does not: they were costing four arcs each, four times
+    -- over, to sit in the network doing nothing.
+    if node.alive and #(self.adj[node.id] or {}) > 0 then
       local vin, vout = 2 * node.id - 1, 2 * node.id
       net:arc(vin, vout, node.throughput, { kind = "node", id = node.id })
-      node._feedArc = nil
       if node.kind == "source" and (not commodity or node.commodity == commodity) then
         -- A well produces a finite amount per day.
         net:arc(SS, vin, node.output or INF)
@@ -307,10 +322,16 @@ function Graph:buildNetwork(uncapped, commodity)
         net:arc(SS, vin, node.stored)
         node._feedArc = #net.arcs - 1
       end
-      if (node.kind == "client" or node.kind == "sink") and not node.prospect and not node.supplyClosed
+      if (node.kind == "client" or node.kind == "sink") and not node.prospect
+         and not node.supplyClosed and not node.hub
          and (not commodity or node.commodity == commodity) then
         -- The service valve controls only this customer's draw, not the main.
+        -- A customer on a hub is not here at all: their demand is carried by
+        -- the hub, as one number.
         net:arc(vout, TT, uncapped and INF or (node.demand or INF))
+        node._drainArc = #net.arcs - 1
+      elseif node.kind == "exchange" and commodity and (node.demandBy or {})[commodity] then
+        net:arc(vout, TT, uncapped and INF or node.demandBy[commodity])
         node._drainArc = #net.arcs - 1
       end
     end
@@ -340,7 +361,8 @@ function Graph:maxflow(uncapped, commodity)
 
   local served, produced = {}, {}
   for _, node in ipairs(self.nodes) do
-    if node.alive and (node.kind == "client" or node.kind == "sink") and node._drainArc then
+    if node.alive and (node.kind == "client" or node.kind == "sink" or node.kind == "exchange")
+       and node._drainArc then
       local a = net.arcs[node._drainArc]
       served[node.id] = a.cap0 - a.cap
     end

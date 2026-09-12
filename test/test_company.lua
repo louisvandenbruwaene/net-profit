@@ -394,6 +394,58 @@ do
   check(c:sourceIncome(t)==0,"a haven pays no wholesale, because it produces nothing")
 end
 
+print("a hub is the last mile, charged rather than drawn")
+do
+  local c=fresh()
+  c.money=99999
+  c.obstacles={}
+  local src=c.firstSource
+  for _,cl in ipairs(c:clientList()) do c.g:killNode(cl.id) end
+  local hub=assert(c:build(src.x+240,src.y,"exchange"))
+  -- Three customers around the hub: two that pay the going rate and one that
+  -- does not. None of them gets a main of their own.
+  local made={}
+  for i=1,3 do
+    local cl=assert(c:addClient("house",i==3))
+    cl.x,cl.y=hub.x+120*math.cos(i),hub.y+120*math.sin(i)
+    cl.demand,cl.rate=3,i==2 and 2 or 6
+    made[i]=cl
+  end
+  c:refresh()
+  check(made[3].prospect==false,"an offer inside a hub signs itself")
+  check(made[1].hub==hub.id and made[2].hub==hub.id,"and the hub picks up everyone in range")
+  check(c.g:degree(made[1].id)==0,"with no main drawn to any of them")
+
+  -- The rate floor is the whole point of a hub: it refuses cheap customers.
+  c:refresh()
+  local before=#hub.covered
+  hub.floor=4
+  c:refresh()
+  check(#hub.covered==before-1,"raising the floor drops the customer who pays least")
+  check(made[2].hub==nil,"and it is the right one")
+
+  -- Feed it and everyone behind it is supplied, through one main.
+  assert(c:layPipe(src.id,hub.id,"water",9))
+  check(c.served[made[1].id]==3 and c.served[made[3].id]==3,
+    "one main into the hub supplies every customer behind it")
+  check(c.detail.hub[hub.id].water==6,"and the hub is what the network actually delivered to")
+
+  -- Short supply goes to the best payers first.
+  made[3].rate=9
+  local narrow=c.g:edgesAt(hub.id)[1]
+  narrow.cap,narrow.capMax=3,3
+  c:refresh()
+  check(c.served[made[3].id]==3 and c.served[made[1].id]==0,
+    "when a hub is short the better payer is served first")
+
+  -- And the feed looks after itself, at the usual price.
+  hub.autoWiden=true
+  local cash=c.money
+  local report=c:endDay()
+  check(report.widened>=1 and c.money<cash,"the standing order widens the feed and bills for it")
+  check(narrow.capMax>3,"the main into the hub is wider than it was")
+end
+
 print("the game tells a customer why they are short, and the fix works")
 do
   local c=fresh()

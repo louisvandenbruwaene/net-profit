@@ -119,10 +119,11 @@ local toolTips = {
   tower="Treatment station: $92, $2 a day. Cuts leak risk by 55% for every main whose midpoint is within 220m. Stations do not stack.",
   gate="Gate: 2 ports, $30, $1 a day. A valve you set by hand -- throttle a branch to starve it on purpose and send scarce supply to the customers who pay more.",
   depot="Depot: 3 ports, $190, $3 a day. Takes in output you could not sell today, up to 18 units, and feeds it back into the network tomorrow.",
+  exchange="Hub: 8 ports, $1400, $9 a day plus $0.70 a customer. Stands in a neighbourhood and serves everyone inside 700m who pays at least the rate you set, with no main drawn to any of them. Offers in range sign themselves. Its feed widens itself when it runs short, at the usual price, until you switch that off.",
   terminal="Haven: 4 ports, $2200, $26 a day. The city's door to the outside world: every trade but power lands here in unlimited quantity, billed per unit as it moves. It can only stand on the strip of ground along the estuary, the highway or the apron, one haven to each, and it ships by track only.",
 }
 
-local TOOLS = {"junction","manifold","pump","tower","gate","depot","terminal"}
+local TOOLS = {"junction","manifold","pump","tower","gate","depot","exchange","terminal"}
 
 -- Replacing a structure where it stands. The mains never come off, so this is
 -- the difference between buying three more ports and rebuilding a junction box
@@ -364,6 +365,49 @@ local function inspectDepot(n,y)
   return demolishBlock(n,tail+12)
 end
 
+local function inspectHub(n,y)
+  local covered=#(n.covered or {})
+  row("Customers on it",covered,y,covered>0 and P.good or P.textDim,
+    "Everyone inside "..City.hub.radius.."m who pays at least the floor and has no main of their own. "..
+    "Offers in range sign themselves.")
+  row("Rate floor","$"..(n.floor or 0).." / unit",y+26,(n.floor or 0)>0 and P.energy or P.textDim,
+    "The hub refuses anyone paying less. Raise it and the cheap houses drop off, "..
+    "which is how scarce supply is pointed at the customers worth having.")
+  button("hub-floor-down","-",M,y+52,34,30,function() act("setHubFloor",n.id,(n.floor or 0)-City.hub.floorStep) end,
+    (n.floor or 0)>0,"Serve cheaper customers too")
+  button("hub-floor-up","+",M+40,y+52,34,30,function() act("setHubFloor",n.id,(n.floor or 0)+City.hub.floorStep) end,
+    true,"Serve only better payers")
+  button("hub-auto",n.autoWiden and "Feed widens itself" or "Feed left alone",M+84,y+52,CW-84,30,
+    function() act("setHubAuto",n.id,not n.autoWiden) end,true,
+    "With this on, a saturated main into this hub gains one unit of bore at each close, "..
+    "at the usual price, whenever the hub is short.",n.autoWiden,P.accent)
+  local ly=y+96
+  for _,name in ipairs(Graph.TRADES) do
+    local want=(n.demandBy or {})[name] or 0
+    if want>0 then
+      local got=((city.detail.hub or {})[n.id] or {})[name] or 0
+      row(string.upper(name),got.." / "..want,ly,got>=want and P.good or P.warn,
+        "What the hub landed today against what its customers asked for. "..
+        "Short means the mains into the hub are too narrow, or there is nothing upstream to send.")
+      lg.setColor(P.panelEdge); lg.rectangle("fill",M,ly+21,CW,4,2)
+      lg.setColor(got>=want and P.good or P.warn)
+      lg.rectangle("fill",M,ly+21,CW*(want>0 and math.min(1,got/want) or 0),4,2)
+      ly=ly+38
+    end
+  end
+  if covered==0 then
+    text("Nobody in range yet. A hub pays for itself only where the customers are.",
+      M,ly,"small",P.warn,CW)
+    ly=ly+30
+  end
+  row("Running cost","-$"..string.format("%.1f",City.hub.upkeep+covered*City.hub.perClient).." / day",ly,P.warn,
+    "$"..City.hub.upkeep.." for the hub and $"..City.hub.perClient.." for every customer on it.")
+  text("A hub is the last mile, charged rather than drawn. Feed it with mains from the trunk network and it wires the neighbourhood itself.",
+    M,ly+30,"small",P.textDim,CW)
+  return demolishBlock(n,ly+96,"Demolish the hub",
+    "Closes the hub. Its customers go back to having no connection at all.")
+end
+
 local function inspectTerminal(n,y)
   local spec=City.HAVENS[n.haven or "port"] or City.HAVENS.port
   local landed=(city.producedBy or {})[n.id] or {}
@@ -507,12 +551,12 @@ local function buildPanel()
         afford,toolTips[name],state.tool==name,Graph.KINDS[name].color)
       lg.setColor(afford and Graph.KINDS[name].color or P.textFaint)
       Draw.structureGlyph(name,bx+17,by+24)
-      text(({junction="Junction",manifold="Manifold",pump="Pump",tower="Treat",gate="Valve",depot="Depot",terminal="Haven"})[name],
+      text(({junction="Junction",manifold="Manifold",pump="Pump",tower="Treat",gate="Valve",depot="Depot",exchange="Hub",terminal="Haven"})[name],
         bx+32,by+8,"tiny",P.text)
       text("$"..City.price[name],bx+32,by+28,"small",P.textDim)
     end
   end
-  y=y+(advanced and 174 or 58)+8
+  y=y+(advanced and 232 or 58)+8
   -- Which door the haven tool builds. Three small buttons that only appear
   -- while the tool is in hand, so the panel is no wider the rest of the time.
   if state.tool=="terminal" then
@@ -576,6 +620,7 @@ local function inspectorPanel(n,e)
     elseif n.kind=="gate" then tail=inspectGate(n,y)
     elseif n.kind=="depot" then tail=inspectDepot(n,y)
     elseif n.kind=="terminal" then tail=inspectTerminal(n,y)
+    elseif n.kind=="exchange" then tail=inspectHub(n,y)
     else
       local degree=city.g:degree(n.id)
       row("Ports",degree.." / "..n.ports,y,degree>=n.ports and P.warn or P.text)
@@ -631,6 +676,7 @@ local function company()
        (b.crews>0 and ("   crews $"..b.crews) or "")..
        (b.imports>0 and ("   imports $"..math.floor(b.imports)) or "")..
        (b.haulage>0 and ("   haulage $"..math.floor(b.haulage)) or "")..
+       (b.hubs>0 and ("   hubs $"..math.floor(b.hubs)) or "")..
        (b.fuel>0 and ("   fuel $"..math.floor(b.fuel)) or "")..
        (b.interest>0 and ("   interest $"..b.interest) or ""),
        M,y+136,"small",P.textFaint,CW)

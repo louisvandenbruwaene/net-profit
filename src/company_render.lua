@@ -199,6 +199,21 @@ function Draw.structureGlyph(kind, x, y, s)
     lg.rectangle("fill", -9.4 * s, -6.9 * s, 2.6 * s, 15.4 * s)
     lg.rectangle("fill", 6.8 * s, -6.9 * s, 2.6 * s, 15.4 * s)
     lg.rectangle("fill", -3.6 * s, 1.6 * s, 7.2 * s, 6.9 * s, 0.6 * s)
+  elseif kind == "exchange" then
+    -- A hub: a depot building with four spurs running off it to the streets.
+    -- Nothing else in the set has arms ending in dots, which is what says "this
+    -- one reaches things you did not draw a pipe to".
+    stroke(span, 0.085)
+    for i = 0, 3 do
+      local t = math.pi / 4 + i * math.pi / 2
+      local ax, ay = math.cos(t) * 10 * s, math.sin(t) * 10 * s
+      lg.line(0, 0, ax, ay)
+      lg.circle("fill", ax, ay, 2.1 * s)
+    end
+    lg.rectangle("fill", -6.4 * s, -5 * s, 12.8 * s, 10 * s, 1.4 * s)
+    lg.setColor(P.bg)
+    lg.rectangle("fill", -3.4 * s, -2.4 * s, 6.8 * s, 4.8 * s, 0.8 * s)
+    lg.setColor(r, g, b, a)
   elseif kind == "manifold" then
     -- Six ports on one hub, drawn as six ports on one hub.
     for i = 0, 5 do
@@ -270,18 +285,24 @@ end
 -- Ground goes down in two passes with the terrain sandwiched between them, so
 -- that a tree never lands on top of a price and unowned land dims whatever is
 -- standing on it.
+-- Only what is on screen is drawn, for every pass over the map. A company on an
+-- endless map holds ground and customers it cannot see, and a frame spent
+-- drawing them is a frame spent on nothing.
 local function drawDistrictGround(city, cam)
   for _, d in ipairs(city.districts or {}) do
-    local x, y = cam:toScreen(d.x, d.y)
-    local w, h = d.w * cam.scale, d.h * cam.scale
-    lg.setColor(d.owned and {0.075,0.12,0.13,0.8} or {0.09,0.11,0.14,0.5})
-    lg.rectangle("fill",x+4,y+4,w-8,h-8,8)
+    if cam:seesBox(d.x, d.y, d.x + d.w, d.y + d.h) then
+      local x, y = cam:toScreen(d.x, d.y)
+      local w, h = d.w * cam.scale, d.h * cam.scale
+      lg.setColor(d.owned and {0.075,0.12,0.13,0.8} or {0.09,0.11,0.14,0.5})
+      lg.rectangle("fill",x+4,y+4,w-8,h-8,8)
+    end
   end
 end
 
 local function drawDistrictChrome(city, cam, state)
   lg.setLineWidth(1)
   for _, d in ipairs(city.districts or {}) do
+    if cam:seesBox(d.x, d.y, d.x + d.w, d.y + d.h) then
     local x, y = cam:toScreen(d.x, d.y)
     local w, h = d.w * cam.scale, d.h * cam.scale
     if d.owned then
@@ -312,25 +333,6 @@ local function drawDistrictChrome(city, cam, state)
     if cam.scale > 0.34 and d.owned then
       label(string.upper(d.name), x + w / 2, y + 6, P.textFaint, R.fonts.tiny)
     end
-    -- Three districts can host a haven. Say so on the ground, so the choice of
-    -- which district to buy is made looking at the map.
-    local spec = City.DISTRICTS[d.id]
-    if spec and spec.haven and cam.scale > 0.26 then
-      local hv = City.HAVENS[spec.haven]
-      local hx,hy=x+w/2,y+h-48
-      lg.setColor(P.with(P.energy,d.owned and 0.7 or 0.4)); lg.setLineWidth(2)
-      if spec.haven=="port" then
-        lg.line(hx-18,hy+10,hx-18,hy-15,hx+22,hy-15,hx+22,hy)
-        lg.line(hx-27,hy+12,hx+30,hy+12)
-      elseif spec.haven=="airfield" then
-        lg.line(hx,hy-16,hx,hy+15); lg.line(hx-20,hy,hx+20,hy)
-        lg.line(hx-9,hy+12,hx+9,hy+12)
-      else
-        lg.line(hx-24,hy+12,hx-24,hy-9,hx+24,hy-9,hx+24,hy+12)
-        lg.line(hx-7,hy-5,hx-7,hy+12); lg.line(hx+7,hy-5,hx+7,hy+12)
-      end
-      label(hv.name, x + w / 2, y + h - 22,
-        d.owned and P.energy or P.with(P.energy, 0.55), R.fonts.tiny)
     end
   end
 end
@@ -433,7 +435,7 @@ end
 
 local function drawSeams(city, cam)
   for _, s in ipairs(city.deposits or {}) do
-    if not s.taken then
+    if not s.taken and cam:sees(s.x, s.y, City.seamRange * cam.scale + 40) then
       local x, y = cam:toScreen(s.x, s.y)
       local d = city:districtAt(s.x, s.y)
       if d and d.owned then
@@ -463,6 +465,7 @@ function Draw.world(city, cam, state)
   drawDistrictGround(city, cam)
 
   for _, o in ipairs(city.obstacles) do
+    if cam:sees(o.x, o.y, o.r * cam.scale + 60) then
     local spec = City.OBSTACLES[o.kind]
     local x, y = cam:toScreen(o.x, o.y)
     local r = o.r * cam.scale
@@ -478,9 +481,35 @@ function Draw.world(city, cam, state)
       local tag = spec.name .. (cross and (cross > 1 and string.format("  x%.1f", cross) or "  OPEN") or "  CLOSED")
       label(tag, x, y+r+3, freed and P.good or P.textDim, R.fonts.tiny)
     end
+    end
   end
   drawDistrictChrome(city, cam, state)
   drawSeams(city, cam)
+
+  -- What each hub covers. Drawn faintly all the time, because the radius is the
+  -- thing the player is actually placing, and drawn with its spokes when the
+  -- hub is picked up, because that is when you want to see who is on it.
+  for _, h in ipairs(city.g:nodesOfKind("exchange")) do
+    if cam:sees(h.x, h.y, City.hub.radius * cam.scale + 40) then
+    local hx, hy = cam:toScreen(h.x, h.y)
+    local r = City.hub.radius * cam.scale
+    local live = state.node == h.id or state.hoverNode == h.id or state.tool == "exchange"
+    local colour = Graph.KINDS.exchange.color
+    lg.setColor(P.with(colour, live and 0.10 or 0.05)); lg.circle("fill", hx, hy, r)
+    lg.setColor(P.with(colour, live and 0.55 or 0.22)); lg.setLineWidth(1)
+    lg.circle("line", hx, hy, r)
+    if live then
+      for _, id in ipairs(h.covered or {}) do
+        local c = city.g.nodes[id]
+        if c and c.alive then
+          local cx, cy = cam:toScreen(c.x, c.y)
+          lg.setColor(P.with(colour, 0.35)); lg.setLineWidth(1)
+          lg.line(hx, hy, cx, cy)
+        end
+      end
+    end
+    end
+  end
 
   local selected = city.g.nodes[state.node or 0]
   if selected and selected.alive and selected.kind == "tower" then
@@ -491,7 +520,10 @@ function Draw.world(city, cam, state)
 
   local route=state.bottlenecks and E.route(city,state.node) or {}
   for _, e in ipairs(city.g.edges) do
-    if e.alive and (not state.filter or e.commodity==state.filter) then
+    local ea, eb = city.g.nodes[e.a], city.g.nodes[e.b]
+    if e.alive and (not state.filter or e.commodity==state.filter)
+       and cam:seesBox(math.min(ea.x,eb.x), math.min(ea.y,eb.y),
+                       math.max(ea.x,eb.x), math.max(ea.y,eb.y)) then
       local ax, ay, bx, by = Draw.edgePoints(cam,city,e)
       local spec = Graph.COMMODITIES[e.commodity] or Graph.COMMODITIES.water
       local c = spec.color
@@ -565,7 +597,8 @@ function Draw.world(city, cam, state)
   end
 
   for _, n in ipairs(city.g:aliveNodes()) do
-    if not state.filter or not n.commodity or n.commodity==state.filter then
+    if (not state.filter or not n.commodity or n.commodity==state.filter)
+       and cam:sees(n.x, n.y, 90) then
     local x,y = cam:toScreen(n.x,n.y)
     -- Sized through R.sym, so pulling the camera back always makes a node
     -- smaller. The symbol inside is drawn at every zoom: one flat shape reads

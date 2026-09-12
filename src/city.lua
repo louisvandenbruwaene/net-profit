@@ -14,6 +14,7 @@ City.__index = City
 -- their price does not depend on what flows through them.
 City.price = {
   junction = 22, manifold = 46, pump = 38, tower = 92, gate = 30, depot = 190,
+  exchange = 1400,
   terminal = 2200,
   powerLicence = 340, beerLicence = 600, oilLicence = 1500,
   qualityBase = 140,
@@ -950,7 +951,155 @@ end
 --------------------------------------------------------------------------------
 
 City.BUILDABLE = { junction = true, manifold = true, pump = true, tower = true,
-                   gate = true, depot = true, terminal = true }
+                   gate = true, depot = true, terminal = true, exchange = true }
+
+--------------------------------------------------------------------------------
+-- Hubs
+--
+-- The point in the game where a utility stops being a network of pipes to named
+-- houses and becomes a distribution business. A hub stands in a neighbourhood
+-- and serves everyone inside its radius who pays at least what the player asks,
+-- without a main ever being drawn to any of them. The last mile is charged
+-- rather than modelled, which is honest: a real water company does not draw its
+-- service pipes on the strategy map either.
+--
+-- It is also what makes an endless map possible. A thousand customers on hubs
+-- are a few dozen numbers in the solver instead of a thousand nodes and a
+-- thousand edges.
+--------------------------------------------------------------------------------
+
+City.hub = {
+  radius = 700,          -- how far the last mile reaches
+  connect = 26,          -- one off, per customer picked up
+  perClient = 0.7,       -- per customer per day, whatever they take
+  upkeep = 9,            -- the hub itself, per day
+  floorStep = 1,         -- the rate floor moves in whole dollars
+}
+
+-- What a hub will pick up: everyone in range who pays at least the floor, is
+-- not already on a main of their own, and whose trade the company is licensed
+-- for. An offer inside the radius signs itself, which is the whole point of
+-- putting a hub down rather than a pipe.
+function City:recomputeHubs()
+  local hubs = self.g:nodesOfKind("exchange")
+  for _, n in ipairs(self.g.nodes) do
+    if n.kind == "client" then n.hub = nil end
+  end
+  if #hubs == 0 then return hubs end
+
+  -- Customers bucketed by a square the size of a hub's reach. Every hub then
+  -- looks at the nine squares around it instead of at every customer in the
+  -- company, which is the difference between a city and a city of five
+  -- thousand: the coverage scan was costing more than the flow solve.
+  local size = City.hub.radius
+  local grid = {}
+  for _, c in ipairs(self.g.nodes) do
+    if c.alive and c.kind == "client" and not c.supplyClosed
+       and self.licences[c.commodity] and self.g:degree(c.id) == 0 then
+      local key = math.floor(c.x / size) .. "," .. math.floor(c.y / size)
+      local bucket = grid[key]
+      if bucket then bucket[#bucket + 1] = c else grid[key] = { c } end
+    end
+  end
+
+  local r2 = City.hub.radius ^ 2
+  for _, h in ipairs(hubs) do
+    h.covered, h.demandBy, h.signed = {}, {}, 0
+    h.floor = h.floor or 0
+    local hcol, hrow = math.floor(h.x / size), math.floor(h.y / size)
+    -- The nine squares, walked in a fixed order, and each bucket already holds
+    -- its customers in node order because that is the order they were filed in.
+    -- Nothing is copied and nothing is sorted: which hub claims a customer
+    -- standing between two of them is decided the same way every time without
+    -- either.
+    for dc = -1, 1 do
+      for dr = -1, 1 do
+        for _, c in ipairs(grid[(hcol + dc) .. "," .. (hrow + dr)] or {}) do
+          if not c.hub
+             and (c.x - h.x) ^ 2 + (c.y - h.y) ^ 2 <= r2
+             and (c.rate or 0) >= h.floor then
+            if c.prospect then
+              c.prospect, c.joined = false, self.day
+              h.signed = h.signed + 1
+            end
+            c.hub = h.id
+            h.covered[#h.covered + 1] = c.id
+            h.demandBy[c.commodity] = (h.demandBy[c.commodity] or 0) + (c.demand or 0)
+            if not c.connected then
+              c.connected = true
+              self.hubConnectionDue = (self.hubConnectionDue or 0) + City.hub.connect
+            end
+          end
+        end
+      end
+    end
+  end
+  return hubs
+end
+
+-- What each hub actually landed, shared out among the customers it covers. The
+-- best payers are served first, which is what gives the rate floor its teeth:
+-- when a hub is short, it is the cheap houses that go dry.
+function City:shareHubSupply()
+  for _, h in ipairs(self.g:nodesOfKind("exchange")) do
+    local left = {}
+    for name, _ in pairs(h.demandBy or {}) do
+      left[name] = ((self.detail and self.detail.hub or {})[h.id] or {})[name] or 0
+    end
+    local order = {}
+    for _, id in ipairs(h.covered or {}) do order[#order + 1] = self.g.nodes[id] end
+    table.sort(order, function(a, b)
+      if (a.rate or 0) ~= (b.rate or 0) then return (a.rate or 0) > (b.rate or 0) end
+      return a.id < b.id
+    end)
+    for _, c in ipairs(order) do
+      local have = left[c.commodity] or 0
+      local take = math.min(have, c.demand or 0)
+      self.served[c.id] = take
+      left[c.commodity] = have - take
+    end
+  end
+end
+
+-- The other half of what a hub buys: the feed into it looks after itself. A
+-- saturated main into a hub that is short gets one more unit of bore at the
+-- normal price, once a day, and only while the player leaves the switch on.
+-- Automation here is a standing order with a bill attached, not a free lunch.
+function City:widenHubFeeds()
+  local count, spent = 0, 0
+  for _, h in ipairs(self.g:nodesOfKind("exchange")) do
+    if h.autoWiden then
+      for name, want in pairs(h.demandBy or {}) do
+        local got = ((self.detail.hub or {})[h.id] or {})[name] or 0
+        if got < want then
+          local best, bestCost
+          for _, e in ipairs(self.g:edgesAt(h.id)) do
+            local flow = math.abs((self.detail.edge or {})[e.id] or 0)
+            if e.commodity == name and flow >= e.cap and (e.capMax or e.cap) < 24 then
+              local cost = self:boreCost(e, 1)
+              if cost <= self.money and (not bestCost or cost < bestCost) then
+                best, bestCost = e, cost
+              end
+            end
+          end
+          if best then
+            self:upgradePipe(best.id)
+            count, spent = count + 1, spent + bestCost
+          end
+        end
+      end
+    end
+  end
+  return count, spent
+end
+
+function City:hubBill()
+  local total = 0
+  for _, h in ipairs(self.g:nodesOfKind("exchange")) do
+    total = total + City.hub.upkeep + #(h.covered or {}) * City.hub.perClient
+  end
+  return total
+end
 
 -- The outside world.
 --
@@ -1035,7 +1184,13 @@ function City:build(x, y, kind, commodity)
   self:spend(cost)
   local n = self.g:addNode(x, y, kind)
   n.paid = cost
-  if kind == "gate" then
+  if kind == "exchange" then
+    -- A hub starts open to everyone. Raising the floor is how the player turns
+    -- it into a business decision rather than a public service.
+    n.throughput = 999
+    n.floor, n.covered, n.demandBy = 0, {}, {}
+    n.autoWiden = true
+  elseif kind == "gate" then
     -- A gate starts wide open; the point of it is that the player narrows it.
     n.throughput = 6
   elseif kind == "depot" then
@@ -1744,8 +1899,11 @@ end
 --------------------------------------------------------------------------------
 
 function City:refresh()
+  -- Who is on a hub has to be settled before the networks are built, because a
+  -- customer on a hub is not in them.
+  self:recomputeHubs()
   self.served = {}
-  self.detail = { edge = {}, node = {} }
+  self.detail = { edge = {}, node = {}, hub = {} }
   self.flowBy = {}
   self.produced = {}
   -- A well makes one thing, so `produced` says all there is to say about it. A
@@ -1758,7 +1916,15 @@ function City:refresh()
   for _, name in ipairs(Graph.TRADES) do
     local flow, _, served, detail, produced = self.g:maxflow(false, name)
     self.flowBy[name] = flow
-    for id, v in pairs(served or {}) do self.served[id] = v end
+    for id, v in pairs(served or {}) do
+      local n = self.g.nodes[id]
+      if n and n.kind == "exchange" then
+        self.detail.hub[id] = self.detail.hub[id] or {}
+        self.detail.hub[id][name] = v
+      else
+        self.served[id] = v
+      end
+    end
     for id, v in pairs(produced or {}) do
       self.produced[id] = (self.produced[id] or 0) + v
       self.producedBy[id] = self.producedBy[id] or {}
@@ -1803,6 +1969,11 @@ function City:refresh()
     self.wellSpare[name] = math.max(0, wells - flow)
     self.spare[name] = math.max(0, headroom - flow)
   end
+
+  -- What the hubs landed is shared out among the customers behind them, so
+  -- everything downstream -- income, patience, the short customer report --
+  -- reads a per customer number exactly as it always did.
+  self:shareHubSupply()
 
   self.revision = (self.revision or 0) + 1
   self.unserved = 0
@@ -2018,6 +2189,23 @@ function City:endDay()
         end
       end
     end
+  end
+
+  -- 3a2. Connections made today. A hub picks customers up the moment it can
+  --      reach them, and the joining fee falls due at the close.
+  if (self.hubConnectionDue or 0) > 0 then
+    report.connections = self.hubConnectionDue
+    self.money = self.money - self.hubConnectionDue
+    self:note("$%d in new connections through the hubs", self.hubConnectionDue)
+    self.hubConnectionDue = 0
+  end
+
+  -- 3a3. The standing order on hub feeds.
+  report.widened, report.widenCost = self:widenHubFeeds()
+  if report.widened > 0 then
+    self:note("%d hub feed%s widened for $%d", report.widened,
+      report.widened == 1 and "" or "s", report.widenCost)
+    self:refresh()
   end
 
   -- 3b. The crews work the backlog. This is what the wage buys: the worst main
@@ -2469,6 +2657,7 @@ function City:expenseBreakdown()
     if n.kind == "source" then
       local trade = City.trade[n.commodity] or City.trade.water
       b.sources = b.sources + trade.sourceUpkeep + ((n.level or 1) - 1) * 2
+    elseif n.kind == "exchange" then b.structures = b.structures + 0
     elseif n.kind == "terminal" then b.structures = b.structures + City.terminalUpkeep
     elseif n.kind == "depot" then b.structures = b.structures + 3
     elseif n.kind == "tower" then b.structures = b.structures + 2
@@ -2476,6 +2665,7 @@ function City:expenseBreakdown()
   end
   b.imports = self:importBill()
   b.haulage = self:haulageBill()
+  b.hubs = self:hubBill()
   b.fuel = self:fuelBill()
   for _, e in ipairs(self.g.edges) do
     if e.alive then b.pipes = b.pipes + self:pipeUpkeep(e) end
@@ -2483,7 +2673,7 @@ function City:expenseBreakdown()
   b.crews = (self.crews or 0) * City.crewWage
   b.interest = self:loanInterest()
   b.total = math.ceil(b.office + b.sources + b.structures + b.pipes + b.crews
-    + b.interest + b.imports + b.haulage + b.fuel)
+    + b.interest + b.imports + b.haulage + b.fuel + b.hubs)
   return b
 end
 

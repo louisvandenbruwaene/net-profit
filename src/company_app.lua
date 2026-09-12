@@ -99,6 +99,18 @@ local function slotSummaries()
 end
 
 local function action(name,...)
+  if name=="setHubFloor" then
+    local id,value=...
+    local n=city.g.nodes[id]
+    if n and n.kind=="exchange" then n.floor=math.max(0,math.floor(value)); city:refresh() end
+    return
+  end
+  if name=="setHubAuto" then
+    local id,value=...
+    local n=city.g.nodes[id]
+    if n and n.kind=="exchange" then n.autoWiden=value and true or nil end
+    return
+  end
   if name=="fit" then if state.tab=="map" then fitWorld() else fit() end; return end
   if name=="fitWorld" then fitWorld(); return end
   if name=="mute" then state.muted=not state.muted; A.setEnabled(not state.muted); return end
@@ -429,8 +441,8 @@ function love.keypressed(key)
     action("upgradeSource",state.node)
   elseif key=="delete" then
     if state.edge then action("demolishPipe",state.edge) elseif state.node then action("demolishNode",state.node) end
-  elseif tonumber(key) and tonumber(key)>=1 and tonumber(key)<=7 then
-    state.tool=({"junction","manifold","pump","tower","gate","depot","terminal"})[tonumber(key)]
+  elseif tonumber(key) and tonumber(key)>=1 and tonumber(key)<=8 then
+    state.tool=({"junction","manifold","pump","tower","gate","depot","exchange","terminal"})[tonumber(key)]
   end
 end
 
