@@ -163,36 +163,39 @@ local function inspectSource(n,y)
   local drawn=(city.produced or {})[n.id] or 0
   local spare=math.max(0,capacity-drawn)
   local maxed=spare<=0 and capacity>0
-  -- What the well is giving today against what it could give. The gap is the
-  -- number that decides whether the next customer can be signed at all, so it
-  -- leads, and a well running flat out says so in warning colour.
-  row("Drawn today",drawn.." / "..capacity.." "..n.commodity,y,
+  -- Capacity in use against capacity installed. This is the first thing to know
+  -- about a well: a well at 14/14 is the reason anything downstream of it is
+  -- short, and no amount of wider pipe will change that.
+  row("Capacity",drawn.." / "..capacity.." "..n.commodity,y,
     maxed and P.warn or P.good,
-    "How much of this well's output the network is actually taking. A well at "..
-    capacity.."/"..capacity.." is the reason anything downstream of it is short.")
+    "Left of the slash is what the network is drawing from this well today. "..
+    "Right of it is everything the well can give. At "..capacity.." / "..capacity..
+    " it is flat out, and the next customer needs a deeper well, another well, or a haven.")
   local bw=CW*(capacity>0 and math.min(1,drawn/capacity) or 0)
   lg.setColor(P.panelEdge); lg.rectangle("fill",M,y+22,CW,6,2)
   lg.setColor(maxed and P.warn or Graph.COMMODITIES[n.commodity].color)
   lg.rectangle("fill",M,y+22,bw,6,2)
-  row("Spare at this well",spare.." "..n.commodity,y+38,
+  row("In use now",drawn.." "..n.commodity,y+38,maxed and P.warn or P.text)
+  row("Spare capacity",spare.." "..n.commodity,y+64,
     maxed and P.bad or spare>0 and P.good or P.textDim)
-  row("Well depth","level "..level.." / "..City.sourceMaxLevel,y+64)
-  row("Wholesale income","+$"..city:sourceIncome(n).." / day",y+90,P.good)
-  row("Upkeep","-$"..(trade.sourceUpkeep+(level-1)*2).." / day",y+116,P.warn)
-  row("Ports",city.g:degree(n.id).." / "..n.ports,y+142)
+  row("Maximum output",capacity.." "..n.commodity.." / day",y+90,P.good)
+  row("Well depth","level "..level.." / "..City.sourceMaxLevel,y+116)
+  row("Wholesale income","+$"..city:sourceIncome(n).." / day",y+142,P.good)
+  row("Upkeep","-$"..(trade.sourceUpkeep+(level-1)*2).." / day",y+168,P.warn)
+  row("Ports",city.g:degree(n.id).." / "..n.ports,y+194)
   if level<City.sourceMaxLevel then
     local cost=city:sourceUpgradeCost(n)
     button("upgrade-source","Deepen well   +"..trade.upgradeStep.." output   $"..cost,
-      M,y+180,CW,38,function() act("upgradeSource",n.id) end,city.money>=cost,
+      M,y+232,CW,38,function() act("upgradeSource",n.id) end,city.money>=cost,
       "Adds "..trade.upgradeStep.." output to this well. No new route, no tie-in, no new ground and no second lot of upkeep -- which is why deepening beats a second well until the levels get steep.",
       false,P.good,maxed and city.money>=cost)
     text("A new "..n.commodity.." well costs $"..city:sourceCost(n.commodity)..
-         " plus the route to reach it.",M,y+226,"small",P.textDim,CW)
+         " plus the route to reach it.",M,y+278,"small",P.textDim,CW)
   else
     text("This well is at full yield. Sink another, or buy ground with a seam on it.",
-      M,y+184,"body",P.textDim,CW)
+      M,y+236,"body",P.textDim,CW)
   end
-  if n.seam then text("Sunk on a seam: yield multiplied at the wellhead.",M,y+256,"small",P.energy,CW) end
+  if n.seam then text("Sunk on a seam: yield multiplied at the wellhead.",M,y+312,"small",P.energy,CW) end
 end
 
 local function inspectGate(n,y)
@@ -236,18 +239,26 @@ local function inspectTerminal(n,y)
   local landed=(city.produced or {})[n.id] or 0
   row("Haven",(City.HAVENS[n.haven or "port"] or {}).name or "TERMINAL",y,P.energy)
   row("Commodity",string.upper(com),y+26,Graph.COMMODITIES[com].color)
-  row("Landed today",landed.." / "..(n.output or 0).." "..com,y+52,
+  row("Capacity",landed.." / "..(n.output or 0).." "..com,y+52,
     landed>=(n.output or 0) and P.warn or P.good,
-    "What the haven actually moved against what its berths can take.")
-  row("Spare at the berths",math.max(0,(n.output or 0)-landed).." "..com,y+78,
-    landed>=(n.output or 0) and P.bad or P.good)
-  row("Import charge",string.format("-$%.2f / unit",trade.importCost or 1),y+104,P.warn)
-  row("Costing today",string.format("-$%.0f",landed*(trade.importCost or 1)),y+130,P.bad)
-  row("Berth upkeep","-$"..City.terminalUpkeep.." / day",y+156,P.warn)
+    "Left of the slash is what the haven landed today and is billing you for. "..
+    "Right of it is everything its berths can take.")
+  local berths=n.output or 0
+  local bw=CW*(berths>0 and math.min(1,landed/berths) or 0)
+  lg.setColor(P.panelEdge); lg.rectangle("fill",M,y+74,CW,6,2)
+  lg.setColor(landed>=berths and P.warn or Graph.COMMODITIES[com].color)
+  lg.rectangle("fill",M,y+74,bw,6,2)
+  row("In use now",landed.." "..com,y+90,landed>=berths and P.warn or P.text)
+  row("Spare capacity",math.max(0,berths-landed).." "..com,y+116,
+    landed>=berths and P.bad or P.good)
+  row("Maximum landed",berths.." "..com.." / day",y+142,P.good)
+  row("Import charge",string.format("-$%.2f / unit",trade.importCost or 1),y+168,P.warn)
+  row("Costing today",string.format("-$%.0f",landed*(trade.importCost or 1)),y+194,P.bad)
+  row("Berth upkeep","-$"..City.terminalUpkeep.." / day",y+220,P.warn)
   text("A haven is supply bought, not supply owned: it lands more than any well and charges for every unit that moves. Run track inland to spend it.",
-    M,y+186,"small",P.textDim,CW)
+    M,y+250,"small",P.textDim,CW)
   button("demolish-node","Demolish  +$"..math.floor((n.paid or city:nodeCost(n.kind))*0.4),
-    M,y+246,CW,34,function() act("demolishNode",n.id) end,true,"Removes attached links; recovers 40%")
+    M,y+310,CW,34,function() act("demolishNode",n.id) end,true,"Removes attached links; recovers 40%")
 end
 
 local function inspectEdge(e,y)
@@ -434,10 +445,10 @@ local function inspectorPanel(n,e)
     else text(title,M,y,"mid") end
     y=y+36
     if n.kind=="client" then inspectClient(n,y); tail=y+400
-    elseif n.kind=="source" then inspectSource(n,y); tail=y+296
+    elseif n.kind=="source" then inspectSource(n,y); tail=y+350
     elseif n.kind=="gate" then inspectGate(n,y); tail=y+240
     elseif n.kind=="depot" then inspectDepot(n,y); tail=y+244
-    elseif n.kind=="terminal" then inspectTerminal(n,y); tail=y+250
+    elseif n.kind=="terminal" then inspectTerminal(n,y); tail=y+390
     else
       row("Ports",city.g:degree(n.id).." / "..n.ports,y)
       row("Carrying",math.floor(city.detail.node[n.id] or 0),y+26)

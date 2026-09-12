@@ -375,6 +375,7 @@ function Walk.update(app,mode,frame)
       app.state.tab="network"; app.state.scroll=0
       app.action("focusNode",c.firstSource.id)
       capture("net-profit-08-well",app)
+      app.state.node=nil
     elseif frame==24 then
       -- The selection-to-repair path, as the player meets it.
       local c=app.city()
