@@ -16,7 +16,7 @@ City.price = {
   junction = 22, manifold = 46, pump = 38, tower = 92, gate = 30, depot = 190,
   exchange = 1400,
   terminal = 2200,
-  powerLicence = 340, beerLicence = 600, oilLicence = 1500,
+  powerLicence = 340, beerLicence = 600, oilLicence = 1500, foodLicence = 900,
   qualityBase = 140,
   ads = 90,
 }
@@ -86,6 +86,39 @@ City.trade = {
   },
 }
 
+-- What a link costs, by what is going down it.
+--
+-- A main, a cable and a road are three different pieces of infrastructure and
+-- they are priced as three different pieces of infrastructure. Which one is
+-- being laid is decided by what is being moved: nobody pipes iron ore and
+-- nobody puts water on a lorry, so the commodity picks the conduit and the
+-- player never has to.
+--
+-- A road does not corrode. That is the trade for its higher running cost: it
+-- never leaks, never bursts and never needs a crew, but every metre of it is
+-- dearer to keep than a metre of water main.
+City.FORMS = {
+  liquid = {
+    tiein = 26, trench = 0.21, bore = 13, borePerM = 0.050,
+    repairBase = 30, repairPerLost = 13, repairPerM = 0.060,
+    liningRate = 0.40, armourRate = 0.72,
+    upkeep = 0.60, upkeepPerM = 0.0030,
+  },
+  energy = {
+    tiein = 20, trench = 0.16, bore = 10, borePerM = 0.038,
+    repairBase = 22, repairPerLost = 9, repairPerM = 0.044,
+    liningRate = 0.40, armourRate = 0.72,
+    upkeep = 0.45, upkeepPerM = 0.0023,
+  },
+  -- Solids go by road, which is cheap to lay and dear to run, and short: a
+  -- lorry route across three districts is a railway waiting to be built.
+  solid = {
+    tiein = 34, trench = 0.30, bore = 16, borePerM = 0.058,
+    repairBase = 0, repairPerLost = 0, repairPerM = 0,
+    upkeep = 0.95, upkeepPerM = 0.0042, noLeak = true, range = 300,
+  },
+}
+
 -- Rail. A haven lands freight at the edge of the city and rail moves it inland,
 -- which is a different problem from plumbing: the yard at each end is the
 -- expensive part, the run itself is cheap by the metre once it exists, it
@@ -101,6 +134,51 @@ City.rail = {
   upkeep = 1.4, upkeepPerM = 0.0038, range = 1400,
   haulPerUnit = 0.18, haulPerM = 0.0016,
 }
+
+-- Everything the city moves that is not one of the four original trades is
+-- priced off its form, with its own landed price and its own wholesale value.
+-- Only the numbers that actually differ are written down.
+City.GOODS = {
+  food   = { importCost = 3.0,  wholesale = 22, wholesalePerUnit = 1.1, sourceUpkeep = 12 },
+  wheat  = { importCost = 0.9,  wholesale = 10, wholesalePerUnit = 0.35, sourceUpkeep = 7,
+             sourceBase = 620,  sourceGrowth = 1.30, sourceOutput = 14, upgradeBase = 240,
+             upgradeGrowth = 1.4, upgradeStep = 4 },
+  timber = { importCost = 1.1,  wholesale = 12, wholesalePerUnit = 0.4, sourceUpkeep = 8,
+             sourceBase = 700,  sourceGrowth = 1.30, sourceOutput = 12, upgradeBase = 260,
+             upgradeGrowth = 1.4, upgradeStep = 3 },
+  ore    = { importCost = 1.8,  wholesale = 16, wholesalePerUnit = 0.6, sourceUpkeep = 12,
+             sourceBase = 1100, sourceGrowth = 1.34, sourceOutput = 10, upgradeBase = 420,
+             upgradeGrowth = 1.45, upgradeStep = 3 },
+  rock   = { importCost = nil,  wholesale = 8,  wholesalePerUnit = 0.25, sourceUpkeep = 9,
+             sourceBase = 820,  sourceGrowth = 1.30, sourceOutput = 12, upgradeBase = 300,
+             upgradeGrowth = 1.4, upgradeStep = 3 },
+  sand   = { importCost = 0.6,  wholesale = 7,  wholesalePerUnit = 0.22, sourceUpkeep = 7,
+             sourceBase = 600,  sourceGrowth = 1.28, sourceOutput = 12, upgradeBase = 220,
+             upgradeGrowth = 1.4, upgradeStep = 3 },
+  coke   = { importCost = 2.4 },
+  malt   = { importCost = 2.2 },
+  cement = { importCost = 1.7 },
+  diesel = { importCost = 4.0 },
+  steel  = { importCost = 7.0 },
+  planks = { importCost = 3.2 },
+  glass  = { importCost = 5.5 },
+  concrete = { importCost = 2.8 },
+}
+
+-- Built once, at load: every commodity gets a full price list, made of its
+-- form's numbers with its own on top. The four original trades keep the numbers
+-- they were tuned with, which is why they are written out in full above.
+for _, key in ipairs(Graph.ALL) do
+  local spec = Graph.COMMODITIES[key]
+  local form = City.FORMS[spec.form] or City.FORMS.liquid
+  local trade = City.trade[key] or {}
+  for field, value in pairs(form) do
+    if trade[field] == nil then trade[field] = value end
+  end
+  for field, value in pairs(City.GOODS[key] or {}) do trade[field] = value end
+  trade.form = spec.form
+  City.trade[key] = trade
+end
 
 -- Pipe condition. Lining is never required -- a bare pipe works exactly as well
 -- on the day it is laid. It buys three things at once: a pipe that fouls far
@@ -142,6 +220,9 @@ City.CLIENTS = {
   workshop= { name = "WORKSHOP",commodity = "power", demand = {3, 5}, rate = 10, patience = 2, weight = 7 },
   pub     = { name = "PUB",     commodity = "beer",  demand = {2, 4}, rate = 16, patience = 2, weight = 6 },
   factory = { name = "FACTORY", commodity = "oil",   demand = {4, 6}, rate = 26, patience = 1, weight = 5 },
+  -- A market is the shop end of the food chain: wheat becomes food becomes a
+  -- queue of people who will pay for it.
+  market  = { name = "MARKET",  commodity = "food",  demand = {3, 6}, rate = 9,  patience = 2, weight = 6 },
 }
 
 City.OBSTACLES = {
@@ -193,7 +274,7 @@ function City.new(opts)
   self.investments = {}
   self.obstacles = {}
   self.deposits = {}
-  self.licences = { water = true, power = false, beer = false, oil = false }
+  self.licences = { water = true, power = false, beer = false, oil = false, food = false }
   self.permits = { park = false, river = false, bedrock = false }
   self.sourcesBought = 0
   self.log = {}
@@ -816,8 +897,18 @@ function City:railQuote(a, b, capacity)
   return q
 end
 
+-- Only the trades the company sells by the day are licensed. Feedstock and
+-- materials are things you buy, make and move: nobody licenses a lorry load of
+-- sand.
+function City:licensed(commodity)
+  local spec = Graph.COMMODITIES[commodity]
+  if not spec then return false end
+  if spec.role ~= "utility" then return true end
+  return self.licences[commodity] and true or false
+end
+
 function City:pipeError(a, b, commodity, rail)
-  if not self.licences[commodity] then return "no licence for that" end
+  if not self:licensed(commodity) then return "no licence for that" end
   if rail and not self:railEndpoint(a, b) then return "track must start or end at a haven" end
   -- Freight lands at the edge of the map and is hauled inland. A main running
   -- straight out of a haven would be a pipeline to a port that has no pipeline,
@@ -967,6 +1058,174 @@ end
 -- Upgrading a well is the hub's reason to exist: it needs no new route, no new
 -- tie-in and no new ground, so it is the cheap way to add supply until the
 -- levels get steep -- at which point sinking a new well is cheaper again.
+--------------------------------------------------------------------------------
+-- Making things out of other things
+--
+-- A works is a customer and a well at once: it draws its inputs off the network
+-- and puts its output back on. Nine of them turn what the ground gives and what
+-- the ships land into what the city actually buys, and every one of them needs
+-- electricity, which is what makes a power station the spine of everything
+-- rather than just another trade.
+--
+-- One output each. Two would double the interface and buy nothing the player
+-- would thank anyone for.
+--------------------------------------------------------------------------------
+City.RECIPES = {
+  maltings   = { name = "MALTINGS",       makes = "malt",     rate = 10, cost = 1600, upkeep = 16,
+                 inputs = { wheat = 1, water = 1, power = 1 } },
+  brewery    = { name = "BREWERY",        makes = "beer",     rate = 8,  cost = 2400, upkeep = 26,
+                 inputs = { malt = 1, water = 2, power = 1 } },
+  foodworks  = { name = "FOODWORKS",      makes = "food",     rate = 10, cost = 2000, upkeep = 20,
+                 inputs = { wheat = 2, water = 1, power = 1 } },
+  refinery   = { name = "REFINERY",       makes = "diesel",   rate = 10, cost = 2600, upkeep = 24,
+                 inputs = { oil = 2, power = 1 } },
+  sawmill    = { name = "SAWMILL",        makes = "planks",   rate = 10, cost = 1800, upkeep = 18,
+                 inputs = { timber = 2, power = 1 } },
+  steelworks = { name = "STEELWORKS",     makes = "steel",    rate = 8,  cost = 4200, upkeep = 44,
+                 inputs = { ore = 2, coke = 1, power = 3 } },
+  glassworks = { name = "GLASSWORKS",     makes = "glass",    rate = 8,  cost = 2600, upkeep = 24,
+                 inputs = { sand = 2, power = 2 } },
+  cementworks= { name = "CEMENT WORKS",   makes = "cement",   rate = 10, cost = 2800, upkeep = 26,
+                 inputs = { rock = 2, power = 2 } },
+  concrete   = { name = "CONCRETE PLANT", makes = "concrete", rate = 12, cost = 2200, upkeep = 20,
+                 inputs = { cement = 1, sand = 2, water = 1 } },
+}
+
+-- Stable order for every list of works in the interface.
+City.RECIPE_ORDER = {}
+for key in pairs(City.RECIPES) do City.RECIPE_ORDER[#City.RECIPE_ORDER + 1] = key end
+table.sort(City.RECIPE_ORDER, function(a, b)
+  return City.RECIPES[a].name < City.RECIPES[b].name
+end)
+
+City.MADE_BY = {}
+for key, recipe in pairs(City.RECIPES) do City.MADE_BY[recipe.makes] = key end
+
+-- The order the networks have to be solved in.
+--
+-- Recipes make a graph: an edge from every input to the output. Solve the
+-- commodities in topological order and one pass is enough, because nothing
+-- downstream can feed anything upstream. The rule that keeps it acyclic is that
+-- a well, a mine and a quarry never need power, so raw ground is always at the
+-- bottom and the first thing solved.
+local function solveOrder()
+  local level = {}
+  local function levelOf(key, seen)
+    if level[key] then return level[key] end
+    seen = seen or {}
+    if seen[key] then
+      error("recipes have a cycle at " .. key .. ": a commodity cannot need itself")
+    end
+    seen[key] = true
+    local recipe = City.RECIPES[City.MADE_BY[key] or ""]
+    local best = 0
+    if recipe then
+      for input in pairs(recipe.inputs) do
+        best = math.max(best, levelOf(input, seen) + 1)
+      end
+    end
+    seen[key] = nil
+    level[key] = best
+    return best
+  end
+  local order = {}
+  for _, key in ipairs(Graph.ALL) do order[#order + 1] = key end
+  table.sort(order, function(a, b)
+    local la, lb = levelOf(a), levelOf(b)
+    if la ~= lb then return la < lb end
+    return Graph.COMMODITIES[a].order < Graph.COMMODITIES[b].order
+  end)
+  return order, level
+end
+
+City.SOLVE_ORDER, City.SOLVE_LEVEL = solveOrder()
+
+-- What a works wants per day at its rated output, and what it could make from
+-- what actually turned up.
+-- What a works can put out today: whichever input ran shortest decides, and
+-- nothing exceeds the rated output. A works with no power makes nothing at all,
+-- which is the whole reason a power station matters.
+function City:worksOutput(n)
+  local recipe = City.RECIPES[n.recipe or ""]
+  if not recipe then return 0 end
+  local got = (self.detail.works or {})[n.id] or {}
+  local best = recipe.rate
+  for key, per in pairs(recipe.inputs) do
+    best = math.min(best, math.floor((got[key] or 0) / per))
+  end
+  return math.max(0, best)
+end
+
+function City:worksWants(n)
+  local recipe = City.RECIPES[n.recipe or ""]
+  if not recipe then return {} end
+  local wants = {}
+  for key, per in pairs(recipe.inputs) do wants[key] = per * recipe.rate end
+  return wants
+end
+
+--------------------------------------------------------------------------------
+-- Taking things out of the ground
+--
+-- Every raw commodity comes from somewhere the map actually says it is, and
+-- each one wants different ground. Water and oil are where the survey marked
+-- them. Ore is the same, and only the frontier has much of it. Wheat grows
+-- where the ground is farmland. Timber comes off parkland and rock out of
+-- bedrock, which is what turns two obstacles the player has been paying to
+-- avoid into two things worth owning, and makes those permits an investment
+-- rather than a toll. Sand is dredged on the coast and on the islands.
+--------------------------------------------------------------------------------
+City.EXTRACTORS = {
+  well     = { out = "water",  name = "WELL",       on = "deposit",
+               tip = "Only on a marked water deposit." },
+  rig      = { out = "oil",    name = "RIG",        on = "deposit",
+               tip = "Only on a marked oil deposit." },
+  mine     = { out = "ore",    name = "MINE",       on = "deposit",
+               tip = "Only on a marked ore deposit, and the ore is out on the frontier." },
+  farm     = { out = "wheat",  name = "FARM",       on = "archetype", archetype = "farm",
+               tip = "Only on farmland. Buy ground out where the city thins out." },
+  forestry = { out = "timber", name = "FORESTRY",   on = "obstacle",  obstacle = "park",
+               tip = "Only on parkland, which needs the parkland easement first." },
+  quarry   = { out = "rock",   name = "QUARRY",     on = "obstacle",  obstacle = "bedrock",
+               tip = "Only on bedrock, which needs the blasting licence first." },
+  pit      = { out = "sand",   name = "SAND PIT",   on = "coast",
+               tip = "Only within 150m of the coast, or on an island." },
+}
+
+City.EXTRACTOR_OF = {}
+for key, spec in pairs(City.EXTRACTORS) do City.EXTRACTOR_OF[spec.out] = key end
+
+-- Where this commodity may be taken out of the ground, and why not here.
+function City:extractorError(commodity, x, y)
+  local key = City.EXTRACTOR_OF[commodity]
+  local spec = key and City.EXTRACTORS[key]
+  if not spec then return "that is not taken out of the ground" end
+  if spec.on == "deposit" then
+    local _, seam = self:sourceCost(commodity, x, y)
+    if not seam then return "no " .. commodity .. " here: sink on a marked deposit" end
+  elseif spec.on == "archetype" then
+    local d = self:districtAt(x, y)
+    if not (d and d.spec and d.spec.key == spec.archetype) then
+      return "a farm belongs on farmland"
+    end
+  elseif spec.on == "obstacle" then
+    local o = self:obstacleAt(x, y)
+    if not (o and o.kind == spec.obstacle) then
+      return "a " .. string.lower(spec.name) .. " belongs on "
+        .. string.lower(City.OBSTACLES[spec.obstacle].name)
+    end
+    if not (self.permits and self.permits[spec.obstacle]) then
+      return "that ground needs its permit first"
+    end
+  elseif spec.on == "coast" then
+    local d = self:districtAt(x, y)
+    if not (self:onCoast(x, y) or (d and d.island)) then
+      return "sand is dredged on the coast"
+    end
+  end
+  return nil
+end
+
 -- Electricity is generated, never landed, and there are two ways to generate
 -- it. A reactor is an enormous cheque and a standing crew, and it turns
 -- imported uranium into more power than anything else on the map. A wind park
@@ -1032,7 +1291,8 @@ end
 --------------------------------------------------------------------------------
 
 City.BUILDABLE = { junction = true, manifold = true, pump = true, tower = true,
-                   gate = true, depot = true, terminal = true, exchange = true }
+                   gate = true, depot = true, terminal = true, exchange = true,
+                   works = true }
 
 --------------------------------------------------------------------------------
 -- Hubs
@@ -1260,12 +1520,25 @@ function City:build(x, y, kind, commodity)
     gateway, err2 = self:havenSite(x, y, commodity)
     if not gateway then return nil, err2 end
   end
-  local cost = gateway and self:havenCost(gateway) or self:nodeCost(kind)
+  local recipe = kind == "works" and City.RECIPES[commodity or ""] or nil
+  if kind == "works" and not recipe then return nil, "choose what the works makes" end
+  if recipe and not self:licensed(recipe.makes) then
+    return nil, "no licence for " .. recipe.makes
+  end
+  local cost = gateway and self:havenCost(gateway)
+    or (recipe and recipe.cost)
+    or self:nodeCost(kind)
   if cost > self.money then return nil, "not enough cash" end
   self:spend(cost)
   local n = self.g:addNode(x, y, kind)
   n.paid = cost
-  if kind == "exchange" then
+  if kind == "works" then
+    n.throughput = 999
+    n.recipe = commodity
+    n.makes = recipe.makes
+    n.wants = self:worksWants(n)
+    self:note("%s built: %d %s a day when it is fed", recipe.name, recipe.rate, recipe.makes)
+  elseif kind == "exchange" then
     -- A hub starts open to everyone. Raising the floor is how the player turns
     -- it into a business decision rather than a public service.
     n.throughput = 999
@@ -1637,8 +1910,11 @@ end
 -- reactor answers to no deposit, only to ground. And nobody brews: beer comes
 -- off a ship like everything else the city does not make for itself.
 function City:sourceError(commodity, x, y, plant)
-  if not self.licences[commodity] then return "no licence for that" end
-  if commodity == "beer" then return "beer is landed at a haven, not brewed" end
+  if not self:licensed(commodity) then return "no licence for that" end
+  local madeBy = City.RECIPES[City.MADE_BY[commodity] or ""]
+  if madeBy then
+    return string.lower(commodity) .. " is made in a " .. string.lower(madeBy.name)
+  end
   local err = self:placementError(x, y)
   if err then return err end
   if commodity == "power" then
@@ -1651,16 +1927,22 @@ function City:sourceError(commodity, x, y, plant)
     if spec.ground == "land" and d and d.island then
       return "there is no room for a reactor out here"
     end
+  elseif City.EXTRACTOR_OF[commodity] then
+    local why = self:extractorError(commodity, x, y)
+    if why then return why end
   else
-    local _, seam = self:sourceCost(commodity, x, y)
-    if not seam then return "no " .. commodity .. " here: sink on a marked deposit" end
+    return string.lower(commodity) .. " is not taken out of the ground: land it or make it"
   end
   return nil
 end
 
 function City:buySource(commodity, px, py, plant)
-  if not self.licences[commodity] then return nil, "no licence" end
-  if commodity == "beer" then return nil, "beer is landed at a haven, not brewed" end
+  if not self:licensed(commodity) then return nil, "no licence" end
+  local madeBy = City.RECIPES[City.MADE_BY[commodity] or ""]
+  if madeBy then
+    return nil, string.lower(commodity) .. " is made in a "
+      .. string.lower(madeBy.name) .. ", not taken out of the ground"
+  end
   plant = commodity == "power" and (plant or "nuclear") or nil
   if px then
     local err = self:sourceError(commodity, px, py, plant)
@@ -1679,9 +1961,19 @@ function City:buySource(commodity, px, py, plant)
       s.upkeep, s.fuel = spec.upkeep, spec.fuel
       self.plantsBuilt = self.plantsBuilt or {}
       self.plantsBuilt[plant] = (self.plantsBuilt[plant] or 0) + 1
+    elseif seam then
+      local d = self:districtAt(px, py)
+      s.cap = seam.cap or City.depositCap(commodity, (d and d.ring) or 0, false)
+      s.output = math.min(s.cap, math.floor(trade.sourceOutput * (seam.yield or 1)))
     else
-      s.cap = seam and seam.cap or City.depositCap(commodity, 0)
-      s.output = math.min(s.cap, math.floor(trade.sourceOutput * (seam and seam.yield or 1)))
+      -- Ground that is not a marked deposit still has a ceiling, and it is the
+      -- ground that sets it: a bigger wood gives more timber, a deeper quarry
+      -- more rock, and everything gives more the further out it is.
+      local d = self:districtAt(px, py)
+      local o = self:obstacleAt(px, py)
+      local scale = 1 + 0.3 * ((d and d.ring) or 0) + (o and math.max(0, (o.r - 70) / 180) or 0)
+      s.cap = math.floor(trade.sourceOutput * scale * 1.6)
+      s.output = math.min(s.cap, trade.sourceOutput)
     end
     if seam then
       seam.taken = true
@@ -1691,7 +1983,9 @@ function City:buySource(commodity, px, py, plant)
       self:note("%s commissioned for $%d: %d units a day",
         City.PLANTS[plant].name, cost, s.output)
     else
-      self:note("New %s well sunk for $%d", commodity, cost)
+      local spec = City.EXTRACTORS[City.EXTRACTOR_OF[commodity] or ""] or {}
+      self:note("%s opened for $%d: %d %s a day",
+        spec.name or "WORKS", cost, s.output, commodity)
     end
     self.premiumBought = self.premiumBought or {}
     if commodity == "water" then self.sourcesBought = self.sourcesBought + 1
@@ -1704,13 +1998,27 @@ function City:buySource(commodity, px, py, plant)
   -- Water and oil have to be found first, so those go looking for a deposit
   -- rather than for empty ground.
   if commodity ~= "power" then
-    for _, seam in ipairs(self.deposits or {}) do
-      if not seam.taken and seam.commodity == commodity
-         and not self:sourceError(commodity, seam.x, seam.y) then
-        return self:buySource(commodity, seam.x, seam.y)
+    local spec = City.EXTRACTORS[City.EXTRACTOR_OF[commodity] or ""]
+    if not spec then return nil, commodity .. " is not taken out of the ground" end
+    if spec.on == "deposit" then
+      for _, seam in ipairs(self.deposits or {}) do
+        if not seam.taken and seam.commodity == commodity
+           and not self:sourceError(commodity, seam.x, seam.y) then
+          return self:buySource(commodity, seam.x, seam.y)
+        end
+      end
+      return nil, "no open " .. commodity .. " deposit on ground you hold"
+    end
+    -- Ground rather than a mark: walk the districts the company holds looking
+    -- for somewhere this works is allowed to stand.
+    for _, d in ipairs(self:ownedDistricts()) do
+      for _ = 1, 40 do
+        local x = self:rand(d.x + 90, d.x + d.w - 90)
+        local y = self:rand(d.y + 70, d.y + d.h - 70)
+        if not self:sourceError(commodity, x, y) then return self:buySource(commodity, x, y) end
       end
     end
-    return nil, "no open " .. commodity .. " deposit on ground you hold"
+    return nil, "nowhere on your ground suits a " .. string.lower(spec.name)
   end
   local owned = self:ownedDistricts()
   for _ = 1, 300 do
@@ -1730,7 +2038,7 @@ function City:buySource(commodity, px, py, plant)
   return nil, "no room for a new well"
 end
 
-City.LICENSABLE = { power = true, beer = true, oil = true }
+City.LICENSABLE = { power = true, beer = true, oil = true, food = true }
 
 function City:buyLicence(commodity)
   if not City.LICENSABLE[commodity] then return nil, "unknown trade" end
@@ -2003,17 +2311,68 @@ function City:refresh()
   -- customer on a hub is not in them.
   self:recomputeHubs()
   self.served = {}
-  self.detail = { edge = {}, node = {}, hub = {} }
+  self.detail = { edge = {}, node = {}, hub = {}, works = {} }
   self.flowBy = {}
   self.produced = {}
   -- A well makes one thing, so `produced` says all there is to say about it. A
-  -- haven lands four, each at its own price, so what it owes has to be kept
+  -- haven lands a dozen, each at its own price, so what it owes has to be kept
   -- trade by trade.
   self.producedBy = {}
   self.spare = {}
   self.wellSpare = {}
   self.capacityBy = {}
-  for _, name in ipairs(Graph.TRADES) do
+
+  -- What every works is asking for, before anything is solved.
+  local works = self.g:nodesOfKind("works")
+  for _, w in ipairs(works) do
+    local recipe = City.RECIPES[w.recipe or ""]
+    w.makes = recipe and recipe.makes or nil
+    w.wants = self:worksWants(w)
+    w.ready = 0
+    self.detail.works[w.id] = {}
+  end
+
+  -- Which networks are worth solving at all.
+  --
+  -- There are eighteen commodities and a company touches a handful of them. A
+  -- network with nothing feeding it, or nothing asking for it, has no flow in
+  -- it by definition, and building it to discover that costs a pass over every
+  -- node and every edge in the company. So: solve a commodity only where both
+  -- ends of it exist.
+  -- Every commodity reports a flow, including the ones that were never solved:
+  -- "no beer moved today" is a number, not an absence.
+  for _, name in ipairs(City.SOLVE_ORDER) do self.flowBy[name] = 0 end
+
+  local feeds, wants = {}, {}
+  for _, n in ipairs(self.g:aliveNodes()) do
+    if n.kind == "source" and n.commodity then feeds[n.commodity] = true
+    elseif n.kind == "works" then
+      if n.makes then feeds[n.makes] = true end
+      for key in pairs(n.wants or {}) do wants[key] = true end
+    elseif n.kind == "depot" and (n.stored or 0) > 0 then feeds[n.commodity] = true
+    elseif n.kind == "terminal" then
+      for _, key in ipairs(Graph.ALL) do
+        if Graph.COMMODITIES[key].landed ~= false then feeds[key] = true end
+      end
+    elseif n.kind == "exchange" then
+      for key in pairs(n.demandBy or {}) do wants[key] = true end
+    elseif n.kind == "client" and not n.hub and not n.prospect then
+      wants[n.commodity] = true
+    end
+  end
+
+  -- One pass, in dependency order. By the time a commodity is solved, every
+  -- works that makes it has already been told what turned up for it, so its
+  -- output is a number rather than a guess.
+  for _, name in ipairs(City.SOLVE_ORDER) do
+    -- What every works making this commodity managed to make, whether or not
+    -- anybody is asking for it yet. A works with no customer still has an
+    -- output, and the player needs to see it to know the chain works.
+    for _, w in ipairs(works) do
+      if w.makes == name then w.ready = self:worksOutput(w) end
+    end
+
+    if feeds[name] and wants[name] then
     local flow, _, served, detail, produced = self.g:maxflow(false, name)
     self.flowBy[name] = flow
     for id, v in pairs(served or {}) do
@@ -2021,6 +2380,8 @@ function City:refresh()
       if n and n.kind == "exchange" then
         self.detail.hub[id] = self.detail.hub[id] or {}
         self.detail.hub[id][name] = v
+      elseif n and n.kind == "works" then
+        self.detail.works[id][name] = v
       else
         self.served[id] = v
       end
@@ -2034,40 +2395,49 @@ function City:refresh()
     for id, v in pairs((detail or {}).node or {}) do
       self.detail.node[id] = (self.detail.node[id] or 0) + v
     end
-    -- Two different questions share the word "spare".
-    --
-    -- `wellSpare` is output that was pumped for and never sold: real product
-    -- sitting in the works, which is the only thing a depot can take in. A
-    -- haven's unused berths are not that -- nothing was landed and nothing was
-    -- billed for -- so they do not count here.
-    --
-    -- `spare` is headroom: everything the network could still draw on today
-    -- from any feed at all. That is the number that answers "can I sign this
-    -- customer", so it is the one the sidebar shows and the one a starved
-    -- customer's diagnosis is judged against.
-    local wells, headroom = 0, 0
-    for _, n in ipairs(self.g:aliveNodes()) do
-      if n.commodity == name then
-        if n.kind == "source" then
-          wells = wells + (n.output or 0)
-          headroom = headroom + (n.output or 0)
-        elseif n.kind == "terminal" then headroom = headroom + (n.output or 0)
-        elseif n.kind == "depot" then headroom = headroom + (n.stored or 0) end
-      elseif n.kind == "terminal" and name ~= "power" then
-        -- A haven never runs out. What it can actually put into the city is the
-        -- capacity of the track leaving it, so that is what counts as headroom:
-        -- quoting the truth here would be "infinity", which tells nobody
-        -- whether the next customer can be signed.
-        local out = 0
-        for _, e in ipairs(self.g:edgesAt(n.id)) do
-          if e.alive and e.rail and e.commodity == name then out = out + e.cap end
+    end
+  end
+
+  -- Two different questions share the word "spare".
+  --
+  -- `wellSpare` is output that was pumped for and never sold: real product
+  -- sitting in the works, which is the only thing a depot can take in. A
+  -- haven's unused berths are not that -- nothing was landed and nothing was
+  -- billed for -- so they do not count here.
+  --
+  -- `spare` is headroom: everything the network could still draw on today from
+  -- any feed at all. That is the number that answers "can I sign this
+  -- customer", so it is the one the sidebar shows and the one a starved
+  -- customer's diagnosis is judged against.
+  --
+  -- Counted in one pass over the nodes rather than one pass per commodity,
+  -- because there are eighteen commodities now and only one company.
+  local wells, headroom = {}, {}
+  for _, n in ipairs(self.g:aliveNodes()) do
+    local key = n.commodity
+    if key and n.kind == "source" then
+      wells[key] = (wells[key] or 0) + (n.output or 0)
+      headroom[key] = (headroom[key] or 0) + (n.output or 0)
+    elseif key and n.kind == "depot" then
+      headroom[key] = (headroom[key] or 0) + (n.stored or 0)
+    elseif n.kind == "works" and n.makes then
+      headroom[n.makes] = (headroom[n.makes] or 0) + (n.ready or 0)
+    elseif n.kind == "terminal" then
+      -- A haven never runs out. What it can actually put into the city is the
+      -- capacity of the track leaving it, so that is what counts as headroom:
+      -- quoting the truth here would be "infinity", which tells nobody whether
+      -- the next customer can be signed.
+      for _, e in ipairs(self.g:edgesAt(n.id)) do
+        if e.rail and e.commodity ~= "power" then
+          headroom[e.commodity] = (headroom[e.commodity] or 0) + e.cap
         end
-        headroom = headroom + out
       end
     end
-    self.capacityBy[name] = headroom
-    self.wellSpare[name] = math.max(0, wells - flow)
-    self.spare[name] = math.max(0, headroom - flow)
+  end
+  for _, name in ipairs(City.SOLVE_ORDER) do
+    self.capacityBy[name] = headroom[name] or 0
+    self.wellSpare[name] = math.max(0, (wells[name] or 0) - (self.flowBy[name] or 0))
+    self.spare[name] = math.max(0, (headroom[name] or 0) - (self.flowBy[name] or 0))
   end
 
   -- What the hubs landed is shared out among the customers behind them, so
@@ -2194,6 +2564,9 @@ function City:leakChance(e)
   -- game with no maintenance story at all, which is most of what you are
   -- paying for when you lay it.
   if e.rail then return 0 end
+  -- A road is not a pipe. It never leaks, which is what its higher running cost
+  -- is buying.
+  if (City.trade[e.commodity] or {}).noLeak then return 0 end
   local q = 1 - City.rules.qualityStep * self.quality
   local g = self:gradeOf(e).risk
   local a, b = self.g.nodes[e.a], self.g.nodes[e.b]
@@ -2465,6 +2838,7 @@ function City:migrate()
   self.loan = self.loan or 0
   self.licences = self.licences or { water = true }
   if self.licences.power == nil then self.licences.power = false end
+  if self.licences.food == nil then self.licences.food = false end
 
   if not self.districts then
     local old = self.bounds or { x = 0, y = 0, w = 2000, h = 1400 }
@@ -2758,6 +3132,8 @@ function City:expenseBreakdown()
     if n.kind == "source" then
       local trade = City.trade[n.commodity] or City.trade.water
       b.sources = b.sources + (n.upkeep or trade.sourceUpkeep) + ((n.level or 1) - 1) * 2
+    elseif n.kind == "works" then
+      b.structures = b.structures + ((City.RECIPES[n.recipe or ""] or {}).upkeep or 20)
     elseif n.kind == "exchange" then b.structures = b.structures + 0
     elseif n.kind == "terminal" then b.structures = b.structures + City.terminalUpkeep
     elseif n.kind == "depot" then b.structures = b.structures + 3

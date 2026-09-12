@@ -8,7 +8,7 @@ local A = require("audio")
 local P = require("palette")
 local App = {}
 local city,cam
-local state={commodity="water",havenKind="port",plant="nuclear",capacity=3,invest=100,borrow=500,tab="network",scroll=0,undo={}}
+local state={commodity="water",havenKind="port",plant="nuclear",recipe="brewery",capacity=3,invest=100,borrow=500,tab="network",scroll=0,undo={}}
 local testMode, frames = nil,0
 
 local function toast(message,bad)
@@ -353,6 +353,7 @@ function love.mousepressed(x,y,button)
     local wx,wy=cam:toWorld(x,y)
     if state.tool=="source" then action("buySource",state.commodity,wx,wy,state.plant)
     elseif state.tool=="terminal" then action("build",wx,wy,state.tool,state.havenKind or "port")
+    elseif state.tool=="works" then action("build",wx,wy,state.tool,state.recipe or "brewery")
     else action("build",wx,wy,state.tool,state.commodity) end
     return
   end

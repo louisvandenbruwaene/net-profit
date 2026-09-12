@@ -692,7 +692,58 @@ function Walk.update(app,mode,frame)
         capture("net-profit-20-island",app,1100,700,true)
         app.state.node=nil
       end
-    elseif frame==38 then print("screenshots complete"); love.event.quit() end
+    elseif frame==38 then
+      -- The chain: wheat off a farm, malt, water and power into a brewery, and
+      -- beer out of it. Four commodities and three buildings, on one screen.
+      local c=app.city()
+      c.money=999999
+      c.obstacles={}
+      c.licences.beer=true; c.licences.power=true
+      for _,d in ipairs(c.districts) do d.owned=true end
+      local farm
+      for _,d in ipairs(c.districts) do if d.spec and d.spec.key=="farm" then farm=d; break end end
+      if farm then
+        local bx,by=farm.x+300,farm.y+320
+        local field=assert(c:buySource("wheat",bx,by))
+        local mill=assert(c:build(bx+250,by,"works","maltings"))
+        local plant=assert(c:buySource("power",bx+370,by+210,"nuclear"))
+        local brew=assert(c:build(bx+500,by,"works","brewery"))
+        assert(c:layPipe(field.id,mill.id,"wheat",10))
+        assert(c:layPipe(plant.id,mill.id,"power",10))
+        assert(c:layPipe(plant.id,brew.id,"power",10))
+        assert(c:layPipe(mill.id,brew.id,"malt",10))
+        local dep
+        for _,d in ipairs(c.deposits) do
+          if d.commodity=="water" and c:districtAt(d.x,d.y)==farm and not d.taken then dep=d; break end
+        end
+        if dep then
+          local well=assert(c:buySource("water",dep.x,dep.y))
+          local from=well.id
+          for _=1,10 do
+            local n=c.g.nodes[from]
+            local far=math.sqrt((n.x-mill.x)^2+(n.y-mill.y)^2)
+            if far<=300 then assert(c:layPipe(from,mill.id,"water",14)); break end
+            local j=assert(c:build(n.x+(mill.x-n.x)/far*280,n.y+(mill.y-n.y)/far*280,"junction"))
+            assert(c:layPipe(from,j.id,"water",14)); from=j.id
+          end
+          assert(c:layPipe(mill.id,brew.id,"water",14))
+        end
+        local hub=assert(c:build(brew.x+250,brew.y+40,"exchange"))
+        assert(c:layPipe(brew.id,hub.id,"beer",8))
+        for i=1,4 do
+          local pub=assert(c:addClient("pub"))
+          pub.x,pub.y=hub.x+math.cos(i*1.7)*260,hub.y+math.sin(i*1.7)*220
+          pub.demand=2
+        end
+        c:refresh()
+        app.state.modal=nil; app.state.tab="network"; app.state.scroll=0
+        app.action("focusNode",brew.id)
+        app.camera().targetScale=0.62; app.camera().scale=0.62
+        app.camera():centerOn((field.x+hub.x)/2,by+40)
+        capture("net-profit-21-chain",app,1100,700,true)
+        app.state.node=nil
+      end
+    elseif frame==40 then print("screenshots complete"); love.event.quit() end
     return
   end
   if mode=="--soak" and frame<70 then

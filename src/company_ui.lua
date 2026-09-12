@@ -375,6 +375,43 @@ local function inspectDepot(n,y)
   return demolishBlock(n,tail+12)
 end
 
+local function inspectWorks(n,y)
+  local recipe=City.RECIPES[n.recipe or ""]
+  if not recipe then return y+40 end
+  local got=(city.detail.works or {})[n.id] or {}
+  row("Makes",recipe.rate.." "..recipe.makes.." a day when fed",y,Graph.COMMODITIES[recipe.makes].color)
+  row("Making now",(n.ready or 0).." "..recipe.makes,y+26,
+    (n.ready or 0)>=recipe.rate and P.good or (n.ready or 0)>0 and P.warn or P.bad,
+    "Whichever input ran shortest decides this. A works with no power makes nothing at all.")
+  text("What it needs",M,y+58,"small",P.textDim)
+  local ly=y+80
+  local short
+  for _,name in ipairs(Graph.ALL) do
+    local per=recipe.inputs[name]
+    if per then
+      local want=per*recipe.rate
+      local have=got[name] or 0
+      if have<want and not short then short=name end
+      row(string.upper(name),have.." / "..want,ly,have>=want and P.good or P.warn,
+        per.." "..name.." for every "..recipe.makes..". At the rated "..recipe.rate..
+        " a day that is "..want.." "..name..".")
+      lg.setColor(P.panelEdge); lg.rectangle("fill",M,ly+21,CW,4,2)
+      lg.setColor(have>=want and P.good or P.warn)
+      lg.rectangle("fill",M,ly+21,CW*math.min(1,want>0 and have/want or 0),4,2)
+      ly=ly+38
+    end
+  end
+  if short then
+    text(string.upper(short).." is what is holding this works back. Widen its line, or make more of it.",
+      M,ly+4,"small",P.warn,CW)
+    ly=ly+34
+  end
+  row("Upkeep","-$"..recipe.upkeep.." / day",ly,P.warn)
+  row("Ports",city.g:degree(n.id).." / "..n.ports,ly+26)
+  return demolishBlock(n,ly+64,"Close the works",
+    "Shuts it down. Every line tied into it is cut.")
+end
+
 local function inspectHub(n,y)
   local covered=#(n.covered or {})
   row("Customers on it",covered,y,covered>0 and P.good or P.textDim,
@@ -513,6 +550,37 @@ local function inspectEdge(e,y)
 end
 
 -- Everyday construction stays above maintenance and specialist equipment.
+-- Which commodities the player can actually do something with today: anything
+-- a works here makes or eats, anything standing on the map produces, and
+-- anything a haven could land once one is open.
+function UI.goodsInPlay()
+  local seen,list={},{}
+  local function add(name)
+    if name and not seen[name] and not city.licences[name] then
+      -- The four licensed trades already have their own row.
+      seen[name]=true; list[#list+1]=name
+    end
+  end
+  for _,n in ipairs(city.g:aliveNodes()) do
+    if n.kind=="works" then
+      local recipe=City.RECIPES[n.recipe or ""]
+      if recipe then
+        add(recipe.makes)
+        for input in pairs(recipe.inputs) do add(input) end
+      end
+    elseif n.kind=="source" and n.commodity then add(n.commodity)
+    elseif n.kind=="terminal" then
+      for _,name in ipairs(Graph.ALL) do
+        if Graph.COMMODITIES[name].landed~=false and Graph.COMMODITIES[name].role~="utility" then
+          add(name)
+        end
+      end
+    end
+  end
+  table.sort(list,function(a,b) return Graph.COMMODITIES[a].order<Graph.COMMODITIES[b].order end)
+  return list
+end
+
 local function buildPanel()
   local y=TOP-state.scroll
   heading("BUILD YOUR NETWORK",y); y=y+26
@@ -524,7 +592,28 @@ local function buildPanel()
       city.licences[name],city.licences[name] and ("Build "..name.." lines")
       or ("Acquire the "..name.." licence in Company"),state.commodity==name,spec.color)
   end
-  y=y+46
+  y=y+42
+  -- Everything else the company moves. A commodity appears here once there is
+  -- somewhere for it to come from, so the panel is four buttons on day one and
+  -- fills up as the empire does.
+  local goods=UI.goodsInPlay()
+  if #goods>0 then
+    local col=0
+    for _,name in ipairs(goods) do
+      local spec=Graph.COMMODITIES[name]
+      local bx=M+(col%5)*61
+      local by=y+math.floor(col/5)*30
+      button("good-"..name,string.upper(name):sub(1,5),bx,by,57,26,
+        function() state.commodity=name end,true,
+        spec.name..": "..({utility="sold to customers by the day",
+          feed="feedstock for a works",material="spent on building"})[spec.role]..
+        ", carried by "..({liquid="main",solid="road or rail",energy="cable"})[spec.form]..".",
+        state.commodity==name,spec.color)
+      col=col+1
+    end
+    y=y+math.ceil(#goods/5)*30+6
+  end
+  y=y+4
   text("Capacity",M,y+9,"body",P.textDim)
   button("capacity-minus","-",M+78,y,32,32,function() state.capacity=math.max(1,state.capacity-1) end,true,"Narrower bore")
   text(state.capacity,M+114,y+8,"body",P.text,26,"center")
@@ -583,6 +672,31 @@ local function buildPanel()
     end
   end
   y=y+(advanced and 232 or 58)+8
+  -- The works. Nine buildings that turn one thing into another, listed with
+  -- what they eat, because that is the only thing worth knowing about them.
+  if advanced then
+    heading("WORKS",y); y=y+24
+    for _,key in ipairs(City.RECIPE_ORDER) do
+      local r=City.RECIPES[key]
+      local parts={}
+      for _,name in ipairs(Graph.ALL) do
+        if r.inputs[name] then parts[#parts+1]=r.inputs[name].." "..name end
+      end
+      local can=city:licensed(r.makes)
+      button("works-"..key,r.name.."   $"..r.cost,M,y,CW,30,
+        function()
+          if state.tool=="works" and state.recipe==key then state.tool=nil
+          else state.tool,state.recipe="works",key end
+        end,
+        can and city.money>=r.cost,
+        table.concat(parts," + ").."  makes  1 "..r.makes..".  Rated "..r.rate.." "..r.makes..
+        " a day when it is fed, $"..r.upkeep.." a day standing."..
+        (can and "" or "  Needs the "..r.makes.." licence."),
+        state.tool=="works" and state.recipe==key,Graph.COMMODITIES[r.makes].color)
+      y=y+34
+    end
+    y=y+8
+  end
   -- Which door the haven tool builds. Three small buttons that only appear
   -- while the tool is in hand, so the panel is no wider the rest of the time.
   if state.tool=="terminal" then
@@ -635,6 +749,7 @@ local function inspectorPanel(n,e)
   if n then
     local title=n.kind=="client" and E.clientName(city,n)
       -- A well is called a well, and an electricity well is called a station.
+      or (n.kind=="works" and (((City.RECIPES[n.recipe or ""] or {}).name or "WORKS").." "..n.id))
       or (n.kind=="source" and ((n.plant and (City.PLANTS[n.plant] or {}).name
           or (string.upper(n.commodity).." WELL")).." "..n.id))
       or (Graph.KINDS[n.kind].name.." "..n.id)
@@ -647,6 +762,7 @@ local function inspectorPanel(n,e)
     elseif n.kind=="depot" then tail=inspectDepot(n,y)
     elseif n.kind=="terminal" then tail=inspectTerminal(n,y)
     elseif n.kind=="exchange" then tail=inspectHub(n,y)
+    elseif n.kind=="works" then tail=inspectWorks(n,y)
     else
       local degree=city.g:degree(n.id)
       row("Ports",degree.." / "..n.ports,y,degree>=n.ports and P.warn or P.text)
@@ -755,20 +871,20 @@ local function company()
     "$"..City.crewWage.." a day each. At every close, each crew repairs the worst leaking main on the books and bills you for the work. The wage is the price of not clicking.")
   button("fire-crew","Stand down",M+214,gy+82,86,34,function() act("dismissCrew") end,crews>0,
     "Remove one crew from the payroll")
-  for i,name in ipairs({"power","beer","oil"}) do
+  for i,name in ipairs({"power","beer","oil","food"}) do
     local cost=City.price[name.."Licence"]
     local held=city.licences[name]
     local by2=gy+123+(i-1)*40
     button("licence-"..name,held and (string.upper(name).." licence held") or (string.upper(name).." licence   $"..cost),
       M,by2,CW,34,function() act("buyLicence",name) end,not held and city.money>=cost,
-      "Opens "..name.." wells, "..name.." mains and the customers who buy it",false,
+      "Opens the "..name.." trade: the works or wells that make it, the lines that carry it, and the customers who buy it",false,
       Graph.COMMODITIES[name].color)
     drop(name,M+16,by2+17,8)
   end
-  line(gy+252)
-  heading("RECENT CASH FLOW",gy+270)
+  line(gy+292)
+  heading("RECENT CASH FLOW",gy+310)
   local start=math.max(1,#city.history-6)
-  local hy=gy+298
+  local hy=gy+338
   if #city.history>1 then
     local low,high=0,1
     for i=start,#city.history do local h=city.history[i]; local n=h.revenue-(h.expenses or 0); low=math.min(low,n); high=math.max(high,n) end
