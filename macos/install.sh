@@ -73,8 +73,8 @@ plset CFBundleName                string "Net Profit"
 plset CFBundleDisplayName         string "Net Profit"
 plset CFBundleIconFile            string "net-profit"
 plset CFBundleIdentifier          string "eu.vandenbruwaene.netprofit"
-plset CFBundleShortVersionString  string "1.1"
-plset CFBundleVersion             string "1.1"
+plset CFBundleShortVersionString  string "1.2"
+plset CFBundleVersion             string "1.2"
 plset NSHighResolutionCapable     bool   true
 plset LSApplicationCategoryType   string "public.app-category.simulation-games"
 

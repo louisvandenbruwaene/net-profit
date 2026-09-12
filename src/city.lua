@@ -1759,6 +1759,7 @@ function City:endDay()
   end
 
   report.bonus = self:awardMilestones()
+  require("experience").close(self,report)
 
   if report.unhappy == 0 and #self:clientList() > 0 then
     self.reputation = math.min(100, self.reputation + 1)
@@ -1937,6 +1938,26 @@ function City:acceptClient(id)
   self:note("%s contract signed: %d days to deliver", City.CLIENTS[c.clientType].name, c.grace)
   self:refresh()
   return c
+end
+
+function City:setCompanyName(name)
+  if type(name)~="string" then return nil,"Enter a company name" end
+  name=name:gsub("[%c]",""):match("^%s*(.-)%s*$")
+  if #name<1 or #name>48 then return nil,"Use 1 to 48 bytes for the company name" end
+  self.companyName=name
+  return true
+end
+
+function City:chooseAmbition(id)
+  for _,a in ipairs(require("experience").ambitions) do
+    if a.id==id then self.ambition=id; return true end
+  end
+  return nil,"Unknown ambition"
+end
+
+function City:dismissGuide()
+  self.guideDismissed=true
+  return true
 end
 
 function City:toggleSupply(id)

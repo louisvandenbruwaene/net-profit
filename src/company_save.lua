@@ -274,7 +274,7 @@ function Save.summarize(slot)
   end
   return {
     slot = slot, empty = false,
-    day = city.day, money = city.money, clients = clients,
+    day = city.day, money = city.money, clients = clients, name = city.companyName,
     worth = city:valuation(), bankrupt = city.bankrupt,
     districts = #city:ownedDistricts(), trades = trades,
   }

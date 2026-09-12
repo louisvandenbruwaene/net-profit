@@ -23,7 +23,7 @@ end
 
 local function layout()
   local w,h=R.dimensions()
-  cam:setViewport(UI.width,130,w-UI.width,h-188)
+  cam:setViewport(UI.width,190,w-UI.width,h-248)
 end
 
 -- Pull back far enough to see every district, bought or not.
@@ -49,6 +49,7 @@ end
 local function clear()
   state.node,state.edge,state.tool,state.drag,state.pan=nil,nil,nil,nil,nil
   state.district=nil
+  state.rename=nil; state.renameSelectAll=nil
 end
 
 -- Everything that belongs to the company being played rather than to the
@@ -64,6 +65,7 @@ local function resetSession()
   state.borrow=500
   state.invest=100
   state.rail=nil
+  state.filter=nil; state.bottlenecks=nil; state.rename=nil; state.advanced=nil
 end
 
 -- Selecting anything on the map is a question, and the sidebar is the answer.
@@ -98,7 +100,7 @@ local function action(name,...)
   if name=="focusNode" then
     local id=...
     local n=city.g.nodes[id]
-    clear(); state.node=id; reveal()
+    clear(); state.filter=nil; state.modal=nil; state.node=id; reveal()
     cam:centerOn(n.x,n.y)
     return
   end
@@ -106,7 +108,7 @@ local function action(name,...)
     local id=...
     local e=city.g.edges[id]
     local a,b=city.g.nodes[e.a],city.g.nodes[e.b]
-    clear(); state.edge=id; reveal()
+    clear(); state.filter=nil; state.modal=nil; state.edge=id; reveal()
     cam:centerOn((a.x+b.x)/2,(a.y+b.y)/2)
     return
   end
@@ -128,6 +130,7 @@ local function action(name,...)
   -- Six companies. Leaving one always saves it first: switching away should
   -- never be a way to lose a day's work.
   if name=="openSlots" then
+    state.rename=nil
     save()
     state.modal="slots"; state.slotConfirm=nil
     state.slots=slotSummaries()
@@ -185,14 +188,18 @@ local function action(name,...)
   local result,err=city[name](city,...)
   if not result then toast(err or "Action unavailable",true); A.play("denied"); return nil end
   if name=="endDay" then
-    state.undo={}; clear(); state.modal="report"
+    state.undo={}; clear(); state.rename=nil; state.modal="report"; state.reportDetails=false
     for _,leak in ipairs(result.leaks) do R.ring(leak.x,leak.y,P.bad) end
     if result.arrived then R.ring(result.arrived.x,result.arrived.y,P.energy) end
     A.play(city.bankrupt and "collapse" or "held")
   else
     state.undo[#state.undo+1]=snapshot
     if #state.undo>30 then table.remove(state.undo,1) end
-    if name=="layPipe" then state.edge=result.id; state.node=nil; A.play("link")
+    if name=="layPipe" then
+      state.edge=result.id; state.node=nil; A.play("link")
+      for _,n in ipairs(city:clientList()) do
+        if (city.served[n.id] or 0)>=n.demand then R.ring(n.x,n.y,P.good) end
+      end
     elseif name=="build" or name=="buySource" then
       state.node=result.id; state.edge=nil; state.tool=nil; R.ring(result.x,result.y,P.good); A.play("place")
     elseif name=="buyDistrict" then
@@ -202,6 +209,8 @@ local function action(name,...)
       toast(result.fixed.." main"..(result.fixed==1 and "" or "s").." repaired for $"..result.spent)
     elseif name=="buyDistrict" then
       toast(result.name.." acquired")
+    elseif name=="layPipe" then
+      toast(city.unserved==0 and "Everyone supplied! Close the day to collect your earnings." or "Connection built. Keep the supply flowing.")
     else
       toast(({repairPipe="Pipe repaired",reinforcePipe="Pipe lined",buyAds="Advertising booked",
         invest="Investment placed",upgradeQuality="Treatment upgraded",buyLicence="Trade licence acquired",
@@ -225,11 +234,12 @@ local function hit(x,y)
   if x<UI.width or y<130 or y>love.graphics.getHeight()-58 then return nil,nil end
   for _,n in ipairs(city.g:aliveNodes()) do
     local sx,sy=cam:toScreen(n.x,n.y)
-    if (sx-x)^2+(sy-y)^2<math.max(19,25*cam.scale)^2 then return n.id,nil end
+    if (not state.filter or not n.commodity or n.commodity==state.filter) and
+      (sx-x)^2+(sy-y)^2<math.max(13,R.sym(25,cam.scale))^2 then return n.id,nil end
   end
   local nearest,dist=nil,10
   for _,e in ipairs(city.g.edges) do
-    if e.alive then
+    if e.alive and (not state.filter or e.commodity==state.filter) then
       local ax,ay,bx,by=Draw.edgePoints(cam,city,e)
       local d=pointDistance(x,y,ax,ay,bx,by)
       if d<dist then nearest,dist=e.id,d end
@@ -376,6 +386,22 @@ function love.wheelmoved(_,dy)
 end
 
 function love.keypressed(key)
+  if state.rename then
+    if key=="escape" then state.rename=nil
+    elseif key=="return" then
+      if action("setCompanyName",state.rename) then state.rename=nil end
+    elseif key=="backspace" then
+      if state.renameSelectAll then state.rename=""; state.renameSelectAll=nil
+      else
+        local utf8=require("utf8")
+        local offset=utf8.offset(state.rename,-1)
+        if offset then state.rename=state.rename:sub(1,offset-1) end
+      end
+    elseif key=="a" and love.keyboard.isDown("lgui","rgui","lctrl","rctrl") then
+      state.renameSelectAll=true
+    end
+    return
+  end
   if state.modal then
     if key=="escape" or key=="return" then
       if not city.bankrupt then state.modal=nil end
@@ -397,8 +423,15 @@ function love.keypressed(key)
     action("upgradeSource",state.node)
   elseif key=="delete" then
     if state.edge then action("demolishPipe",state.edge) elseif state.node then action("demolishNode",state.node) end
-  elseif tonumber(key) and tonumber(key)>=1 and tonumber(key)<=6 then
-    state.tool=({"junction","manifold","pump","tower","gate","depot"})[tonumber(key)]
+  elseif tonumber(key) and tonumber(key)>=1 and tonumber(key)<=7 then
+    state.tool=({"junction","manifold","pump","tower","gate","depot","terminal"})[tonumber(key)]
+  end
+end
+
+function love.textinput(value)
+  if state.rename then
+    local previous=state.renameSelectAll and "" or state.rename
+    if #previous+#value<=48 then state.rename=previous..value; state.renameSelectAll=nil end
   end
 end
 

@@ -26,6 +26,7 @@ test:
 	@$(LUA) test/test_contract.lua
 	@$(LUA) test/test_city.lua
 	@$(LUA) test/test_company.lua
+	@$(LUA) test/test_experience.lua
 	@$(LUA) test/test_save_location.lua
 
 # Input paths, driven through the real love callbacks.
