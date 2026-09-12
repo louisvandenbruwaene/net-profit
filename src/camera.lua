@@ -55,6 +55,25 @@ function Camera:toScreen(wx, wy)
          self.vy + self.vh / 2 + (wy - self.y) * self.scale + oy
 end
 
+-- Is this world point worth drawing? On an endless map the answer is usually
+-- no: a company with a thousand customers has a handful of them on screen, and
+-- everything else is work the frame cannot afford.
+function Camera:sees(wx, wy, margin)
+  margin = margin or 80
+  local sx, sy = self:toScreen(wx, wy)
+  return sx >= self.vx - margin and sx <= self.vx + self.vw + margin
+     and sy >= self.vy - margin and sy <= self.vy + self.vh + margin
+end
+
+-- The same question for a box, used for districts and for pipes.
+function Camera:seesBox(x0, y0, x1, y1, margin)
+  margin = margin or 80
+  local ax, ay = self:toScreen(x0, y0)
+  local bx, by = self:toScreen(x1, y1)
+  return bx >= self.vx - margin and ax <= self.vx + self.vw + margin
+     and by >= self.vy - margin and ay <= self.vy + self.vh + margin
+end
+
 function Camera:toWorld(sx, sy)
   return (sx - self.vx - self.vw / 2) / self.scale + self.x,
          (sy - self.vy - self.vh / 2) / self.scale + self.y

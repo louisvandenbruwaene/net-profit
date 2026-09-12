@@ -1,4 +1,4 @@
-.PHONY: run mac-run mac-install test smoke soak tutorial audio shots dist install export clean
+.PHONY: run mac-run mac-install test bench smoke soak tutorial audio shots dist install export clean
 
 # The headless suites are plain Lua and run under whatever interpreter is here:
 # 5.4 if it is installed, otherwise 5.3, plain lua, or LuaJIT.
@@ -29,6 +29,11 @@ test:
 	@$(LUA) test/test_company.lua
 	@$(LUA) test/test_experience.lua
 	@$(LUA) test/test_save_location.lua
+
+# What an endless map costs to solve. Kept out of `test` because it is a timing
+# measurement and a loaded machine is not a regression, but watched in CI.
+bench:
+	@$(LUA) test/bench_flow.lua
 
 # Input paths, driven through the real love callbacks.
 smoke:

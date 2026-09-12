@@ -642,7 +642,30 @@ function Walk.update(app,mode,frame)
       app.camera():centerOn((haven.x+pub.x)/2,(haven.y+pub.y)/2-40)
       capture("net-profit-18-haven",app,1100,700)
       app.state.node=nil
-    elseif frame==34 then print("screenshots complete"); love.event.quit() end
+    elseif frame==34 then
+      -- A hub: one building, a neighbourhood wired to it, and not a main drawn
+      -- to any of them.
+      local c=app.city()
+      c.money=99999
+      c.obstacles={}
+      local src=c.firstSource
+      src.output,src.cap=60,60
+      local hub=assert(c:build(src.x+260,src.y+90,"exchange"))
+      for i=1,9 do
+        local a=i/9*math.pi*2
+        local cl=assert(c:addClient(i%3==0 and "estate" or "house",i%4==0))
+        cl.x,cl.y=hub.x+math.cos(a)*(300+(i%3)*140),hub.y+math.sin(a)*(240+(i%2)*150)
+        cl.demand=i%3==0 and 5 or 3
+      end
+      assert(c:layPipe(src.id,hub.id,"water",18))
+      c:refresh()
+      app.state.modal=nil; app.state.tab="network"; app.state.scroll=0
+      app.action("focusNode",hub.id)
+      app.camera().targetScale=0.72; app.camera().scale=0.72
+      app.camera():centerOn(hub.x,hub.y+30)
+      capture("net-profit-19-hub",app,1100,700)
+      app.state.node=nil
+    elseif frame==36 then print("screenshots complete"); love.event.quit() end
     return
   end
   if mode=="--soak" and frame<70 then
