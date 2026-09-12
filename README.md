@@ -2,15 +2,20 @@
 
 A turn-based utility-company game about networks, cash, and promises.
 
-Start with one water source, two houses, and $300. Build a network, sign new
-customers, keep the pipes flowing, and decide how much of today's cash you can
-afford to put into tomorrow's company. The map and company persist between days.
+Start with one water well, two houses, one district of a twelve-district city,
+and $380. Build a network, sign new customers, keep the pipes flowing, buy the
+ground you want to grow into, and decide how much of today's cash you can afford
+to put into tomorrow's company. The map and company persist between days.
 
 ## Play
 
-On this device, open **Net Profit** from the application menu. No terminal opens.
-The installed application is a snapshot: run `make install` after changing the
-source to update it.
+On macOS, download the macOS build of LÖVE 11.x from [love2d.org](https://love2d.org/),
+move `love.app` to `/Applications`, then run `make mac-install`. Open
+**Net Profit** from Launchpad, Finder, or Spotlight.
+The app launches the current source checkout, so source changes take effect
+immediately. To launch from a terminal, use `make mac-run`.
+
+On Linux, run `make install` to add the application-menu entry.
 
 From a source checkout, install LÖVE 11.x and run:
 
@@ -27,55 +32,134 @@ your normal save.
 
 | Action | Control |
 | --- | --- |
-| Lay a pipe | Drag from a source or structure to another node |
-| Choose pipe capacity | Minus / plus in Network before laying it |
-| Inspect | Click a structure, customer, or pipe |
-| Build junction / manifold / pump / treatment station | Toolbar or keys 1 / 2 / 3 / 4, then place |
-| Add a source | Choose a trade, select New source, then place |
-| Pan | Drag empty ground, or use right / middle drag |
+| Lay a pipe or cable | Drag from one structure to another |
+| Choose the trade | Water / Power / Beer / Oil in Network |
+| Choose the bore | Minus / plus in Network before laying |
+| Lay track instead of pipe | The PIPE / TRACK toggle, or T |
+| Inspect | Click a structure, a customer, a main, or empty ground |
+| Build a structure | Toolbar or keys 1-7, then place |
+| Sink a well | Choose a trade, select New well, then place |
+| Pan | Drag empty ground, or right / middle drag |
 | Zoom / scroll sidebar | Mouse wheel |
-| Fit the entire network | F or the fit button |
-| Upgrade / repair a selected pipe | U / R, or inspector buttons |
-| Demolish selection | Delete, or inspector button |
-| Undo a decision | Z or the undo button |
-| Close the day | Enter or Close day |
-| Cancel a tool / selection | Escape |
-| Mute | M or sound button |
+| Fit the network | F, or the fit button |
+| See the whole city | Open the Map tab |
+| Widen a selected main | U |
+| Line a selected main, deepen a selected well | E |
+| Repair a selected main, or all of them | R |
+| Jump to the worst leaking main | L |
+| Demolish selection | Delete, or the inspector button |
+| Undo a decision | Z, or the undo button |
+| Close the day | Enter, or Close day |
+| Cancel a tool or selection | Escape |
+| Mute | M, or the sound button |
 
-Hover over controls for prices and effects. Sidebar sections scroll in smaller
-windows. Undo works within the current session and day; closing a day is final.
+Hover over controls for prices and effects. Selecting anything on the map opens
+the panel that can act on it and puts its most urgent control first, so clicking
+a burst main lands on its Repair button rather than somewhere you have to scroll
+from. "Build tools" returns. Undo works within the current session and day;
+closing a day is final.
+
+## What Things Cost
+
+Nothing in the network has a flat price. A link is quoted the way a contractor
+would quote it, and the quote is itemised on screen while you drag it:
+
+- **Tie-ins**, charged once at each end, regardless of length. Connecting a house
+  to a main that already runs past its door is still a day's work with a digger,
+  so a zero-length connection still costs two tie-ins. A wellhead is the awkward
+  end of the job and charges more; a manifold is a set of ports waiting for you
+  and charges less.
+- **Trench**, charged per metre, multiplied by the ground crossed.
+- **Bore**, charged per extra unit of capacity both as fittings at the ends and
+  as wider pipe over the whole run. A fat trunk main across the map is the most
+  expensive thing you can build; a fat stub is nearly free.
+
+Each trade prices all three differently. Water is cheap and thin-margined, power
+sits just above it, beer is food-grade, and oil is pressurised and hazardous and
+its prices say so - which is why a factory pays $26 a unit and a house pays $4.
+Repairs, daily upkeep and lining are all priced off the same length and trade, so
+a long oil trunk is a standing liability and a garden stub is not.
+
+| | Water | Power | Beer | Oil |
+| --- | --- | --- | --- | --- |
+| Customer | House, Estate | Workshop | Pub | Factory |
+| Pays | $4 - $6 / unit | $10 / unit | $16 / unit | $26 / unit |
+| Tie-in, each end | $14 | $20 | $26 | $44 |
+| Trench, per metre | $0.11 | $0.16 | $0.21 | $0.34 |
+| Licence | held | $340 | $600 | $1500 |
 
 ## Company Decisions
 
-- **Connections:** new customers appear as offers. Sign when you can deliver;
-  unsigned offers consume no supply and cause no reputation penalty. Offers
-  expire after several days. Accepted customers have a visible patience clock.
-- **Cash:** customers pay for delivered units. Each source earns $12 wholesale
-  per day. Offices cost $8/day, each source $6, each built structure $1, and each
-  installed pipe $0.50, rounded up on the daily expense total.
-- **Failure:** a pipe has a daily chance to develop a leak. Once leaking, it
-  loses one capacity every close until repaired, including on the first day.
-  At zero it stays installed and repairable. Lost customers damage reputation.
-- **Protection:** pipe lining halves local risk. Global treatment upgrades
-  reduce base risk by 13 percentage points of its original value per grade.
-  Treatment stations reduce risk by another 55% for mains whose midpoint is
-  within 220m. Multiple stations do not stack.
-- **Growth:** advertising increases enquiries for five closes. Pumps reach
-  520m instead of 300m; manifolds have six ports instead of three.
-- **Ground:** bedrock blocks construction and pipes. Park crossings cost twice
-  the base route price, river crossings three times. Nodes cannot occupy either.
-- **Premium trades:** beer and oil licences unlock separate networks, sources,
-  and customer types. Pubs and factories pay much more and have shorter patience.
-  Different commodities can share structures and routes without mixing.
+- **Connections:** new customers appear as offers, and every one negotiates its
+  own price. Early on the spread is almost nothing, so a small company cannot be
+  killed by three unlucky draws; as the company grows the spread widens until a
+  lowball house is worth refusing outright and a premium factory is worth
+  rerouting the map for. Declining costs nothing. Offers expire after several
+  days, and accepted customers have a visible patience clock.
+- **Cash:** customers pay for delivered units. Wells earn wholesale that scales
+  with their output. The expense line is itemised: office, wells, plant, mains,
+  crews, imports and loan interest.
+- **Failure:** a main has a daily chance to develop a leak. Once leaking it loses
+  capacity every close until repaired. At zero it stays installed and repairable.
+  Lost customers damage reputation.
+- **Lining:** never required - a bare pipe carries exactly as much on the day it
+  is laid. Lining cuts a main's leak risk to 45% and its repair bill to 70%, and
+  armour takes those to 12% and 45% and halves the rate a leaking main bleeds
+  capacity. The inspector states what each would save per day and how long it
+  would take to pay for itself. On a short water stub that is a poor trade; on a
+  long oil trunk it pays back in about a month, and it is the difference between
+  playing the game and chasing burst mains around it.
+- **Crews:** $340 to hire, $14 a day each, up to four. At every close each crew
+  repairs the worst leaking main on the books and bills you for the work. The
+  wage is the price of not clicking.
+- **Wells:** deepen the one you have rather than sinking another. A deeper well
+  needs no new route, no tie-in, no new ground and no second lot of upkeep, which
+  makes it the cheap option until the levels get steep - and then it is not.
+- **Ground:** the city is twelve districts and you start owning one. Districts
+  are bought outward from what you already hold, each costing more than the last,
+  and each has a character that decides who asks you for a connection: houses in
+  Northgate, estates in Southfield, pubs in Brewers Row, factories in Docklands.
+- **Forbidden ground:** parkland, rivers and bedrock block or tax every route.
+  Three permits convert them from walls into tolls and let you build on them. The
+  richest seams are under bedrock, which is what a blasting licence is really for.
+- **Seams:** marked spots where a well costs less and yields half again as much.
+  Some are buried under obstacles and need the matching permit first.
+- **Gates:** a valve you set by hand. Tighten it to starve a cheap branch on
+  purpose and send scarce supply to the customers who pay more.
+- **Depots:** take in output the network could not sell today, up to 18 units,
+  and feed it back the next morning - worth having when a market event doubles
+  what a trade pays.
+- **Havens:** the port, the airfield and the highway head are the only three
+  places freight can arrive. A terminal there lands 24 units a day of one trade,
+  far more than any well, but bills you for every unit that moves: supply bought
+  rather than supply owned. **Track** runs it inland, up to 1400m, and never
+  corrodes - there is no such thing as a leaking railway.
+- **Credit:** the bank lends up to half of what the company owns, excluding cash,
+  at a flat 10% a week charged daily. No variance at all, unlike the deposit
+  fund. It is the instrument for buying a district today and paying for it out of
+  the customers that district brings.
 - **Investments:** deposits are locked for exactly seven closes. Return is
   normally distributed with mean 10% and standard deviation 5%; losses are possible.
+- **Tenders:** the council asks for a delivery level you do not yet have, held
+  for several closes. Nothing is lost by failing one, which is what makes taking
+  an ambitious one a decision rather than a trap.
+- **Markets:** a heatwave, a beer festival or an excise rise moves what one trade
+  pays for a few days. It is the only thing that changes a price without you
+  touching anything, and it is what makes a full depot worth having.
+- **Protection:** global treatment upgrades reduce base risk by 13 percentage
+  points of its original value per grade. Treatment stations reduce risk by
+  another 55% for mains whose midpoint is within 220m. Stations do not stack.
+- **Growth:** advertising increases enquiries for five closes. Pumps reach 520m
+  instead of 300m; manifolds have six ports instead of three.
 - **Milestones:** serving 2, 5, 10, and 20 customers at a day close earns one-time
   municipal grants. Continue building after the final milestone.
 - **Insolvency:** negative cash with no outstanding investments ends the company.
-  Outstanding investments allow a company to wait for maturity but do not fund
-  construction while cash is negative.
 
-Pipes can be laid at their intended capacity immediately. Client buildings are
+Every trade has a symbol and a colour and uses them everywhere: a blue droplet
+for water, a violet bolt for electricity, an amber droplet for beer and a black
+droplet for oil, beside the house, saw-tooth workshop, glass and chimney that
+mark who buys them. Pipes can be laid at their intended capacity immediately.
+Client buildings are
 through-junctions: they draw up to their demand and pass remaining water onward.
 The Customer supply toggle in the inspector closes only that customer's service
 valve, so you can reserve scarce supply for customers farther downstream.
@@ -144,11 +228,11 @@ and window tests under Xvfb and uploads the packaged game.
 
 | File | Responsibility |
 | --- | --- |
-| `src/city.lua` | Company, construction, customers, daily economy and wear |
+| `src/city.lua` | Company, prices, ground, construction, customers, daily economy and wear |
 | `src/graph.lua` | Dinic max flow, finite source output, separate commodities |
 | `src/company_app.lua` | Input, camera, action history and game lifecycle |
 | `src/company_ui.lua` | Network inspector, treasury, clients, journal and report |
-| `src/company_render.lua` | City map, flowing pipes and customer symbols |
+| `src/company_render.lua` | City map, districts, trade symbols, flowing pipes and track |
 | `src/company_save.lua` | Versioned saves and random-state persistence |
 | `src/company_walkthrough.lua` | Rendered input and screenshot checks |
 | `test/test_company.lua` | Regression and multi-company economy tests |

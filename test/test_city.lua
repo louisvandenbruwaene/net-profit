@@ -158,9 +158,9 @@ do
 
   -- A river is crossable, but it costs.
   c.obstacles = { { x = src.x + 120, y = src.y, r = 70, kind = "river" } }
-  local plain = c:pipeCost(src.id, far.id)
+  local plain = c:pipeCost(src.id, far.id, "water")
   c.obstacles = {}
-  local bare = c:pipeCost(src.id, far.id)
+  local bare = c:pipeCost(src.id, far.id, "water")
   ok("crossing a river costs more", plain > bare)
 end
 

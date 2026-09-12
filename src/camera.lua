@@ -54,7 +54,7 @@ end
 -- Zoom about the cursor so the point under the mouse stays put.
 function Camera:zoomAt(sx, sy, delta)
   local wx, wy = self:toWorld(sx, sy)
-  self.targetScale = math.max(0.28, math.min(2.2, self.targetScale * (1 + delta * 0.16)))
+  self.targetScale = math.max(0.11, math.min(2.2, self.targetScale * (1 + delta * 0.16)))
   self.scale = self.targetScale
   local nx, ny = self:toWorld(sx, sy)
   self.x = self.x + (wx - nx)

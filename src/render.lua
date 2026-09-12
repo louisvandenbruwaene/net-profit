@@ -96,7 +96,9 @@ end
 --------------------------------------------------------------------------------
 
 function R.drawGrid(cam, fieldW, fieldH)
-  local step = 120
+  -- The city is large enough to be viewed from a long way out; a fixed grid
+  -- step turns into a solid wash at that distance, so it coarsens with zoom.
+  local step = cam.scale < 0.30 and 600 or cam.scale < 0.55 and 240 or 120
   local x0, y0 = cam:toWorld(cam.vx, cam.vy)
   local x1, y1 = cam:toWorld(cam.vx + cam.vw, cam.vy + cam.vh)
   lg.setLineWidth(1)

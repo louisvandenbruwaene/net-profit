@@ -53,8 +53,9 @@ do
   c.money=5000
   local first=c:addClient("house")
   local second=c:addClient("house")
-  first.x,first.y=1100,700
-  second.x,second.y=1200,700
+  local home=c.firstSource
+  first.x,first.y=home.x-150,home.y+120
+  second.x,second.y=home.x-50,home.y+120
   first.demand,second.demand=3,4
   local main=assert(c:layPipe(c.firstSource.id,first.id,"water",7))
   local downstream=assert(c:layPipe(first.id,second.id,"water",7))
@@ -94,12 +95,17 @@ do
   local a,b=c.g.nodes[e.a],c.g.nodes[e.b]
   local tower=assert(c:build((a.x+b.x)/2,(a.y+b.y)/2+60,"tower"))
   check(c:leakChance(e)<original/2,"local treatment protects mains in its radius")
+  local bareRepair=c:repairCost(e)
   c:reinforcePipe(e.id)
   check(c:leakChance(e)<original/4,"lining stacks with local treatment")
+  check(c:repairCost(e)<bareRepair,"lining makes the repair it cannot prevent cheaper")
   c:demolishNode(tower.id)
-  check(c:leakChance(e)==original/2,"removing treatment removes its protection")
+  check(c:leakChance(e)==original*City.GRADES[2].risk,"removing treatment removes its protection")
+  check(c:reinforcePipe(e.id) and e.grade==3,"a lined main can be armoured")
+  check(c:leakChance(e)==original*City.GRADES[3].risk,"armour is the last grade")
+  check(not c:reinforcePipe(e.id),"there is nothing beyond armour")
   local money=c.money
-  check(not c:build(1500,700,"source") and c.money==money,"source cannot be created for free through build")
+  check(not c:build(c.firstSource.x+300,c.firstSource.y,"source") and c.money==money,"source cannot be created for free through build")
   check(not c:buyLicence("coffee") and c.money==money,"unknown trade rejected without charging")
   check(not c:invest(0/0),"NaN cannot corrupt the ledger")
 
@@ -118,7 +124,8 @@ do
   for _,n in ipairs(c:clientList()) do c.g:killNode(n.id) end
   for _,commodity in ipairs({"beer","oil"}) do
     assert(c:buyLicence(commodity))
-    local source=assert(c:buySource(commodity,commodity=="beer" and 500 or 1500,700))
+    local home=c.firstSource
+    local source=assert(c:buySource(commodity,home.x+(commodity=="beer" and -300 or 300),home.y-250))
     local client=assert(c:addClient(commodity=="beer" and "pub" or "factory"))
     client.x,client.y=source.x,source.y+200
     assert(c:layPipe(source.id,client.id,commodity,client.demand))
@@ -141,7 +148,7 @@ for seed=1,20 do
     for _,offer in ipairs(c:clientList(true)) do
       if signed<4 and c.flowBy.water+offer.demand<=14 then
         local source=c.firstSource
-        if not c:pipeError(source.id,offer.id,"water") and c.money>=c:pipeCost(source.id,offer.id,offer.demand)+40 then
+        if not c:pipeError(source.id,offer.id,"water") and c.money>=c:pipeCost(source.id,offer.id,"water",offer.demand)+40 then
           assert(c:layPipe(source.id,offer.id,"water",offer.demand))
           assert(c:acceptClient(offer.id))
           signed=signed+1
@@ -154,6 +161,193 @@ for seed=1,20 do
   check(c.money>300,"serving and repairing customers can accumulate growth capital")
   check(signed>=3,"a careful company can expand beyond its initial customers")
   check(c.lostClients==0,"maintenance avoids customer churn in a modest network")
+end
+
+print("pricing is per trade, and depends on length, bore and both ends")
+do
+  local c=fresh()
+  c.money=99999
+  c.licences.power=true; c.licences.beer=true; c.licences.oil=true
+  local src=c.firstSource
+  local near=assert(c:build(src.x+60,src.y,"junction"))
+  local far=assert(c:build(src.x+260,src.y,"junction"))
+  -- Zero extra length still costs two tie-ins: connecting a node to the
+  -- network is work even when the main runs past its door.
+  local stub=c:pipeQuote(src.id,near.id,"water",1)
+  check(stub.tiein>0 and stub.total>=stub.tiein,"a short connection still pays for both ends")
+  check(c:pipeCost(src.id,far.id,"water",1)>c:pipeCost(src.id,near.id,"water",1),
+    "a longer trench costs more")
+  local water=c:pipeCost(src.id,far.id,"water",4)
+  local power=c:pipeCost(src.id,far.id,"power",4)
+  local beer=c:pipeCost(src.id,far.id,"beer",4)
+  local oil=c:pipeCost(src.id,far.id,"oil",4)
+  check(water<power and power<beer and beer<oil,
+    "each trade has its own price: water < power < beer < oil")
+  check(c:pipeCost(src.id,far.id,"water",8)>c:pipeCost(src.id,far.id,"water",2),
+    "a wider bore costs more")
+  -- Bore is charged per metre, so widening a long run costs more than a short one.
+  local e1=assert(c:layPipe(src.id,near.id,"water",2))
+  local e2=assert(c:layPipe(src.id,far.id,"water",2))
+  check(c:boreCost(e2,1)>c:boreCost(e1,1),"widening a long main costs more than widening a stub")
+  check(c:repairCost(e2)>c:repairCost(e1),"repairing a long main costs more")
+  check(c:pipeUpkeep(e2)>c:pipeUpkeep(e1),"and it costs more to run every day")
+end
+
+print("lining is optional, and pays for itself")
+do
+  local c=fresh()
+  c.money=99999
+  local src=c.firstSource
+  local far=assert(c:build(src.x+280,src.y,"junction"))
+  local e=assert(c:layPipe(src.id,far.id,"water",6))
+  local bareRisk,bareRepair=c:leakChance(e),c:repairCost(e)
+  local perDay,days=c:liningPayback(e)
+  check(perDay>0 and days>0,"the inspector can state what lining is worth")
+  local cost=c:liningCost(e)
+  assert(c:reinforcePipe(e.id))
+  check(c:leakChance(e)<bareRisk and c:repairCost(e)<bareRepair,
+    "lining cuts both the risk and the bill")
+  check(math.abs(cost/perDay-days)<2,"the stated payback matches the price and the saving")
+  -- Armour is the luxury grade: slower to pay back, but it halves the bleed.
+  assert(c:reinforcePipe(e.id))
+  check(City.GRADES[e.grade].decay==2,"an armoured main loses capacity at half speed")
+  e.leaking=true
+  local cap=e.cap
+  c:endDay()
+  check(e.cap==cap,"armour holds its capacity through the first day of a leak")
+  c:endDay()
+  check(e.cap==cap-1,"and gives way on the second")
+end
+
+print("deepening a well against sinking another")
+do
+  local c=fresh()
+  c.money=99999
+  local src=c.firstSource
+  local out,level=src.output,src.level
+  local cost=c:sourceUpgradeCost(src)
+  assert(c:upgradeSource(src.id))
+  check(src.output>out and src.level==level+1,"a well can be deepened in place")
+  check(c:sourceUpgradeCost(src)>cost,"each level costs more than the last")
+  check(c:sourceIncome(src)>0,"wholesale income scales with what the well produces")
+  for _=1,10 do c:upgradeSource(src.id) end
+  check(src.level==City.sourceMaxLevel,"a well tops out")
+  check(not c:upgradeSource(src.id),"and refuses to go further")
+end
+
+print("credit is fixed-rate and capped by what the company owns")
+do
+  local c=fresh(); supply(c)
+  local limit=c:loanLimit()
+  check(limit==math.floor(c:collateral()*City.loanRatio),"credit is half of collateral")
+  check(not c:borrow(limit+1),"the bank will not exceed its limit")
+  local worth,cash=c:valuation(),c.money
+  assert(c:borrow(limit))
+  check(c.money==cash+limit and c:valuation()==worth,"borrowing is cash, not income")
+  check(c:loanAvailable()==0,"the line is fully drawn")
+  check(c:loanInterest()==math.ceil(limit*City.loanRate/7),"interest has no variance")
+  check(c:dailyExpenses()>=c:loanInterest(),"interest is charged as an operating cost")
+  assert(c:repay(limit))
+  check(c.loan==0 and c:loanAvailable()==limit,"repayment restores the line")
+  check(not c:repay(10),"and there is nothing left to repay")
+  check(not c:borrow(0/0) and not c:borrow(-5),"the ledger rejects nonsense")
+end
+
+print("offers are priced with a spread that widens as the company grows")
+do
+  local c=fresh()
+  local small=c:marketSpread()
+  local lows=0
+  for _=1,200 do
+    local n=c:addClient("house",true)
+    if n then
+      if n.rate<City.CLIENTS.house.rate then lows=lows+1 end
+      c.g:killNode(n.id)
+    end
+  end
+  check(small<0.15,"a new company sees almost no spread")
+  c.districtsBought=6; c.sourcesBought=4
+  for _=1,14 do local n=c:addClient("house"); if n then n.prospect=false end end
+  check(c:marketSpread()>small*2,"the spread widens as the company grows")
+  local high,low=0,0
+  for _=1,300 do
+    local n=c:addClient("factory",true)
+    if n then
+      if n.rate>City.CLIENTS.factory.rate then high=high+1 end
+      if n.rate<City.CLIENTS.factory.rate then low=low+1 end
+      c.g:killNode(n.id)
+    end
+  end
+  check(high>0 and low>0,"late offers land on both sides of the going rate")
+end
+
+print("ground, havens and track")
+do
+  local c=fresh()
+  c.money=99999
+  local home=c.districts[City.MAP.start]
+  check(home.owned,"the company starts on one district")
+  check(#c:ownedDistricts()==1,"and only one")
+  local outside
+  for i,d in ipairs(c.districts) do if not d.owned then outside=i; break end end
+  check(c:placementError(c.districts[outside].x+50,c.districts[outside].y+50)~=nil,
+    "unbought ground refuses construction")
+  local far
+  for i,d in ipairs(c.districts) do
+    if not d.owned and not c:districtAdjacent(d) then far=i; break end
+  end
+  check(c:districtError(far)=="not next to your ground","the company grows outward, not by leaping")
+  local next_
+  for i,d in ipairs(c.districts) do if not d.owned and not c:districtError(i) then next_=i; break end end
+  local price=c:districtCost()
+  assert(c:buyDistrict(next_))
+  check(c.districts[next_].owned,"an adjacent district can be bought")
+  check(c:districtCost()>price,"and the next one costs more")
+
+  -- Permits turn walls into tolls.
+  c.obstacles={{x=home.x+120,y=home.y+120,r=60,kind="bedrock"}}
+  check(c:crossingCost(home.x+60,home.y+120,home.x+200,home.y+120)==nil,"bedrock blocks a route")
+  assert(c:buyPermit("bedrock"))
+  check(c:crossingCost(home.x+60,home.y+120,home.x+200,home.y+120)==City.PERMITS.bedrock.cross,
+    "a blasting licence makes it a toll instead")
+  check(c:placementError(home.x+120,home.y+120)==nil,"and lets the company build on it")
+  check(not c:buyPermit("bedrock"),"a permit is bought once")
+
+  -- Havens only exist where the freight can land.
+  c.obstacles={}
+  local haven=c:havenDistricts()[1]
+  check(haven~=nil,"the map has havens")
+  local spot={x=home.x+90,y=home.y+610}
+  check(c:placementError(spot.x,spot.y)==nil,"there is clear ground in the home district")
+  check(select(2,c:build(spot.x,spot.y,"terminal","water"))
+    =="no haven here: build at the port, airfield or highway","a terminal needs a haven")
+  -- And on haven ground it works, with track to move what it lands.
+  local hd=haven.district
+  hd.owned=true
+  local t=assert(c:build(hd.x+130,hd.y+hd.h/2,"terminal","water"))
+  check(t.output==City.terminalOutput and t.haven,"the haven lands freight")
+  local j=assert(c:build(hd.x+hd.w-130,hd.y+hd.h/2,"junction"))
+  check(c:pipeError(t.id,j.id,"water")=="too far: use a pump","no pipe spans that")
+  local rail=assert(c:layPipe(t.id,j.id,"water",8,true))
+  check(rail.rail and c:leakChance(rail)==0,"track carries it, and never corrodes")
+  check(c:liningCost(rail)==nil,"there is nothing to line on a railway")
+  local spur=c:build(hd.x+hd.w-130,hd.y+hd.h/2-260,"junction")
+  check(select(2,c:layPipe(j.id,spur.id,"water",4,true))=="track must start or end at a haven",
+    "track has to come from somewhere")
+  c:refresh()
+  check(c:expenseBreakdown().imports==0,"a haven idle at its berths costs nothing per unit")
+  -- It only bills for what it actually moves, so a haven is a margin decision
+  -- rather than a standing bill.
+  local buyer=assert(c:addClient("house"))
+  buyer.x,buyer.y=j.x,j.y+120
+  buyer.demand=6
+  assert(c:layPipe(j.id,buyer.id,"water",6))
+  check(c.served[buyer.id]==6,"freight reaches a customer over the track")
+  local bill=c:expenseBreakdown()
+  check(bill.imports>0,"and now the haven bills for every unit it landed")
+  check(math.abs(bill.imports-6*City.trade.water.importCost)<0.01,
+    "the import charge is exactly the units moved times the rate")
+  check(c:sourceIncome(t)==0,"a haven pays no wholesale, because it produces nothing")
 end
 
 print(checks.." company checks passed")
