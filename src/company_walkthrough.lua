@@ -320,6 +320,13 @@ function Walk.start(app,mode)
     local j=assert(c:build(jx,jy,"dc"))
     local straight=c:pipeError(t.id,j.id,"water")
     check(straight=="a haven ships by bulk line only","freight leaves a haven on rails, not in a main")
+    -- Rail is steel by the kilometre, and the yards are empty on day three.
+    check(select(2,c:layPipe(t.id,j.id,"water",2,true)):find("yards hold")~=nil,
+      "a railway cannot be built out of nothing")
+    local road=assert(c:layPipe(t.id,j.id,"water",1,"highway"))
+    check(road.bulk=="highway","but a highway is tarmac, and needs none")
+    assert(c:demolishPipe(road.id))
+    c.stock.steel=400
     local rail=assert(c:layPipe(t.id,j.id,"water",2,true))
     check(rail.rail and c:leakChance(rail)==0,"track carries the load and never corrodes")
     check(c:liningCost(rail)==nil,"there is nothing to line on a railway")
@@ -629,6 +636,7 @@ function Walk.update(app,mode,frame)
       c.money=99999
       c.obstacles={}
       c.licences.beer=true
+      c.stock.steel=400
       local d=c:cellAt(2,1)
       d.owned=true
       local haven=assert(c:build(d.x+120,d.y+90,"terminal","port"))
@@ -676,6 +684,7 @@ function Walk.update(app,mode,frame)
       c.licences.power=true
       local coast=c:cellAt(2,1)
       coast.owned=true
+      c.stock.steel,c.stock.concrete=400,400
       -- The harbour from the earlier shot may still be standing here.
       local port=c:havenOf("port")
       if not port then port=assert(c:build(coast.x+140,coast.y+90,"terminal","port")) end

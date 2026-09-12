@@ -874,14 +874,40 @@ local function company()
        (b.fuel>0 and ("   fuel $"..math.floor(b.fuel)) or "")..
        (b.interest>0 and ("   interest $"..b.interest) or ""),
        M,y+136,"small",P.textFaint,CW)
-  line(y+168)
+  -- What the yards are holding. Materials are the second currency and the
+  -- player needs to see the balance.
+  local held,any={},false
+  for _,name in ipairs(Graph.ALL) do
+    if Graph.COMMODITIES[name].role=="material" then
+      local units=city:materialStock(name)
+      held[#held+1]={name,units}
+      if units>0 then any=true end
+    end
+  end
+  local my=y+166
+  if #city.g:nodesOfKind("dc")>0 or any then
+    heading("YARDS",my); my=my+26
+    for _,pair in ipairs(held) do
+      local taken=((city.detail or {}).yard or {})[pair[1]] or 0
+      row(string.upper(pair[1]),pair[2]..(taken>0 and ("   +"..taken.." today") or ""),my,
+        pair[2]>0 and Graph.COMMODITIES[pair[1]].color or P.textFaint,
+        "Materials are taken in at the depot yards and spent on building. "..
+        "Each yard holds "..City.yardStock.." and takes "..City.yardIntakeRate.." a day.")
+      my=my+24
+    end
+    my=my+10
+  else
+    text("Build a depot yard to take delivery of materials.",M,my,"small",P.textFaint,CW)
+    my=my+30
+  end
+  line(my)
 
-  heading("CAPITAL",y+186)
-  button("invest-minus","-",M,y+214,34,34,function() state.invest=math.max(50,state.invest-50) end,true,"Less")
-  button("invest","Invest $"..state.invest,M+41,y+214,218,34,function() act("invest",state.invest) end,
+  heading("CAPITAL",my+18)
+  button("invest-minus","-",M,my+46,34,34,function() state.invest=math.max(50,state.invest-50) end,true,"Less")
+  button("invest","Invest $"..state.invest,M+41,my+46,218,34,function() act("invest",state.invest) end,
     city.money>=state.invest,"Locked for 7 closes. Mean return 10%, standard deviation 5%: losses are possible.")
-  button("invest-plus","+",M+266,y+214,34,34,function() state.invest=state.invest+50 end,true,"More")
-  local iy=y+254
+  button("invest-plus","+",M+266,my+46,34,34,function() state.invest=state.invest+50 end,true,"More")
+  local iy=my+86
   for _,inv in ipairs(city.investments) do
     row("$"..inv.amount.." on deposit",city:daysToMaturity(inv).." days left",iy,P.energy); iy=iy+24
   end

@@ -405,6 +405,10 @@ function Graph:buildNetwork(uncapped, commodity)
       elseif node.kind == "exchange" and commodity and (node.demandBy or {})[commodity] then
         net:arc(vout, TT, uncapped and INF or node.demandBy[commodity])
         node._drainArc = #net.arcs - 1
+      elseif node.kind == "dc" and commodity and (node.intake or {})[commodity] then
+        -- A yard takes materials in and holds them for the builders.
+        net:arc(vout, TT, uncapped and INF or node.intake[commodity])
+        node._drainArc = #net.arcs - 1
       elseif node.kind == "works" and commodity and (node.wants or {})[commodity] then
         -- A works is a customer for each of its inputs, and it asks for exactly
         -- what its rated output would eat.
@@ -444,7 +448,7 @@ function Graph:maxflow(uncapped, commodity)
   local served, produced = {}, {}
   for _, node in ipairs(self.nodes) do
     if node.alive and node._drainArc and (node.kind == "client" or node.kind == "sink"
-       or node.kind == "exchange" or node.kind == "works") then
+       or node.kind == "exchange" or node.kind == "works" or node.kind == "dc") then
       local a = net.arcs[node._drainArc]
       served[node.id] = a.cap0 - a.cap
     end

@@ -853,6 +853,9 @@ function Draw.world(city, cam, state)
     if state.tool=="source" then
       err = city:sourceError(state.commodity,wx,wy,state.plant)
       cost, seam = city:sourceCost(state.commodity,wx,wy,state.plant)
+      if not err and state.commodity=="power" then
+        err = city:materialError(city:materialsFor("source",state.plant))
+      end
     else
       err = city:placementError(wx,wy)
       cost = city:nodeCost(state.tool)
@@ -860,6 +863,14 @@ function Draw.world(city, cam, state)
         local kind = state.havenKind or "port"
         cost = city:havenCost(kind)
         if not err then err = select(2, city:havenSite(wx,wy,kind)) end
+      elseif state.tool=="works" then
+        cost = (City.RECIPES[state.recipe or ""] or {}).cost or cost
+      end
+      -- The bill of materials, before the click rather than after it.
+      if not err then
+        local bill = state.tool=="works" and city:materialsFor("works")
+          or city:materialsFor(state.tool)
+        err = city:materialError(bill)
       end
     end
     local color = (err or cost>city.money) and P.bad or P.good
