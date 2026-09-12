@@ -350,4 +350,89 @@ do
   check(c:sourceIncome(t)==0,"a haven pays no wholesale, because it produces nothing")
 end
 
+print("the game tells a customer why they are short, and the fix works")
+do
+  local c=fresh()
+  c.money=9999
+  local src=c.firstSource
+  local a,b=c:clientList()[1],c:clientList()[2]
+  a.demand,b.demand=3,4
+  a.x,a.y=src.x+200,src.y
+  b.x,b.y=src.x+400,src.y
+  -- Chain the second house through the first on a main only wide enough for one.
+  local narrow=assert(c:layPipe(src.id,a.id,"water",3))
+  assert(c:layPipe(a.id,b.id,"water",4))
+  check((c.served[b.id] or 0)==0,"a downstream customer starves behind a narrow main")
+  local why,eid=c:constraintFor(b.id)
+  check(why=="main" and eid==narrow.id,"the game names the main that is holding them back")
+  for _=1,4 do c:upgradePipe(eid) end
+  check(c.served[b.id]==b.demand,"widening the named main supplies them")
+  check(c:constraintFor(b.id)==nil,"and there is nothing left to explain")
+  -- The other shapes of the same question.
+  assert(c:toggleSupply(a.id))
+  check(c:constraintFor(a.id)=="valve","a shut valve is reported as a shut valve")
+  assert(c:toggleSupply(a.id))
+  local stranded=assert(c:addClient("house")); stranded.demand=3; c:refresh()
+  check(c:constraintFor(stranded.id)=="unconnected","an unconnected customer is told so")
+  c.g:killNode(stranded.id)
+  -- With the wells flat out, a wider pipe is not the answer and the game says so.
+  a.demand,b.demand=7,7
+  c:refresh()
+  for _=1,20 do
+    local w,e=c:constraintFor(b.id)
+    if w~="main" then break end
+    c:upgradePipe(e)
+  end
+  check(c.spare.water==0,"the well is now pumping flat out")
+  check(c:constraintFor(b.id)=="output" or c.served[b.id]==b.demand,
+    "when the wells are maxed the game says so instead of blaming a pipe")
+end
+
+print("a company that fixes what the game points at grows and stays solvent")
+for _,seed in ipairs({4,17,31,52}) do
+  local c=City.new({seed=seed})
+  for _,n in ipairs(c:clientList()) do
+    assert(c:layPipe(c.firstSource.id,n.id,"water",n.demand))
+  end
+  for _=1,120 do
+    for _,e in ipairs(c.g.edges) do
+      if e.alive and e.leaking and c.money>=c:repairCost(e)+60 then c:repairPipe(e.id) end
+    end
+    for _,short in ipairs(c:shortCustomers()) do
+      local why,eid=c:constraintFor(short.id)
+      if why=="main" and c.money>c:boreCost(c.g.edges[eid],1)+60 then
+        c:upgradePipe(eid)
+      elseif why=="output" then
+        for _,w in ipairs(c.g:nodesOfKind("source")) do
+          if w.commodity==short.commodity and (w.level or 1)<City.sourceMaxLevel
+             and c.money>c:sourceUpgradeCost(w)+200 then c:upgradeSource(w.id); break end
+        end
+      end
+    end
+    for _,o in ipairs(c:clientList(true)) do
+      local best,cost
+      for _,n in ipairs(c.g:aliveNodes()) do
+        if not (n.kind=="client" and n.prospect) and not c:pipeError(n.id,o.id,o.commodity) then
+          local q=c:pipeCost(n.id,o.id,o.commodity,o.demand)
+          if not best or q<cost then best,cost=n,q end
+        end
+      end
+      if best and c.money>=cost+150 and (c.spare[o.commodity] or 0)>=o.demand then
+        assert(c:layPipe(best.id,o.id,o.commodity,o.demand))
+        assert(c:acceptClient(o.id))
+      end
+    end
+    if c.money>900 then
+      for _,w in ipairs(c.g:nodesOfKind("source")) do
+        if (c.spare[w.commodity] or 0)<4 and (w.level or 1)<City.sourceMaxLevel
+           and c.money>c:sourceUpgradeCost(w)+700 then c:upgradeSource(w.id); break end
+      end
+    end
+    check(not c.bankrupt,"a company that answers the game's prompts stays solvent (seed "..seed..")")
+    c:endDay()
+  end
+  check(#c:clientList()>=6,"and grows well past its two starting houses (seed "..seed..")")
+  check(c:valuation()>City.rules.startMoney*6,"and is worth materially more than it started with")
+end
+
 print(checks.." company checks passed")

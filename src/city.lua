@@ -1216,6 +1216,61 @@ function City:sourceIncome(n)
   return math.floor(trade.wholesale + (n.output or 0) * trade.wholesalePerUnit)
 end
 
+--------------------------------------------------------------------------------
+-- Why is this customer short?
+--------------------------------------------------------------------------------
+
+-- A customer showing 1/4 is a question, and the answer is almost always one
+-- specific main that is already carrying everything it can. The flow solver
+-- knows which one; there is no reason to make the player find it by eye.
+--
+-- Walks outward from the customer over mains of its own trade, in order of
+-- distance, and reports the first constraint it meets: a shut valve, no route
+-- to a well at all, wells already at full output, or -- most often -- the
+-- nearest main running full.
+function City:constraintFor(id)
+  local c = self.g.nodes[id]
+  if not (c and c.alive and c.kind == "client" and not c.prospect) then return nil end
+  if (self.served[id] or 0) >= (c.demand or 0) then return nil end
+  if c.supplyClosed then return "valve" end
+
+  local com = c.commodity
+  local seen, queue, head = { [id] = true }, { id }, 1
+  local saturated, sawFeed = nil, false
+  while head <= #queue do
+    local u = queue[head]; head = head + 1
+    local node = self.g.nodes[u]
+    if node.kind == "source" or node.kind == "terminal"
+       or (node.kind == "depot" and (node.stored or 0) > 0) then sawFeed = true end
+    for _, ei in ipairs(self.g.adj[u] or {}) do
+      local e = self.g.edges[ei]
+      if e.alive and e.commodity == com then
+        if not saturated and math.abs(self.detail.edge[ei] or 0) >= e.cap then saturated = ei end
+        local v = (e.a == u) and e.b or e.a
+        if not seen[v] and self.g.nodes[v] and self.g.nodes[v].alive then
+          seen[v] = true
+          queue[#queue + 1] = v
+        end
+      end
+    end
+  end
+
+  if not sawFeed then return "unconnected" end
+  -- If every well is already pumping flat out, a wider pipe changes nothing.
+  if (self.spare[com] or 0) <= 0 then return "output" end
+  if saturated then return "main", saturated end
+  return "output"
+end
+
+-- The same question for the whole network, for the alert strip.
+function City:shortCustomers()
+  local t = {}
+  for _, c in ipairs(self:clientList()) do
+    if (self.served[c.id] or 0) < c.demand then t[#t + 1] = c end
+  end
+  return t
+end
+
 function City:dailyRevenue()
   local rev = 0
   for _, c in ipairs(self:clientList()) do

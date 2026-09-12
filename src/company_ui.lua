@@ -111,6 +111,48 @@ local function inspectClient(n,y)
       M,y+168,CW,36,function() act("toggleSupply",n.id) end,true,
       "Closes this customer's service only. The main stays open; an unsupplied customer still loses patience.",
       not n.supplyClosed,P.good)
+
+    -- A customer showing 1/4 is a question. Answer it here, and offer the fix,
+    -- rather than making the player trace the network by eye.
+    local why,eid=city:constraintFor(n.id)
+    if why then
+      local dy=y+216
+      heading("WHY IT IS SHORT",dy); dy=dy+26
+      if why=="main" then
+        local e=city.g.edges[eid]
+        local carrying=math.abs(city.detail.edge[eid] or 0)
+        text("The nearest main is already full.",M,dy,"body",P.warn,CW)
+        row(string.upper(e.commodity).." "..(Graph.COMMODITIES[e.commodity].conduit)
+          .." "..e.id,carrying.." / "..e.cap,dy+24,P.bad)
+        local bore=city:boreCost(e,1)
+        button("widen-bottleneck","Widen it  +1   $"..bore,M,dy+52,CW,36,
+          function() act("upgradePipe",eid) end,city.money>=bore and e.capMax<24,
+          "Adds one unit of capacity to the main that is holding this customer back.",
+          false,P.good,true)
+        button("inspect-bottleneck","Inspect that main",M,dy+94,CW,30,
+          function() act("focusEdge",eid) end,true,"Select the main and centre on it")
+      elseif why=="output" then
+        text("Every "..n.commodity.." well is pumping flat out. A wider main will not help: deepen a well, sink another, or open a haven.",
+          M,dy,"small",P.warn,CW)
+        local src
+        for _,w in ipairs(city.g:nodesOfKind("source")) do
+          if w.commodity==n.commodity and (w.level or 1)<City.sourceMaxLevel then src=w; break end
+        end
+        if src then
+          local cost=city:sourceUpgradeCost(src)
+          button("deepen-for-client","Deepen "..string.upper(n.commodity).." well "..src.id.."   $"..cost,
+            M,dy+52,CW,36,function() act("upgradeSource",src.id) end,city.money>=cost,
+            "Adds output at the well, with no new route to pay for",false,P.good,true)
+        end
+      elseif why=="unconnected" then
+        text("This customer is not connected to any "..n.commodity..
+             " supply. Drag a main to it from a well or a structure that reaches.",
+          M,dy,"small",P.bad,CW)
+      elseif why=="valve" then
+        text("You closed this customer's service valve. They keep losing patience while it is shut.",
+          M,dy,"small",P.warn,CW)
+      end
+    end
   end
 end
 
@@ -348,7 +390,7 @@ local function inspectorPanel(n,e)
     if n.commodity then drop(n.commodity,M+9,y+10,10); text(title,M+24,y,"mid")
     else text(title,M,y,"mid") end
     y=y+36
-    if n.kind=="client" then inspectClient(n,y); tail=y+250
+    if n.kind=="client" then inspectClient(n,y); tail=y+400
     elseif n.kind=="source" then inspectSource(n,y); tail=y+250
     elseif n.kind=="gate" then inspectGate(n,y); tail=y+240
     elseif n.kind=="depot" then inspectDepot(n,y); tail=y+244
@@ -752,6 +794,11 @@ function UI.draw(c,s,action)
         end
         if worst then act("focusEdge",worst.id) end
       end,true,"Inspect the main losing the most capacity (L)")
+    elseif city.unserved>0 then
+      button("banner-short","Who is short?",W-200,90,150,30,function()
+        local short=city:shortCustomers()[1]
+        if short then act("focusNode",short.id) end
+      end,true,"Open the first customer who is not getting what they signed for, and say why")
     end
   else
     local milestone
