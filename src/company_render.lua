@@ -19,12 +19,12 @@ end
 --------------------------------------------------------------------------------
 -- Symbols
 --
--- Every icon here is built from fractions of one size argument rather than from
--- fixed pixel offsets, so a single function draws the five-pixel dot on the city
--- map and the twenty-pixel glyph on a sidebar button. Stroke widths are
--- fractions too: a fixed 1.6px outline is half the width of a small glyph and a
--- hairline on a large one, which is why the old icons turned to mush when the
--- camera moved.
+-- One flat shape per thing, in one colour, drawn from fractions of a single
+-- size argument so the same function serves the five-pixel map dot and the
+-- twenty-pixel sidebar glyph. No shading, no highlights, no windows: a symbol
+-- on a map has to survive being eleven pixels wide, and every interior detail
+-- is one more thing to turn into mud when it gets there. A house is a house
+-- shape, a forest is trees, a depot is crates.
 --------------------------------------------------------------------------------
 
 -- Line weight for an icon of the given span, never thinner than a hairline.
@@ -32,16 +32,12 @@ local function stroke(size, k)
   lg.setLineWidth(math.max(0.9, size * (k or 0.11)))
 end
 
--- The colour a caller set before calling a glyph. Glyphs take their trim from
--- it, so the trade colour is chosen once at the call site and every part of the
--- icon that should carry it does.
+-- The colour a caller set before calling a glyph. Every glyph is drawn in it,
+-- so the trade colour is chosen once at the call site.
 local function trim()
   local r, g, b, a = lg.getColor()
   return r, g, b, a or 1
 end
-
-local SHELL = { 0.158, 0.200, 0.255 }   -- masonry: what a building is made of
-local DARK  = { 0.035, 0.050, 0.068 }   -- openings, shadow, the inside of things
 
 -- One droplet, three colours: blue water, amber beer, black oil. Every place a
 -- commodity appears -- wells, pipes legend, customer badges, sidebar buttons --
@@ -71,153 +67,59 @@ end
 function Draw.mark(commodity, x, y, r, dim)
   local spec = Graph.COMMODITIES[commodity] or Graph.COMMODITIES.water
   local a = dim and 0.45 or 1
-  local bolt = (spec.mark == "bolt")
-  local pts = bolt and boltPoints(x, y, r) or dropletPoints(x, y, r)
-
-  -- A dark seat under the glyph. These marks land on pipes, roofs and panels of
-  -- every brightness, and without it black oil disappears into half of them.
-  lg.setColor(DARK[1], DARK[2], DARK[3], dim and 0.35 or 0.62)
-  lg.polygon("fill", bolt and boltPoints(x, y + r * 0.14, r * 1.10)
-                          or dropletPoints(x, y + r * 0.12, r * 1.08))
-
+  local pts = (spec.mark == "bolt") and boltPoints(x, y, r) or dropletPoints(x, y, r)
   lg.setColor(P.with(spec.fill, a))
   lg.polygon("fill", pts)
-
-  -- One highlight, on the shoulder a liquid actually catches the light on. It
-  -- is what makes the drop read as a volume rather than a flat cut-out, so it
-  -- survives down to the smallest size that still has room for it.
-  if r >= 4 then
-    lg.setColor(1, 1, 1, dim and 0.09 or 0.20)
-    if bolt then
-      stroke(r * 2, 0.13)
-      lg.line(x + 0.14 * r, y - 0.88 * r, x - 0.46 * r, y + 0.06 * r)
-    else
-      lg.ellipse("fill", x - r * 0.26, y + r * 0.12, r * 0.20, r * 0.30)
-    end
-  end
-
+  -- Oil is very nearly black, so its outline is not decoration: it is the only
+  -- thing keeping the drop from reading as a hole in the screen.
   lg.setColor(P.with(spec.color, a))
-  stroke(r * 2, 0.10)
+  stroke(r * 2, 0.09)
   lg.polygon("line", pts)
 end
 
 -- Kept as an alias: most of the game's trades really are droplets.
 Draw.droplet = Draw.mark
 
--- A trade mark on its own coin, for the corner of a building or a well. The
--- backing disc is what stops a droplet half-off the node ring from reading as
--- a rendering accident.
-function Draw.badge(commodity, x, y, r, dim)
-  lg.setColor(P.bg[1], P.bg[2], P.bg[3], dim and 0.75 or 0.95)
-  lg.circle("fill", x, y, r * 1.34)
-  local spec = Graph.COMMODITIES[commodity] or Graph.COMMODITIES.water
-  lg.setColor(P.with(spec.color, dim and 0.35 or 0.7))
-  stroke(r * 2, 0.09)
-  lg.circle("line", x, y, r * 1.34)
-  Draw.mark(commodity, x, y, r, dim)
-end
-
 --------------------------------------------------------------------------------
 -- Customers
 --
--- Drawn as filled silhouettes rather than outlines. At map sizes a one-pixel
--- outline of a house is a smudge, while a solid shape with one bright roof
--- still reads as a house; and a solid shape can carry lit windows, which is how
--- a supplied customer is told apart from a dark one at a glance.
+-- Five silhouettes that differ at the outline, because the outline is all
+-- there is at map size: a pitched roof, a stepped block, a saw-tooth shed, a
+-- tankard, a chimney.
 --------------------------------------------------------------------------------
 
--- Windows: lit amber when the customer is supplied, dark when it is not. Panes
--- are dropped rather than shrunk below legibility, which is what keeps a small
--- icon clean instead of speckled.
-local function panes(lit, s, ...)
-  local pts = { ... }
-  if s < 0.55 then return end
-  for i = 1, #pts, 2 do
-    lg.setColor(lit or DARK)
-    lg.rectangle("fill", pts[i] * s, pts[i + 1] * s, 2.6 * s, 2.8 * s, 0.6 * s)
-  end
-end
-
-function Draw.clientGlyph(kind, x, y, s, lit)
+function Draw.clientGlyph(kind, x, y, s)
   s = s or 1
-  local tr, tg, tb, ta = trim()
+  local r, g, b, a = trim()
   lg.push()
   lg.translate(x, y)
-  local span = 20 * s
+  lg.setColor(r, g, b, a)
 
   if kind == "factory" then
-    -- A works: a stack and a shed under a heavy roof, because oil is the trade
-    -- that smokes. The roof carries the colour -- a thin band on a dark box was
-    -- invisible the moment the camera moved back.
-    lg.setColor(tr, tg, tb, ta)
-    lg.rectangle("fill", -9.4 * s, -12.4 * s, 4 * s, 9.6 * s, 0.6 * s)
-    lg.setColor(tr * 0.55, tg * 0.55, tb * 0.55, ta)
-    lg.rectangle("fill", -10 * s, -12.6 * s, 5.2 * s, 1.8 * s, 0.6 * s)
-    lg.setColor(SHELL)
-    lg.rectangle("fill", -9 * s, -3 * s, 18 * s, 10.8 * s, 1 * s)
-    lg.setColor(tr, tg, tb, ta)
-    lg.polygon("fill", -9.4 * s, -2.6 * s, -5 * s, -7.8 * s,
-                        5 * s, -7.8 * s, 9.4 * s, -2.6 * s)
-    panes(lit, s, -6.4, 0.2, -1.3, 0.2, 3.8, 0.2)
+    -- A works: a shed with a stack. Two rectangles in one colour merge into
+    -- one silhouette, which is the whole drawing.
+    lg.rectangle("fill", -3.2 * s, -13 * s, 3.2 * s, 11.5 * s)
+    lg.rectangle("fill", -4.2 * s, -13.6 * s, 5.2 * s, 1.8 * s, 0.4 * s)
+    lg.rectangle("fill", -10 * s, -2 * s, 20 * s, 10 * s, 0.8 * s)
   elseif kind == "pub" then
-    -- A glass with a head on it, which is the whole point of the trade.
-    lg.setColor(DARK)
-    lg.polygon("fill", -6.4 * s, -7 * s, 6.4 * s, -7 * s, 4.6 * s, 8.4 * s, -4.6 * s, 8.4 * s)
-    lg.setColor(tr, tg, tb, ta)
-    lg.polygon("fill", -5.4 * s, -2.6 * s, 5.4 * s, -2.6 * s, 3.8 * s, 7.4 * s, -3.8 * s, 7.4 * s)
-    lg.setColor(0.96, 0.95, 0.92, ta)
-    lg.rectangle("fill", -6 * s, -7 * s, 12 * s, 4.4 * s, 1.4 * s)
-    -- The handle, so it is a tankard and not a beaker.
-    lg.setColor(tr, tg, tb, ta * 0.85)
-    stroke(span, 0.075)
-    lg.line(6.2 * s, -4.6 * s, 9.8 * s, -3.4 * s, 9.8 * s, 2.4 * s, 5.2 * s, 3.6 * s)
-    if s >= 0.55 then
-      lg.setColor(1, 1, 1, 0.22 * ta)
-      lg.rectangle("fill", -3.6 * s, -1.4 * s, 1.6 * s, 7 * s, 0.8 * s)
-    end
+    -- A tankard. The handle is a single arc, not a ring with a hole in it.
+    lg.polygon("fill", -7 * s, -8 * s, 4.4 * s, -8 * s, 3 * s, 8 * s, -5.6 * s, 8 * s)
+    stroke(20 * s, 0.13)
+    lg.arc("line", "open", 4 * s, -1 * s, 4.4 * s, -math.pi * 0.46, math.pi * 0.46)
   elseif kind == "workshop" then
-    -- Saw-tooth roof: the shape every light-industrial shed in the world has,
-    -- and the one glyph a player never confuses with a dwelling.
-    lg.setColor(SHELL)
-    lg.rectangle("fill", -9.5 * s, -1.2 * s, 19 * s, 9 * s, 1 * s)
-    lg.setColor(tr, tg, tb, ta)
-    for i = 0, 2 do
-      local bx = (-9.5 + i * 6.4) * s
-      lg.polygon("fill", bx, -1.2 * s, bx, -7.4 * s, bx + 6.2 * s, -1.2 * s)
-    end
-    -- North light: the glazed face of each tooth, lit when the power is on.
-    if s >= 0.6 then
-      lg.setColor(lit or DARK)
-      for i = 0, 2 do
-        local bx = (-9.5 + i * 6.4) * s
-        stroke(span, 0.055)
-        lg.line(bx + 0.9 * s, -6.4 * s, bx + 0.9 * s, -2 * s)
-      end
-    end
-    panes(lit, s, -7.4, 1.8, -1.3, 1.8, 4.8, 1.8)
+    -- The saw-tooth roof every light-industrial shed in the world has.
+    lg.polygon("fill", -9 * s, 8 * s, -9 * s, -7 * s, -3 * s, -1 * s,
+                       -3 * s, -7 * s, 3 * s, -1 * s, 3 * s, -7 * s,
+                        9 * s, -1 * s, 9 * s, 8 * s)
   elseif kind == "estate" then
-    -- A terrace and a block: more doors than a house, which is the difference.
-    lg.setColor(SHELL)
-    lg.rectangle("fill", -9.6 * s, -1 * s, 11 * s, 8.8 * s, 0.8 * s)
-    lg.rectangle("fill", 1.6 * s, -5.4 * s, 8 * s, 13.2 * s, 0.8 * s)
-    lg.setColor(tr, tg, tb, ta)
-    lg.polygon("fill", -10.8 * s, -0.6 * s, -4 * s, -8 * s, 2.8 * s, -0.6 * s)
-    lg.rectangle("fill", 1 * s, -6.6 * s, 9.2 * s, 1.8 * s, 0.6 * s)
-    panes(lit, s, -8.2, 1.4, -4.4, 1.4, 2.8, -3.4, 6.4, -3.4, 2.8, 2.2, 6.4, 2.2)
+    -- Two flat-roofed blocks: housing stacked rather than spread, and nothing
+    -- like the house or the saw-tooth shed in outline.
+    lg.rectangle("fill", -9.5 * s, -9.5 * s, 9 * s, 17.5 * s, 0.6 * s)
+    lg.rectangle("fill", 1 * s, -3.5 * s, 8.5 * s, 11.5 * s, 0.6 * s)
   else
-    -- A house. Gable, facade, one door, two windows: the smallest drawing that
-    -- still says somebody lives here.
-    lg.setColor(SHELL)
-    lg.rectangle("fill", -7.2 * s, -1 * s, 14.4 * s, 8.8 * s, 0.8 * s)
-    -- Two slopes, not one triangle: the shaded side is what makes a roof read
-    -- as a roof at a glance instead of as a chevron.
-    lg.setColor(tr * 0.62, tg * 0.62, tb * 0.62, ta)
-    lg.polygon("fill", -10 * s, -0.4 * s, 0, -9.6 * s, 0, -0.4 * s)
-    lg.setColor(tr, tg, tb, ta)
-    lg.polygon("fill", 0, -9.6 * s, 10 * s, -0.4 * s, 0, -0.4 * s)
-    lg.setColor(DARK)
-    lg.rectangle("fill", -1.7 * s, 2.6 * s, 3.4 * s, 5.2 * s, 0.6 * s)
-    panes(lit, s, -5.6, 1.2, 3, 1.2)
+    -- A house: a pitched roof on four walls, and nothing else.
+    lg.polygon("fill", -9 * s, 8 * s, -9 * s, -1 * s, 0, -9.5 * s,
+                        9 * s, -1 * s, 9 * s, 8 * s)
   end
   lg.pop()
 end
@@ -225,119 +127,78 @@ end
 --------------------------------------------------------------------------------
 -- Structures
 --
--- The player's own equipment. Each one is a picture of what the thing does:
--- ports on a junction, an impeller in a pump, a handwheel on a valve. Drawn to
--- the same twenty-unit span as the customers so a toolbar row lines up.
+-- The player's own equipment, each one a picture of what the thing is: ports on
+-- a junction, an impeller in a pump, a tank on legs, a valve, crates, a crane.
 --------------------------------------------------------------------------------
 
 function Draw.structureGlyph(kind, x, y, s)
   s = s or 1
-  local tr, tg, tb, ta = trim()
+  local r, g, b, a = trim()
   local span = 20 * s
   lg.push()
   lg.translate(x, y)
+  lg.setColor(r, g, b, a)
   stroke(span, 0.1)
 
   if kind == "pump" then
-    -- A volute casing with the impeller inside it, pointing the way it pushes.
-    lg.setColor(DARK[1], DARK[2], DARK[3], 0.9)
-    lg.circle("fill", -0.6 * s, 0, 7.2 * s)
-    lg.setColor(tr, tg, tb, ta)
-    lg.circle("line", -0.6 * s, 0, 7.2 * s)
-    lg.polygon("fill", -3.4 * s, -4.2 * s, 4.4 * s, 0, -3.4 * s, 4.2 * s)
-    lg.rectangle("fill", 6 * s, -1.6 * s, 4 * s, 3.2 * s, 0.8 * s)
-    lg.rectangle("fill", -10 * s, -1.6 * s, 4 * s, 3.2 * s, 0.8 * s)
+    -- A casing with the impeller in it, pointing the way it pushes.
+    lg.circle("line", 0, 0, 7 * s)
+    lg.polygon("fill", -3 * s, -4 * s, 4.6 * s, 0, -3 * s, 4 * s)
+    lg.line(-10 * s, 0, -7 * s, 0)
+    lg.line(7 * s, 0, 10 * s, 0)
   elseif kind == "tower" then
-    -- A tank on legs, with the water line showing. It is a treatment station,
-    -- so it reads as something holding a volume, not as a box.
-    lg.setColor(DARK[1], DARK[2], DARK[3], 0.9)
-    lg.rectangle("fill", -7.4 * s, -8.6 * s, 14.8 * s, 10 * s, 1.6 * s)
-    lg.setColor(tr, tg, tb, ta * 0.5)
-    lg.rectangle("fill", -6.2 * s, -4.2 * s, 12.4 * s, 4.4 * s, 0.8 * s)
-    lg.setColor(tr, tg, tb, ta)
-    lg.rectangle("line", -7.4 * s, -8.6 * s, 14.8 * s, 10 * s, 1.6 * s)
-    lg.line(-5 * s, 1.4 * s, -7 * s, 9 * s)
-    lg.line(5 * s, 1.4 * s, 7 * s, 9 * s)
-    lg.line(-8 * s, 9 * s, 8 * s, 9 * s)
+    -- A tank up on splayed legs: a water tower, from any distance.
+    lg.rectangle("fill", -7 * s, -10 * s, 14 * s, 7.5 * s, 1 * s)
+    lg.line(-4.6 * s, -2.5 * s, -7.4 * s, 9 * s)
+    lg.line(4.6 * s, -2.5 * s, 7.4 * s, 9 * s)
   elseif kind == "gate" then
-    -- A valve: two seats closing on the line, and the handwheel you turn them
-    -- with. The wheel is the part that says a human sets this one by hand.
-    lg.setColor(tr, tg, tb, ta)
-    lg.line(-10 * s, 0, -4.6 * s, 0)
-    lg.line(4.6 * s, 0, 10 * s, 0)
-    lg.polygon("fill", -4.6 * s, -6 * s, -4.6 * s, 6 * s, -0.4 * s, 0)
-    lg.polygon("fill", 4.6 * s, -6 * s, 4.6 * s, 6 * s, 0.4 * s, 0)
-    lg.line(0, -6 * s, 0, -9 * s)
-    lg.ellipse("line", 0, -9.4 * s, 4.4 * s, 1.8 * s)
+    -- A valve: two seats closing on the line, and the wheel you close them
+    -- with. The wheel is what says a human sets this one by hand.
+    lg.line(-10 * s, 0, -4.4 * s, 0)
+    lg.line(4.4 * s, 0, 10 * s, 0)
+    lg.polygon("fill", -4.4 * s, -6 * s, -4.4 * s, 6 * s, 0, 0)
+    lg.polygon("fill", 4.4 * s, -6 * s, 4.4 * s, 6 * s, 0, 0)
+    lg.line(0, -4 * s, 0, -8.5 * s)
+    lg.line(-4 * s, -9 * s, 4 * s, -9 * s)
   elseif kind == "depot" then
-    -- A shed with a roller door: what you put today's surplus behind overnight.
-    lg.setColor(DARK[1], DARK[2], DARK[3], 0.9)
-    lg.rectangle("fill", -8.6 * s, -3 * s, 17.2 * s, 11 * s, 1 * s)
-    lg.setColor(tr, tg, tb, ta)
-    lg.polygon("fill", -9.8 * s, -2.6 * s, 0, -9.4 * s, 9.8 * s, -2.6 * s)
-    lg.rectangle("line", -8.6 * s, -3 * s, 17.2 * s, 11 * s, 1 * s)
-    if s >= 0.6 then
-      lg.setColor(tr, tg, tb, ta * 0.7)
-      for i = 0, 2 do
-        lg.line(-5.4 * s, (0.4 + i * 2.4) * s, 5.4 * s, (0.4 + i * 2.4) * s)
-      end
-    end
+    -- Crates: what a depot is full of.
+    lg.rectangle("fill", -9 * s, -0.5 * s, 8.4 * s, 8.4 * s, 0.6 * s)
+    lg.rectangle("fill", 0.6 * s, -0.5 * s, 8.4 * s, 8.4 * s, 0.6 * s)
+    lg.rectangle("fill", -4.2 * s, -9.4 * s, 8.4 * s, 8.4 * s, 0.6 * s)
   elseif kind == "terminal" then
-    -- A crane over a quay: the generic haven, whichever door it happens to be.
-    lg.setColor(tr, tg, tb, ta)
-    lg.rectangle("fill", -10 * s, 7.2 * s, 20 * s, 2 * s, 0.8 * s)
-    lg.rectangle("fill", -4.4 * s, -8.6 * s, 2.4 * s, 15.8 * s, 0.6 * s)
-    lg.rectangle("fill", -4.4 * s, -8.6 * s, 13.4 * s, 2.2 * s, 0.6 * s)
-    lg.line(8 * s, -6.4 * s, 8 * s, -1.6 * s)
-    lg.setColor(DARK[1], DARK[2], DARK[3], 0.9)
-    lg.rectangle("fill", 5.4 * s, -1.6 * s, 5.2 * s, 4.4 * s, 0.6 * s)
-    lg.setColor(tr, tg, tb, ta)
-    lg.rectangle("line", 5.4 * s, -1.6 * s, 5.2 * s, 4.4 * s, 0.6 * s)
+    -- A crane on a quay: the generic haven, whichever door it happens to be.
+    lg.rectangle("fill", -10 * s, 7 * s, 20 * s, 2.4 * s, 0.8 * s)
+    lg.rectangle("fill", -4.6 * s, -9 * s, 2.6 * s, 16 * s, 0.6 * s)
+    lg.rectangle("fill", -4.6 * s, -9 * s, 13.6 * s, 2.4 * s, 0.6 * s)
+    lg.line(7.8 * s, -6.6 * s, 7.8 * s, 0)
+    lg.rectangle("fill", 5.4 * s, 0, 4.8 * s, 4 * s, 0.6 * s)
   elseif kind == "manifold" then
     -- Six ports on one hub, drawn as six ports on one hub.
-    lg.setColor(tr, tg, tb, ta)
     for i = 0, 5 do
-      local a = i * math.pi / 3
-      lg.line(math.cos(a) * 3 * s, math.sin(a) * 3 * s,
-              math.cos(a) * 9.4 * s, math.sin(a) * 9.4 * s)
-      lg.circle("fill", math.cos(a) * 9.4 * s, math.sin(a) * 9.4 * s, 1.5 * s)
+      local t = i * math.pi / 3
+      lg.line(0, 0, math.cos(t) * 9.4 * s, math.sin(t) * 9.4 * s)
     end
-    lg.setColor(DARK[1], DARK[2], DARK[3], 0.95)
-    lg.circle("fill", 0, 0, 4.6 * s)
-    lg.setColor(tr, tg, tb, ta)
-    lg.circle("line", 0, 0, 4.6 * s)
+    lg.circle("fill", 0, 0, 3.6 * s)
   else
     -- A junction: three ports, and the cheapest way to turn a corner.
-    lg.setColor(tr, tg, tb, ta)
     for i = 0, 2 do
-      local a = -math.pi / 2 + i * math.pi * 2 / 3
-      lg.line(math.cos(a) * 2.6 * s, math.sin(a) * 2.6 * s,
-              math.cos(a) * 9 * s, math.sin(a) * 9 * s)
-      lg.circle("fill", math.cos(a) * 9 * s, math.sin(a) * 9 * s, 1.6 * s)
+      local t = -math.pi / 2 + i * math.pi * 2 / 3
+      lg.line(0, 0, math.cos(t) * 9 * s, math.sin(t) * 9 * s)
     end
-    lg.setColor(DARK[1], DARK[2], DARK[3], 0.95)
-    lg.circle("fill", 0, 0, 4 * s)
-    lg.setColor(tr, tg, tb, ta)
-    lg.circle("line", 0, 0, 4 * s)
+    lg.circle("fill", 0, 0, 3.2 * s)
   end
   lg.pop()
 end
 
--- Every node on the map is a disc: a shadow to lift it off the street plan, a
--- dark body tinted by its trade, a sheen across the top and a lit rim. The
--- shadow is doing the real work -- without it a dense district reads as one
--- flat mass of overlapping circles.
+-- Every node on the map is a disc: a dark body tinted by its trade, and a rim
+-- in the trade colour. Flat, so the symbol on top of it is what the eye finds.
 function Draw.disc(x, y, r, color, tint)
-  lg.setColor(0.01, 0.02, 0.03, 0.5)
-  lg.circle("fill", x, y + math.max(1, r * 0.11), r * 1.03)
   lg.setColor(P.bg)
   lg.circle("fill", x, y, r)
-  lg.setColor(P.with(color, tint or 0.22))
+  lg.setColor(P.with(color, tint or 0.20))
   lg.circle("fill", x, y, r)
-  lg.setColor(P.with(color, 0.13))
-  lg.arc("fill", "pie", x, y, r * 0.96, math.pi * 1.08, math.pi * 1.92)
   lg.setColor(color)
-  lg.setLineWidth(math.max(1, r * 0.11))
+  lg.setLineWidth(math.max(1, r * 0.10))
   lg.circle("line", x, y, r)
 end
 
@@ -441,32 +302,45 @@ local function drawDistricts(city, cam, state)
   end
 end
 
-local function scenery(o,x,y,r)
-  -- Decoration remains within the exact circular construction boundary.
-  if o.kind=="park" then
-    for i=1,11 do
-      local a=i*2.39996
-      local dist=r*0.72*math.sqrt(i/11)
-      local tx,ty=x+math.cos(a)*dist,y+math.sin(a)*dist
-      local s=math.max(2,r*0.105)
-      lg.setColor(0.05,0.11,0.10,0.7); lg.ellipse("fill",tx+2,ty+s,s,s*0.5)
-      lg.setColor(0.19,0.36+(i%3)*0.035,0.28,0.8)
-      lg.polygon("fill",tx,ty-s,tx-s,ty+s,tx+s,ty+s)
+-- What the ground is, drawn as the thing it is: trees for parkland, water for
+-- the river, boulders for bedrock. Few shapes and large ones, so the ground
+-- reads at a glance from across the city, and all of them inside the circle
+-- the game will not let you build in.
+local function scenery(o, x, y, r)
+  local spec = City.OBSTACLES[o.kind] or {}
+  local c = spec.color or { 0.3, 0.3, 0.3 }
+  if o.kind == "park" then
+    local h = r * 0.38
+    for _, p in ipairs({ {0, -0.36}, {-0.44, 0.02}, {0.44, 0.02},
+                         {-0.20, 0.42}, {0.24, 0.40} }) do
+      local tx, ty = x + p[1] * r, y + p[2] * r
+      lg.setColor(c[1] * 0.55, c[2] * 0.55, c[3] * 0.5, 0.9)
+      lg.rectangle("fill", tx - math.max(0.5, h * 0.09), ty + h * 0.10,
+        math.max(1, h * 0.18), h * 0.34)
+      lg.setColor(c[1] * 0.8, c[2] * 1.05, c[3] * 0.85, 0.95)
+      lg.polygon("fill", tx, ty - h * 0.92,
+        tx - h * 0.5, ty + h * 0.16, tx + h * 0.5, ty + h * 0.16)
     end
-  elseif o.kind=="river" then
-    for i=-2,2 do
-      local yy=y+i*r/3
-      local half=math.sqrt(math.max(0,r*r-(yy-y)^2))*0.82
-      lg.setColor(0.32,0.60,0.74,0.30); lg.setLineWidth(1.5)
-      lg.line(x-half,yy,x-half/2,yy-2,x,yy,x+half/2,yy+2,x+half,yy)
+  elseif o.kind == "river" then
+    lg.setColor(c[1], c[2], c[3], 0.5)
+    lg.setLineWidth(math.max(1.2, r * 0.06))
+    for i = -1, 1 do
+      local yy = y + i * r * 0.4
+      local half = math.sqrt(math.max(0, r * r - (yy - y) ^ 2)) * 0.78
+      local pts = {}
+      for j = 0, 12 do
+        local t = j / 12
+        pts[#pts + 1] = x - half + 2 * half * t
+        pts[#pts + 1] = yy + math.sin(t * math.pi * 2 + i) * r * 0.09
+      end
+      lg.line(pts)
     end
   else
-    for i=1,5 do
-      local a=i*2.4; local tx,ty=x+math.cos(a)*r*0.48,y+math.sin(a)*r*0.48
-      local s=r*0.18
-      lg.setColor(0.35,0.36,0.42,0.65)
-      lg.polygon("fill",tx-s,ty+s/2,tx-s/2,ty-s,tx+s/2,ty-s*0.7,tx+s,ty+s/2)
-      lg.setColor(0.52,0.53,0.58,0.35); lg.line(tx-s/2,ty-s,tx,ty,tx+s,ty+s/2)
+    for _, p in ipairs({ {-0.28, -0.12, 0.5}, {0.3, 0.1, 0.4}, {-0.08, 0.44, 0.32} }) do
+      local bx, by, bs = x + p[1] * r, y + p[2] * r, r * p[3]
+      lg.setColor(c[1] * 1.5, c[2] * 1.5, c[3] * 1.5, 0.8)
+      lg.polygon("fill", bx - bs * 0.6, by + bs * 0.4,
+                         bx - bs * 0.08, by - bs * 0.5, bx + bs * 0.6, by + bs * 0.4)
     end
   end
 end
@@ -582,12 +456,8 @@ function Draw.world(city, cam, state)
         for i=1,count do
           local t = (R.t*0.22+i/count)%1
           if flow < 0 then t = 1-t end
-          local dr = math.max(1, R.sym(2.8, cam.scale))
-          local dx2,dy2 = ax+(bx-ax)*t, ay+(by-ay)*t
-          -- A dark collar under each unit of flow, so the dots stay countable
-          -- against a main of the same colour they are.
-          lg.setColor(0.02,0.03,0.04,0.42); lg.circle("fill",dx2,dy2,dr*1.45)
-          lg.setColor(c); lg.circle("fill",dx2,dy2,dr)
+          lg.setColor(c)
+          lg.circle("fill", ax+(bx-ax)*t, ay+(by-ay)*t, math.max(1, R.sym(2.8, cam.scale)))
         end
       end
       if e.leaking then
@@ -605,18 +475,13 @@ function Draw.world(city, cam, state)
     if not state.filter or not n.commodity or n.commodity==state.filter then
     local x,y = cam:toScreen(n.x,n.y)
     -- Sized through R.sym, so pulling the camera back always makes a node
-    -- smaller. Under about eight pixels there is no room for a drawing inside
-    -- the disc, so the icon steps down to the trade mark alone and then to a
-    -- plain tinted dot: three tiers of detail instead of one crowded one.
+    -- smaller. The symbol inside is drawn at every zoom: one flat shape reads
+    -- at eleven pixels, and swapping it for something else on the way out
+    -- would only mean two things to learn instead of one.
     local r = math.max(3, R.sym(n.kind == "source" and 23 or 17, cam.scale))
-    -- Three thresholds, in pixels of disc radius. Under 7.5 a label is wider
-    -- than the thing it names; under 8.2 there is no room for a drawing inside
-    -- the disc, so the trade mark stands in for it; under 12 the windows, the
-    -- smoke and the trade badge are specks that only muddy the shape. The
-    -- middle one is set where it is so the Map tab, which a player plans on,
-    -- still shows what each customer is rather than only what it drinks.
-    local named, figure, rich = r >= 7.5, r >= 8.2, r >= 12
-    local k = r / 17                          -- everything below is a multiple of the disc
+    -- Two thresholds, in pixels of disc radius. A label wider than the thing
+    -- it names is worse than no label, and a pip under a pixel is grit.
+    local named, fine = r >= 7.5, r >= 10
     local spec = n.commodity and Graph.COMMODITIES[n.commodity]
     local color = spec and spec.color or Graph.KINDS[n.kind].color
     local served = city.served[n.id] or 0
@@ -635,29 +500,11 @@ function Draw.world(city, cam, state)
     if n.kind == "client" and supplied then
       lg.setColor(P.with(P.good,0.10)); lg.circle("fill",x,y,r * 1.42)
     end
-    Draw.disc(x, y, r, color, n.prospect and 0.14 or 0.22)
+    Draw.disc(x, y, r, color, n.prospect and 0.14 or 0.20)
 
     if n.kind == "client" then
-      if figure then
-        -- The building itself, sized off the disc so it fills it at every zoom.
-        lg.setColor(color)
-        Draw.clientGlyph(n.clientType, x, y + r * 0.07, r / 13.5,
-          rich and supplied and P.energy or nil)
-      else
-        Draw.mark(n.commodity, x, y, r * 0.64, n.prospect)
-      end
-      if supplied and (n.clientType=="factory" or n.clientType=="workshop") and rich then
-        for i=1,3 do
-          local t=(R.t*0.35+i/3)%1
-          lg.setColor(P.with(P.textDim,(1-t)*0.25))
-          lg.circle("fill",x-8*k+t*10*k,y-13*k-t*22*k,(2+t*4)*k)
-        end
-      end
-      -- The trade badge: which droplet this building drinks.
-      if rich then
-        Draw.badge(n.commodity, x + r * 0.72, y - r * 0.72,
-          math.max(3.2, r * 0.29), n.prospect)
-      end
+      lg.setColor(color)
+      Draw.clientGlyph(n.clientType, x, y + r * 0.06, r / 15)
       if named then
         local title = n.prospect and "OFFER" or n.supplyClosed and "SHUT"
           or string.format("%d/%d",served,n.demand)
@@ -691,7 +538,7 @@ function Draw.world(city, cam, state)
         lg.setColor(maxed and P.warn or color)
         lg.rectangle("fill", x - bw/2, y + r + 24, bw * frac, 3, 1.5)
       end
-      if rich then
+      if fine then
         -- Level pips: how far the well has been deepened.
         local pips, gap = City.sourceMaxLevel, math.max(3.6, r * 0.25)
         local pr = math.max(1, r * 0.085)
@@ -704,21 +551,14 @@ function Draw.world(city, cam, state)
       end
       if n.seam then label("SEAM", x, y-r-24, P.energy, R.fonts.tiny) end
     else
-      if figure then
-        lg.setColor(color)
-        Draw.structureGlyph(n.kind, x, y, r / 15)
-      else
-        lg.setColor(color); lg.circle("fill", x, y, r * 0.42)
-      end
+      lg.setColor(color)
+      Draw.structureGlyph(n.kind, x, y, r / 15)
       if n.kind == "gate" then
         if named then
           label(tostring(n.throughput or 0), x, y+r+6,
             (n.throughput or 0) == 0 and P.bad or P.warn)
         end
       elseif n.kind == "terminal" then
-        if n.commodity and rich then
-          Draw.badge(n.commodity, x + r * 0.74, y - r * 0.74, math.max(3.2, r * 0.29))
-        end
         if named then
           label((City.HAVENS[n.haven or "port"] or {}).name or "TERMINAL", x, y+r+6, color)
         end
@@ -728,16 +568,13 @@ function Draw.world(city, cam, state)
             landed >= (n.output or 0) and P.warn or P.textDim, R.fonts.tiny)
         end
       elseif n.kind == "depot" then
-        if n.commodity and rich then
-          Draw.badge(n.commodity, x + r * 0.74, y - r * 0.74, math.max(3.2, r * 0.29))
-        end
         if named then
           label((n.stored or 0) .. "/" .. (n.capacityStore or City.depotCapacity), x, y+r+6,
             (n.stored or 0) > 0 and P.good or P.textDim)
         end
       end
       -- Port ring: one pip per port, filled as the ports are taken up.
-      if figure then
+      if fine then
         local pr = math.max(1, R.sym(1.9, cam.scale))
         for i=1,n.ports do
           local a = i/n.ports*math.pi*2
