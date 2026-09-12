@@ -312,6 +312,55 @@ function Walk.start(app,mode)
     check(bill.imports>=0,"the ledger carries an import line")
   end
 
+  -- Closing a well leaves the network standing; removing the chamber does not.
+  do
+    c.money=9999
+    local src=c.firstSource
+    if c.g:degree(src.id)==0 then
+      for _,n in ipairs(c:clientList()) do c:layPipe(src.id,n.id,"water",n.demand) end
+    end
+    local degree=c.g:degree(src.id)
+    check(degree>0,"the first well is carrying mains")
+    app.action("focusNode",src.id)
+    local cap=findButton("demolish-node")
+    check(cap~=nil,"a well offers to be closed")
+    love.mousepressed(cap.x+cap.w/2,cap.y+cap.h/2,1)
+    love.mousereleased(cap.x+cap.w/2,cap.y+cap.h/2,1)
+    check(src.alive and src.kind~="source","closing it caps the wellhead")
+    check(c.g:degree(src.id)==degree,"and leaves every main connected")
+
+    -- The chamber can be replaced where it stands.
+    app.action("focusNode",src.id)
+    love.draw()
+    local swap=findButton("replace-manifold")
+    check(swap and swap.enabled,"the chamber offers to be replaced in place")
+    love.mousepressed(swap.x+swap.w/2,swap.y+swap.h/2,1)
+    love.mousereleased(swap.x+swap.w/2,swap.y+swap.h/2,1)
+    check(src.kind=="manifold","replacing it works")
+    check(c.g:degree(src.id)==degree,"without a single main coming off")
+
+    -- Removing it is the move that costs the network.
+    app.action("focusNode",src.id)
+    love.draw()
+    local attached={}
+    for _,ei in ipairs(c.g.adj[src.id]) do
+      if c.g.edges[ei].alive then attached[#attached+1]=ei end
+    end
+    check(#attached==degree,"the chamber is still holding its mains")
+    local gone=findButton("demolish-node")
+    love.mousepressed(gone.x+gone.w/2,gone.y+gone.h/2,1)
+    love.mousereleased(gone.x+gone.w/2,gone.y+gone.h/2,1)
+    check(not src.alive,"the chamber can be removed")
+    local survivors=0
+    for _,ei in ipairs(attached) do
+      if c.g.edges[ei].alive then survivors=survivors+1 end
+    end
+    check(survivors==0,"and every main tied into it goes with it")
+    love.keypressed("z")
+    c=app.city()
+    check(c.g.nodes[src.id].alive,"which undo can take back")
+  end
+
   -- A tender is an offer you answer, not a scoreboard that ticks.
   do
     c.money=9999
@@ -403,6 +452,21 @@ function Walk.update(app,mode,frame)
       app.state.modal=nil; app.state.node=nil; app.state.edge=nil
       app.state.tab="customers"; app.state.scroll=0
       capture("net-profit-10-tenders",app)
+    elseif frame==19 then
+      -- A capped wellhead: what a closed well leaves behind, and the strip
+      -- that replaces it without taking the mains off.
+      local c=app.city()
+      c.money=9999
+      local src=c.firstSource
+      for _,n in ipairs(c:clientList()) do
+        if not c:pipeError(src.id,n.id,"water") then c:layPipe(src.id,n.id,"water",n.demand) end
+      end
+      c:demolishNode(src.id)
+      app.state.modal=nil
+      app.state.tab="network"; app.state.scroll=0
+      app.action("focusNode",src.id)
+      capture("net-profit-11-capped",app)
+      love.keypressed("z")
     elseif frame==22 then
       local c=app.city()
       c.money=99999

@@ -130,6 +130,21 @@ a long oil trunk is a standing liability and a garden stub is not.
 - **Wells:** deepen the one you have rather than sinking another. A deeper well
   needs no new route, no tie-in, no new ground and no second lot of upkeep, which
   makes it the cheap option until the levels get steep - and then it is not.
+- **Closing a well:** a well with mains tied into it is never simply deleted.
+  Demolishing it caps the wellhead: production stops and part of the money comes
+  back, but a connection chamber is built in its place, out of the refund,
+  holding every main exactly where it was. That chamber is an ordinary structure
+  afterwards.
+- **Replacing a structure:** any structure can be swapped for another where it
+  stands, paying only the difference, with every main left connected. Buying
+  three more ports no longer means demolishing a junction and relaying
+  everything by hand. A replacement is refused if the new structure has fewer
+  ports than the mains already tied in.
+- **Removing a structure:** every pipe hangs off a node at each end, so pulling
+  one out cuts every main tied into it, and those mains are not recovered. The
+  inspector says how many will be cut, what they cost, and how many customers
+  would stop being supplied, before anything is pressed. With nothing standing
+  there, no pipe can be connected or laid to that spot at all.
 - **Ground:** the city is twelve districts and you start owning one. Districts
   are bought outward from what you already hold, each costing more than the last,
   and each has a character that decides who asks you for a connection: houses in

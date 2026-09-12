@@ -59,7 +59,10 @@ function Save.unpack(text)
       table.insert(g.adj[e.b], id)
     end
     data.g, data.firstSource = g, g.nodes[data.sourceId]
-    assert(data.firstSource and data.firstSource.kind == "source")
+    -- The origin is only an anchor for the camera and for new enquiries. It
+    -- starts as the first well, but that well can be capped or removed like any
+    -- other structure, so the save must not insist it is still a well.
+    assert(data.firstSource)
     data.nodes, data.edges, data.sourceId, data.version = nil, nil, nil, nil
     setmetatable(data, City)
     data:migrate()
