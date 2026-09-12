@@ -217,6 +217,19 @@ function Draw.structureGlyph(kind, x, y, s)
   lg.pop()
 end
 
+-- A nuclear plant. Everybody on earth reads a cooling tower as power, which is
+-- why it is drawn instead of the bolt the trade is marked with everywhere else:
+-- the bolt says electricity, and this says the place electricity is made. Two
+-- convex halves meeting at the waist, for the same reason the house is two
+-- pieces: one concave outline comes back from the triangulator with a corner
+-- sliced off.
+function Draw.reactor(x, y, r)
+  lg.polygon("fill", x - 0.62 * r, y + 0.74 * r, x - 0.30 * r, y - 0.02 * r,
+                     x + 0.30 * r, y - 0.02 * r, x + 0.62 * r, y + 0.74 * r)
+  lg.polygon("fill", x - 0.30 * r, y - 0.02 * r, x - 0.46 * r, y - 0.70 * r,
+                     x + 0.46 * r, y - 0.70 * r, x + 0.30 * r, y - 0.02 * r)
+end
+
 -- Every node on the map is a disc: a dark body tinted by its trade, and a rim
 -- in the trade colour. Flat, so the symbol on top of it is what the eye finds.
 function Draw.disc(x, y, r, color, tint)
@@ -360,19 +373,161 @@ local function scenery(o, x, y, r)
   end
 end
 
+--------------------------------------------------------------------------------
+-- The outside world
+--
+-- Three things run along the edge of the map and stop at it: an estuary down
+-- the west side, a trunk road across the north, an air freight apron along the
+-- south. They are not ground: nothing can be built on them and the company will
+-- never own them. They are drawn outside the boundary for exactly that reason,
+-- so the one place a haven may stand -- the strip of city just inside the line
+-- -- is somewhere you can see rather than somewhere you have to be told about.
+--------------------------------------------------------------------------------
+
+local function gatewayBand(city, cam, key)
+  local b = city.bounds
+  local depth = 260
+  local hv = City.HAVENS[key]
+  if hv.side == "left" then
+    local x0, y0 = cam:toScreen(b.x - depth, b.y - depth)
+    local x1, y1 = cam:toScreen(b.x, b.y + b.h + depth)
+    return x0, y0, x1 - x0, y1 - y0
+  elseif hv.side == "top" then
+    local x0, y0 = cam:toScreen(b.x - depth, b.y - depth)
+    local x1, y1 = cam:toScreen(b.x + b.w + depth, b.y)
+    return x0, y0, x1 - x0, y1 - y0
+  end
+  local x0, y0 = cam:toScreen(b.x - depth, b.y + b.h)
+  local x1, y1 = cam:toScreen(b.x + b.w + depth, b.y + b.h + depth)
+  return x0, y0, x1 - x0, y1 - y0
+end
+
+local function drawGateways(city, cam, state)
+  local b = city.bounds
+  for _, key in ipairs(City.GATEWAYS) do
+    local hv = City.HAVENS[key]
+    local x, y, w, h = gatewayBand(city, cam, key)
+    local vertical = hv.side == "left"
+    if key == "port" then
+      -- An estuary: water, and the tide line where it meets the city.
+      lg.setColor(0.08, 0.17, 0.27, 0.95)
+      lg.rectangle("fill", x, y, w, h)
+      lg.setColor(0.30, 0.48, 0.72, 0.42)
+      lg.setLineWidth(math.max(1, 2 * cam.scale))
+      for i = 1, 5 do
+        local pts, cx = {}, x + w * (i / 6)
+        for j = 0, 24 do
+          local t = j / 24
+          pts[#pts + 1] = cx + math.sin(t * math.pi * 4 + i) * w * 0.045
+          pts[#pts + 1] = y + h * t
+        end
+        lg.line(pts)
+      end
+    elseif key == "highway" then
+      -- A trunk road: carriageway, hard shoulder, and a dashed centre line.
+      lg.setColor(0.13, 0.13, 0.15, 0.95)
+      lg.rectangle("fill", x, y, w, h)
+      lg.setColor(0.42, 0.42, 0.46, 0.5)
+      lg.setLineWidth(math.max(1, 2 * cam.scale))
+      lg.line(x, y + h * 0.30, x + w, y + h * 0.30)
+      lg.line(x, y + h * 0.78, x + w, y + h * 0.78)
+      lg.setColor(0.92, 0.86, 0.45, 0.55)
+      local dash = math.max(10, 60 * cam.scale)
+      local yy = y + h * 0.54
+      for dx = x, x + w, dash * 2 do lg.line(dx, yy, math.min(x + w, dx + dash), yy) end
+    else
+      -- An apron: runway, threshold bars, centreline.
+      lg.setColor(0.11, 0.12, 0.14, 0.95)
+      lg.rectangle("fill", x, y, w, h)
+      lg.setColor(0.55, 0.57, 0.62, 0.45)
+      lg.setLineWidth(math.max(1, 2 * cam.scale))
+      lg.rectangle("line", x + w * 0.06, y + h * 0.26, w * 0.88, h * 0.44)
+      lg.setColor(0.85, 0.87, 0.92, 0.45)
+      local dash = math.max(8, 50 * cam.scale)
+      local yy = y + h * 0.48
+      for dx = x + w * 0.10, x + w * 0.92, dash * 2 do
+        lg.line(dx, yy, math.min(x + w * 0.92, dx + dash), yy)
+      end
+    end
+
+    -- The strip of city a haven may stand on. Drawn only while the tool is in
+    -- hand: the rest of the time it is one more band of colour on the map.
+    if state and state.tool == "terminal" and not city:havenOf(key) then
+      local rx, ry, rw, rh
+      if vertical then
+        rx, ry = cam:toScreen(b.x, b.y)
+        rw, rh = City.havenReach * cam.scale, b.h * cam.scale
+      elseif hv.side == "top" then
+        rx, ry = cam:toScreen(b.x, b.y)
+        rw, rh = b.w * cam.scale, City.havenReach * cam.scale
+      else
+        rx, ry = cam:toScreen(b.x, b.y + b.h - City.havenReach)
+        rw, rh = b.w * cam.scale, City.havenReach * cam.scale
+      end
+      lg.setColor(P.with(P.good, 0.12)); lg.rectangle("fill", rx, ry, rw, rh)
+      lg.setColor(P.with(P.good, 0.55)); lg.setLineWidth(1)
+      lg.rectangle("line", rx, ry, rw, rh)
+    end
+
+    -- The shoreline, kerb or fence: the line the city actually stops at, drawn
+    -- in the gateway's own colour so the boundary reads as a frontier rather
+    -- than as the edge of a drawing.
+    lg.setColor(P.with(key == "port" and {0.34, 0.56, 0.82} or {0.55, 0.56, 0.62}, 0.45))
+    lg.setLineWidth(2)
+    if vertical then
+      local ex, ey0 = cam:toScreen(b.x, b.y)
+      local _, ey1 = cam:toScreen(b.x, b.y + b.h)
+      lg.line(ex, ey0, ex, ey1)
+    else
+      local ex0, ey = cam:toScreen(b.x, hv.side == "top" and b.y or b.y + b.h)
+      local ex1 = cam:toScreen(b.x + b.w, b.y)
+      lg.line(ex0, ey, ex1, ey)
+    end
+
+    -- The name of what is on the far side, placed on that side. It slides
+    -- along the band to stay on screen but is never pushed across the line into
+    -- the city, where it would sit on top of the very structures it explains.
+    -- When there is no room left outside the boundary it is simply not drawn:
+    -- the band itself is still there to be seen.
+    if cam.scale > 0.16 then
+      local built = city:havenOf(key)
+      local ax, ay = cam:toScreen(city:gatewayAnchor(key))
+      local lx, ly
+      if vertical then
+        lx = math.min(ax - 86, ax - 40)
+        ly = math.max(cam.vy + 20, math.min(cam.vy + cam.vh - 20, ay))
+        if lx < cam.vx + 58 then lx = nil end
+      else
+        lx = math.max(cam.vx + 76, math.min(cam.vx + cam.vw - 76, ax))
+        ly = ay + (hv.side == "top" and -22 or 24)
+        if ly < cam.vy + 12 or ly > cam.vy + cam.vh - 12 then lx = nil end
+      end
+      if lx then
+        label(hv.name .. (built and "  OPEN" or string.format("  x%.2f", hv.import)),
+          lx, ly, built and P.good or P.energy, R.fonts.tiny)
+      end
+    end
+  end
+end
+
 local function drawSeams(city, cam)
   for _, s in ipairs(city.deposits or {}) do
     if not s.taken then
       local x, y = cam:toScreen(s.x, s.y)
       local d = city:districtAt(s.x, s.y)
       if d and d.owned then
+        -- A deposit is the only place its trade can be taken out of the
+        -- ground, so it is drawn in that trade's own colour and says which
+        -- trade it is. The ring is the ground a works has to stand on.
+        local spec = Graph.COMMODITIES[s.commodity] or Graph.COMMODITIES.water
         local r = City.seamRange * cam.scale
-        lg.setColor(P.with(P.energy, 0.10)); lg.circle("fill", x, y, r)
-        lg.setColor(P.with(P.energy, 0.40)); lg.setLineWidth(1)
+        lg.setColor(P.with(spec.color, 0.09)); lg.circle("fill", x, y, r)
+        lg.setColor(P.with(spec.color, 0.45)); lg.setLineWidth(1)
         lg.circle("line", x, y, r)
         Draw.mark(s.commodity, x, y - 2, math.max(2.5, R.sym(9, cam.scale)))
         if cam.scale > 0.45 then
-          label("SEAM  x" .. string.format("%.1f", s.yield), x, y + r + 4, P.energy, R.fonts.tiny)
+          label(string.upper(s.commodity) .. "  x" .. string.format("%.1f", s.yield),
+            x, y + r + 4, spec.color, R.fonts.tiny)
         end
       end
     end
@@ -383,6 +538,7 @@ function Draw.world(city, cam, state)
   local _,height = R.dimensions()
   lg.setScissor(cam.vx, 80, cam.vw, height-138)
   R.drawGrid(cam, city.bounds.w, city.bounds.h)
+  drawGateways(city, cam, state)
   drawDistrictGround(city, cam)
 
   for _, o in ipairs(city.obstacles) do
@@ -533,7 +689,12 @@ function Draw.world(city, cam, state)
           premium > 0.10 and P.good or premium < -0.10 and P.bad or P.textDim, R.fonts.tiny)
       end
     elseif n.kind == "source" then
-      Draw.mark(n.commodity, x, y - r * 0.04, r * 0.58)
+      if n.plant == "nuclear" then
+        lg.setColor(color)
+        Draw.reactor(x, y - r * 0.04, r * 0.86)
+      else
+        Draw.mark(n.commodity, x, y - r * 0.04, r * 0.58)
+      end
       local level = n.level or 1
       -- How hard the well is actually being worked, not just how deep it is.
       -- A well reading 22/22 is the reason a customer downstream is short, and
@@ -541,7 +702,8 @@ function Draw.world(city, cam, state)
       local drawn = (city.produced or {})[n.id] or 0
       local maxed = drawn >= (n.output or 0) and (n.output or 0) > 0
       if named then
-        label(string.upper(n.commodity) .. "  " .. drawn .. "/" .. (n.output or 0),
+        label((n.plant == "nuclear" and "REACTOR" or string.upper(n.commodity))
+          .. "  " .. drawn .. "/" .. (n.output or 0),
           x, y+r+8, maxed and P.warn or color)
       end
       -- A capacity bar across the bottom of the well, so the ratio reads at a
@@ -576,12 +738,13 @@ function Draw.world(city, cam, state)
         end
       elseif n.kind == "terminal" then
         if named then
-          label((City.HAVENS[n.haven or "port"] or {}).name or "TERMINAL", x, y+r+6, color)
+          label((City.HAVENS[n.haven or "port"] or {}).name or "HAVEN", x, y+r+6, color)
         end
         if cam.scale > 0.6 then
           local landed = (city.produced or {})[n.id] or 0
-          label("lands "..landed.."/"..(n.output or 0), x, y-r-21,
-            landed >= (n.output or 0) and P.warn or P.textDim, R.fonts.tiny)
+          local _, bill = city:importBill()
+          label(landed > 0 and (landed .. " landed  -$" .. math.floor((bill[n.id] or 0) + 0.5))
+            or "no freight moving", x, y-r-21, landed > 0 and P.textDim or P.warn, R.fonts.tiny)
         end
       elseif n.kind == "depot" then
         if named then
@@ -650,10 +813,17 @@ function Draw.world(city, cam, state)
     end
   elseif state.tool and mx>cam.vx and my>130 and my<height-58 then
     local wx,wy = cam:toWorld(mx,my)
-    local err = city:placementError(wx,wy)
-    local cost, seam
-    if state.tool=="source" then cost, seam = city:sourceCost(state.commodity,wx,wy)
-    else cost = city:nodeCost(state.tool) end
+    local err, cost, seam
+    if state.tool=="source" then
+      err = city:sourceError(state.commodity,wx,wy)
+      cost, seam = city:sourceCost(state.commodity,wx,wy)
+    else
+      err = city:placementError(wx,wy)
+      cost = city:nodeCost(state.tool)
+      if not err and state.tool=="terminal" then
+        err = select(2, city:havenSite(wx,wy))
+      end
+    end
     local color = (err or cost>city.money) and P.bad or P.good
     lg.setColor(P.with(color,0.3)); lg.setLineWidth(1)
     local range = state.tool=="pump" and 520 or state.tool=="tower" and 220 or 300

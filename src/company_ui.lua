@@ -119,7 +119,7 @@ local toolTips = {
   tower="Treatment station: $92, $2 a day. Cuts leak risk by 55% for every main whose midpoint is within 220m. Stations do not stack.",
   gate="Gate: 2 ports, $30, $1 a day. A valve you set by hand -- throttle a branch to starve it on purpose and send scarce supply to the customers who pay more.",
   depot="Depot: 3 ports, $190, $3 a day. Takes in output you could not sell today, up to 18 units, and feeds it back into the network tomorrow.",
-  terminal="Haven: 4 ports, $1400, $14 a day. Lands 24 units a day of one trade from outside the city -- far more than any well -- but bills you for every unit that moves. Only the port, the airfield and the highway head have the ground for one.",
+  terminal="Haven: 4 ports, $2200, $26 a day. The city's door to the outside world: every trade but power lands here in unlimited quantity, billed per unit as it moves. It can only stand on the strip of ground along the estuary, the highway or the apron, one haven to each, and it ships by track only.",
 }
 
 local TOOLS = {"junction","manifold","pump","tower","gate","depot","terminal"}
@@ -355,31 +355,41 @@ local function inspectDepot(n,y)
 end
 
 local function inspectTerminal(n,y)
-  local com=n.commodity or "water"
-  local trade=City.trade[com]
-  local landed=(city.produced or {})[n.id] or 0
-  row("Haven",(City.HAVENS[n.haven or "port"] or {}).name or "TERMINAL",y,P.energy)
-  row("Commodity",string.upper(com),y+26,Graph.COMMODITIES[com].color)
-  row("Capacity",landed.." / "..(n.output or 0).." "..com,y+52,
-    landed>=(n.output or 0) and P.warn or P.good,
-    "Left of the slash is what the haven landed today and is billing you for. "..
-    "Right of it is everything its berths can take.")
-  local berths=n.output or 0
-  local bw=CW*(berths>0 and math.min(1,landed/berths) or 0)
-  lg.setColor(P.panelEdge); lg.rectangle("fill",M,y+74,CW,6,2)
-  lg.setColor(landed>=berths and P.warn or Graph.COMMODITIES[com].color)
-  lg.rectangle("fill",M,y+74,bw,6,2)
-  row("In use now",landed.." "..com,y+90,landed>=berths and P.warn or P.text)
-  row("Spare capacity",math.max(0,berths-landed).." "..com,y+116,
-    landed>=berths and P.bad or P.good)
-  row("Maximum landed",berths.." "..com.." / day",y+142,P.good)
-  row("Import charge",string.format("-$%.2f / unit",trade.importCost or 1),y+168,P.warn)
-  row("Costing today",string.format("-$%.0f",landed*(trade.importCost or 1)),y+194,P.bad)
-  row("Berth upkeep","-$"..City.terminalUpkeep.." / day",y+220,P.warn)
-  text("A haven is supply bought, not supply owned: it lands more than any well and charges for every unit that moves. Run track inland to spend it.",
-    M,y+250,"small",P.textDim,CW)
-  return demolishBlock(n,y+310,"Demolish the haven",
-    "Closes the terminal. Every link tied into it is cut.")
+  local spec=City.HAVENS[n.haven or "port"] or City.HAVENS.port
+  local landed=(city.producedBy or {})[n.id] or {}
+  local _,bill=city:importBill()
+  row("Haven",spec.name,y,P.energy)
+  row("Freight",string.format("x%.2f on every unit",spec.import),y+26,
+    spec.import<=1 and P.good or P.warn,
+    "What this door charges over list price. Sea freight is the cheap way in, "..
+    "air the dear one. It is the only difference between the three havens.")
+  text("Landed here today",M,y+58,"small",P.textDim)
+  local ly=y+80
+  local any=false
+  for _,name in ipairs(Graph.TRADES) do
+    local trade=City.trade[name]
+    if trade.importCost then
+      local units=landed[name] or 0
+      if units>0 then any=true end
+      row(string.upper(name),units>0 and (units.."  -$"..math.floor(units*trade.importCost*spec.import+0.5)) or "-",
+        ly,units>0 and Graph.COMMODITIES[name].color or P.textFaint,
+        "Unlimited at $"..string.format("%.2f",trade.importCost*spec.import).." a unit landed. "..
+        "You are billed only for what the city actually draws.")
+      ly=ly+24
+    end
+  end
+  if not any then
+    text("Nothing has moved yet: run track inland to draw on it.",M,ly,"small",P.warn,CW)
+  end
+  ly=ly+14
+  row("Freight bill today","-$"..math.floor((bill[n.id] or 0)+0.5),ly,P.bad)
+  row("Berth upkeep","-$"..City.terminalUpkeep.." / day",ly+26,P.warn)
+  text("A haven has no bottom: every trade but power lands here in any quantity, "..
+       "and is paid for by the unit as it moves. It ships by track only, and the "..
+       "haulage is charged by the metre, so what it costs you is distance.",
+    M,ly+56,"small",P.textDim,CW)
+  return demolishBlock(n,ly+128,"Demolish the haven",
+    "Closes the haven and frees its gateway. Every link tied into it is cut.")
 end
 
 local function inspectEdge(e,y)
@@ -458,10 +468,23 @@ local function buildPanel()
   button("rail-toggle",state.rail and "TRACK" or "PIPE",M+186,y,114,32,function() state.rail=not state.rail end,
     #city.g:nodesOfKind("terminal")>0,"Track must start or end at a haven (T)",state.rail,P.accent)
   y=y+44
-  local scost=city:sourceCost(state.commodity)
-  button("source","New "..state.commodity..(state.commodity=="power" and " station" or " well").."  $"..scost,
-    M,y,CW,36,function() state.tool=state.tool=="source" and nil or "source" end,city.money>=scost,
-    "Build a source. A marked seam increases output.",state.tool=="source",P.good)
+  -- One supply button, and it says what the selected trade actually allows:
+  -- a well or a rig on a marked deposit, a reactor on any ground, and for beer
+  -- nothing at all, because beer is landed rather than made.
+  if state.commodity=="beer" then
+    button("source","Beer is landed at a haven",M,y,CW,36,function() end,false,
+      "Nobody brews. Beer arrives at a haven like any other import: build one on the edge of the map and run track inland.",
+      false,P.textFaint)
+  else
+    local scost=city:sourceCost(state.commodity)
+    local title=({water="Sink a water well",oil="Sink an oil rig",power="Build a nuclear plant"})[state.commodity]
+    button("source",title.."  $"..scost,M,y,CW,36,
+      function() state.tool=state.tool=="source" and nil or "source" end,city.money>=scost,
+      state.commodity=="power"
+        and "Electricity cannot be imported: it is generated here. A reactor needs no deposit, only ground you hold. Enormous to build, cheap by the unit."
+        or ("Only on a marked "..state.commodity.." deposit. The buried ones yield more and need the matching permit first."),
+      state.tool=="source",P.good)
+  end
   y=y+52
   heading("EVERYDAY STRUCTURES",y); y=y+24
   local advanced=state.advanced==true or (state.advanced==nil and city.day>3)
@@ -580,6 +603,8 @@ local function company()
        "   plant $"..b.structures.."   mains $"..string.format("%.1f",b.pipes)..
        (b.crews>0 and ("   crews $"..b.crews) or "")..
        (b.imports>0 and ("   imports $"..math.floor(b.imports)) or "")..
+       (b.haulage>0 and ("   haulage $"..math.floor(b.haulage)) or "")..
+       (b.fuel>0 and ("   fuel $"..math.floor(b.fuel)) or "")..
        (b.interest>0 and ("   interest $"..b.interest) or ""),
        M,y+136,"small",P.textFaint,CW)
   line(y+168)
@@ -825,30 +850,33 @@ local function mapTab()
   line(py+10)
 
   heading("HAVENS",py+28)
-  text("A terminal can only be built where freight can arrive.",M,py+48,"small",P.textDim,CW)
+  text("Three ways in, along the edge of the map. One haven to each.",M,py+48,"small",P.textDim,CW)
   local hy=py+72
-  for _,h in ipairs(city:havenDistricts()) do
-    local spec=City.HAVENS[h.haven]
-    row(spec.name,h.district.owned and "held" or "$"..city:districtCost(h.district),hy,
-      h.district.owned and P.good or P.energy,
-      h.district.name.." has "..spec.blurb..". A haven lands 24 units a day of one trade.")
+  for _,key in ipairs(City.GATEWAYS) do
+    local spec=City.HAVENS[key]
+    local built=city:havenOf(key)
+    row(spec.name,built and "open" or string.format("x%.2f",spec.import),hy,
+      built and P.good or P.energy,
+      spec.blurb..". Freight through it costs x"..string.format("%.2f",spec.import)..
+      " of list. Build the haven on the strip of ground beside it, then run track inland.")
     hy=hy+24
   end
   line(hy+12)
 
-  heading("SEAMS",hy+30)
-  local free,buried=0,0
+  heading("DEPOSITS",hy+30)
+  local free,buried={water=0,oil=0},0
   for _,s in ipairs(city.deposits or {}) do
-    if not s.taken then
-      free=free+1
+    if not s.taken and free[s.commodity] then
+      free[s.commodity]=free[s.commodity]+1
       if city:obstacleAt(s.x,s.y) then buried=buried+1 end
     end
   end
-  row("Unclaimed on the map",free,hy+60,free>0 and P.energy or P.textDim)
-  row("Of those, under obstacles",buried,hy+86,buried>0 and P.warn or P.textDim)
-  text("A well sunk on a seam costs less and yields half again as much. Buried seams need the matching permit first.",
-    M,hy+114,"small",P.textDim,CW)
-  UI.contentBottom=hy+180+state.scroll
+  row("Water, unclaimed",free.water,hy+60,free.water>0 and P.energy or P.textDim)
+  row("Oil, unclaimed",free.oil,hy+86,free.oil>0 and P.energy or P.textDim)
+  row("Of those, under obstacles",buried,hy+112,buried>0 and P.warn or P.textDim)
+  text("Water and oil can only be taken where the survey marked them: a well or a rig on the mark, and nowhere else. Everything else is landed at a haven. Buried deposits need the matching permit first.",
+    M,hy+140,"small",P.textDim,CW)
+  UI.contentBottom=hy+210+state.scroll
 end
 
 --------------------------------------------------------------------------------

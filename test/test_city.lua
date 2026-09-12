@@ -136,8 +136,26 @@ do
   -- Licences gate the trades.
   c.money = 5000
   ok("beer licence bought", c:buyLicence("beer"))
-  ok("beer wells can then be sunk", c:buySource("beer") ~= nil)
+  -- The licence buys the right to lay beer mains, not a brewery: nobody makes
+  -- beer, it is landed at a haven like everything the city does not produce.
+  local brewed, why = c:buySource("beer")
+  ok("but beer is landed, never brewed", brewed == nil and why == "beer is landed at a haven, not brewed")
   ok("oil is still locked", c:buySource("oil") == nil)
+
+  -- Water and oil come out of marked ground and nowhere else.
+  local free
+  for _, d in ipairs(c.deposits) do
+    local ground = c:districtAt(d.x, d.y)
+    if not d.taken and d.commodity == "water" and ground and ground.owned then free = d; break end
+  end
+  ok("the survey marked water on the home ground", free ~= nil)
+  -- Somewhere on the same ground, well clear of the mark.
+  local home = c:districtAt(free.x, free.y)
+  local dry = { x = free.x, y = free.y > home.y + home.h / 2 and home.y + 120 or home.y + home.h - 120 }
+  ok("a well off the mark finds nothing",
+    select(2, c:buySource("water", dry.x, dry.y)) == "no water here: sink on a marked deposit")
+  local dug = c:buySource("water", free.x, free.y)
+  ok("and a well on the mark opens it", dug ~= nil and dug.seam == true)
 end
 
 --------------------------------------------------------------------------------

@@ -14,7 +14,7 @@ City.__index = City
 -- their price does not depend on what flows through them.
 City.price = {
   junction = 22, manifold = 46, pump = 38, tower = 92, gate = 30, depot = 190,
-  terminal = 1400,
+  terminal = 2200,
   powerLicence = 340, beerLicence = 600, oilLicence = 1500,
   qualityBase = 140,
   ads = 90,
@@ -48,15 +48,20 @@ City.trade = {
   -- Electricity sits between water and beer: cables are dearer than a water
   -- trench and cheaper than a sanitary beer main, and a workshop pays more than
   -- a household and less than a pub. It is the first trade worth expanding into.
+  -- Electricity is the one trade nobody can land at a haven: it has to be
+  -- generated inside the city. A reactor is priced the way a reactor is -- an
+  -- enormous cheque, a standing crew whether it runs or not, and fuel so cheap
+  -- per unit that the marginal cost of the next megawatt is nearly nothing.
   power = {
     tiein = 20, trench = 0.16, bore = 10, borePerM = 0.038,
     repairBase = 22, repairPerLost = 9, repairPerM = 0.044,
     liningRate = 0.40, armourRate = 0.72,
     upkeep = 0.45, upkeepPerM = 0.0023,
-    sourceBase = 340, sourceGrowth = 1.46, sourceOutput = 12,
-    upgradeBase = 220, upgradeGrowth = 1.48, upgradeStep = 4,
-    wholesale = 18, wholesalePerUnit = 0.90, sourceUpkeep = 8,
-    importCost = 3.0,
+    sourceBase = 3600, sourceGrowth = 1.35, sourceOutput = 45,
+    upgradeBase = 1400, upgradeGrowth = 1.42, upgradeStep = 12,
+    wholesale = 18, wholesalePerUnit = 0.90, sourceUpkeep = 52,
+    fuelPerUnit = 0.55,
+    importCost = nil,
   },
   beer = {
     tiein = 26, trench = 0.21, bore = 13, borePerM = 0.050,
@@ -85,9 +90,15 @@ City.trade = {
 -- expensive part, the run itself is cheap by the metre once it exists, it
 -- reaches across whole districts, and it does not corrode. Track never leaks,
 -- so it is the one link in the game you build and then forget about.
+-- Haulage is charged the way freight is really charged: a handling fee per unit
+-- at the yard, and a rate per unit per metre for the run. It is the reason
+-- water is rarely worth importing across the whole city and oil almost always
+-- is -- the freight bill is the same for both, and one of them sells for six
+-- times the other.
 City.rail = {
   tiein = 240, perM = 0.52, bore = 4, borePerM = 0.011,
   upkeep = 1.4, upkeepPerM = 0.0038, range = 1400,
+  haulPerUnit = 0.18, haulPerM = 0.0016,
 }
 
 -- Pipe condition. Lining is never required -- a bare pipe works exactly as well
@@ -220,17 +231,17 @@ end
 City.MAP = { cols = 4, rows = 3, w = 1000, h = 700, start = 6 }
 
 City.DISTRICTS = {
-  { name = "Northgate",   bias = { house = 16, workshop = 5, estate = 3 },  rough = 2, haven = "highway" },
+  { name = "Northgate",   bias = { house = 16, workshop = 5, estate = 3 },  rough = 2 },
   { name = "Hillcrest",   bias = { house = 5,  estate = 12 },             rough = 2 },
   { name = "The Moors",   bias = { house = 4,  estate = 4 },              rough = 5, seams = 2 },
   { name = "Ironworks",   bias = { factory = 14, workshop = 9, house = 4 },  rough = 3, seams = 1 },
   { name = "Old Town",    bias = { house = 12, pub = 8 },                 rough = 2 },
   { name = "Millbrook",   bias = { house = 10, estate = 3, workshop = 4, pub = 4, factory = 3 }, rough = 2 },
   { name = "Brewers Row", bias = { pub = 15, house = 5 },                 rough = 2, seams = 1 },
-  { name = "Docklands",   bias = { factory = 13, workshop = 7, pub = 5 },   rough = 3, haven = "port" },
+  { name = "Docklands",   bias = { factory = 13, workshop = 7, pub = 5 },   rough = 3 },
   { name = "Southfield",  bias = { estate = 13, house = 6 },              rough = 2 },
   { name = "Canalside",   bias = { pub = 10, house = 8 },                 rough = 3 },
-  { name = "The Flats",   bias = { house = 14, workshop = 6, estate = 5 },  rough = 2, haven = "airfield" },
+  { name = "The Flats",   bias = { house = 14, workshop = 6, estate = 5 },  rough = 2 },
   { name = "Deepcut",     bias = { factory = 12, workshop = 8, estate = 4 }, rough = 5, seams = 3 },
 }
 
@@ -258,7 +269,9 @@ function City:layOutDistricts(opts)
     local n = density or spec.rough
     if density and density == 0 then n = 0 end
     self:scatterObstacles(n, d)
-    if not (density and density == 0) then self:scatterSeams(spec.seams or 0, d) end
+    -- Obstacles can be switched off for a test or a clean opening; deposits
+    -- cannot, because with none of them the city has no water of its own.
+    self:scatterDeposits(d, spec)
   end
 end
 
@@ -375,31 +388,41 @@ function City:scatterObstacles(n, district)
   end
 end
 
--- Seams are the reason to look at the map rather than at the sidebar. A well
--- sunk on one is cheaper and yields half again as much, and the best of them
--- sit under bedrock, where nobody can reach them without a blasting licence.
-function City:scatterSeams(n, district)
+-- Deposits are the map's answer to where water and oil come from. Nothing the
+-- city drinks or burns can be pumped out of open ground: the survey marks where
+-- it is, and a well or a rig on the mark is the only way to it. Everything else
+-- the city uses arrives at a haven, so a district with no deposit is a district
+-- that has to be supplied from the edge of the map.
+--
+-- Water is common and lies almost everywhere; oil is where the geology put it,
+-- which is what the industrial districts are for. The best of both sit under
+-- bedrock, out of reach until somebody buys a blasting licence.
+function City:scatterDeposits(district, spec)
   local b = district or self.bounds
-  for _ = 1, n do
-    for _ = 1, 60 do
-      local x = self:rand(b.x + 90, b.x + b.w - 90)
-      local y = self:rand(b.y + 90, b.y + b.h - 90)
-      local far = true
-      for _, s in ipairs(self.deposits) do
-        if (s.x - x) ^ 2 + (s.y - y) ^ 2 < 300 ^ 2 then far = false; break end
-      end
-      for _, node in ipairs(self.g:aliveNodes()) do
-        if (node.x - x) ^ 2 + (node.y - y) ^ 2 < 260 ^ 2 then far = false; break end
-      end
-      if far then
-        local roll = self:random()
-        local commodity = roll < 0.52 and "water" or roll < 0.80 and "beer" or "oil"
-        local buried = self:obstacleAt(x, y)
-        self.deposits[#self.deposits + 1] = {
-          x = x, y = y, commodity = commodity, taken = false,
-          yield = buried and 1.9 or 1.5, discount = buried and 0.45 or 0.62,
-        }
-        break
+  local plan = {
+    { commodity = "water", count = 2 + ((spec.rough or 2) >= 3 and 1 or 0) },
+    { commodity = "oil",   count = spec.seams or 0 },
+  }
+  for _, want in ipairs(plan) do
+    for _ = 1, want.count do
+      for _ = 1, 60 do
+        local x = self:rand(b.x + 90, b.x + b.w - 90)
+        local y = self:rand(b.y + 90, b.y + b.h - 90)
+        local far = true
+        for _, s in ipairs(self.deposits) do
+          if (s.x - x) ^ 2 + (s.y - y) ^ 2 < 260 ^ 2 then far = false; break end
+        end
+        for _, node in ipairs(self.g:aliveNodes()) do
+          if (node.x - x) ^ 2 + (node.y - y) ^ 2 < 200 ^ 2 then far = false; break end
+        end
+        if far then
+          local buried = self:obstacleAt(x, y)
+          self.deposits[#self.deposits + 1] = {
+            x = x, y = y, commodity = want.commodity, taken = false,
+            yield = buried and 1.9 or 1.5, discount = buried and 0.45 or 0.62,
+          }
+          break
+        end
       end
     end
   end
@@ -500,6 +523,10 @@ end
 function City:pipeError(a, b, commodity, rail)
   if not self.licences[commodity] then return "no licence for that" end
   if rail and not self:railEndpoint(a, b) then return "track must start or end at a haven" end
+  -- Freight lands at the edge of the map and is hauled inland. A main running
+  -- straight out of a haven would be a pipeline to a port that has no pipeline,
+  -- and it would dodge the haulage bill that makes distance cost something.
+  if not rail and self:railEndpoint(a, b) then return "a haven ships by track only" end
   local ok, why = self.g:canLink(a, b)
   -- Two structures may carry one pipe of each commodity between them.
   if not ok and why ~= "link already exists" then return why end
@@ -684,42 +711,91 @@ end
 City.BUILDABLE = { junction = true, manifold = true, pump = true, tower = true,
                    gate = true, depot = true, terminal = true }
 
--- Havens are not everywhere. Three districts have the ground for one -- the
--- docks, the airfield and the trunk road -- and a terminal can only be built
--- where the freight can actually arrive. It is the sharpest reason in the game
--- to buy one district rather than another.
+-- The outside world. Three things run along the edge of the map and stop at
+-- it: the estuary down the west side, the trunk road across the north, and the
+-- freight apron along the south. None of them is ground the company can build
+-- on -- they are what the city is connected to, not part of it.
+--
+-- A haven is the door in that wall, so it can only stand where the wall is: on
+-- the strip of a district that touches one of the three, and one haven to each.
+-- What comes through it is unlimited, because a river does not run out of
+-- ships, and every unit of it is bought rather than owned, at a price set by
+-- how it travelled. Sea freight is the cheap way in and the slow way round the
+-- map; air freight costs half again as much and lands on the far side of the
+-- city. That difference is the whole reason to hold more than one haven.
 City.HAVENS = {
-  port     = { name = "NAVAL PORT",  blurb = "deep-water berths" },
-  airfield = { name = "AIRFIELD",    blurb = "an air freight apron" },
-  highway  = { name = "HIGHWAY HEAD", blurb = "a trunk road interchange" },
+  port     = { name = "NAVAL PORT",   side = "left",   import = 1.00,
+               blurb = "deep-water berths on the estuary" },
+  highway  = { name = "HIGHWAY HEAD", side = "top",    import = 1.20,
+               blurb = "a trunk road interchange" },
+  airfield = { name = "AIRFIELD",     side = "bottom", import = 1.55,
+               blurb = "an air freight apron" },
 }
 
-function City:havenAt(x, y)
-  local d = self:districtAt(x, y)
-  if not d then return nil end
-  local spec = City.DISTRICTS[d.id]
-  return spec and spec.haven, d
-end
+-- Fixed order wherever havens are listed or searched, so a tie at a corner of
+-- the map resolves the same way every time.
+City.GATEWAYS = { "port", "highway", "airfield" }
 
-function City:havenDistricts()
-  local t = {}
-  for i, spec in ipairs(City.DISTRICTS) do
-    if spec.haven then t[#t + 1] = { district = self.districts[i], haven = spec.haven } end
+-- How far inland a haven may stand. Wide enough to dodge an obstacle on the
+-- shoreline, narrow enough that it is unmistakably an edge of the map.
+City.havenReach = 150
+
+-- Which gateway, if any, a point on the map is close enough to serve.
+function City:gatewayAt(x, y)
+  local b = self.bounds
+  local toEdge = {
+    top = y - b.y, bottom = (b.y + b.h) - y,
+    left = x - b.x, right = (b.x + b.w) - x,
+  }
+  local best, bestDist
+  for _, key in ipairs(City.GATEWAYS) do
+    local d = toEdge[City.HAVENS[key].side]
+    if d and d <= City.havenReach and (not bestDist or d < bestDist) then
+      best, bestDist = key, d
+    end
   end
-  return t
+  return best
 end
 
-City.terminalOutput = 24
-City.terminalUpkeep = 14
+-- The haven standing at a gateway, if one has been built.
+function City:havenOf(key)
+  for _, n in ipairs(self.g:nodesOfKind("terminal")) do
+    if n.haven == key then return n end
+  end
+  return nil
+end
+
+-- Why a haven cannot go here, or nil and the gateway it would open.
+function City:havenSite(x, y)
+  local key = self:gatewayAt(x, y)
+  if not key then
+    return nil, "a haven stands on the edge: the estuary, the highway or the apron"
+  end
+  local taken = self:havenOf(key)
+  if taken then return nil, string.lower(City.HAVENS[key].name) .. " already has its haven" end
+  return key
+end
+
+-- Where each gateway's berth sits, for drawing and for the map's labels: the
+-- midpoint of the map edge it runs along.
+function City:gatewayAnchor(key)
+  local b, hv = self.bounds, City.HAVENS[key]
+  if hv.side == "left" then return b.x, b.y + b.h / 2 end
+  if hv.side == "top" then return b.x + b.w / 2, b.y end
+  return b.x + b.w / 2, b.y + b.h
+end
+
+City.terminalUpkeep = 26
 
 function City:build(x, y, kind, commodity)
   if not City.BUILDABLE[kind] then return nil, "choose a structure" end
   local err = self:placementError(x, y)
   if err then return nil, err end
+  local gateway
   if kind == "terminal" then
-    local haven = self:havenAt(x, y)
-    if not haven then return nil, "no haven here: build at the port, airfield or highway" end
-    if not self.licences[commodity or "water"] then return nil, "no licence for that trade" end
+    local err2
+    gateway, err2 = self:havenSite(x, y)
+    if not gateway then return nil, err2 end
   end
   local cost = self:nodeCost(kind)
   if cost > self.money then return nil, "not enough cash" end
@@ -734,12 +810,14 @@ function City:build(x, y, kind, commodity)
     n.commodity = commodity or "water"
     n.stored, n.capacityStore = 0, City.depotCapacity
   elseif kind == "terminal" then
+    -- A haven has no commodity and no output: everything the outside world
+    -- sells arrives here, in any quantity, and is paid for by the unit as it
+    -- lands. What limits it is the track it leaves by and the price of the
+    -- freight, never the berth.
     n.throughput = 999
-    n.commodity = commodity or "water"
-    n.output = City.terminalOutput
-    n.haven = self:havenAt(x, y)
-    self:note("%s opened: %d %s a day, billed per unit landed",
-      City.HAVENS[n.haven].name, n.output, n.commodity)
+    n.haven = gateway
+    self:note("%s opened: every trade but power lands here, billed per unit",
+      City.HAVENS[n.haven].name)
   else
     n.throughput = 999
   end
@@ -1082,10 +1160,29 @@ end
 -- Company decisions
 --------------------------------------------------------------------------------
 
+-- Where a works may stand, and why not.
+--
+-- Water and oil are not everywhere: they are where the survey found them, and
+-- the mine, the well or the rig is what turns a marked deposit into supply. A
+-- reactor answers to no deposit, only to ground. And nobody brews: beer comes
+-- off a ship like everything else the city does not make for itself.
+function City:sourceError(commodity, x, y)
+  if not self.licences[commodity] then return "no licence for that" end
+  if commodity == "beer" then return "beer is landed at a haven, not brewed" end
+  local err = self:placementError(x, y)
+  if err then return err end
+  if commodity ~= "power" then
+    local _, seam = self:sourceCost(commodity, x, y)
+    if not seam then return "no " .. commodity .. " here: sink on a marked deposit" end
+  end
+  return nil
+end
+
 function City:buySource(commodity, px, py)
   if not self.licences[commodity] then return nil, "no licence" end
+  if commodity == "beer" then return nil, "beer is landed at a haven, not brewed" end
   if px then
-    local err = self:placementError(px, py)
+    local err = self:sourceError(commodity, px, py)
     if err then return nil, err end
     local cost, seam = self:sourceCost(commodity, px, py)
     if cost > self.money then return nil, "not enough cash" end
@@ -1097,8 +1194,10 @@ function City:buySource(commodity, px, py)
     if seam then
       seam.taken = true
       s.seam = true
-      self:note("A %s seam was struck: the well opens at %d output for $%d",
-        commodity, s.output, cost)
+      self:note("The %s deposit is opened: %d a day for $%d", commodity, s.output, cost)
+    elseif commodity == "power" then
+      s.plant = "nuclear"
+      self:note("Nuclear plant commissioned for $%d: %d units a day", cost, s.output)
     else
       self:note("New %s well sunk for $%d", commodity, cost)
     end
@@ -1110,6 +1209,17 @@ function City:buySource(commodity, px, py)
   end
 
   -- Somewhere legal, on ground the company owns, and not on top of the works.
+  -- Water and oil have to be found first, so those go looking for a deposit
+  -- rather than for empty ground.
+  if commodity ~= "power" then
+    for _, seam in ipairs(self.deposits or {}) do
+      if not seam.taken and seam.commodity == commodity
+         and not self:sourceError(commodity, seam.x, seam.y) then
+        return self:buySource(commodity, seam.x, seam.y)
+      end
+    end
+    return nil, "no open " .. commodity .. " deposit on ground you hold"
+  end
   local owned = self:ownedDistricts()
   for _ = 1, 300 do
     local d = owned[self:random(#owned)]
@@ -1401,6 +1511,10 @@ function City:refresh()
   self.detail = { edge = {}, node = {} }
   self.flowBy = {}
   self.produced = {}
+  -- A well makes one thing, so `produced` says all there is to say about it. A
+  -- haven lands four, each at its own price, so what it owes has to be kept
+  -- trade by trade.
+  self.producedBy = {}
   self.spare = {}
   self.wellSpare = {}
   self.capacityBy = {}
@@ -1408,7 +1522,11 @@ function City:refresh()
     local flow, _, served, detail, produced = self.g:maxflow(false, name)
     self.flowBy[name] = flow
     for id, v in pairs(served or {}) do self.served[id] = v end
-    for id, v in pairs(produced or {}) do self.produced[id] = v end
+    for id, v in pairs(produced or {}) do
+      self.produced[id] = (self.produced[id] or 0) + v
+      self.producedBy[id] = self.producedBy[id] or {}
+      self.producedBy[id][name] = v
+    end
     for id, v in pairs((detail or {}).edge or {}) do self.detail.edge[id] = v end
     for id, v in pairs((detail or {}).node or {}) do
       self.detail.node[id] = (self.detail.node[id] or 0) + v
@@ -1432,6 +1550,16 @@ function City:refresh()
           headroom = headroom + (n.output or 0)
         elseif n.kind == "terminal" then headroom = headroom + (n.output or 0)
         elseif n.kind == "depot" then headroom = headroom + (n.stored or 0) end
+      elseif n.kind == "terminal" and name ~= "power" then
+        -- A haven never runs out. What it can actually put into the city is the
+        -- capacity of the track leaving it, so that is what counts as headroom:
+        -- quoting the truth here would be "infinity", which tells nobody
+        -- whether the next customer can be signed.
+        local out = 0
+        for _, e in ipairs(self.g:edgesAt(n.id)) do
+          if e.alive and e.rail and e.commodity == name then out = out + e.cap end
+        end
+        headroom = headroom + out
       end
     end
     self.capacityBy[name] = headroom
@@ -1842,11 +1970,30 @@ function City:migrate()
       if not d.owned then
         local spec = City.DISTRICTS[i]
         self:scatterObstacles(spec.rough, d)
-        self:scatterSeams(spec.seams or 0, d)
+        self:scatterDeposits(d, spec)
       end
     end
     self:note("Survey filed: %d districts held, %d more available to purchase",
       owned, #self.districts - owned)
+  end
+
+  -- Havens carried one trade and landed a fixed number of units a day. They
+  -- now carry everything but power, without a ceiling, so an existing one is
+  -- opened up rather than left as a second kind of haven nobody can build.
+  -- Its old commodity and output are dropped; the track and mains already
+  -- running out of it keep working exactly as they did.
+  for _, n in ipairs(self.g:nodesOfKind("terminal")) do
+    if n.commodity or n.output then
+      n.commodity, n.output = nil, nil
+      n.haven = n.haven or self:gatewayAt(n.x, n.y) or "port"
+      self:note("%s now lands every trade but power, without limit",
+        (City.HAVENS[n.haven] or City.HAVENS.port).name)
+    end
+  end
+  -- Nobody brews any more, so a beer deposit is a water deposit that was
+  -- mislabelled by an older survey.
+  for _, d in ipairs(self.deposits or {}) do
+    if d.commodity == "beer" then d.commodity = "water" end
   end
 
   for _, n in ipairs(self.g.nodes) do
@@ -2003,13 +2150,47 @@ City.crewMax = 4
 function City:importBill()
   local total, by = 0, {}
   for _, n in ipairs(self.g:nodesOfKind("terminal")) do
-    local units = (self.produced or {})[n.id] or 0
-    local trade = City.trade[n.commodity] or City.trade.water
-    local cost = units * (trade.importCost or 1)
+    local mult = (City.HAVENS[n.haven] or {}).import or 1
+    local landed = (self.producedBy or {})[n.id] or {}
+    local cost = 0
+    for _, name in ipairs(Graph.TRADES) do
+      local trade = City.trade[name]
+      cost = cost + (landed[name] or 0) * (trade.importCost or 0) * mult
+    end
     total = total + cost
     by[n.id] = cost
   end
   return total, by
+end
+
+-- What the freight cost to move, as freight is really costed: a handling fee
+-- per unit at the yard and a rate per unit per metre for the run. Only track
+-- carries it, and only what actually moved today is charged.
+function City:haulageBill()
+  local total, by = 0, {}
+  for _, e in ipairs(self.g.edges) do
+    if e.alive and e.rail then
+      local units = math.abs(((self.detail or {}).edge or {})[e.id] or 0)
+      local cost = units * (City.rail.haulPerUnit + self:pipeLength(e) * City.rail.haulPerM)
+      total = total + cost
+      by[e.id] = cost
+    end
+  end
+  return total, by
+end
+
+-- Fuel for the reactors. A nuclear plant costs almost nothing to run per unit
+-- and a great deal to keep standing, which is why its bill is split in two:
+-- this line, and the upkeep it owes whether it generates or not.
+function City:fuelBill()
+  local total = 0
+  for _, n in ipairs(self.g:nodesOfKind("source")) do
+    local trade = City.trade[n.commodity or "water"] or City.trade.water
+    if trade.fuelPerUnit then
+      total = total + ((self.produced or {})[n.id] or 0) * trade.fuelPerUnit
+    end
+  end
+  return total
 end
 
 function City:expenseBreakdown()
@@ -2024,13 +2205,15 @@ function City:expenseBreakdown()
     elseif n.kind ~= "client" then b.structures = b.structures + 1 end
   end
   b.imports = self:importBill()
+  b.haulage = self:haulageBill()
+  b.fuel = self:fuelBill()
   for _, e in ipairs(self.g.edges) do
     if e.alive then b.pipes = b.pipes + self:pipeUpkeep(e) end
   end
   b.crews = (self.crews or 0) * City.crewWage
   b.interest = self:loanInterest()
   b.total = math.ceil(b.office + b.sources + b.structures + b.pipes + b.crews
-    + b.interest + b.imports)
+    + b.interest + b.imports + b.haulage + b.fuel)
   return b
 end
 

@@ -9,6 +9,15 @@ end
 local function fresh(seed)
   return City.new({seed=seed or 12, obstacles=0})
 end
+-- A well only goes where the survey marked water, so a test that wants one at
+-- a particular spot marks that spot first. Yield and discount are left at 1 so
+-- the well is priced and sized exactly like the plain well these tests were
+-- written against.
+local function well(c,x,y,commodity)
+  c.deposits[#c.deposits+1]=
+    {x=x,y=y,commodity=commodity or "water",taken=false,yield=1,discount=1}
+  return c:buySource(commodity or "water",x,y)
+end
 local function supply(c)
   for _,n in ipairs(c:clientList()) do
     assert(c:layPipe(c.firstSource.id,n.id,"water",n.demand))
@@ -119,18 +128,47 @@ end
 
 print("separate premium trade networks")
 do
+  -- The two ways supply can start: out of the ground where the survey marked
+  -- it, and off a ship at the edge of the map. One of each, in one company.
   local c=fresh()
-  c.money=10000
+  c.money=40000
+  c.obstacles={}
   for _,n in ipairs(c:clientList()) do c.g:killNode(n.id) end
-  for _,commodity in ipairs({"beer","oil"}) do
-    assert(c:buyLicence(commodity))
-    local home=c.firstSource
-    local source=assert(c:buySource(commodity,home.x+(commodity=="beer" and -300 or 300),home.y-250))
-    local client=assert(c:addClient(commodity=="beer" and "pub" or "factory"))
-    client.x,client.y=source.x,source.y+200
-    assert(c:layPipe(source.id,client.id,commodity,client.demand))
-    check(c.served[client.id]==client.demand,"premium demand supplied: "..commodity)
+  assert(c:buyLicence("beer")); assert(c:buyLicence("oil"))
+
+  local seam
+  for _,d in ipairs(c.deposits) do
+    if not d.taken and d.commodity=="oil" then seam=d; break end
   end
+  check(seam~=nil,"the survey found oil somewhere on the map")
+  c:districtAt(seam.x,seam.y).owned=true
+  local rig=assert(c:buySource("oil",seam.x,seam.y))
+  local works=assert(c:addClient("factory"))
+  works.x,works.y=rig.x,rig.y+200
+  assert(c:layPipe(rig.id,works.id,"oil",works.demand))
+  check(c.served[works.id]==works.demand,"a rig on the deposit supplies the works")
+
+  -- Beer is landed, hauled inland by track, and only then piped.
+  local edge=c.districts[5]
+  edge.owned=true
+  local haven=assert(c:build(edge.x+90,edge.y+edge.h/2,"terminal"))
+  check(haven.haven=="port","the west edge opens onto the estuary")
+  check(haven.commodity==nil and haven.output==nil,"a haven carries every trade, without a ceiling")
+  local yard=assert(c:build(edge.x+620,edge.y+edge.h/2,"junction"))
+  check(select(2,c:layPipe(haven.id,yard.id,"beer",6))=="a haven ships by track only",
+    "nothing is piped straight out of a haven")
+  assert(c:layPipe(haven.id,yard.id,"beer",6,true))
+  local pub=assert(c:addClient("pub"))
+  pub.x,pub.y=yard.x,yard.y+200
+  pub.demand=4
+  assert(c:layPipe(yard.id,pub.id,"beer",pub.demand))
+  check(c.served[pub.id]==pub.demand,"landed beer reaches the pub over the track")
+
+  local bill=c:expenseBreakdown()
+  check(math.abs(bill.imports-pub.demand*City.trade.beer.importCost*City.HAVENS.port.import)<0.01,
+    "the import charge is the units landed times the rate at that gateway")
+  check(bill.haulage>0,"and the track bills for moving them")
+
   local clone=assert(Save.unpack(Save.pack(c)))
   check(clone.flowBy.beer>0 and clone.flowBy.oil>0 and clone.flowBy.water==0,"all trade flows survive save/load")
   check(clone:dailyRevenue()>150,"premium clients provide materially higher income")
@@ -313,21 +351,22 @@ do
   check(c:placementError(home.x+120,home.y+120)==nil,"and lets the company build on it")
   check(not c:buyPermit("bedrock"),"a permit is bought once")
 
-  -- Havens only exist where the freight can land.
+  -- A haven stands on the edge of the map and nowhere else.
   c.obstacles={}
-  local haven=c:havenDistricts()[1]
-  check(haven~=nil,"the map has havens")
   local spot={x=home.x+90,y=home.y+610}
   check(c:placementError(spot.x,spot.y)==nil,"there is clear ground in the home district")
-  check(select(2,c:build(spot.x,spot.y,"terminal","water"))
-    =="no haven here: build at the port, airfield or highway","a terminal needs a haven")
-  -- And on haven ground it works, with track to move what it lands.
-  local hd=haven.district
+  check(select(2,c:build(spot.x,spot.y,"terminal"))
+    =="a haven stands on the edge: the estuary, the highway or the apron",
+    "a haven cannot stand inland")
+  -- And on the edge it works, with track to move what it lands.
+  local hd=c.districts[5]
   hd.owned=true
-  local t=assert(c:build(hd.x+130,hd.y+hd.h/2,"terminal","water"))
-  check(t.output==City.terminalOutput and t.haven,"the haven lands freight")
+  local t=assert(c:build(hd.x+130,hd.y+hd.h/2,"terminal"))
+  check(t.haven=="port","the haven opens onto the gateway it was built beside")
+  check(select(2,c:build(hd.x+130,hd.y+hd.h/2-300,"terminal"))
+    =="naval port already has its haven","one haven to each gateway")
   local j=assert(c:build(hd.x+hd.w-130,hd.y+hd.h/2,"junction"))
-  check(c:pipeError(t.id,j.id,"water")=="too far: use a pump","no pipe spans that")
+  check(c:pipeError(t.id,j.id,"water")=="a haven ships by track only","no main comes off a haven")
   local rail=assert(c:layPipe(t.id,j.id,"water",8,true))
   check(rail.rail and c:leakChance(rail)==0,"track carries it, and never corrodes")
   check(c:liningCost(rail)==nil,"there is nothing to line on a railway")
@@ -345,8 +384,9 @@ do
   check(c.served[buyer.id]==6,"freight reaches a customer over the track")
   local bill=c:expenseBreakdown()
   check(bill.imports>0,"and now the haven bills for every unit it landed")
-  check(math.abs(bill.imports-6*City.trade.water.importCost)<0.01,
+  check(math.abs(bill.imports-6*City.trade.water.importCost*City.HAVENS.port.import)<0.01,
     "the import charge is exactly the units moved times the rate")
+  check(bill.haulage>0,"and the haulage is charged on what the track moved")
   check(c:sourceIncome(t)==0,"a haven pays no wholesale, because it produces nothing")
 end
 
@@ -545,7 +585,7 @@ print("a well with nothing tied in is simply closed")
 do
   local c=fresh()
   c.money=9999
-  local lone=assert(c:buySource("water",c.firstSource.x+300,c.firstSource.y))
+  local lone=assert(well(c,c.firstSource.x+300,c.firstSource.y))
   check(c.g:degree(lone.id)==0,"nothing is connected to it")
   assert(c:demolishNode(lone.id))
   check(not lone.alive,"so it is removed outright rather than capped")
@@ -556,7 +596,7 @@ do
   local c=fresh()
   c.money=9999
   local src=c.firstSource
-  local second=assert(c:buySource("water",src.x+320,src.y+120))
+  local second=assert(well(c,src.x+320,src.y+120))
   assert(c:layPipe(src.id,c:clientList()[1].id,"water",3))
   assert(c:demolishNode(src.id))
   check(c.firstSource~=src,"the origin moves off a capped well")

@@ -275,8 +275,9 @@ function Walk.start(app,mode)
   -- Havens and rail: supply bought rather than owned, moved by track.
   do
     c.money=99999
-    local haven=c:havenDistricts()[1]
-    local d=haven.district
+    -- Any district along the west edge opens onto the estuary.
+    local gateway="port"
+    local d=c.districts[5]
     -- Buy a path of ground out to the haven district.
     for _=1,12 do
       local bought=false
@@ -291,10 +292,10 @@ function Walk.start(app,mode)
       end
       if d.owned or not bought then break end
     end
-    check(d.owned,"the haven district can be reached and bought: "..d.name)
-    local nope=select(2,c:build(c.firstSource.x+240,c.firstSource.y+240,"terminal","water"))
-    check(nope=="no haven here: build at the port, airfield or highway",
-      "a terminal cannot be built where there is no haven")
+    check(d.owned,"the edge district can be reached and bought: "..d.name)
+    local nope=select(2,c:build(c.firstSource.x+240,c.firstSource.y+240,"terminal"))
+    check(nope=="a haven stands on the edge: the estuary, the highway or the apron",
+      "a haven cannot be built inland")
     -- Two clear spots inside the haven district, far enough apart that only
     -- track can span them.
     local function clear(px,py) return c:placementError(px,py)==nil end
@@ -305,14 +306,17 @@ function Walk.start(app,mode)
         tx,ty,jx,jy=a,d.y+d.h/2+oy,b,d.y+d.h/2+oy; break
       end
     end
-    check(tx~=nil,"the haven district has room for a terminal and a terminus")
-    local t=assert(c:build(tx,ty,"terminal","water"))
-    check(t.haven==haven.haven and t.output==C.terminalOutput,"the haven lands freight")
+    check(tx~=nil,"the edge district has room for a haven and a terminus")
+    local t=assert(c:build(tx,ty,"terminal"))
+    check(t.haven==gateway and t.commodity==nil,
+      "the haven opens onto the estuary and carries every trade")
+    check(select(2,c:build(tx,ty-320,"terminal"))=="naval port already has its haven",
+      "and one gateway takes one haven")
     app.action("focusNode",t.id)
     check(findButton("demolish-node")~=nil,"the haven has an inspector")
     local j=assert(c:build(jx,jy,"junction"))
     local straight=c:pipeError(t.id,j.id,"water")
-    check(straight=="too far: use a pump",math.floor(c:nodeDistance(t.id,j.id)).."m is beyond any pipe")
+    check(straight=="a haven ships by track only","freight leaves a haven on rails, not in a main")
     local rail=assert(c:layPipe(t.id,j.id,"water",10,true))
     check(rail.rail and c:leakChance(rail)==0,"track carries the load and never corrodes")
     check(c:liningCost(rail)==nil,"there is nothing to line on a railway")
@@ -615,6 +619,29 @@ function Walk.update(app,mode,frame)
         capture("net-profit-17-construction-preview",app,1100,700)
         app.state.drag=nil
       else error("construction preview fixture needs a reachable offer") end
+    elseif frame==33 then
+      -- The supply chain the city runs on: a haven on the estuary, track
+      -- hauling what it lands inland, and a main from the yard to a customer.
+      local c=app.city()
+      c.money=99999
+      c.obstacles={}
+      c.licences.beer=true
+      local d=c.districts[5]
+      d.owned=true
+      local haven=assert(c:build(d.x+90,d.y+d.h/2,"terminal"))
+      local yard=assert(c:build(d.x+700,d.y+d.h/2,"manifold"))
+      assert(c:layPipe(haven.id,yard.id,"beer",6,true))
+      local pub=assert(c:addClient("pub"))
+      pub.x,pub.y=yard.x+40,yard.y+230
+      pub.demand=4
+      assert(c:layPipe(yard.id,pub.id,"beer",4))
+      c:refresh()
+      app.state.modal=nil; app.state.tab="network"; app.state.scroll=0
+      app.action("focusNode",haven.id)
+      app.camera().targetScale=0.62; app.camera().scale=0.62
+      app.camera():centerOn((haven.x+pub.x)/2,(haven.y+pub.y)/2-40)
+      capture("net-profit-18-haven",app,1100,700)
+      app.state.node=nil
     elseif frame==34 then print("screenshots complete"); love.event.quit() end
     return
   end
