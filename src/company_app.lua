@@ -166,9 +166,28 @@ end
 
 function love.load(args)
   for _,a in ipairs(args or {}) do
-    if a=="--smoke" or a=="--soak" or a=="--shot" or a=="--tut" or a=="--audio" then testMode=a end
+    if a=="--smoke" or a=="--soak" or a=="--shot" or a=="--tut" or a=="--audio"
+       or a=="--probe" then testMode=a end
   end
   R.init(); A.init()
+  -- Reports where this build keeps its company and what it found there, then
+  -- quits. The one question that is genuinely hard to answer any other way,
+  -- because the answer depends on how the game was launched.
+  if testMode=="--probe" then
+    local loaded,err=Save.read()
+    print("save directory: "..love.filesystem.getSaveDirectory())
+    print("fused:          "..tostring(love.filesystem.isFused()))
+    for _,dir in ipairs(Save.candidates()) do print("candidate:      "..dir) end
+    if loaded then
+      print(string.format("company:        day %d, $%d, %d structures%s",
+        loaded.day,loaded.money,#loaded.g:aliveNodes(),
+        loaded.adoptedFrom and (" (carried over from "..loaded.adoptedFrom..")") or ""))
+    else
+      print("company:        none found"..(err and (" ("..tostring(err)..")") or ""))
+    end
+    love.event.quit()
+    return
+  end
   -- Keep the harness off the user's screen: offscreen, minimised and silent.
   if testMode then
     A.setEnabled(false)

@@ -158,24 +158,40 @@ end
 
 local function inspectSource(n,y)
   local level,trade=n.level or 1,City.trade[n.commodity]
-  row("Daily output",n.output.." "..n.commodity,y,P.good)
-  row("Well depth","level "..level.." / "..City.sourceMaxLevel,y+26)
-  row("Wholesale income","+$"..city:sourceIncome(n).." / day",y+52,P.good)
-  row("Upkeep","-$"..(trade.sourceUpkeep+(level-1)*2).." / day",y+78,P.warn)
-  row("Ports",city.g:degree(n.id).." / "..n.ports,y+104)
+  local capacity=n.output or 0
+  local drawn=(city.produced or {})[n.id] or 0
+  local spare=math.max(0,capacity-drawn)
+  local maxed=spare<=0 and capacity>0
+  -- What the well is giving today against what it could give. The gap is the
+  -- number that decides whether the next customer can be signed at all, so it
+  -- leads, and a well running flat out says so in warning colour.
+  row("Drawn today",drawn.." / "..capacity.." "..n.commodity,y,
+    maxed and P.warn or P.good,
+    "How much of this well's output the network is actually taking. A well at "..
+    capacity.."/"..capacity.." is the reason anything downstream of it is short.")
+  local bw=CW*(capacity>0 and math.min(1,drawn/capacity) or 0)
+  lg.setColor(P.panelEdge); lg.rectangle("fill",M,y+22,CW,6,2)
+  lg.setColor(maxed and P.warn or Graph.COMMODITIES[n.commodity].color)
+  lg.rectangle("fill",M,y+22,bw,6,2)
+  row("Spare at this well",spare.." "..n.commodity,y+38,
+    maxed and P.bad or spare>0 and P.good or P.textDim)
+  row("Well depth","level "..level.." / "..City.sourceMaxLevel,y+64)
+  row("Wholesale income","+$"..city:sourceIncome(n).." / day",y+90,P.good)
+  row("Upkeep","-$"..(trade.sourceUpkeep+(level-1)*2).." / day",y+116,P.warn)
+  row("Ports",city.g:degree(n.id).." / "..n.ports,y+142)
   if level<City.sourceMaxLevel then
     local cost=city:sourceUpgradeCost(n)
     button("upgrade-source","Deepen well   +"..trade.upgradeStep.." output   $"..cost,
-      M,y+142,CW,38,function() act("upgradeSource",n.id) end,city.money>=cost,
+      M,y+180,CW,38,function() act("upgradeSource",n.id) end,city.money>=cost,
       "Adds "..trade.upgradeStep.." output to this well. No new route, no tie-in, no new ground and no second lot of upkeep -- which is why deepening beats a second well until the levels get steep.",
-      false,P.good,city.money>=cost)
+      false,P.good,maxed and city.money>=cost)
     text("A new "..n.commodity.." well costs $"..city:sourceCost(n.commodity)..
-         " plus the route to reach it.",M,y+188,"small",P.textDim,CW)
+         " plus the route to reach it.",M,y+226,"small",P.textDim,CW)
   else
     text("This well is at full yield. Sink another, or buy ground with a seam on it.",
-      M,y+146,"body",P.textDim,CW)
+      M,y+184,"body",P.textDim,CW)
   end
-  if n.seam then text("Sunk on a seam: yield multiplied at the wellhead.",M,y+218,"small",P.energy,CW) end
+  if n.seam then text("Sunk on a seam: yield multiplied at the wellhead.",M,y+256,"small",P.energy,CW) end
 end
 
 local function inspectGate(n,y)
@@ -198,8 +214,9 @@ local function inspectDepot(n,y)
   row("Holding",(n.stored or 0).." / "..(n.capacityStore or City.depotCapacity),y,
     (n.stored or 0)>0 and P.good or P.textDim)
   row("Commodity",string.upper(com),y+26,Graph.COMMODITIES[com].color)
-  row("Spare output today",(city.spare[com] or 0).." units",y+52,
-    (city.spare[com] or 0)>0 and P.energy or P.textDim)
+  row("Unsold at the wells",(city.wellSpare[com] or 0).." units",y+52,
+    (city.wellSpare[com] or 0)>0 and P.energy or P.textDim,
+    "A depot fills from product that was pumped and not sold. Unused haven berths are not that: nothing was landed and nothing was billed for.")
   row("Connected",city.g:degree(n.id)>0 and "yes" or "not yet",y+78,
     city.g:degree(n.id)>0 and P.good or P.warn)
   local w=CW*math.min(1,(n.stored or 0)/(n.capacityStore or City.depotCapacity))
@@ -218,8 +235,11 @@ local function inspectTerminal(n,y)
   local landed=(city.produced or {})[n.id] or 0
   row("Haven",(City.HAVENS[n.haven or "port"] or {}).name or "TERMINAL",y,P.energy)
   row("Commodity",string.upper(com),y+26,Graph.COMMODITIES[com].color)
-  row("Berth capacity",(n.output or 0).." / day",y+52,P.good)
-  row("Landed today",landed.." units",y+78,landed>0 and P.good or P.textDim)
+  row("Landed today",landed.." / "..(n.output or 0).." "..com,y+52,
+    landed>=(n.output or 0) and P.warn or P.good,
+    "What the haven actually moved against what its berths can take.")
+  row("Spare at the berths",math.max(0,(n.output or 0)-landed).." "..com,y+78,
+    landed>=(n.output or 0) and P.bad or P.good)
   row("Import charge",string.format("-$%.2f / unit",trade.importCost or 1),y+104,P.warn)
   row("Costing today",string.format("-$%.0f",landed*(trade.importCost or 1)),y+130,P.bad)
   row("Berth upkeep","-$"..City.terminalUpkeep.." / day",y+156,P.warn)
@@ -304,7 +324,26 @@ local function buildPanel()
   row("Supply shortfalls",city.unserved,y+24,city.unserved>0 and P.warn or P.good)
   row("Maintenance crews",(city.crews or 0).." / "..City.crewMax,y+48,
     (city.crews or 0)>0 and P.good or P.textDim)
-  y=y+76
+  y=y+78
+  -- Drawn against capacity, per trade. This is the number that decides whether
+  -- the next offer can be signed at all, so it lives on the front panel.
+  for _,name in ipairs(Graph.TRADES) do
+    if city.licences[name] then
+      local drawn,capacity=city:supplyFor(name)
+      local full=capacity>0 and drawn>=capacity
+      drop(name,M+7,y+8,8)
+      text(string.upper(name),M+18,y,"small",P.textDim)
+      lg.setFont(R.fonts.body)
+      lg.setColor(full and P.warn or P.text)
+      lg.printf(drawn.." / "..capacity,M+CW-200,y-1,200,"right")
+      local bw=CW*(capacity>0 and math.min(1,drawn/capacity) or 0)
+      lg.setColor(P.panelEdge); lg.rectangle("fill",M,y+19,CW,3,1.5)
+      lg.setColor(full and P.warn or Graph.COMMODITIES[name].color)
+      lg.rectangle("fill",M,y+19,bw,3,1.5)
+      y=y+30
+    end
+  end
+  y=y+8
   if count>0 then
     button("repair-all","Repair everything   $"..bill,M,y,CW,36,function() act("repairAll") end,
       city.money>=bill,"Repairs all "..count.." damaged main"..(count==1 and "" or "s")..
@@ -386,12 +425,15 @@ local function inspectorPanel(n,e)
   local tail
   if n then
     local title=n.kind=="client" and (City.CLIENTS[n.clientType].name.." "..n.id)
+      -- A well is called a well, and an electricity well is called a station.
+      or (n.kind=="source" and (string.upper(n.commodity)..
+          (n.commodity=="power" and " STATION " or " WELL ")..n.id))
       or (Graph.KINDS[n.kind].name.." "..n.id)
     if n.commodity then drop(n.commodity,M+9,y+10,10); text(title,M+24,y,"mid")
     else text(title,M,y,"mid") end
     y=y+36
     if n.kind=="client" then inspectClient(n,y); tail=y+400
-    elseif n.kind=="source" then inspectSource(n,y); tail=y+250
+    elseif n.kind=="source" then inspectSource(n,y); tail=y+296
     elseif n.kind=="gate" then inspectGate(n,y); tail=y+240
     elseif n.kind=="depot" then inspectDepot(n,y); tail=y+244
     elseif n.kind=="terminal" then inspectTerminal(n,y); tail=y+250

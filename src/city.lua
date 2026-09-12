@@ -1154,6 +1154,8 @@ function City:refresh()
   self.flowBy = {}
   self.produced = {}
   self.spare = {}
+  self.wellSpare = {}
+  self.capacityBy = {}
   for _, name in ipairs(Graph.TRADES) do
     local flow, _, served, detail, produced = self.g:maxflow(false, name)
     self.flowBy[name] = flow
@@ -1163,15 +1165,30 @@ function City:refresh()
     for id, v in pairs((detail or {}).node or {}) do
       self.detail.node[id] = (self.detail.node[id] or 0) + v
     end
-    -- Output that was pumped for and never sold. A depot turns this from waste
-    -- into tomorrow's headroom.
-    local capacity = 0
-    for _, n in ipairs(self.g:nodesOfKind("source")) do
-      if n.commodity == name then capacity = capacity + (n.output or 0) end
+    -- Two different questions share the word "spare".
+    --
+    -- `wellSpare` is output that was pumped for and never sold: real product
+    -- sitting in the works, which is the only thing a depot can take in. A
+    -- haven's unused berths are not that -- nothing was landed and nothing was
+    -- billed for -- so they do not count here.
+    --
+    -- `spare` is headroom: everything the network could still draw on today
+    -- from any feed at all. That is the number that answers "can I sign this
+    -- customer", so it is the one the sidebar shows and the one a starved
+    -- customer's diagnosis is judged against.
+    local wells, headroom = 0, 0
+    for _, n in ipairs(self.g:aliveNodes()) do
+      if n.commodity == name then
+        if n.kind == "source" then
+          wells = wells + (n.output or 0)
+          headroom = headroom + (n.output or 0)
+        elseif n.kind == "terminal" then headroom = headroom + (n.output or 0)
+        elseif n.kind == "depot" then headroom = headroom + (n.stored or 0) end
+      end
     end
-    -- A haven only bills for what it actually lands, so its unused berths are
-    -- not spare output sitting in the yard; they cost nothing and store nothing.
-    self.spare[name] = math.max(0, capacity - flow)
+    self.capacityBy[name] = headroom
+    self.wellSpare[name] = math.max(0, wells - flow)
+    self.spare[name] = math.max(0, headroom - flow)
   end
 
   self.unserved = 0
@@ -1260,6 +1277,11 @@ function City:constraintFor(id)
   if (self.spare[com] or 0) <= 0 then return "output" end
   if saturated then return "main", saturated end
   return "output"
+end
+
+-- Drawn against everything that could feed it, for one trade.
+function City:supplyFor(commodity)
+  return self.flowBy[commodity] or 0, self.capacityBy[commodity] or 0
 end
 
 -- The same question for the whole network, for the alert strip.
@@ -1418,7 +1440,7 @@ function City:endDay()
     end
   end
   for _, name in ipairs(Graph.TRADES) do
-    local spare = self.spare[name] or 0
+    local spare = self.wellSpare[name] or 0
     for _, n in ipairs(self.g:nodesOfKind("depot")) do
       if n.commodity == name and spare > 0 and self.g:degree(n.id) > 0 then
         local room = (n.capacityStore or City.depotCapacity) - (n.stored or 0)

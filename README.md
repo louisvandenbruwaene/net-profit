@@ -12,8 +12,20 @@ to put into tomorrow's company. The map and company persist between days.
 On macOS, download the macOS build of LÖVE 11.x from [love2d.org](https://love2d.org/),
 move `love.app` to `/Applications`, then run `make mac-install`. Open
 **Net Profit** from Launchpad, Finder, or Spotlight.
-The app launches the current source checkout, so source changes take effect
-immediately. To launch from a terminal, use `make mac-run`.
+
+The installer builds a self-contained app in `~/Applications`: a copy of LÖVE
+with the game fused in as `Resources/game.love`, carrying its own icon and
+bundle identity and signed ad-hoc. It reads nothing outside its own bundle, so
+macOS never asks for permission to open your Documents folder, and it keeps
+working if `love.app` is moved or removed. Re-run `make mac-install` after
+changing the source, or use `make run` to play the checkout directly.
+
+Your company is found either way. LÖVE gives a fused app a different save
+directory from a game run out of a source folder, so the game looks in both and
+mirrors each save into the other. Playing the app and running the checkout are
+the same company, not two that drift apart.
+
+To regenerate the app icon from `assets/net-profit.svg`, run `sh macos/make-icon.sh`.
 
 On Linux, run `make install` to add the application-menu entry.
 
@@ -203,7 +215,7 @@ To move your company too, copy `company.lua` from the LÖVE save directory:
 | --- | --- |
 | Linux | `~/.local/share/love/net-profit/` (or your XDG data directory) |
 | Windows | `%APPDATA%\\LOVE\\net-profit\\` |
-| macOS | `~/Library/Application Support/LOVE/net-profit/` |
+| macOS | `~/Library/Application Support/LOVE/net-profit/`, or `~/Library/Application Support/net-profit/` for the installed app |
 
 The installer preserves saved companies. Simulation randomness is stored with
 the company, so loading preserves future outcomes.
@@ -211,7 +223,7 @@ the company, so loading preserves future outcomes.
 ## Verification
 
 ```sh
-make test          # graph, archived contracts, company rules, persistence and growth
+make test          # graph, contracts, company rules, save locations, persistence and growth
 make smoke         # real input callbacks, company screens, save checks
 make soak          # 60+ rendered company days
 make tutorial      # the opening input walkthrough

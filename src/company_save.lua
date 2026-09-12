@@ -67,18 +67,101 @@ function Save.unpack(text)
   return city
 end
 
+-- Writing the company. The primary write goes through LOVE, which creates the
+-- directory and lets the rename be atomic.
+--
+-- It is then mirrored into any other save directory this game is known to use,
+-- but only one that already exists. Finding the company in the other location
+-- (below) is enough to rescue it once; mirroring is what stops the two copies
+-- drifting apart afterwards, so playing the app and running the checkout are
+-- always the same company rather than two that slowly diverge.
 function Save.write(city)
-  local ok, err = love.filesystem.write("company.tmp", Save.pack(city))
+  local text = Save.pack(city)
+  local ok, err = love.filesystem.write("company.tmp", text)
   if not ok then return nil, err end
   local root = love.filesystem.getSaveDirectory()
-  return os.rename(root .. "/company.tmp", root .. "/company.lua")
+  local moved, moveErr = os.rename(root .. "/company.tmp", root .. "/company.lua")
+  if not moved then return nil, moveErr end
+  Save.mirror(text, root)
+  return true
+end
+
+function Save.mirror(text, root)
+  for _, dir in ipairs(Save.candidates()) do
+    if dir ~= root then
+      -- Only mirror where the game has actually saved before. Creating the
+      -- other directory would invent a company nobody asked for.
+      local probe = io.open(dir .. "/" .. Save.SAVE_NAME, "r")
+      if probe then
+        probe:close()
+        local out = io.open(dir .. "/" .. Save.SAVE_NAME, "w")
+        if out then
+          out:write(text)
+          out:close()
+        end
+      end
+    end
+  end
+end
+
+--------------------------------------------------------------------------------
+-- Finding the company, wherever the last build left it
+--------------------------------------------------------------------------------
+
+-- LOVE puts a fused game's save directory in a different place from a game run
+-- out of a source folder: ~/Library/Application Support/net-profit rather than
+-- ~/Library/Application Support/LOVE/net-profit, and the equivalent on Windows
+-- and Linux. That is an implementation detail of how the game happened to be
+-- launched, and it must never cost anybody their company. So a save directory
+-- with nothing in it falls back to the other one, and the next write adopts the
+-- company into the current location while leaving the original untouched.
+--
+-- Written against injected lookups so the fallback can be tested without LOVE.
+Save.SAVE_NAME = "company.lua"
+
+function Save.locate(env)
+  if env.primaryExists(Save.SAVE_NAME) then
+    return env.primaryRead(Save.SAVE_NAME), nil
+  end
+  local here = env.saveDirectory or ""
+  for _, dir in ipairs(env.candidates or {}) do
+    -- Never re-read the directory we have already found to be empty.
+    if dir ~= here then
+      local text = env.fileRead(dir .. "/" .. Save.SAVE_NAME)
+      if text and #text > 0 then return text, dir end
+    end
+  end
+  return nil, nil
+end
+
+-- Every directory this game has ever kept a company in, on this platform.
+function Save.candidates()
+  local base = love.filesystem.getAppdataDirectory()
+  local id = love.filesystem.getIdentity() or "net-profit"
+  return { base .. "/LOVE/" .. id, base .. "/" .. id }
 end
 
 function Save.read()
-  if not love.filesystem.getInfo("company.lua") then return nil end
-  local text, err = love.filesystem.read("company.lua")
-  if not text then return nil, err end
-  return Save.unpack(text)
+  local text, adopted = Save.locate({
+    saveDirectory = love.filesystem.getSaveDirectory(),
+    candidates = Save.candidates(),
+    primaryExists = function(name) return love.filesystem.getInfo(name) ~= nil end,
+    primaryRead = function(name) return (love.filesystem.read(name)) end,
+    fileRead = function(path)
+      local f = io.open(path, "r")
+      if not f then return nil end
+      local data = f:read("*a")
+      f:close()
+      return data
+    end,
+  })
+  if not text then return nil end
+  local city, err = Save.unpack(text)
+  if city and adopted then
+    city:note("Company found in the previous save location and carried over")
+    city.adoptedFrom = adopted
+  end
+  return city, err
 end
 
 return Save
