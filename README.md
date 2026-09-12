@@ -155,9 +155,15 @@ a long oil trunk is a standing liability and a garden stub is not.
   the customers that district brings.
 - **Investments:** deposits are locked for exactly seven closes. Return is
   normally distributed with mean 10% and standard deviation 5%; losses are possible.
-- **Tenders:** the council asks for a delivery level you do not yet have, held
-  for several closes. Nothing is lost by failing one, which is what makes taking
-  an ambitious one a decision rather than a trap.
+- **Tenders:** the council offers a contract to hold a delivery level you do not
+  yet have - say 9 units of water a day, on 3 day closes - for a fee. It is an
+  offer you answer, in Clients. Accepting posts a bid bond out of the till, which
+  comes back with the fee if you deliver and is forfeited if you do not, so an
+  ambitious tender is a wager on whether you can grow the network in time.
+  Declining costs nothing, and an offer nobody answers is withdrawn in a few days.
+  A close counts only on days when the whole trade is delivering at or above the
+  level asked for, which is why it pays for supply held rather than for one good
+  day.
 - **Markets:** a heatwave, a beer festival or an excise rise moves what one trade
   pays for a few days. It is the only thing that changes a price without you
   touching anything, and it is what makes a full depot worth having.

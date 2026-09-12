@@ -206,6 +206,7 @@ local function action(name,...)
       toast(({repairPipe="Pipe repaired",reinforcePipe="Pipe lined",buyAds="Advertising booked",
         invest="Investment placed",upgradeQuality="Treatment upgraded",buyLicence="Trade licence acquired",
         acceptClient="Customer signed",declineClient="Offer declined",upgradeSource="Well deepened",
+        acceptTender="Tender signed, bond posted",declineTender="Tender declined",
         hireCrew="Crew hired",dismissCrew="Crew stood down",buyPermit="Permit granted",
         borrow="Funds drawn",repay="Loan repaid",setGate="Gate set"})[name] or "Network updated")
     end

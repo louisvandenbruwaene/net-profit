@@ -570,22 +570,50 @@ local function customers()
   local y=TOP-state.scroll
   if #city.tenders>0 then
     heading("MUNICIPAL TENDERS",y)
-    y=y+30
+    text("The council pays for supply held at a level, not for one good day.",
+      M,y+20,"small",P.textFaint,CW)
+    y=y+60
     for _,t in ipairs(city.tenders) do
       local have=(city.flowBy[t.commodity] or 0)
-      local meeting=have>=t.units
-      drop(t.commodity,M+9,y+16,9)
-      text(t.units.." "..string.upper(t.commodity).." for "..t.days.." closes",M+24,y,"body",
-        meeting and P.good or P.text)
-      text("$"..t.reward.." on delivery",M+24,y+19,"small",P.energy)
-      lg.setFont(R.fonts.small); lg.setColor(meeting and P.good or P.warn)
-      lg.printf(t.met.."/"..t.days.."  (now "..have..")",M+CW-160,y+2,160,"right")
-      lg.setFont(R.fonts.tiny); lg.setColor(P.textDim)
-      lg.printf("lapses day "..t.expires,M+CW-160,y+21,160,"right")
-      local bw=CW*math.min(1,t.met/t.days)
-      lg.setColor(P.panelEdge); lg.rectangle("fill",M,y+38,CW,3)
-      lg.setColor(meeting and P.good or P.warn); lg.rectangle("fill",M,y+38,bw,3)
-      y=y+56
+      local short=city:tenderShortfall(t)
+      local meeting=short<=0
+      local spec=Graph.COMMODITIES[t.commodity]
+      drop(t.commodity,M+9,y+10,9)
+      text("Deliver "..t.units.." "..string.lower(spec.name).." a day",M+24,y,"body",P.text)
+
+      if t.status=="offered" then
+        -- An offer. Say the whole deal in a sentence, then ask.
+        text("on "..t.days.." day closes, for $"..t.reward..".",M,y+24,"small",P.textDim,CW)
+        text("You deliver "..have.." now"..
+             (short>0 and (", so you need "..short.." more.") or ", which already meets it."),
+          M,y+42,"small",short>0 and P.warn or P.good,CW)
+        button("tender-accept-"..t.id,"Accept   $"..t.bond.." bond",M,y+64,182,34,
+          function() act("acceptTender",t.id) end,city.money>=t.bond,
+          "Posting the bond signs the contract. Deliver "..t.units.." "..t.commodity..
+          " on "..t.days.." day closes and you get the $"..t.reward.." plus the bond back. "..
+          "Miss the deadline and the bond is forfeited.",false,P.good,short<=0)
+        button("tender-decline-"..t.id,"Decline",M+190,y+64,110,34,
+          function() act("declineTender",t.id) end,true,
+          "Costs nothing. An offer nobody answers is withdrawn in a few days anyway.")
+        lg.setFont(R.fonts.tiny); lg.setColor(P.textFaint)
+        lg.printf("offer open until day "..t.offerExpires,M,y+104,CW,"left")
+        y=y+124
+      else
+        -- Signed. Show what is still owed and how long there is to do it.
+        text(t.met.." of "..t.days.." closes met   /   $"..t.reward.." plus $"..t.bond.." bond",
+          M,y+24,"small",P.textDim,CW)
+        text(meeting and ("Delivering "..have..": this close counts.")
+          or ("Delivering "..have..", "..short.." short. This close does not count."),
+          M,y+42,"small",meeting and P.good or P.warn,CW)
+        local bw=CW*math.min(1,t.met/t.days)
+        lg.setColor(P.panelEdge); lg.rectangle("fill",M,y+64,CW,4,2)
+        lg.setColor(meeting and P.good or P.warn); lg.rectangle("fill",M,y+64,bw,4,2)
+        local left=t.expires-city.day+1
+        lg.setFont(R.fonts.tiny); lg.setColor(left<=2 and P.bad or P.textFaint)
+        lg.printf(left.." day"..(left==1 and "" or "s").." left to finish, or the bond is lost",
+          M,y+74,CW,"left")
+        y=y+100
+      end
     end
     line(y); y=y+22
   end
@@ -798,7 +826,7 @@ end
 
 local function report()
   local r=city.lastReport
-  local w,h = 580,540
+  local w,h = 580,572
   if state.modal=="slots" then w,h = 680,632 end
   local x,y=(W-w)/2,(H-h)/2
   lg.setColor(0,0,0,0.7); lg.rectangle("fill",0,0,W,H)
@@ -820,13 +848,15 @@ local function report()
     {"Crew repairs",string.format("-$%d",r.crewCost or 0),(r.crewCost or 0)>0 and P.warn or P.textDim},
     {"Investment profit / loss",string.format("$%+d",r.interest),P.energy},
     {"Tenders & grants",string.format("+$%d",(r.bonus or 0)+(r.tender or 0)),P.good},
+    {"Tender bonds forfeited",string.format("-$%d",r.tenderLost or 0),
+      (r.tenderLost or 0)>0 and P.bad or P.textDim},
     {"Cash available","$"..city.money,P.text},
   }
   for i,v in ipairs(entries) do
     text(v[1],x+32,y+102+(i-1)*30,"body",P.textDim)
     text(v[2],x+400,y+102+(i-1)*30,"body",v[3])
   end
-  local ly=y+292
+  local ly=y+322
   text(string.format("%d supply shortfalls    %d customers lost",r.unhappy,#r.left),x+32,ly,"body",
     r.unhappy>0 and P.warn or P.good)
   text(string.format("%d leaking mains    %d out of service    %d fixed by crews",
