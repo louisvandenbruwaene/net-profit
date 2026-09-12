@@ -7,6 +7,19 @@ E.ambitions = {
   {id="tenders", name="Council favourite", target=10, description="Complete ten municipal tenders.", reward=800},
   {id="customers", name="The next metropolis", target=50, description="Fully supply fifty customers at a close.", reward=1500},
 }
+-- The authored twelve have a story each. Generated ground tells its own, out of
+-- the character the survey found there, so every district has something to say
+-- however far out it is.
+function E.districtStory(city, id)
+  local d = city.districts[id]
+  if not d then return "" end
+  if E.districtStories[id] and (d.ring or 0) == 0 then return E.districtStories[id] end
+  local spec = d.spec or {}
+  local ring = d.ring or 0
+  return (spec.story or "Open ground.")
+    .. (ring > 0 and ("  Ring " .. ring .. " out: deeper ground, dearer to buy.") or "")
+end
+
 E.districtStories = {
   "Porches, repair shops and the highway gate. A dependable place to start a wider service.",
   "Garden estates climb the hill. Their thirsty households reward generous water capacity.",

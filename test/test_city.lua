@@ -143,19 +143,31 @@ do
   ok("oil is still locked", c:buySource("oil") == nil)
 
   -- Water and oil come out of marked ground and nowhere else.
+  -- The map is seeded from the clock, so the test picks a deposit that is
+  -- actually clear rather than assuming the first one is.
   local free
   for _, d in ipairs(c.deposits) do
     local ground = c:districtAt(d.x, d.y)
-    if not d.taken and d.commodity == "water" and ground and ground.owned then free = d; break end
+    if not d.taken and d.commodity == "water" and ground and ground.owned
+       and not c:placementError(d.x, d.y) then free = d; break end
   end
   ok("the survey marked water on the home ground", free ~= nil)
   -- Somewhere on the same ground, well clear of the mark.
   local home = c:districtAt(free.x, free.y)
-  local dry = { x = free.x, y = free.y > home.y + home.h / 2 and home.y + 120 or home.y + home.h - 120 }
+  local dry
+  for _, spot in ipairs({ { free.x, home.y + 110 }, { free.x, home.y + home.h - 110 },
+                          { home.x + 110, free.y }, { home.x + home.w - 110, free.y } }) do
+    if not c:placementError(spot[1], spot[2]) and not c:seamAt(spot[1], spot[2]) then
+      dry = { x = spot[1], y = spot[2] }; break
+    end
+  end
+  ok("there is dry ground to try", dry ~= nil)
   ok("a well off the mark finds nothing",
     select(2, c:buySource("water", dry.x, dry.y)) == "no water here: sink on a marked deposit")
-  local dug = c:buySource("water", free.x, free.y)
-  ok("and a well on the mark opens it", dug ~= nil and dug.seam == true)
+  local dug, dugWhy = c:buySource("water", free.x, free.y)
+  ok("and a well on the mark opens it" .. (dug and "" or (": " .. tostring(dugWhy))),
+    dug ~= nil and dug.seam == true)
+  ok("the deposit caps what it can ever give", dug and dug.cap == free.cap)
 end
 
 --------------------------------------------------------------------------------

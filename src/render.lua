@@ -135,12 +135,6 @@ function R.drawGrid(cam, fieldW, fieldH)
     lg.line(ax, ay, bx, by)
   end
 
-  -- Field boundary: you cannot build past it.
-  lg.setColor(P.with(P.panelEdge, 0.9))
-  lg.setLineWidth(2)
-  local ax, ay = cam:toScreen(0, 0)
-  local bx, by = cam:toScreen(fieldW, fieldH)
-  lg.rectangle("line", ax, ay, bx - ax, by - ay)
 end
 
 -- Blocked ground. Nothing may be built on it and no link may cross it, so it

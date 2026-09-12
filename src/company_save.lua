@@ -21,9 +21,13 @@ function Save.pack(city)
   local data = {}
   for k, v in pairs(city) do
     -- Everything refresh() recomputes stays out of the file.
+    -- Everything refresh() recomputes stays out, and so does everything the
+    -- map generator can put back: the cell index is rebuilt on load, and a
+    -- district's character is a pointer into a table that lives in the code.
     if k ~= "g" and k ~= "firstSource" and k ~= "served" and k ~= "detail"
-       and k ~= "flowBy" and k ~= "produced" and k ~= "spare" and k ~= "wellSpare"
-       and k ~= "capacityBy" and k ~= "unserved" and k ~= "adoptedFrom" then
+       and k ~= "flowBy" and k ~= "produced" and k ~= "producedBy" and k ~= "spare"
+       and k ~= "wellSpare" and k ~= "capacityBy" and k ~= "unserved"
+       and k ~= "adoptedFrom" and k ~= "cellIndex" and k ~= "cellRng" then
       data[k] = v
     end
   end

@@ -149,17 +149,17 @@ do
   check(c.served[works.id]==works.demand,"a rig on the deposit supplies the works")
 
   -- Beer is landed, hauled inland by track, and only then piped.
-  local edge=c.districts[5]
+  local edge=c:cellAt(2,1)
   edge.owned=true
-  local haven=assert(c:build(edge.x+90,edge.y+edge.h/2,"terminal"))
-  check(haven.haven=="port","the west edge opens onto the estuary")
+  local haven=assert(c:build(edge.x+120,edge.y+90,"terminal","port"))
+  check(haven.haven=="port","the north edge is the coast")
   check(haven.commodity==nil and haven.output==nil,"a haven carries every trade, without a ceiling")
-  local yard=assert(c:build(edge.x+620,edge.y+edge.h/2,"junction"))
+  local yard=assert(c:build(edge.x+740,edge.y+90,"junction"))
   check(select(2,c:layPipe(haven.id,yard.id,"beer",6))=="a haven ships by track only",
     "nothing is piped straight out of a haven")
   assert(c:layPipe(haven.id,yard.id,"beer",6,true))
   local pub=assert(c:addClient("pub"))
-  pub.x,pub.y=yard.x,yard.y+200
+  pub.x,pub.y=yard.x,yard.y+220
   pub.demand=4
   assert(c:layPipe(yard.id,pub.id,"beer",pub.demand))
   check(c.served[pub.id]==pub.demand,"landed beer reaches the pub over the track")
@@ -351,20 +351,24 @@ do
   check(c:placementError(home.x+120,home.y+120)==nil,"and lets the company build on it")
   check(not c:buyPermit("bedrock"),"a permit is bought once")
 
-  -- A haven stands on the edge of the map and nowhere else.
+  -- A harbour stands on the coast. The other two doors stand where you put them.
   c.obstacles={}
   local spot={x=home.x+90,y=home.y+610}
   check(c:placementError(spot.x,spot.y)==nil,"there is clear ground in the home district")
-  check(select(2,c:build(spot.x,spot.y,"terminal"))
-    =="a haven stands on the edge: the estuary, the highway or the apron",
-    "a haven cannot stand inland")
-  -- And on the edge it works, with track to move what it lands.
-  local hd=c.districts[5]
+  check(select(2,c:build(spot.x,spot.y,"terminal","port"))=="a harbour stands on the coast",
+    "a harbour cannot stand inland")
+  local base=c:havenCost("highway")
+  local road=assert(c:build(spot.x,spot.y,"terminal","highway"))
+  check(road.haven=="highway","but a road head can")
+  check(c:havenCost("highway")>base,"and the second one costs more than the first")
+  assert(c:demolishNode(road.id))
+  check(c:havenCost("highway")==base,"until it is closed again")
+  -- On the coast it works, with track to move what it lands.
+  local hd=c:cellAt(2,1)
   hd.owned=true
-  local t=assert(c:build(hd.x+130,hd.y+hd.h/2,"terminal"))
-  check(t.haven=="port","the haven opens onto the gateway it was built beside")
-  check(select(2,c:build(hd.x+130,hd.y+hd.h/2-300,"terminal"))
-    =="naval port already has its haven","one haven to each gateway")
+  local t=assert(c:build(hd.x+130,hd.y+100,"terminal","port"))
+  check(t.haven=="port","a harbour on the coast opens")
+  check(c:havenCost("port")>City.HAVENS.port.price,"and the next harbour costs more")
   local j=assert(c:build(hd.x+hd.w-130,hd.y+hd.h/2,"junction"))
   check(c:pipeError(t.id,j.id,"water")=="a haven ships by track only","no main comes off a haven")
   local rail=assert(c:layPipe(t.id,j.id,"water",8,true))

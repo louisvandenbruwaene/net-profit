@@ -17,12 +17,26 @@ function Camera:setViewport(x, y, w, h)
   self.vx, self.vy, self.vw, self.vh = x, y, w, h
 end
 
+-- The field is the surveyed extent of the city, and on an endless map it grows.
+-- Handing the camera the bounds table itself rather than two numbers means the
+-- clamp follows the company outward without anyone having to remember to tell
+-- it.
+function Camera:follow(bounds)
+  self.field = bounds
+end
+
 function Camera:update(dt)
   self.scale = self.scale + (self.targetScale - self.scale) * math.min(1, dt * 12)
   if self.shake > 0 then self.shake = math.max(0, self.shake - dt * 2.6) end
   local m = 260 / self.scale
-  self.x = math.max(-m, math.min(self.fieldW + m, self.x))
-  self.y = math.max(-m, math.min(self.fieldH + m, self.y))
+  local b = self.field
+  local x0, y0 = b and b.x or 0, b and b.y or 0
+  local x1 = b and (b.x + b.w) or self.fieldW
+  local y1 = b and (b.y + b.h) or self.fieldH
+  self.x = math.max(x0 - m, math.min(x1 + m, self.x))
+  -- The sea is worth being able to look at, so the top clamp allows a screen of
+  -- water above the coast.
+  self.y = math.max(y0 - m - 700, math.min(y1 + m, self.y))
 end
 
 function Camera:shakeBy(amount)
