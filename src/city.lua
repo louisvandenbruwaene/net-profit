@@ -152,8 +152,16 @@ City.OBSTACLES = {
 --------------------------------------------------------------------------------
 
 function City:random(lo, hi)
-  self.rng = (self.rng * 16807) % 2147483647
-  local value = (self.rng - 1) / 2147483646
+  local value
+  -- While a cell is being generated every draw comes out of that cell's own
+  -- stream, so ground never depends on the order it was looked at in.
+  if self.cellRng then
+    self.cellRng.state = (self.cellRng.state * 16807) % 2147483647
+    value = (self.cellRng.state - 1) / 2147483646
+  else
+    self.rng = (self.rng * 16807) % 2147483647
+    value = (self.rng - 1) / 2147483646
+  end
   if hi then return math.floor(lo + value * (hi - lo + 1)) end
   if lo then return math.floor(1 + value * lo) end
   return value
@@ -172,7 +180,8 @@ end
 function City.new(opts)
   opts = opts or {}
   local self = setmetatable({}, City)
-  self.rng = (opts.seed or os.time()) % 2147483646 + 1
+  self.seed = opts.seed or os.time()
+  self.rng = self.seed % 2147483646 + 1
   self.bounds = { x = 0, y = 0, w = City.MAP.cols * City.MAP.w, h = City.MAP.rows * City.MAP.h }
   self.g = Graph.new()
   self.day = 1
@@ -247,39 +256,250 @@ City.DISTRICTS = {
 
 City.districtPrice = { base = 700, growth = 1.42 }
 
-function City:layOutDistricts(opts)
-  self.districts = {}
-  for row = 1, City.MAP.rows do
-    for col = 1, City.MAP.cols do
-      local i = (row - 1) * City.MAP.cols + col
-      local spec = City.DISTRICTS[i]
-      self.districts[i] = {
-        id = i, col = col, row = row, name = spec.name,
-        x = (col - 1) * City.MAP.w, y = (row - 1) * City.MAP.h,
-        w = City.MAP.w, h = City.MAP.h,
-        owned = (i == City.MAP.start),
-      }
-    end
+--------------------------------------------------------------------------------
+-- Ground beyond the authored twelve
+--
+-- The city does not stop. South, east and west of the authored core the map
+-- carries on for as long as the company can pay for it, and every cell out
+-- there is generated rather than written. North is the sea, which is the one
+-- direction that ends.
+--
+-- Generation must not touch `self.rng`. That stream is shared with leaks,
+-- offers and market events, so anything drawn from it would depend on the order
+-- the player happened to pan around in, and the same ground would generate
+-- differently on a reload. Each cell gets its own stream instead, mixed out of
+-- the company seed and the cell's own coordinates, so a cell is the same ground
+-- whoever surveys it first and however many times it is saved and loaded.
+--------------------------------------------------------------------------------
+
+-- How far outside the core a cell sits. Nought is the authored city, one is the
+-- ring of ground touching it, and so on outward forever.
+function City.ringOf(col, row)
+  local dc = math.max(1 - col, 0, col - City.MAP.cols)
+  local dr = math.max(1 - row, 0, row - City.MAP.rows)
+  return math.max(dc, dr)
+end
+
+-- Ground the company can see. Two rings past what it owns: enough to plan a
+-- direction, not enough to survey the whole world from the yard.
+City.surveyRadius = 2
+
+-- Names for generated ground. Two halves and a handful of whole names, which is
+-- how English towns are built anyway.
+City.NAMES = {
+  head = { "Ash", "Bram", "Cold", "Dun", "East", "Fen", "Grey", "Har", "Kil",
+           "Long", "Mar", "North", "Oak", "Pike", "Quar", "Red", "Stan",
+           "Thorn", "Up", "Wick", "Yar", "Black", "Clay", "Hollow", "Swan" },
+  tail = { "field", "ford", "hollow", "moor", "ridge", "stead", "thorpe",
+           "vale", "wick", "worth", "bury", "combe", "gate", "mere", "row",
+           "side", "bridge", "heath", "cross", "barrow" },
+}
+
+-- What kind of place a generated cell is. The character decides who asks you
+-- for a connection out there and what the survey finds underneath.
+City.ARCHETYPES = {
+  { key = "suburb",   label = "SUBURB",     rough = 2, water = 3, oil = 0,
+    bias = { house = 14, estate = 6, workshop = 3 },
+    story = "Streets of new houses, laid out faster than anyone can supply them." },
+  { key = "farm",     label = "FARMLAND",   rough = 1, water = 4, oil = 0,
+    bias = { house = 8, estate = 3, pub = 3 },
+    story = "Open country. Little demand, shallow water, and room to build." },
+  { key = "forest",   label = "WOODLAND",   rough = 5, water = 3, oil = 0,
+    bias = { house = 5, pub = 3 },
+    story = "Timber country. Hard to cross, and the crossing charges say so." },
+  { key = "quarry",   label = "QUARRY",     rough = 6, water = 2, oil = 1,
+    bias = { workshop = 8, factory = 4 },
+    story = "Worked rock and standing water. Everything here is under something." },
+  { key = "works",    label = "INDUSTRY",   rough = 3, water = 2, oil = 2,
+    bias = { factory = 12, workshop = 8, pub = 4 },
+    story = "Heavy plant that pays heavy rates, if you can reach it." },
+  { key = "frontier", label = "WILDERNESS", rough = 4, water = 2, oil = 3,
+    bias = { house = 3, workshop = 2, factory = 3 },
+    story = "Nobody out here yet. The deepest seams on the map are, though." },
+}
+
+-- What a deposit at this distance can give in a day, whatever is built on top
+-- of it. This is the number that makes the map endless rather than merely
+-- large: a well reaches its cap and then the only way to more supply is more
+-- ground, further out.
+City.DEPOSIT = {
+  water = { base = 24, perRing = 8 },
+  oil   = { base = 18, perRing = 7 },
+  buried = 1.35,
+}
+
+function City.depositCap(commodity, ring, buried)
+  local spec = City.DEPOSIT[commodity] or City.DEPOSIT.water
+  local cap = spec.base + spec.perRing * ring
+  if buried then cap = cap * City.DEPOSIT.buried end
+  return math.floor(cap)
+end
+
+-- A stream of its own for one cell, mixed from the company seed and the cell.
+function City:cellSeed(col, row)
+  local h = 2166136261
+  local function mix(v)
+    h = (h + (v % 4294967296)) % 4294967296
+    h = (h * 16777619) % 4294967296
+    h = (h + math.floor(h / 65536)) % 4294967296
   end
-  -- Ground features are laid out for the whole map at once, so what you are
-  -- buying is visible before you buy it.
-  local density = opts.obstacles
-  for i, d in ipairs(self.districts) do
-    local spec = City.DISTRICTS[i]
-    local n = density or spec.rough
-    if density and density == 0 then n = 0 end
-    self:scatterObstacles(n, d)
-    -- Obstacles can be switched off for a test or a clean opening; deposits
-    -- cannot, because with none of them the city has no water of its own.
-    self:scatterDeposits(d, spec)
+  mix(self.seed or 1)
+  mix(col * 73856093 % 4294967296)
+  mix(row * 19349663 % 4294967296)
+  return h % 2147483646 + 1
+end
+
+-- Runs `fn` with every self:random() call coming out of one cell's own stream.
+function City:withCell(col, row, fn)
+  local previous = self.cellRng
+  self.cellRng = { state = self:cellSeed(col, row) }
+  local ok, err = pcall(fn)
+  self.cellRng = previous
+  if not ok then error(err, 0) end
+end
+
+function City.cellKey(col, row) return col .. "," .. row end
+
+-- Every cell that exists, by key. Rebuilt on load rather than saved.
+function City:indexCells()
+  self.cellIndex = {}
+  for _, d in ipairs(self.districts) do
+    self.cellIndex[City.cellKey(d.col, d.row)] = d.id
   end
 end
 
-function City:districtAt(x, y)
-  for _, d in ipairs(self.districts) do
-    if x >= d.x and x < d.x + d.w and y >= d.y and y < d.y + d.h then return d end
+function City:cellAt(col, row)
+  local id = (self.cellIndex or {})[City.cellKey(col, row)]
+  return id and self.districts[id] or nil
+end
+
+-- Bring one cell into being. Sea cells do not exist as ground at all, which is
+-- what stops the company walking north.
+function City:surveyCell(col, row)
+  if row < 1 then return nil end
+  local existing = self:cellAt(col, row)
+  if existing then return existing end
+
+  local ring = City.ringOf(col, row)
+  local core = ring == 0 and City.DISTRICTS[(row - 1) * City.MAP.cols + col]
+  local id = #self.districts + 1
+  local d = {
+    id = id, col = col, row = row, ring = ring,
+    x = (col - 1) * City.MAP.w, y = (row - 1) * City.MAP.h,
+    w = City.MAP.w, h = City.MAP.h, owned = false,
+  }
+  self.districts[id] = d
+  self.cellIndex = self.cellIndex or {}
+  self.cellIndex[City.cellKey(col, row)] = id
+
+  if core then
+    d.name, d.spec = core.name, core
+  else
+    self:withCell(col, row, function()
+      -- Further out is wilder: the settled archetypes thin out and the ground
+      -- worth digging takes over.
+      local pool = {}
+      for _, a in ipairs(City.ARCHETYPES) do
+        local weight = (a.key == "suburb" and math.max(1, 9 - ring * 3))
+          or (a.key == "farm" and math.max(1, 8 - ring))
+          or (a.key == "frontier" and math.min(9, ring * 3))
+          or (a.key == "works" and math.min(7, 1 + ring))
+          or 4
+        for _ = 1, weight do pool[#pool + 1] = a end
+      end
+      d.spec = pool[self:random(#pool)]
+      d.archetype = d.spec.key
+      d.name = City.NAMES.head[self:random(#City.NAMES.head)]
+        .. City.NAMES.tail[self:random(#City.NAMES.tail)]
+    end)
   end
-  return nil
+  self:growBounds(d)
+  return d
+end
+
+-- The ground features of a cell, in the cell's own stream so they never move.
+function City:dressCell(d)
+  if d.dressed then return d end
+  d.dressed = true
+  local spec = d.spec or City.ARCHETYPES[1]
+  local rough = self.roughness or spec.rough or 2
+  self:withCell(d.col, d.row, function()
+    self:scatterObstacles(rough, d)
+    -- Obstacles can be switched off for a test or a clean opening; deposits
+    -- cannot, because with none of them the ground has no water in it.
+    self:scatterDeposits(d, spec)
+  end)
+  return d
+end
+
+-- Everything within the survey radius of ground the company holds, brought into
+-- being at once. Called when a district is bought and when a company loads, so
+-- what the player can see is always exactly what they could buy next plus one.
+function City:survey()
+  local seeds = {}
+  for _, d in ipairs(self.districts) do
+    if d.owned then seeds[#seeds + 1] = d end
+  end
+  if #seeds == 0 then seeds = { self.districts[City.MAP.start] } end
+  local want = {}
+  for _, d in ipairs(seeds) do
+    for dc = -City.surveyRadius, City.surveyRadius do
+      for dr = -City.surveyRadius, City.surveyRadius do
+        want[#want + 1] = { d.col + dc, d.row + dr }
+      end
+    end
+  end
+  for _, cell in ipairs(want) do self:surveyCell(cell[1], cell[2]) end
+  for _, d in ipairs(self.districts) do self:dressCell(d) end
+  return self
+end
+
+-- The surveyed extent, which is what the camera is allowed to roam over and
+-- what "outside the map" now means.
+function City:growBounds(d)
+  local b = self.bounds
+  local x0, y0 = math.min(b.x, d.x), math.min(b.y, d.y)
+  local x1 = math.max(b.x + b.w, d.x + d.w)
+  local y1 = math.max(b.y + b.h, d.y + d.h)
+  b.x, b.y, b.w, b.h = x0, y0, x1 - x0, y1 - y0
+end
+
+function City:layOutDistricts(opts)
+  self.districts = {}
+  self.cellIndex = {}
+  self.roughness = opts.obstacles
+  -- The authored city first, so the opening hand is the one that was tuned,
+  -- and then everything the company can see from it.
+  for row = 1, City.MAP.rows do
+    for col = 1, City.MAP.cols do
+      self:surveyCell(col, row)
+    end
+  end
+  self.districts[City.MAP.start].owned = true
+  self:survey()
+end
+
+-- Which cell a point falls in, by arithmetic rather than by search: the map is
+-- a lattice, and on an endless one a linear scan is a promise you cannot keep.
+function City:districtAt(x, y)
+  local col = math.floor(x / City.MAP.w) + 1
+  local row = math.floor(y / City.MAP.h) + 1
+  return self:cellAt(col, row)
+end
+
+-- The extent of what the company holds, which is what the map view should
+-- frame. Surveyed ground runs two rings past that in every direction and would
+-- pull the camera back far enough to make the labels illegible.
+function City:ownedBounds()
+  local x0, y0, x1, y1
+  for _, d in ipairs(self.districts) do
+    if d.owned then
+      x0 = math.min(x0 or d.x, d.x); y0 = math.min(y0 or d.y, d.y)
+      x1 = math.max(x1 or d.x + d.w, d.x + d.w); y1 = math.max(y1 or d.y + d.h, d.y + d.h)
+    end
+  end
+  if not x0 then local b = self.bounds; return b.x, b.y, b.x + b.w, b.y + b.h end
+  return x0, y0, x1, y1
 end
 
 function City:ownedDistricts()
@@ -291,14 +511,21 @@ end
 -- Only next door. The company grows outward from its yard, not by teleporting
 -- to the far corner of the map.
 function City:districtAdjacent(d)
-  for _, o in ipairs(self.districts) do
-    if o.owned and math.abs(o.col - d.col) + math.abs(o.row - d.row) == 1 then return true end
+  for _, cell in ipairs({ {1,0}, {-1,0}, {0,1}, {0,-1} }) do
+    local o = self:cellAt(d.col + cell[1], d.row + cell[2])
+    if o and o.owned then return true end
   end
   return false
 end
 
+-- Ground gets dearer the more of it you hold and the further out it is. The
+-- second term is what stops a company sprinting for the frontier: the richest
+-- deposits are out there, and so is the biggest cheque.
 function City:districtCost(d)
-  return math.ceil(City.districtPrice.base * (City.districtPrice.growth ^ self.districtsBought))
+  local ring = (d and d.ring) or 0
+  return math.ceil(City.districtPrice.base
+    * (City.districtPrice.growth ^ self.districtsBought)
+    * (1 + 0.55 * ring))
 end
 
 function City:districtError(id)
@@ -318,6 +545,8 @@ function City:buyDistrict(id)
   self:spend(cost)
   d.owned = true
   self.districtsBought = self.districtsBought + 1
+  -- Owning ground puts the next ring of it on the map.
+  self:survey()
   self:note("%s acquired for $%d: %d districts held", d.name, cost, #self:ownedDistricts())
   return d
 end
@@ -358,10 +587,19 @@ end
 -- Ground
 --------------------------------------------------------------------------------
 
+-- Ground features for one cell.
+--
+-- Nothing in here may look at the rest of the world. Not at the structures the
+-- company has built, because a cell surveyed on day 80 would then generate
+-- differently from the same cell surveyed on day 3, and not at obstacles in
+-- other cells, because that would make a cell depend on which of its neighbours
+-- happened to be surveyed first. Everything an obstacle is checked against is
+-- placed by this same call, and everything placed stays inside the cell.
 function City:scatterObstacles(n, district)
   local kinds = { "bedrock", "park", "river" }
   local b = district or self.bounds
-  local home = district and district.owned
+  local home = district and district.id == City.MAP.start
+  local placed = {}
   for _ = 1, n do
     for _ = 1, 40 do
       local r = self:rand(70, 140)
@@ -369,19 +607,16 @@ function City:scatterObstacles(n, district)
       local y = self:rand(b.y + r + 30, b.y + b.h - r - 30)
       local clear = true
       -- The home district keeps a wide clearing so the opening is never a maze.
-      local margin = home and 340 or 150
-      for _, node in ipairs(self.g:aliveNodes()) do
-        if (node.x - x) ^ 2 + (node.y - y) ^ 2 < (r + margin) ^ 2 then clear = false; break end
-      end
       if home and (x - (b.x + b.w / 2)) ^ 2 + (y - (b.y + b.h / 2)) ^ 2 < (r + 340) ^ 2 then
         clear = false
       end
-      for _, o in ipairs(self.obstacles) do
+      for _, o in ipairs(placed) do
         if (o.x - x) ^ 2 + (o.y - y) ^ 2 < (o.r + r + 40) ^ 2 then clear = false; break end
       end
       if clear then
-        self.obstacles[#self.obstacles + 1] =
-          { x = x, y = y, r = r, kind = kinds[self:random(#kinds)] }
+        local o = { x = x, y = y, r = r, kind = kinds[self:random(#kinds)] }
+        placed[#placed + 1] = o
+        self.obstacles[#self.obstacles + 1] = o
         break
       end
     end
@@ -399,9 +634,11 @@ end
 -- bedrock, out of reach until somebody buys a blasting licence.
 function City:scatterDeposits(district, spec)
   local b = district or self.bounds
+  local ring = district and district.ring or 0
+  local placed = {}
   local plan = {
-    { commodity = "water", count = 2 + ((spec.rough or 2) >= 3 and 1 or 0) },
-    { commodity = "oil",   count = spec.seams or 0 },
+    { commodity = "water", count = spec.water or (2 + ((spec.rough or 2) >= 3 and 1 or 0)) },
+    { commodity = "oil",   count = spec.oil or spec.seams or 0 },
   }
   for _, want in ipairs(plan) do
     for _ = 1, want.count do
@@ -409,18 +646,19 @@ function City:scatterDeposits(district, spec)
         local x = self:rand(b.x + 90, b.x + b.w - 90)
         local y = self:rand(b.y + 90, b.y + b.h - 90)
         local far = true
-        for _, s in ipairs(self.deposits) do
+        for _, s in ipairs(placed) do
           if (s.x - x) ^ 2 + (s.y - y) ^ 2 < 260 ^ 2 then far = false; break end
-        end
-        for _, node in ipairs(self.g:aliveNodes()) do
-          if (node.x - x) ^ 2 + (node.y - y) ^ 2 < 200 ^ 2 then far = false; break end
         end
         if far then
           local buried = self:obstacleAt(x, y)
-          self.deposits[#self.deposits + 1] = {
+          local dep = {
             x = x, y = y, commodity = want.commodity, taken = false,
             yield = buried and 1.9 or 1.5, discount = buried and 0.45 or 0.62,
+            -- What the ground can give in a day, however deep it is worked.
+            cap = City.depositCap(want.commodity, ring, buried),
           }
+          placed[#placed + 1] = dep
+          self.deposits[#self.deposits + 1] = dep
           break
         end
       end
@@ -475,10 +713,9 @@ function City:crossingCost(ax, ay, bx, by)
 end
 
 function City:placementError(x, y)
-  local b = self.bounds
-  if x < b.x or y < b.y or x > b.x + b.w or y > b.y + b.h then return "outside the map" end
+  if y < 0 then return "that is the sea" end
   local d = self:districtAt(x, y)
-  if not d then return "outside the map" end
+  if not d then return "unsurveyed ground" end
   if not d.owned then return "you do not own " .. d.name end
   local o = self:obstacleAt(x, y)
   if o and not (self.permits and self.permits[o.kind]) then
@@ -683,12 +920,16 @@ function City:upgradeSource(id)
   if not (n and n.alive and n.kind == "source") then return nil, "no such source" end
   local level = n.level or 1
   if level >= City.sourceMaxLevel then return nil, "well is at full yield" end
+  if n.cap and (n.output or 0) >= n.cap then
+    return nil, "this ground gives no more: " .. n.cap .. " a day is its limit"
+  end
   local cost = self:sourceUpgradeCost(n)
   if cost > self.money then return nil, "not enough cash" end
   local trade = City.trade[n.commodity] or City.trade.water
   self:spend(cost)
   n.level = level + 1
   n.output = (n.output or trade.sourceOutput) + trade.upgradeStep
+  if n.cap then n.output = math.min(n.output, n.cap) end
   n.paid = (n.paid or 0) + cost
   self:note("%s well deepened to level %d: output now %d",
     string.upper(n.commodity), n.level, n.output)
@@ -711,53 +952,52 @@ end
 City.BUILDABLE = { junction = true, manifold = true, pump = true, tower = true,
                    gate = true, depot = true, terminal = true }
 
--- The outside world. Three things run along the edge of the map and stop at
--- it: the estuary down the west side, the trunk road across the north, and the
--- freight apron along the south. None of them is ground the company can build
--- on -- they are what the city is connected to, not part of it.
+-- The outside world.
 --
--- A haven is the door in that wall, so it can only stand where the wall is: on
--- the strip of a district that touches one of the three, and one haven to each.
--- What comes through it is unlimited, because a river does not run out of
--- ships, and every unit of it is bought rather than owned, at a price set by
--- how it travelled. Sea freight is the cheap way in and the slow way round the
--- map; air freight costs half again as much and lands on the far side of the
--- city. That difference is the whole reason to hold more than one haven.
+-- North of row one there is sea, and the sea does not end. It is the one
+-- direction the company cannot buy its way into, which makes the coastline the
+-- only fixed edge on an otherwise endless map, and the only place a harbour can
+-- stand. Everything else the city trades through is a building the company
+-- sites itself: a trunk road interchange or an air freight apron, anywhere on
+-- ground it holds.
+--
+-- What comes through any of them is unlimited, because a shipping line does not
+-- run out of ships. What differs is the freight. Sea is the cheap way in and
+-- the long way round, road is dearer and goes where you put it, air is dearest
+-- of all and goes anywhere at once. That difference is the whole reason to hold
+-- more than one.
 City.HAVENS = {
-  port     = { name = "NAVAL PORT",   side = "left",   import = 1.00,
-               blurb = "deep-water berths on the estuary" },
-  highway  = { name = "HIGHWAY HEAD", side = "top",    import = 1.20,
+  port     = { name = "HARBOUR",      gate = "coast", import = 1.00, price = 2200,
+               blurb = "deep water berths on the coast" },
+  highway  = { name = "ROAD HEAD",    gate = "land",  import = 1.20, price = 1700,
                blurb = "a trunk road interchange" },
-  airfield = { name = "AIRFIELD",     side = "bottom", import = 1.55,
+  airfield = { name = "AIR FREIGHT",  gate = "land",  import = 1.55, price = 3400,
                blurb = "an air freight apron" },
 }
 
--- Fixed order wherever havens are listed or searched, so a tie at a corner of
--- the map resolves the same way every time.
 City.GATEWAYS = { "port", "highway", "airfield" }
 
--- How far inland a haven may stand. Wide enough to dodge an obstacle on the
--- shoreline, narrow enough that it is unmistakably an edge of the map.
+-- How close to the water a harbour has to be.
 City.havenReach = 150
 
--- Which gateway, if any, a point on the map is close enough to serve.
-function City:gatewayAt(x, y)
-  local b = self.bounds
-  local toEdge = {
-    top = y - b.y, bottom = (b.y + b.h) - y,
-    left = x - b.x, right = (b.x + b.w) - x,
-  }
-  local best, bestDist
-  for _, key in ipairs(City.GATEWAYS) do
-    local d = toEdge[City.HAVENS[key].side]
-    if d and d <= City.havenReach and (not bestDist or d < bestDist) then
-      best, bestDist = key, d
-    end
-  end
-  return best
+-- Where the sea starts. Everything above it is water forever.
+function City.coastLine() return 0 end
+
+function City:onCoast(x, y)
+  return y >= 0 and y <= City.havenReach
 end
 
--- The haven standing at a gateway, if one has been built.
+-- Each haven after the first of its kind costs more, the way a second berth on
+-- the same coast costs more than the first.
+function City:havenCost(key)
+  local spec = City.HAVENS[key] or City.HAVENS.port
+  local held = 0
+  for _, n in ipairs(self.g:nodesOfKind("terminal")) do
+    if n.haven == key then held = held + 1 end
+  end
+  return math.ceil(spec.price * (1.6 ^ held))
+end
+
 function City:havenOf(key)
   for _, n in ipairs(self.g:nodesOfKind("terminal")) do
     if n.haven == key then return n end
@@ -765,26 +1005,19 @@ function City:havenOf(key)
   return nil
 end
 
--- Why a haven cannot go here, or nil and the gateway it would open.
-function City:havenSite(x, y)
-  local key = self:gatewayAt(x, y)
-  if not key then
-    return nil, "a haven stands on the edge: the estuary, the highway or the apron"
+-- Why a haven of this kind cannot go here.
+function City:havenSite(x, y, key)
+  key = key or "port"
+  local spec = City.HAVENS[key]
+  if not spec then return nil, "no such haven" end
+  if spec.gate == "coast" and not self:onCoast(x, y) then
+    return nil, "a harbour stands on the coast"
   end
-  local taken = self:havenOf(key)
-  if taken then return nil, string.lower(City.HAVENS[key].name) .. " already has its haven" end
+  if self:havenCost(key) > self.money then return nil, "not enough cash" end
   return key
 end
 
--- Where each gateway's berth sits, for drawing and for the map's labels: the
--- midpoint of the map edge it runs along.
-function City:gatewayAnchor(key)
-  local b, hv = self.bounds, City.HAVENS[key]
-  if hv.side == "left" then return b.x, b.y + b.h / 2 end
-  if hv.side == "top" then return b.x + b.w / 2, b.y end
-  return b.x + b.w / 2, b.y + b.h
-end
-
+City.terminalUpkeep = 26
 City.terminalUpkeep = 26
 
 function City:build(x, y, kind, commodity)
@@ -794,10 +1027,10 @@ function City:build(x, y, kind, commodity)
   local gateway
   if kind == "terminal" then
     local err2
-    gateway, err2 = self:havenSite(x, y)
+    gateway, err2 = self:havenSite(x, y, commodity)
     if not gateway then return nil, err2 end
   end
-  local cost = self:nodeCost(kind)
+  local cost = gateway and self:havenCost(gateway) or self:nodeCost(kind)
   if cost > self.money then return nil, "not enough cash" end
   self:spend(cost)
   local n = self.g:addNode(x, y, kind)
@@ -818,6 +1051,7 @@ function City:build(x, y, kind, commodity)
     n.haven = gateway
     self:note("%s opened: every trade but power lands here, billed per unit",
       City.HAVENS[n.haven].name)
+    self.havensBuilt = (self.havensBuilt or 0) + 1
   else
     n.throughput = 999
   end
@@ -1190,7 +1424,10 @@ function City:buySource(commodity, px, py)
     self:spend(cost)
     local s = self.g:addNode(px, py, "source")
     s.commodity, s.paid, s.level = commodity, cost, 1
-    s.output = math.floor(trade.sourceOutput * (seam and seam.yield or 1))
+    -- The ground, not the equipment, decides the ceiling. A works can be
+    -- deepened up to what the deposit gives in a day and not one unit past it.
+    s.cap = seam and seam.cap or City.depositCap(commodity, 0)
+    s.output = math.min(s.cap, math.floor(trade.sourceOutput * (seam and seam.yield or 1)))
     if seam then
       seam.taken = true
       s.seam = true
@@ -1977,6 +2214,39 @@ function City:migrate()
       owned, #self.districts - owned)
   end
 
+  -- Ground saved before the map was endless: every cell was authored, none of
+  -- them knew what ring they were in, and the survey stopped at twelve. Fill in
+  -- what the generator would have put there and then open the frontier.
+  self.seed = self.seed or self.rng or 1
+  self.roughness = nil
+  self.bounds = self.bounds or { x = 0, y = 0, w = City.MAP.w, h = City.MAP.h }
+  for _, d in ipairs(self.districts or {}) do
+    d.ring = d.ring or City.ringOf(d.col, d.row)
+    d.spec = d.spec or (d.ring == 0 and City.DISTRICTS[(d.row - 1) * City.MAP.cols + d.col])
+      or City.ARCHETYPES[1]
+    d.name = d.name or d.spec.name or "District " .. d.id
+    d.dressed = true
+    self:growBounds(d)
+  end
+  self:indexCells()
+  -- A deposit had no ceiling, and neither did what stood on it. Give both the
+  -- ceiling the ground would have now, and never below what a well already
+  -- produces: a company does not lose output to a rule change.
+  for _, dep in ipairs(self.deposits or {}) do
+    if not dep.cap then
+      local d = self:districtAt(dep.x, dep.y)
+      dep.cap = City.depositCap(dep.commodity, d and d.ring or 0, self:obstacleAt(dep.x, dep.y))
+    end
+  end
+  for _, n in ipairs(self.g:nodesOfKind("source")) do
+    if not n.cap then
+      local d = self:districtAt(n.x, n.y)
+      n.cap = math.max(n.output or 0,
+        City.depositCap(n.commodity or "water", d and d.ring or 0, false))
+    end
+  end
+  self:survey()
+
   -- Havens carried one trade and landed a fixed number of units a day. They
   -- now carry everything but power, without a ceiling, so an existing one is
   -- opened up rather than left as a second kind of haven nobody can build.
@@ -1985,7 +2255,7 @@ function City:migrate()
   for _, n in ipairs(self.g:nodesOfKind("terminal")) do
     if n.commodity or n.output then
       n.commodity, n.output = nil, nil
-      n.haven = n.haven or self:gatewayAt(n.x, n.y) or "port"
+      n.haven = n.haven or (self:onCoast(n.x, n.y) and "port") or "highway"
       self:note("%s now lands every trade but power, without limit",
         (City.HAVENS[n.haven] or City.HAVENS.port).name)
     end

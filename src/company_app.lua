@@ -8,7 +8,7 @@ local A = require("audio")
 local P = require("palette")
 local App = {}
 local city,cam
-local state={commodity="water",capacity=3,invest=100,borrow=500,tab="network",scroll=0,undo={}}
+local state={commodity="water",havenKind="port",capacity=3,invest=100,borrow=500,tab="network",scroll=0,undo={}}
 local testMode, frames = nil,0
 
 local function toast(message,bad)
@@ -29,12 +29,14 @@ end
 -- Pull back far enough to see every district, bought or not.
 local function fitWorld()
   layout()
-  local b=city.bounds
-  cam.x,cam.y=b.x+b.w/2,b.y+b.h/2
-  -- Room for the world outside the boundary: the estuary, the trunk road and
-  -- the apron are what the three havens open onto, and a map view that crops
-  -- them is a map view that hides the only places a haven can go.
-  cam.scale=math.max(0.12,math.min(1.45,cam.vw/(b.w+560),cam.vh/(b.h+560)))
+  -- Frame what the company holds plus the ground it could buy next, not every
+  -- cell that has ever been surveyed. On an endless map those are very
+  -- different numbers, and only one of them fits on a screen.
+  local x0,y0,x1,y1=city:ownedBounds()
+  local margin=City.MAP.w*0.8
+  x0,y0,x1,y1=x0-margin,y0-margin,x1+margin,y1+margin
+  cam.x,cam.y=(x0+x1)/2,(y0+y1)/2
+  cam.scale=math.max(0.12,math.min(1.45,cam.vw/(x1-x0),cam.vh/(y1-y0)))
   cam.targetScale=cam.scale
 end
 
@@ -289,7 +291,7 @@ function love.load(args)
   if not testMode then city,err=Save.read() end
   city=city or City.new(testMode and {seed=24,obstacles=4} or nil)
   city.slot=city.slot or (testMode and 1 or Save.readCurrent())
-  cam=Camera.new(city.bounds.w,city.bounds.h); fit()
+  cam=Camera.new(city.bounds.w,city.bounds.h); cam:follow(city.bounds); fit()
   if err then toast("Could not load saved company: "..err,true) end
   if city.bankrupt then state.modal="report" end
   if testMode=="--audio" then
@@ -338,6 +340,7 @@ function love.mousepressed(x,y,button)
   if state.tool then
     local wx,wy=cam:toWorld(x,y)
     if state.tool=="source" then action("buySource",state.commodity,wx,wy)
+    elseif state.tool=="terminal" then action("build",wx,wy,state.tool,state.havenKind or "port")
     else action("build",wx,wy,state.tool,state.commodity) end
     return
   end

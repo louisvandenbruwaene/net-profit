@@ -275,9 +275,10 @@ function Walk.start(app,mode)
   -- Havens and rail: supply bought rather than owned, moved by track.
   do
     c.money=99999
-    -- Any district along the west edge opens onto the estuary.
+    -- The coast is the north edge of the map, and it is the only place a
+    -- harbour can stand.
     local gateway="port"
-    local d=c.districts[5]
+    local d=c:cellAt(2,1)
     -- Buy a path of ground out to the haven district.
     for _=1,12 do
       local bought=false
@@ -292,26 +293,25 @@ function Walk.start(app,mode)
       end
       if d.owned or not bought then break end
     end
-    check(d.owned,"the edge district can be reached and bought: "..d.name)
-    local nope=select(2,c:build(c.firstSource.x+240,c.firstSource.y+240,"terminal"))
-    check(nope=="a haven stands on the edge: the estuary, the highway or the apron",
-      "a haven cannot be built inland")
+    check(d.owned,"the coastal district can be reached and bought: "..d.name)
+    local nope=select(2,c:build(c.firstSource.x+240,c.firstSource.y+240,"terminal","port"))
+    check(nope=="a harbour stands on the coast","a harbour cannot be built inland")
     -- Two clear spots inside the haven district, far enough apart that only
     -- track can span them.
     local function clear(px,py) return c:placementError(px,py)==nil end
     local tx,ty,jx,jy
-    for _,oy in ipairs({0,-140,140,-250,250}) do
-      local a,b=d.x+130,d.x+d.w-130
-      if clear(a,d.y+d.h/2+oy) and clear(b,d.y+d.h/2+oy) then
-        tx,ty,jx,jy=a,d.y+d.h/2+oy,b,d.y+d.h/2+oy; break
+    for _,ox in ipairs({0,90,-90,180,-180}) do
+      local a,b=d.x+130+ox,d.x+d.w-130+ox
+      if clear(a,d.y+90) and clear(b,d.y+90) then
+        tx,ty,jx,jy=a,d.y+90,b,d.y+90; break
       end
     end
-    check(tx~=nil,"the edge district has room for a haven and a terminus")
-    local t=assert(c:build(tx,ty,"terminal"))
+    check(tx~=nil,"the coastal district has room for a harbour and a terminus")
+    local before=c:havenCost(gateway)
+    local t=assert(c:build(tx,ty,"terminal",gateway))
     check(t.haven==gateway and t.commodity==nil,
-      "the haven opens onto the estuary and carries every trade")
-    check(select(2,c:build(tx,ty-320,"terminal"))=="naval port already has its haven",
-      "and one gateway takes one haven")
+      "the harbour opens onto the sea and carries every trade")
+    check(c:havenCost(gateway)>before,"and the next harbour on the same coast costs more")
     app.action("focusNode",t.id)
     check(findButton("demolish-node")~=nil,"the haven has an inspector")
     local j=assert(c:build(jx,jy,"junction"))
@@ -626,13 +626,13 @@ function Walk.update(app,mode,frame)
       c.money=99999
       c.obstacles={}
       c.licences.beer=true
-      local d=c.districts[5]
+      local d=c:cellAt(2,1)
       d.owned=true
-      local haven=assert(c:build(d.x+90,d.y+d.h/2,"terminal"))
-      local yard=assert(c:build(d.x+700,d.y+d.h/2,"manifold"))
+      local haven=assert(c:build(d.x+120,d.y+90,"terminal","port"))
+      local yard=assert(c:build(d.x+760,d.y+120,"manifold"))
       assert(c:layPipe(haven.id,yard.id,"beer",6,true))
       local pub=assert(c:addClient("pub"))
-      pub.x,pub.y=yard.x+40,yard.y+230
+      pub.x,pub.y=yard.x+40,yard.y+250
       pub.demand=4
       assert(c:layPipe(yard.id,pub.id,"beer",4))
       c:refresh()

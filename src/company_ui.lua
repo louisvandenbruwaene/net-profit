@@ -270,23 +270,33 @@ local function inspectSource(n,y)
   row("Spare capacity",spare.." "..n.commodity,y+64,
     maxed and P.bad or spare>0 and P.good or P.textDim)
   row("Maximum output",capacity.." "..n.commodity.." / day",y+90,P.good)
-  row("Well depth","level "..level.." / "..City.sourceMaxLevel,y+116)
-  row("Wholesale income","+$"..city:sourceIncome(n).." / day",y+142,P.good)
-  row("Upkeep","-$"..(trade.sourceUpkeep+(level-1)*2).." / day",y+168,P.warn)
-  row("Ports",city.g:degree(n.id).." / "..n.ports,y+194)
-  if level<City.sourceMaxLevel then
+  -- The ground's own ceiling, which no amount of money moves. It is the reason
+  -- the map has to keep going: more supply means further out.
+  local ceiling=n.cap or capacity
+  row("What this ground gives",ceiling.." / day",y+116,
+    capacity>=ceiling and P.warn or P.textDim,
+    "A deposit has a daily limit and the works on it cannot pass it. Deposits "..
+    "further from the old city give more. This one is "..
+    (capacity>=ceiling and "worked out." or ("worked to "..capacity.." of "..ceiling..".")))
+  row("Well depth","level "..level.." / "..City.sourceMaxLevel,y+142)
+  row("Wholesale income","+$"..city:sourceIncome(n).." / day",y+168,P.good)
+  row("Upkeep","-$"..(trade.sourceUpkeep+(level-1)*2).." / day",y+194,P.warn)
+  row("Ports",city.g:degree(n.id).." / "..n.ports,y+220)
+  if level<City.sourceMaxLevel and capacity<ceiling then
     local cost=city:sourceUpgradeCost(n)
     button("upgrade-source","Deepen well   +"..trade.upgradeStep.." output   $"..cost,
-      M,y+232,CW,38,function() act("upgradeSource",n.id) end,city.money>=cost,
+      M,y+258,CW,38,function() act("upgradeSource",n.id) end,city.money>=cost,
       "Adds "..trade.upgradeStep.." output to this well. No new route, no tie-in, no new ground and no second lot of upkeep -- which is why deepening beats a second well until the levels get steep.",
       false,P.good,maxed and city.money>=cost)
     text("A new "..n.commodity.." well costs $"..city:sourceCost(n.commodity)..
-         " plus the route to reach it.",M,y+278,"small",P.textDim,CW)
-    y=y+310
+         " plus the route to reach it.",M,y+304,"small",P.textDim,CW)
+    y=y+336
   else
-    text("This well is at full yield. Sink another, or buy ground with a seam on it.",
-      M,y+236,"body",P.textDim,CW)
-    y=y+274
+    text(capacity>=ceiling
+      and ("This ground is worked out at "..ceiling.." a day. Deposits further from the old city give more.")
+      or "This well is at full depth. Sink another, or buy ground with a richer deposit.",
+      M,y+262,"body",P.textDim,CW)
+    y=y+300
   end
   if n.seam then
     text("Sunk on a seam: yield multiplied at the wellhead.",M,y,"small",P.energy,CW)
@@ -503,6 +513,23 @@ local function buildPanel()
     end
   end
   y=y+(advanced and 174 or 58)+8
+  -- Which door the haven tool builds. Three small buttons that only appear
+  -- while the tool is in hand, so the panel is no wider the rest of the time.
+  if state.tool=="terminal" then
+    for i,key in ipairs(City.GATEWAYS) do
+      local spec=City.HAVENS[key]
+      local bx=M+(i-1)*102
+      local kind=state.havenKind or "port"
+      button("haven-"..key,"",bx,y,96,46,function() state.havenKind=key end,
+        city.money>=city:havenCost(key),
+        spec.name..": "..spec.blurb..". Freight x"..string.format("%.2f",spec.import)..
+        (spec.gate=="coast" and ", coast only." or ", anywhere you hold."),
+        kind==key,P.energy)
+      text(({port="Harbour",highway="Road head",airfield="Air freight"})[key],bx+8,y+6,"tiny",P.text)
+      text("$"..city:havenCost(key),bx+8,y+24,"small",P.textDim)
+    end
+    y=y+56
+  end
   button("advanced",advanced and "Less equipment" or "More equipment: treatment, valves, freight",
     M,y,CW,32,function() state.advanced=not advanced end,true,"Show or hide specialist structures")
   y=y+48
@@ -804,31 +831,72 @@ local function mapTab()
     local d=city.districts[state.district]
     if d then
       text(d.name,M,y,"mid",P.energy)
-      text(E.districtStories[state.district],M,y+28,"small",P.textDim,CW)
+      text(E.districtStory(city,state.district),M,y+28,"small",P.textDim,CW)
       y=y+100
     end
   end
-  heading("DISTRICTS",y)
-  local owned=#city:ownedDistricts()
-  text(owned.." of "..#city.districts.." held",M+CW-150,y,"small",P.textDim,150,"right")
+  heading("GROUND",y)
+  local owned=city:ownedDistricts()
+  text(#owned.." held",M+CW-150,y,"small",P.textDim,150,"right")
   y=y+28
-  for i,d in ipairs(city.districts) do
-    local spec=City.DISTRICTS[i]
-    if d.owned then
-      button("district-"..i,d.name.."   held",M,y,CW,30,function() act("focusDistrict",i) end,
-        true,"Your ground. Customers here lean "..
-        (next(spec.bias) and table.concat((function() local t={} for k in pairs(spec.bias) do t[#t+1]=k end table.sort(t) return t end)(),", ") or "mixed")..".",
-        state.district==i,P.good)
+
+  -- On an endless map a list of every district is not a list, it is a scroll.
+  -- What the player actually needs is what they hold and what they could buy
+  -- next, nearest first, and a count of the rest.
+  local forSale={}
+  for _,d in ipairs(city.districts) do
+    if not d.owned and city:districtAdjacent(d) then forSale[#forSale+1]=d end
+  end
+  table.sort(forSale,function(a,b)
+    local ca,cb=city:districtCost(a),city:districtCost(b)
+    if ca~=cb then return ca<cb end
+    return a.id<b.id
+  end)
+  table.sort(owned,function(a,b) return a.id<b.id end)
+
+  local function districtRow(d,forSaleRow)
+    local spec=d.spec or {}
+    local lean=(function()
+      local t={} for k in pairs(spec.bias or {}) do t[#t+1]=k end
+      table.sort(t) return #t>0 and table.concat(t,", ") or "mixed"
+    end)()
+    if not forSaleRow then
+      button("district-"..d.id,d.name.."   held",M,y,CW,30,
+        function() act("focusDistrict",d.id) end,true,
+        "Your ground, ring "..(d.ring or 0)..". Customers here lean "..lean..".",
+        state.district==d.id,P.good)
     else
-      local err=city:districtError(i)
+      local err=city:districtError(d.id)
       local cost=city:districtCost(d)
-      button("district-"..i,d.name.."   $"..cost,M,y,CW,30,
-        function() act("buyDistrict",i) end,not err,
+      button("district-"..d.id,d.name.."   $"..cost,M,y,CW,30,
+        function() act("buyDistrict",d.id) end,not err,
         err and (d.name..": "..err) or
-        ("Buy "..d.name..". Opens it for building and brings enquiries from the trades that live there."),
-        state.district==i,err and P.textFaint or P.energy)
+        ("Buy "..d.name..", ring "..(d.ring or 0)..". Customers here lean "..lean..
+         ". Deposits out here cap at "..City.depositCap("water",d.ring or 0).." water and "..
+         City.depositCap("oil",d.ring or 0).." oil a day."),
+        state.district==d.id,err and P.textFaint or P.energy)
     end
     y=y+34
+  end
+
+  local shown=0
+  for _,d in ipairs(owned) do
+    if shown<8 then districtRow(d,false); shown=shown+1 end
+  end
+  if #owned>shown then
+    text("and "..(#owned-shown).." more held",M,y,"small",P.textFaint,CW); y=y+22
+  end
+  y=y+8
+  heading("FOR SALE NEXT DOOR",y); y=y+26
+  shown=0
+  for _,d in ipairs(forSale) do
+    if shown<8 then districtRow(d,true); shown=shown+1 end
+  end
+  if #forSale>shown then
+    text("and "..(#forSale-shown).." more on the frontier",M,y,"small",P.textFaint,CW); y=y+22
+  end
+  if #forSale==0 then
+    text("Nothing adjacent is surveyed yet.",M,y,"small",P.textFaint,CW); y=y+22
   end
   line(y+8)
 
@@ -850,15 +918,17 @@ local function mapTab()
   line(py+10)
 
   heading("HAVENS",py+28)
-  text("Three ways in, along the edge of the map. One haven to each.",M,py+48,"small",P.textDim,CW)
+  text("Three ways into the city from outside it. Freight costs what it costs to carry.",M,py+48,"small",P.textDim,CW)
   local hy=py+72
   for _,key in ipairs(City.GATEWAYS) do
     local spec=City.HAVENS[key]
-    local built=city:havenOf(key)
-    row(spec.name,built and "open" or string.format("x%.2f",spec.import),hy,
-      built and P.good or P.energy,
+    local held=0
+    for _,n in ipairs(city.g:nodesOfKind("terminal")) do if n.haven==key then held=held+1 end end
+    row(spec.name,held>0 and (held.." open") or ("$"..city:havenCost(key)),hy,
+      held>0 and P.good or P.energy,
       spec.blurb..". Freight through it costs x"..string.format("%.2f",spec.import)..
-      " of list. Build the haven on the strip of ground beside it, then run track inland.")
+      " of list. "..(spec.gate=="coast" and "It can only stand within 150m of the coast."
+        or "It can stand on any ground you hold.").." Run track inland from it.")
     hy=hy+24
   end
   line(hy+12)

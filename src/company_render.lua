@@ -297,7 +297,7 @@ local function drawDistrictChrome(city, cam, state)
       lg.setColor(P.with(hot and P.energy or buyable and P.good or P.textFaint, hot and 0.9 or 0.45))
       lg.setLineWidth(hot and 2 or 1)
       lg.rectangle("line", x + 2, y + 2, w - 4, h - 4)
-      if cam.scale > 0.22 then
+      if cam.scale > 0.19 then
         local cx, cy = x + w / 2, y + h / 2
         label(string.upper(d.name), cx, cy - 20, buyable and P.text or P.textDim, R.fonts.body)
         label("$" .. city:districtCost(d), cx, cy + 4,
@@ -384,129 +384,50 @@ end
 -- -- is somewhere you can see rather than somewhere you have to be told about.
 --------------------------------------------------------------------------------
 
-local function gatewayBand(city, cam, key)
-  local b = city.bounds
-  local depth = 260
-  local hv = City.HAVENS[key]
-  if hv.side == "left" then
-    local x0, y0 = cam:toScreen(b.x - depth, b.y - depth)
-    local x1, y1 = cam:toScreen(b.x, b.y + b.h + depth)
-    return x0, y0, x1 - x0, y1 - y0
-  elseif hv.side == "top" then
-    local x0, y0 = cam:toScreen(b.x - depth, b.y - depth)
-    local x1, y1 = cam:toScreen(b.x + b.w + depth, b.y)
-    return x0, y0, x1 - x0, y1 - y0
+-- The sea is drawn from the coast up to whatever the camera can see, because it
+-- has no far shore. A harbour has to stand on the strip of city just below the
+-- line, so the line is drawn as something you can aim at.
+local function drawSea(city, cam, state)
+  local left, top = cam:toWorld(cam.vx, cam.vy)
+  local right = cam:toWorld(cam.vx + cam.vw, cam.vy)
+  if top > 0 then return end
+  local x0, y0 = cam:toScreen(left - 200, top - 200)
+  local x1, y1 = cam:toScreen(right + 200, 0)
+  lg.setColor(0.07, 0.14, 0.22, 1)
+  lg.rectangle("fill", x0, y0, x1 - x0, y1 - y0)
+  -- Swell, drawn as long lines running with the coast rather than across it.
+  lg.setColor(0.30, 0.48, 0.72, 0.26)
+  lg.setLineWidth(math.max(1, 1.6 * cam.scale))
+  local rows = 7
+  for i = 1, rows do
+    local wy = -((i / rows) ^ 1.5) * (0 - (top - 200))
+    local pts = {}
+    for j = 0, 28 do
+      local t = j / 28
+      local wx = left - 200 + (right - left + 400) * t
+      local sx, sy = cam:toScreen(wx, wy + math.sin(t * math.pi * 5 + i * 1.7) * 26)
+      pts[#pts + 1] = sx; pts[#pts + 1] = sy
+    end
+    lg.line(pts)
   end
-  local x0, y0 = cam:toScreen(b.x - depth, b.y + b.h)
-  local x1, y1 = cam:toScreen(b.x + b.w + depth, b.y + b.h + depth)
-  return x0, y0, x1 - x0, y1 - y0
-end
+  -- The coastline itself.
+  local cx0, cy = cam:toScreen(left - 200, 0)
+  local cx1 = cam:toScreen(right + 200, 0)
+  lg.setColor(P.with({ 0.40, 0.64, 0.88 }, 0.6)); lg.setLineWidth(2)
+  lg.line(cx0, cy, cx1, cy)
 
-local function drawGateways(city, cam, state)
-  local b = city.bounds
-  for _, key in ipairs(City.GATEWAYS) do
-    local hv = City.HAVENS[key]
-    local x, y, w, h = gatewayBand(city, cam, key)
-    local vertical = hv.side == "left"
-    if key == "port" then
-      -- An estuary: water, and the tide line where it meets the city.
-      lg.setColor(0.08, 0.17, 0.27, 0.95)
-      lg.rectangle("fill", x, y, w, h)
-      lg.setColor(0.30, 0.48, 0.72, 0.42)
-      lg.setLineWidth(math.max(1, 2 * cam.scale))
-      for i = 1, 5 do
-        local pts, cx = {}, x + w * (i / 6)
-        for j = 0, 24 do
-          local t = j / 24
-          pts[#pts + 1] = cx + math.sin(t * math.pi * 4 + i) * w * 0.045
-          pts[#pts + 1] = y + h * t
-        end
-        lg.line(pts)
-      end
-    elseif key == "highway" then
-      -- A trunk road: carriageway, hard shoulder, and a dashed centre line.
-      lg.setColor(0.13, 0.13, 0.15, 0.95)
-      lg.rectangle("fill", x, y, w, h)
-      lg.setColor(0.42, 0.42, 0.46, 0.5)
-      lg.setLineWidth(math.max(1, 2 * cam.scale))
-      lg.line(x, y + h * 0.30, x + w, y + h * 0.30)
-      lg.line(x, y + h * 0.78, x + w, y + h * 0.78)
-      lg.setColor(0.92, 0.86, 0.45, 0.55)
-      local dash = math.max(10, 60 * cam.scale)
-      local yy = y + h * 0.54
-      for dx = x, x + w, dash * 2 do lg.line(dx, yy, math.min(x + w, dx + dash), yy) end
-    else
-      -- An apron: runway, threshold bars, centreline.
-      lg.setColor(0.11, 0.12, 0.14, 0.95)
-      lg.rectangle("fill", x, y, w, h)
-      lg.setColor(0.55, 0.57, 0.62, 0.45)
-      lg.setLineWidth(math.max(1, 2 * cam.scale))
-      lg.rectangle("line", x + w * 0.06, y + h * 0.26, w * 0.88, h * 0.44)
-      lg.setColor(0.85, 0.87, 0.92, 0.45)
-      local dash = math.max(8, 50 * cam.scale)
-      local yy = y + h * 0.48
-      for dx = x + w * 0.10, x + w * 0.92, dash * 2 do
-        lg.line(dx, yy, math.min(x + w * 0.92, dx + dash), yy)
-      end
-    end
-
-    -- The strip of city a haven may stand on. Drawn only while the tool is in
-    -- hand: the rest of the time it is one more band of colour on the map.
-    if state and state.tool == "terminal" and not city:havenOf(key) then
-      local rx, ry, rw, rh
-      if vertical then
-        rx, ry = cam:toScreen(b.x, b.y)
-        rw, rh = City.havenReach * cam.scale, b.h * cam.scale
-      elseif hv.side == "top" then
-        rx, ry = cam:toScreen(b.x, b.y)
-        rw, rh = b.w * cam.scale, City.havenReach * cam.scale
-      else
-        rx, ry = cam:toScreen(b.x, b.y + b.h - City.havenReach)
-        rw, rh = b.w * cam.scale, City.havenReach * cam.scale
-      end
-      lg.setColor(P.with(P.good, 0.12)); lg.rectangle("fill", rx, ry, rw, rh)
-      lg.setColor(P.with(P.good, 0.55)); lg.setLineWidth(1)
-      lg.rectangle("line", rx, ry, rw, rh)
-    end
-
-    -- The shoreline, kerb or fence: the line the city actually stops at, drawn
-    -- in the gateway's own colour so the boundary reads as a frontier rather
-    -- than as the edge of a drawing.
-    lg.setColor(P.with(key == "port" and {0.34, 0.56, 0.82} or {0.55, 0.56, 0.62}, 0.45))
-    lg.setLineWidth(2)
-    if vertical then
-      local ex, ey0 = cam:toScreen(b.x, b.y)
-      local _, ey1 = cam:toScreen(b.x, b.y + b.h)
-      lg.line(ex, ey0, ex, ey1)
-    else
-      local ex0, ey = cam:toScreen(b.x, hv.side == "top" and b.y or b.y + b.h)
-      local ex1 = cam:toScreen(b.x + b.w, b.y)
-      lg.line(ex0, ey, ex1, ey)
-    end
-
-    -- The name of what is on the far side, placed on that side. It slides
-    -- along the band to stay on screen but is never pushed across the line into
-    -- the city, where it would sit on top of the very structures it explains.
-    -- When there is no room left outside the boundary it is simply not drawn:
-    -- the band itself is still there to be seen.
-    if cam.scale > 0.16 then
-      local built = city:havenOf(key)
-      local ax, ay = cam:toScreen(city:gatewayAnchor(key))
-      local lx, ly
-      if vertical then
-        lx = math.min(ax - 86, ax - 40)
-        ly = math.max(cam.vy + 20, math.min(cam.vy + cam.vh - 20, ay))
-        if lx < cam.vx + 58 then lx = nil end
-      else
-        lx = math.max(cam.vx + 76, math.min(cam.vx + cam.vw - 76, ax))
-        ly = ay + (hv.side == "top" and -22 or 24)
-        if ly < cam.vy + 12 or ly > cam.vy + cam.vh - 12 then lx = nil end
-      end
-      if lx then
-        label(hv.name .. (built and "  OPEN" or string.format("  x%.2f", hv.import)),
-          lx, ly, built and P.good or P.energy, R.fonts.tiny)
-      end
-    end
+  -- Where a harbour may stand, shown only while the tool is in hand.
+  if state and state.tool == "terminal" and (state.havenKind or "port") == "port" then
+    local sx, sy = cam:toScreen(left - 200, 0)
+    local ex, ey = cam:toScreen(right + 200, City.havenReach)
+    lg.setColor(P.with(P.good, 0.12)); lg.rectangle("fill", sx, sy, ex - sx, ey - sy)
+    lg.setColor(P.with(P.good, 0.5)); lg.setLineWidth(1)
+    lg.rectangle("line", sx, sy, ex - sx, ey - sy)
+  end
+  if cam.scale > 0.16 then
+    local _, ly = cam:toScreen(0, -150)
+    label("THE SEA", cam.vx + cam.vw / 2, math.max(cam.vy + 16, ly),
+      P.with({ 0.55, 0.75, 0.95 }, 0.8), R.fonts.tiny)
   end
 end
 
@@ -538,7 +459,7 @@ function Draw.world(city, cam, state)
   local _,height = R.dimensions()
   lg.setScissor(cam.vx, 80, cam.vw, height-138)
   R.drawGrid(cam, city.bounds.w, city.bounds.h)
-  drawGateways(city, cam, state)
+  drawSea(city, cam, state)
   drawDistrictGround(city, cam)
 
   for _, o in ipairs(city.obstacles) do
@@ -820,8 +741,10 @@ function Draw.world(city, cam, state)
     else
       err = city:placementError(wx,wy)
       cost = city:nodeCost(state.tool)
-      if not err and state.tool=="terminal" then
-        err = select(2, city:havenSite(wx,wy))
+      if state.tool=="terminal" then
+        local kind = state.havenKind or "port"
+        cost = city:havenCost(kind)
+        if not err then err = select(2, city:havenSite(wx,wy,kind)) end
       end
     end
     local color = (err or cost>city.money) and P.bad or P.good
