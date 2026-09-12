@@ -98,8 +98,8 @@ function Draw.clientGlyph(kind, x, y, s)
   if kind == "factory" then
     -- A works: a shed with a stack. Two rectangles in one colour merge into
     -- one silhouette, which is the whole drawing.
-    lg.rectangle("fill", -3.2 * s, -13 * s, 3.2 * s, 11.5 * s)
-    lg.rectangle("fill", -4.2 * s, -13.6 * s, 5.2 * s, 1.8 * s, 0.4 * s)
+    lg.rectangle("fill", 4.8 * s, -11.5 * s, 3.6 * s, 10 * s)
+    lg.rectangle("fill", 3.8 * s, -12.2 * s, 5.6 * s, 1.8 * s, 0.4 * s)
     lg.rectangle("fill", -10 * s, -2 * s, 20 * s, 10 * s, 0.8 * s)
   elseif kind == "pub" then
     -- A tankard. The handle is a single arc, not a ring with a hole in it.
@@ -107,19 +107,24 @@ function Draw.clientGlyph(kind, x, y, s)
     stroke(20 * s, 0.13)
     lg.arc("line", "open", 4 * s, -1 * s, 4.4 * s, -math.pi * 0.46, math.pi * 0.46)
   elseif kind == "workshop" then
-    -- The saw-tooth roof every light-industrial shed in the world has.
-    lg.polygon("fill", -9 * s, 8 * s, -9 * s, -7 * s, -3 * s, -1 * s,
-                       -3 * s, -7 * s, 3 * s, -1 * s, 3 * s, -7 * s,
-                        9 * s, -1 * s, 9 * s, 8 * s)
+    -- The saw-tooth roof every light-industrial shed in the world has: the
+    -- shed, and one triangle per tooth, all of them convex.
+    lg.rectangle("fill", -9.4 * s, -1.4 * s, 18.8 * s, 9.4 * s, 0.4 * s)
+    for i = 0, 2 do
+      local bx = (-9.4 + i * 6.3) * s
+      lg.polygon("fill", bx, -1 * s, bx, -7.6 * s, bx + 6.3 * s, -1 * s)
+    end
   elseif kind == "estate" then
     -- Two flat-roofed blocks: housing stacked rather than spread, and nothing
     -- like the house or the saw-tooth shed in outline.
     lg.rectangle("fill", -9.5 * s, -9.5 * s, 9 * s, 17.5 * s, 0.6 * s)
     lg.rectangle("fill", 1 * s, -3.5 * s, 8.5 * s, 11.5 * s, 0.6 * s)
   else
-    -- A house: a pitched roof on four walls, and nothing else.
-    lg.polygon("fill", -9 * s, 8 * s, -9 * s, -1 * s, 0, -9.5 * s,
-                        9 * s, -1 * s, 9 * s, 8 * s)
+    -- A house: walls, and a roof that overhangs them. Two convex pieces in one
+    -- colour, because a concave outline filled in one go comes out of LOVE's
+    -- triangulator with a corner sliced off.
+    lg.rectangle("fill", -7.4 * s, -2.8 * s, 14.8 * s, 10.8 * s, 0.4 * s)
+    lg.polygon("fill", -10.6 * s, -2.4 * s, 0, -10 * s, 10.6 * s, -2.4 * s)
   end
   lg.pop()
 end
@@ -141,37 +146,37 @@ function Draw.structureGlyph(kind, x, y, s)
   stroke(span, 0.1)
 
   if kind == "pump" then
-    -- A casing with the impeller in it, pointing the way it pushes.
-    lg.circle("line", 0, 0, 7 * s)
-    lg.polygon("fill", -3 * s, -4 * s, 4.6 * s, 0, -3 * s, 4 * s)
-    lg.line(-10 * s, 0, -7 * s, 0)
-    lg.line(7 * s, 0, 10 * s, 0)
+    -- A pump on a line: the round casing, the motor bolted on top.
+    lg.rectangle("fill", -10 * s, -1.6 * s, 20 * s, 3.2 * s, 0.8 * s)
+    lg.circle("fill", 0, 0, 6.4 * s)
+    lg.setColor(P.bg)
+    lg.circle("fill", 0, 0, 3.4 * s)
+    lg.setColor(r, g, b, a)
+    lg.rectangle("fill", -3.4 * s, -10.5 * s, 6.8 * s, 4.6 * s, 0.6 * s)
   elseif kind == "tower" then
-    -- A tank up on splayed legs: a water tower, from any distance.
-    lg.rectangle("fill", -7 * s, -10 * s, 14 * s, 7.5 * s, 1 * s)
-    lg.line(-4.6 * s, -2.5 * s, -7.4 * s, 9 * s)
-    lg.line(4.6 * s, -2.5 * s, 7.4 * s, 9 * s)
+    -- A tank up a column on a footing: a water tower.
+    lg.rectangle("fill", -8 * s, -11 * s, 16 * s, 7 * s, 1.6 * s)
+    lg.rectangle("fill", -2.2 * s, -4.6 * s, 4.4 * s, 11.6 * s)
+    lg.rectangle("fill", -7 * s, 7 * s, 14 * s, 2.2 * s, 0.8 * s)
   elseif kind == "gate" then
-    -- A valve: two seats closing on the line, and the wheel you close them
-    -- with. The wheel is what says a human sets this one by hand.
-    lg.line(-10 * s, 0, -4.4 * s, 0)
-    lg.line(4.4 * s, 0, 10 * s, 0)
-    lg.polygon("fill", -4.4 * s, -6 * s, -4.4 * s, 6 * s, 0, 0)
-    lg.polygon("fill", 4.4 * s, -6 * s, 4.4 * s, 6 * s, 0, 0)
-    lg.line(0, -4 * s, 0, -8.5 * s)
-    lg.line(-4 * s, -9 * s, 4 * s, -9 * s)
+    -- A valve on a line, with the handwheel you set it by.
+    lg.rectangle("fill", -10 * s, -1.6 * s, 20 * s, 3.2 * s, 0.8 * s)
+    lg.rectangle("fill", -4.6 * s, -4.4 * s, 9.2 * s, 8.8 * s, 1 * s)
+    lg.rectangle("fill", -1.2 * s, -9.6 * s, 2.4 * s, 5.4 * s)
+    stroke(span, 0.085)
+    lg.circle("line", 0, -10.4 * s, 3.6 * s)
   elseif kind == "depot" then
     -- Crates: what a depot is full of.
     lg.rectangle("fill", -9 * s, -0.5 * s, 8.4 * s, 8.4 * s, 0.6 * s)
     lg.rectangle("fill", 0.6 * s, -0.5 * s, 8.4 * s, 8.4 * s, 0.6 * s)
     lg.rectangle("fill", -4.2 * s, -9.4 * s, 8.4 * s, 8.4 * s, 0.6 * s)
   elseif kind == "terminal" then
-    -- A crane on a quay: the generic haven, whichever door it happens to be.
-    lg.rectangle("fill", -10 * s, 7 * s, 20 * s, 2.4 * s, 0.8 * s)
-    lg.rectangle("fill", -4.6 * s, -9 * s, 2.6 * s, 16 * s, 0.6 * s)
-    lg.rectangle("fill", -4.6 * s, -9 * s, 13.6 * s, 2.4 * s, 0.6 * s)
-    lg.line(7.8 * s, -6.6 * s, 7.8 * s, 0)
-    lg.rectangle("fill", 5.4 * s, 0, 4.8 * s, 4 * s, 0.6 * s)
+    -- A gantry over a load: what stands at every door into the city, whether
+    -- the freight arrives by sea, by air or by road.
+    lg.rectangle("fill", -10 * s, -9.5 * s, 20 * s, 2.6 * s, 0.6 * s)
+    lg.rectangle("fill", -9.4 * s, -6.9 * s, 2.6 * s, 15.4 * s)
+    lg.rectangle("fill", 6.8 * s, -6.9 * s, 2.6 * s, 15.4 * s)
+    lg.rectangle("fill", -3.6 * s, 1.6 * s, 7.2 * s, 6.9 * s, 0.6 * s)
   elseif kind == "manifold" then
     -- Six ports on one hub, drawn as six ports on one hub.
     for i = 0, 5 do
@@ -227,30 +232,11 @@ local function drawDistricts(city, cam, state)
   for _, d in ipairs(city.districts or {}) do
     local x, y = cam:toScreen(d.x, d.y)
     local w, h = d.w * cam.scale, d.h * cam.scale
-    -- Unbadged background buildings are deliberately quieter than customers.
+    -- A district is a plot of ground, drawn as one. It used to carry rows of
+    -- decorative houses and a street cross, which is scenery the player cannot
+    -- touch competing for attention with the icons they can.
     lg.setColor(d.owned and {0.075,0.12,0.13,0.8} or {0.09,0.11,0.14,0.5})
     lg.rectangle("fill",x+4,y+4,w-8,h-8,8)
-    if x+w>cam.vx and x<cam.vx+cam.vw and y+h>130 and y<cam.vy+cam.vh then
-      for col=1,5 do
-        for row=1,3 do
-          local px,py=x+col*w/6,y+row*h/4
-          lg.setColor(P.with(P.textDim,d.owned and 0.09 or 0.04)); lg.setLineWidth(math.max(1,3*cam.scale))
-          lg.line(px-w/14,py+h/22,px+w/14,py+h/22)
-          for lot=1,5 do
-            local lx,ly=px+(lot-3)*24*cam.scale,py+((lot+d.id)%2)*12*cam.scale
-            local bw,bh=(14+(lot%2)*5)*cam.scale,(18+(d.id%3)*4)*cam.scale
-            lg.setColor(0.02,0.04,0.055,0.3); lg.rectangle("fill",lx+3*cam.scale,ly+3*cam.scale,bw,bh,2)
-            lg.setColor(0.25,0.30+(d.id%2)*0.04,0.32,d.owned and 0.3 or 0.12)
-            lg.rectangle("fill",lx,ly,bw,bh,2)
-            lg.setColor(0.41,0.46,0.45,d.owned and 0.18 or 0.08)
-            lg.line(lx,ly,lx+bw,ly,lx+bw,ly+bh)
-          end
-        end
-      end
-    end
-    lg.setColor(P.with(P.textDim,d.owned and 0.12 or 0.06)); lg.setLineWidth(math.max(2,7*cam.scale))
-    lg.line(x+12,y+h/2,x+w-12,y+h/2)
-    lg.line(x+w/2,y+12,x+w/2,y+h-12)
     if d.owned then
       lg.setColor(P.with(P.panelEdge, 0.55))
       lg.rectangle("line", x, y, w, h)
@@ -302,46 +288,41 @@ local function drawDistricts(city, cam, state)
   end
 end
 
--- What the ground is, drawn as the thing it is: trees for parkland, water for
--- the river, boulders for bedrock. Few shapes and large ones, so the ground
--- reads at a glance from across the city, and all of them inside the circle
--- the game will not let you build in.
+-- What the ground is, drawn as one icon standing in the middle of it: a tree
+-- for parkland, water for the river, a boulder for bedrock. One icon each,
+-- because a scatter of five little ones is texture rather than a symbol, and
+-- texture is what makes a map hard to read.
 local function scenery(o, x, y, r)
   local spec = City.OBSTACLES[o.kind] or {}
   local c = spec.color or { 0.3, 0.3, 0.3 }
+  local s = r * 0.58
   if o.kind == "park" then
-    local h = r * 0.38
-    for _, p in ipairs({ {0, -0.36}, {-0.44, 0.02}, {0.44, 0.02},
-                         {-0.20, 0.42}, {0.24, 0.40} }) do
-      local tx, ty = x + p[1] * r, y + p[2] * r
-      lg.setColor(c[1] * 0.55, c[2] * 0.55, c[3] * 0.5, 0.9)
-      lg.rectangle("fill", tx - math.max(0.5, h * 0.09), ty + h * 0.10,
-        math.max(1, h * 0.18), h * 0.34)
-      lg.setColor(c[1] * 0.8, c[2] * 1.05, c[3] * 0.85, 0.95)
-      lg.polygon("fill", tx, ty - h * 0.92,
-        tx - h * 0.5, ty + h * 0.16, tx + h * 0.5, ty + h * 0.16)
-    end
+    -- A tree: brown trunk, green crown.
+    lg.setColor(0.34, 0.24, 0.15, 0.95)
+    lg.rectangle("fill", x - s * 0.10, y + s * 0.06, s * 0.20, s * 0.58, s * 0.05)
+    lg.setColor(0.24, 0.58, 0.33, 0.95)
+    lg.circle("fill", x, y - s * 0.26, s * 0.5)
   elseif o.kind == "river" then
-    lg.setColor(c[1], c[2], c[3], 0.5)
-    lg.setLineWidth(math.max(1.2, r * 0.06))
-    for i = -1, 1 do
-      local yy = y + i * r * 0.4
-      local half = math.sqrt(math.max(0, r * r - (yy - y) ^ 2)) * 0.78
+    -- Water: the two-wave mark, and nothing else.
+    lg.setColor(c[1], c[2], c[3], 0.75)
+    lg.setLineWidth(math.max(1.4, s * 0.16))
+    for i = 0, 1 do
+      local yy = y + (i - 0.5) * s * 0.62
       local pts = {}
-      for j = 0, 12 do
-        local t = j / 12
-        pts[#pts + 1] = x - half + 2 * half * t
-        pts[#pts + 1] = yy + math.sin(t * math.pi * 2 + i) * r * 0.09
+      for j = 0, 16 do
+        local t = j / 16
+        pts[#pts + 1] = x - s + 2 * s * t
+        pts[#pts + 1] = yy + math.sin(t * math.pi * 2) * s * 0.2
       end
       lg.line(pts)
     end
   else
-    for _, p in ipairs({ {-0.28, -0.12, 0.5}, {0.3, 0.1, 0.4}, {-0.08, 0.44, 0.32} }) do
-      local bx, by, bs = x + p[1] * r, y + p[2] * r, r * p[3]
-      lg.setColor(c[1] * 1.5, c[2] * 1.5, c[3] * 1.5, 0.8)
-      lg.polygon("fill", bx - bs * 0.6, by + bs * 0.4,
-                         bx - bs * 0.08, by - bs * 0.5, bx + bs * 0.6, by + bs * 0.4)
-    end
+    -- A boulder: angular and taller than it is wide at the peak, so it reads
+    -- as rock rather than as a hill.
+    lg.setColor(c[1] * 1.7, c[2] * 1.7, c[3] * 1.7, 0.85)
+    lg.polygon("fill", x - s * 0.82, y + s * 0.56, x - s * 0.5, y - s * 0.34,
+                       x - s * 0.06, y - s * 0.9, x + s * 0.46, y - s * 0.42,
+                       x + s * 0.82, y + s * 0.56)
   end
 end
 
