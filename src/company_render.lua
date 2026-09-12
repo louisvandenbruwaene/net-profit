@@ -199,6 +199,18 @@ function Draw.structureGlyph(kind, x, y, s)
     lg.rectangle("fill", -9.4 * s, -6.9 * s, 2.6 * s, 15.4 * s)
     lg.rectangle("fill", 6.8 * s, -6.9 * s, 2.6 * s, 15.4 * s)
     lg.rectangle("fill", -3.6 * s, 1.6 * s, 7.2 * s, 6.9 * s, 0.6 * s)
+  elseif kind == "works" then
+    -- A works: a shed with a saw-tooth roof and a stack, which is what a
+    -- factory looks like to everybody. It is deliberately close to the customer
+    -- factory glyph, because they are the same kind of building -- one the
+    -- company owns and one it sells to.
+    lg.rectangle("fill", -9.6 * s, -1.6 * s, 19.2 * s, 9.6 * s, 0.6 * s)
+    for i = 0, 2 do
+      local bx = (-9.6 + i * 6.4) * s
+      lg.polygon("fill", bx, -1.2 * s, bx, -7.4 * s, bx + 6.4 * s, -1.2 * s)
+    end
+    lg.rectangle("fill", 5.4 * s, -11.4 * s, 3 * s, 10 * s)
+    lg.rectangle("fill", 4.6 * s, -12.4 * s, 4.6 * s, 1.4 * s, 0.35 * s)
   elseif kind == "exchange" then
     -- A hub: a depot building with four spurs running off it to the streets.
     -- Nothing else in the set has arms ending in dots, which is what says "this
@@ -632,6 +644,7 @@ function Draw.world(city, cam, state)
     -- it names is worse than no label, and a pip under a pixel is grit.
     local named, fine = r >= 7.5, r >= 10
     local spec = n.commodity and Graph.COMMODITIES[n.commodity]
+      or (n.makes and Graph.COMMODITIES[n.makes])
     local color = spec and spec.color or Graph.KINDS[n.kind].color
     local served = city.served[n.id] or 0
     if n.prospect then color = P.textDim end
@@ -726,6 +739,15 @@ function Draw.world(city, cam, state)
           local _, bill = city:importBill()
           label(landed > 0 and (landed .. " landed  -$" .. math.floor((bill[n.id] or 0) + 0.5))
             or "no freight moving", x, y-r-21, landed > 0 and P.textDim or P.warn, R.fonts.tiny)
+        end
+      elseif n.kind == "works" then
+        local recipe = City.RECIPES[n.recipe or ""]
+        if named and recipe then
+          label((n.ready or 0) .. "/" .. recipe.rate .. " " .. recipe.makes, x, y+r+6,
+            (n.ready or 0) >= recipe.rate and P.good or (n.ready or 0) > 0 and P.warn or P.bad)
+        end
+        if cam.scale > 0.6 and recipe then
+          label(recipe.name, x, y-r-21, P.textDim, R.fonts.tiny)
         end
       elseif n.kind == "depot" then
         if named then

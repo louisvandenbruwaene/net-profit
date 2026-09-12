@@ -15,7 +15,8 @@ end
 -- written against.
 local function well(c,x,y,commodity)
   c.deposits[#c.deposits+1]=
-    {x=x,y=y,commodity=commodity or "water",taken=false,yield=1,discount=1}
+    {x=x,y=y,commodity=commodity or "water",taken=false,yield=1,discount=1,
+     cap=City.depositCap(commodity or "water",0)}
   return c:buySource(commodity or "water",x,y)
 end
 local function supply(c)
@@ -444,6 +445,77 @@ do
   local report=c:endDay()
   check(report.widened>=1 and c.money<cash,"the standing order widens the feed and bills for it")
   check(narrow.capMax>3,"the main into the hub is wider than it was")
+end
+
+print("a chain of works turns ground into something worth selling")
+do
+  local c=fresh()
+  c.money=1e9
+  c.obstacles={}
+  for _,cl in ipairs(c:clientList()) do c.g:killNode(cl.id) end
+  for _,d in ipairs(c.districts) do d.owned=true end
+  assert(c:buyLicence("beer"))
+  assert(c:buyLicence("power"))
+
+  -- Wheat only grows on farmland, which is somewhere out past the old city.
+  local farm
+  for _,d in ipairs(c.districts) do if d.spec and d.spec.key=="farm" then farm=d; break end end
+  check(farm~=nil,"the survey found farmland out there")
+  check(select(2,c:buySource("wheat",c.firstSource.x+300,c.firstSource.y))=="a farm belongs on farmland",
+    "and a farm will not stand anywhere else")
+
+  local bx,by=farm.x+300,farm.y+300
+  local field=assert(c:buySource("wheat",bx,by))
+  local mill=assert(c:build(bx+240,by,"works","maltings"))
+  local plant=assert(c:buySource("power",bx+360,by+200,"nuclear"))
+  local brew=assert(c:build(bx+480,by,"works","brewery"))
+  check(brew.makes=="beer","a brewery makes beer")
+  check(brew.wants.malt==8 and brew.wants.water==16,
+    "and asks for what its rated output would eat")
+
+  -- Wheat and power reach the maltings, but nothing else does yet.
+  assert(c:layPipe(field.id,mill.id,"wheat",10))
+  assert(c:layPipe(plant.id,mill.id,"power",10))
+  c:refresh()
+  check(mill.ready==0,"a works with an input missing makes nothing at all")
+
+  local dep
+  for _,d in ipairs(c.deposits) do
+    if d.commodity=="water" and c:districtAt(d.x,d.y)==farm then dep=d; break end
+  end
+  local well=assert(c:buySource("water",dep.x,dep.y))
+  local from=well.id
+  for _=1,10 do
+    local n=c.g.nodes[from]
+    local far=math.sqrt((n.x-mill.x)^2+(n.y-mill.y)^2)
+    if far<=300 then assert(c:layPipe(from,mill.id,"water",14)); break end
+    local j=assert(c:build(n.x+(mill.x-n.x)/far*280,n.y+(mill.y-n.y)/far*280,"junction"))
+    assert(c:layPipe(from,j.id,"water",14)); from=j.id
+  end
+  c:refresh()
+  check(mill.ready>0,"with water it starts making malt")
+
+  assert(c:layPipe(mill.id,brew.id,"malt",10))
+  assert(c:layPipe(plant.id,brew.id,"power",10))
+  assert(c:layPipe(mill.id,brew.id,"water",14))
+  c:refresh()
+  check(brew.ready>0,"and the brewery downstream starts making beer")
+  check(c.capacityBy.beer==brew.ready,"which is the city's whole beer supply")
+
+  -- The chain is solved in dependency order, so one pass gets it right.
+  local before=brew.ready
+  c:refresh()
+  check(brew.ready==before,"a second solve changes nothing: the order is topological")
+
+  -- And it reaches a customer.
+  local hub=assert(c:build(brew.x+240,brew.y,"exchange"))
+  assert(c:layPipe(brew.id,hub.id,"beer",8))
+  local pub=assert(c:addClient("pub"))
+  pub.x,pub.y=hub.x+180,hub.y+140
+  pub.demand=2
+  c:refresh()
+  check(c.served[pub.id]==2,"beer the company made itself reaches a pub through a hub")
+  check(c:expenseBreakdown().imports==0,"and not one unit of it was landed")
 end
 
 print("the game tells a customer why they are short, and the fix works")

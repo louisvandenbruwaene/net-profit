@@ -136,10 +136,10 @@ do
   -- Licences gate the trades.
   c.money = 5000
   ok("beer licence bought", c:buyLicence("beer"))
-  -- The licence buys the right to lay beer mains, not a brewery: nobody makes
-  -- beer, it is landed at a haven like everything the city does not produce.
+  -- The licence buys the right to lay beer mains and to run a brewery. Beer
+  -- still does not come out of the ground, whatever is done to it.
   local brewed, why = c:buySource("beer")
-  ok("but beer is landed, never brewed", brewed == nil and why == "beer is landed at a haven, not brewed")
+  ok("but beer is brewed, never dug", brewed == nil and why:find("brewery") ~= nil)
   ok("oil is still locked", c:buySource("oil") == nil)
 
   -- Water and oil come out of marked ground and nowhere else.

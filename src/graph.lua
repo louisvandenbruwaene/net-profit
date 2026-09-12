@@ -47,6 +47,10 @@ Graph.KINDS = {
   -- contract game above already owns "hub" in this table and a duplicate key in
   -- a Lua constructor silently wins. Do not rename either one.
   exchange = { name = "HUB",      ports = 8,  throughput = 999, cost = 1400, color = {0.45, 0.86, 0.72} },
+  -- A works takes things off the network and puts something else back on: a
+  -- customer and a well in one building. What it makes and what it wants are
+  -- written on the node by the city, so the solver never has to know a recipe.
+  works    = { name = "WORKS",    ports = 6,  throughput = 999, cost = 2000, color = {0.98, 0.72, 0.45} },
   -- A depot buffers a commodity overnight: surplus production goes in at the
   -- close, and the next day it feeds the network like a small second well.
   depot    = { name = "DEPOT",    ports = 3,  throughput = 999, cost = 190, color = {0.62, 0.56, 0.98} },
@@ -62,20 +66,79 @@ Graph.KINDS = {
 -- `mark` is the glyph the trade is drawn with everywhere: liquids get a
 -- droplet, electricity gets a bolt, because a thing that is not a liquid should
 -- not be drawn as one. `conduit` is what a link carrying it is called.
+-- Everything the city moves.
+--
+-- Three things decide what a commodity is. Its `form` decides how it travels:
+-- a liquid goes down a main, electricity goes down a cable, and a solid goes by
+-- road or by rail, because nobody pipes iron ore. Its `role` decides what it is
+-- for: a utility is sold to customers by the day, a feedstock is eaten by a
+-- works, and a material is spent on building things. And `order` is the order
+-- it appears in, everywhere, because `pairs` is not stable and a sidebar that
+-- shuffles itself is a sidebar nobody can learn.
 Graph.COMMODITIES = {
-  water = { name = "WATER", order = 1, mark = "drop", conduit = "MAIN",
+  -- Utilities: the four the company started with, and the one the works make.
+  water = { name = "WATER", order = 1, mark = "drop", conduit = "MAIN", form = "liquid", role = "utility",
             color = {0.38, 0.72, 0.98}, fill = {0.22, 0.52, 0.86} },
-  power = { name = "POWER", order = 2, mark = "bolt", conduit = "CABLE",
+  power = { name = "POWER", order = 2, mark = "bolt", conduit = "CABLE", form = "energy", role = "utility",
+            landed = false,
             color = {0.78, 0.56, 1.00}, fill = {0.58, 0.32, 0.92} },
-  beer  = { name = "BEER",  order = 3, mark = "drop", conduit = "MAIN",
+  beer  = { name = "BEER",  order = 3, mark = "drop", conduit = "MAIN", form = "liquid", role = "utility",
             color = {0.95, 0.76, 0.26}, fill = {0.88, 0.66, 0.14} },
-  oil   = { name = "OIL",   order = 4, mark = "drop", conduit = "MAIN",
+  oil   = { name = "OIL",   order = 4, mark = "drop", conduit = "MAIN", form = "liquid", role = "utility",
             color = {0.60, 0.62, 0.70}, fill = {0.045, 0.05, 0.07} },
+  food  = { name = "FOOD",  order = 5, mark = "box",  conduit = "ROAD", form = "solid",  role = "utility",
+            color = {0.96, 0.55, 0.42}, fill = {0.78, 0.36, 0.26} },
+
+  -- Feedstock: what the works eat.
+  wheat = { name = "WHEAT", order = 10, mark = "box", conduit = "ROAD", form = "solid", role = "feed",
+            color = {0.90, 0.78, 0.38}, fill = {0.72, 0.60, 0.22} },
+  malt  = { name = "MALT",  order = 11, mark = "box", conduit = "ROAD", form = "solid", role = "feed",
+            color = {0.82, 0.62, 0.34}, fill = {0.62, 0.44, 0.20} },
+  timber= { name = "TIMBER",order = 12, mark = "box", conduit = "ROAD", form = "solid", role = "feed",
+            color = {0.52, 0.72, 0.44}, fill = {0.32, 0.50, 0.28} },
+  ore   = { name = "ORE",   order = 13, mark = "box", conduit = "ROAD", form = "solid", role = "feed",
+            color = {0.72, 0.50, 0.42}, fill = {0.50, 0.32, 0.26} },
+  coke  = { name = "COKE",  order = 14, mark = "box", conduit = "ROAD", form = "solid", role = "feed",
+            color = {0.46, 0.46, 0.52}, fill = {0.20, 0.20, 0.24} },
+  rock  = { name = "ROCK",  order = 15, mark = "box", conduit = "ROAD", form = "solid", role = "feed",
+            landed = false,
+            color = {0.62, 0.60, 0.66}, fill = {0.40, 0.38, 0.44} },
+  sand  = { name = "SAND",  order = 16, mark = "box", conduit = "ROAD", form = "solid", role = "feed",
+            color = {0.90, 0.84, 0.62}, fill = {0.72, 0.66, 0.44} },
+  cement= { name = "CEMENT",order = 17, mark = "box", conduit = "ROAD", form = "solid", role = "feed",
+            color = {0.74, 0.74, 0.78}, fill = {0.52, 0.52, 0.56} },
+  diesel= { name = "DIESEL",order = 18, mark = "drop",conduit = "MAIN", form = "liquid", role = "feed",
+            color = {0.86, 0.64, 0.30}, fill = {0.60, 0.40, 0.16} },
+
+  -- Materials: what the company builds with.
+  steel = { name = "STEEL", order = 30, mark = "box", conduit = "ROAD", form = "solid", role = "material",
+            color = {0.64, 0.72, 0.82}, fill = {0.40, 0.48, 0.58} },
+  planks= { name = "PLANKS",order = 31, mark = "box", conduit = "ROAD", form = "solid", role = "material",
+            color = {0.80, 0.64, 0.42}, fill = {0.58, 0.42, 0.24} },
+  glass = { name = "GLASS", order = 32, mark = "box", conduit = "ROAD", form = "solid", role = "material",
+            color = {0.60, 0.88, 0.88}, fill = {0.34, 0.64, 0.66} },
+  concrete={name = "CONCRETE",order=33,mark = "box", conduit = "ROAD", form = "solid", role = "material",
+            color = {0.70, 0.70, 0.72}, fill = {0.46, 0.46, 0.50} },
 }
 
--- Stable order, because `pairs` over the table above is not deterministic and
--- the sidebar must not shuffle itself between frames.
+-- The four trades the company sells by the day and holds a licence for. The
+-- sidebar's trade row is these, and nothing else: a player picking a main to lay
+-- is choosing a business, not shopping through nineteen tables.
 Graph.TRADES = { "water", "power", "beer", "oil" }
+
+-- Everything, in a stable order, for the places that really do mean everything.
+Graph.ALL = {}
+for key in pairs(Graph.COMMODITIES) do Graph.ALL[#Graph.ALL + 1] = key end
+table.sort(Graph.ALL, function(a, b)
+  return Graph.COMMODITIES[a].order < Graph.COMMODITIES[b].order
+end)
+
+-- What a commodity travels in. A main, a cable and a road are three different
+-- pieces of infrastructure with three different prices, and which one you are
+-- laying is decided by what you are moving rather than by a menu.
+function Graph.formOf(commodity)
+  return (Graph.COMMODITIES[commodity] or Graph.COMMODITIES.water).form
+end
 
 function Graph.new()
   local self = setmetatable({}, Graph)
@@ -305,8 +368,9 @@ function Graph:buildNetwork(uncapped, commodity)
         -- A well produces a finite amount per day.
         net:arc(SS, vin, node.output or INF)
         node._feedArc = #net.arcs - 1
-      elseif node.kind == "terminal" and commodity ~= "power"
-             and (not node.commodity or not commodity or node.commodity == commodity) then
+      elseif node.kind == "terminal" and commodity
+             and (Graph.COMMODITIES[commodity] or {}).landed ~= false
+             and (not node.commodity or node.commodity == commodity) then
         -- A haven is the outside world, and the outside world does not run out:
         -- it feeds every network except electricity, without a ceiling, and
         -- bills for every unit that actually lands. What stops it being free
@@ -314,6 +378,10 @@ function Graph:buildNetwork(uncapped, commodity)
         -- (A haven saved before havens carried every trade keeps its single
         -- commodity until it is migrated.)
         net:arc(SS, vin, node.output or INF)
+        node._feedArc = #net.arcs - 1
+      elseif node.kind == "works" and node.makes == commodity and (node.ready or 0) > 0 then
+        -- Everything this works managed to make out of what turned up.
+        net:arc(SS, vin, node.ready)
         node._feedArc = #net.arcs - 1
       elseif node.kind == "depot" and (node.stored or 0) > 0
              and (not commodity or node.commodity == commodity) then
@@ -332,6 +400,11 @@ function Graph:buildNetwork(uncapped, commodity)
         node._drainArc = #net.arcs - 1
       elseif node.kind == "exchange" and commodity and (node.demandBy or {})[commodity] then
         net:arc(vout, TT, uncapped and INF or node.demandBy[commodity])
+        node._drainArc = #net.arcs - 1
+      elseif node.kind == "works" and commodity and (node.wants or {})[commodity] then
+        -- A works is a customer for each of its inputs, and it asks for exactly
+        -- what its rated output would eat.
+        net:arc(vout, TT, uncapped and INF or node.wants[commodity])
         node._drainArc = #net.arcs - 1
       end
     end
@@ -361,8 +434,8 @@ function Graph:maxflow(uncapped, commodity)
 
   local served, produced = {}, {}
   for _, node in ipairs(self.nodes) do
-    if node.alive and (node.kind == "client" or node.kind == "sink" or node.kind == "exchange")
-       and node._drainArc then
+    if node.alive and node._drainArc and (node.kind == "client" or node.kind == "sink"
+       or node.kind == "exchange" or node.kind == "works") then
       local a = net.arcs[node._drainArc]
       served[node.id] = a.cap0 - a.cap
     end
