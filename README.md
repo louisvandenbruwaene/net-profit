@@ -52,7 +52,8 @@ Test modes use isolated companies and never read or overwrite your saves.
 | Lay track instead of pipe | The PIPE / TRACK toggle, or T |
 | Inspect | Click a structure, a customer, a main, or empty ground |
 | Build a structure | Toolbar or keys 1-7, then place |
-| Sink a well | Choose a trade, select New well, then place |
+| Sink a well or rig | Choose water or oil, select the supply button, then place it on a marked deposit |
+| Build a nuclear plant | Choose Power, select the supply button, then place it on ground you hold |
 | Pan | Drag empty ground, or right / middle drag |
 | Zoom / scroll sidebar | Mouse wheel |
 | Fit the network | F, or the fit button |
@@ -191,18 +192,33 @@ a long oil trunk is a standing liability and a garden stub is not.
 - **Forbidden ground:** parkland, rivers and bedrock block or tax every route.
   Three permits convert them from walls into tolls and let you build on them. The
   richest seams are under bedrock, which is what a blasting licence is really for.
-- **Seams:** marked spots where a well costs less and yields half again as much.
-  Some are buried under obstacles and need the matching permit first.
+- **Deposits:** water and oil come out of the ground only where the survey
+  marked them. A well or a rig goes on the mark and nowhere else, costs less
+  than open ground would and yields half again as much. Some are buried under
+  obstacles and need the matching permit first. Everything else the city uses is
+  landed at a haven.
 - **Gates:** a valve you set by hand. Tighten it to starve a cheap branch on
   purpose and send scarce supply to the customers who pay more.
 - **Depots:** take in output the network could not sell today, up to 18 units,
   and feed it back the next morning - worth having when a market event doubles
   what a trade pays.
-- **Havens:** the port, the airfield and the highway head are the only three
-  places freight can arrive. A terminal there lands 24 units a day of one trade,
-  far more than any well, but bills you for every unit that moves: supply bought
-  rather than supply owned. **Track** runs it inland, up to 1400m, and never
-  corrodes - there is no such thing as a leaking railway.
+- **Havens:** three things run along the edge of the map and stop at it - the
+  estuary on the west, the trunk road across the north, the freight apron on the
+  south. A haven is the door in that wall, so it can only stand on the strip of
+  a district that touches one, and each of the three takes exactly one. What
+  comes through it is unlimited: every trade but electricity, in any quantity,
+  billed per unit as it moves. What it costs is the freight. Sea is the cheap way
+  in at list price, road is x1.20, air is x1.55, and the cheap one is on the far
+  side of the map from the dear one. **Track** runs the freight inland, up to
+  1400m, never corrodes, and charges haulage by the unit and by the metre - which
+  is why water is rarely worth importing across a city and oil almost always is.
+  Nothing is piped straight out of a haven.
+- **Electricity:** the one trade nobody can land. It is generated here or not at
+  all, and a **nuclear plant** is what generates it: an enormous cheque, a large
+  standing upkeep whether it runs or not, and fuel so cheap per unit that the
+  next customer is nearly free. It needs no deposit, only ground you hold.
+- **Beer:** nobody brews. A beer licence buys the right to lay beer mains, and
+  the beer itself comes off a ship.
 - **Credit:** the bank lends up to half of what the company owns, excluding cash,
   at a flat 10% a week charged daily. No variance at all, unlike the deposit
   fund. It is the instrument for buying a district today and paying for it out of

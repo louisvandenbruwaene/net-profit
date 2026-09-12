@@ -33,9 +33,10 @@ Graph.KINDS = {
   -- can be starved to keep a better-paying branch whole.
   gate     = { name = "GATE",     ports = 2,  throughput = 6,   cost = 30,  color = {0.98, 0.70, 0.33} },
   -- A haven: the city's door to the outside world. It produces nothing itself
-  -- and owns no ground worth speaking of, but it can land far more of a
-  -- commodity than any well -- for a price charged on every unit that moves.
-  terminal = { name = "TERMINAL", ports = 4,  throughput = 999, cost = 1400, color = {0.86, 0.74, 0.52} },
+  -- and owns no ground worth speaking of, but everything the city does not make
+  -- for itself arrives through it without limit, at a price charged on every
+  -- unit that moves and a haulage bill for every metre it travels.
+  terminal = { name = "HAVEN",    ports = 6,  throughput = 999, cost = 2200, color = {0.86, 0.74, 0.52} },
   -- A depot buffers a commodity overnight: surplus production goes in at the
   -- close, and the next day it feeds the network like a small second well.
   depot    = { name = "DEPOT",    ports = 3,  throughput = 999, cost = 190, color = {0.62, 0.56, 0.98} },
@@ -159,6 +160,17 @@ function Graph:aliveNodes()
   return t
 end
 
+-- Every live edge on a node. Callers ask this when what matters is not how many
+-- links a node has but what they carry: a haven's headroom, for instance, is
+-- the capacity of the track leaving it.
+function Graph:edgesAt(id)
+  local t = {}
+  for _, ei in ipairs(self.adj[id] or {}) do
+    if self.edges[ei].alive then t[#t + 1] = self.edges[ei] end
+  end
+  return t
+end
+
 function Graph:nodesOfKind(kind)
   local t = {}
   for _, n in ipairs(self.nodes) do if n.alive and n.kind == kind then t[#t + 1] = n end end
@@ -278,10 +290,15 @@ function Graph:buildNetwork(uncapped, commodity)
         -- A well produces a finite amount per day.
         net:arc(SS, vin, node.output or INF)
         node._feedArc = #net.arcs - 1
-      elseif node.kind == "terminal" and (node.output or 0) > 0
-             and (not commodity or node.commodity == commodity) then
-        -- A haven lands as much as its berths allow, and bills per unit.
-        net:arc(SS, vin, node.output)
+      elseif node.kind == "terminal" and commodity ~= "power"
+             and (not node.commodity or not commodity or node.commodity == commodity) then
+        -- A haven is the outside world, and the outside world does not run out:
+        -- it feeds every network except electricity, without a ceiling, and
+        -- bills for every unit that actually lands. What stops it being free
+        -- supply is the price per unit and the track it has to leave by.
+        -- (A haven saved before havens carried every trade keeps its single
+        -- commodity until it is migrated.)
+        net:arc(SS, vin, node.output or INF)
         node._feedArc = #net.arcs - 1
       elseif node.kind == "depot" and (node.stored or 0) > 0
              and (not commodity or node.commodity == commodity) then

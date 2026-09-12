@@ -31,7 +31,10 @@ local function fitWorld()
   layout()
   local b=city.bounds
   cam.x,cam.y=b.x+b.w/2,b.y+b.h/2
-  cam.scale=math.max(0.12,math.min(1.45,cam.vw/(b.w+160),cam.vh/(b.h+160)))
+  -- Room for the world outside the boundary: the estuary, the trunk road and
+  -- the apron are what the three havens open onto, and a map view that crops
+  -- them is a map view that hides the only places a haven can go.
+  cam.scale=math.max(0.12,math.min(1.45,cam.vw/(b.w+560),cam.vh/(b.h+560)))
   cam.targetScale=cam.scale
 end
 
@@ -284,7 +287,7 @@ function love.load(args)
   end
   local err
   if not testMode then city,err=Save.read() end
-  city=city or City.new(testMode and {seed=23,obstacles=4} or nil)
+  city=city or City.new(testMode and {seed=24,obstacles=4} or nil)
   city.slot=city.slot or (testMode and 1 or Save.readCurrent())
   cam=Camera.new(city.bounds.w,city.bounds.h); fit()
   if err then toast("Could not load saved company: "..err,true) end
