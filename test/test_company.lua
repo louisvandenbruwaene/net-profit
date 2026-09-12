@@ -7,7 +7,12 @@ local function check(value, message)
   checks = checks + 1
 end
 local function fresh(seed)
-  return City.new({seed=seed or 12, obstacles=0})
+  local c = City.new({seed=seed or 12, obstacles=0})
+  -- The yards start stocked. These are checks about pipes, valves, money and
+  -- customers, not about where the steel came from: the supply chain that fills
+  -- a yard has its own tests.
+  c.stock = { steel = 1000, concrete = 1000, planks = 500, glass = 500 }
+  return c
 end
 -- A well only goes where the survey marked water, so a test that wants one at
 -- a particular spot marks that spot first. Yield and discount are left at 1 so
@@ -526,6 +531,60 @@ do
   c:refresh()
   check(c.served[pub.id]==2,"beer the company made itself reaches a pub through a hub")
   check(c:expenseBreakdown().imports==0,"and not one unit of it was landed")
+end
+
+print("standing orders do the clerical work, for a wage")
+do
+  local c=fresh()
+  c.money=1e9
+  c.obstacles={}
+  for _,d in ipairs(c.districts) do d.owned=true end
+
+  -- Nothing is available to a company with two customers.
+  check(select(2,c:hireOrder("dispatchers"))
+    =="Dispatchers are worth hiring at 12 customers","a rung only unlocks at a size")
+
+  -- Grow it: enough customers that the whole ladder is worth having.
+  for i=1,24 do
+    local cl=assert(c:addClient("house",i>20))
+    cl.x,cl.y=c.firstSource.x+220+(i%8)*70,c.firstSource.y+260+math.floor(i/8)*90
+    cl.rate=i%2==0 and 3 or 8
+  end
+  c:refresh()
+  assert(c:hireOrder("dispatchers"))
+  c.dispatchRate=5
+  local waiting=#c:clientList(true)
+  check(waiting>0,"there are offers on the table")
+  c:endDay()
+  local left=0
+  for _,offer in ipairs(c:clientList(true)) do
+    if (offer.rate or 0)>=5 then left=left+1 end
+  end
+  check(left==0,"dispatchers sign everything paying the floor")
+  check(#c:clientList(true)<waiting,"and leave the cheap ones alone")
+
+  -- The wage is real and shows up in the ledger.
+  local wages=c:expenseBreakdown().crews
+  check(wages>=City.ORDERS.dispatchers.wage,"the wage is on the books")
+  assert(c:dismissOrder("dispatchers"))
+  check(c:expenseBreakdown().crews<wages,"and comes off when they are stood down")
+
+  -- Engineers widen a main that has run full for three days. A crew keeps it
+  -- sound while they do, because a main that bursts is the crews' problem and
+  -- a main that is too narrow is theirs.
+  assert(c:hireOrder("engineers"))
+  assert(c:hireCrew())
+  local cl=c:clientList()[1]
+  cl.demand=12
+  -- A very patient customer: this check is about the engineers noticing a full
+  -- main, not about how long somebody waits before walking away.
+  cl.grace=99
+  local main=assert(c:layPipe(c.firstSource.id,cl.id,"water",1))
+  c.firstSource.output,c.firstSource.cap=40,40
+  c:refresh()
+  local width=main.capMax
+  for _=1,6 do c:endDay() end
+  check(main.capMax>width,"a main that keeps running full is widened without being asked")
 end
 
 print("the game tells a customer why they are short, and the fix works")

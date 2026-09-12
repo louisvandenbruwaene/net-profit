@@ -482,14 +482,18 @@ local function drawSeams(city, cam)
     if not s.taken and cam:sees(s.x, s.y, City.seamRange * cam.scale + 40) then
       local x, y = cam:toScreen(s.x, s.y)
       local d = city:districtAt(s.x, s.y)
-      if d and d.owned then
+      -- Surveyors report on ground the company has not bought yet, which is the
+      -- whole reason to have them: you can see what a district holds before you
+      -- write the cheque.
+      if d and (d.owned or (city.orders or {}).surveyors) then
         -- A deposit is the only place its trade can be taken out of the
         -- ground, so it is drawn in that trade's own colour and says which
         -- trade it is. The ring is the ground a works has to stand on.
         local spec = Graph.COMMODITIES[s.commodity] or Graph.COMMODITIES.water
         local r = City.seamRange * cam.scale
-        lg.setColor(P.with(spec.color, 0.09)); lg.circle("fill", x, y, r)
-        lg.setColor(P.with(spec.color, 0.45)); lg.setLineWidth(1)
+        local dim = not d.owned and 0.5 or 1
+        lg.setColor(P.with(spec.color, 0.09 * dim)); lg.circle("fill", x, y, r)
+        lg.setColor(P.with(spec.color, 0.45 * dim)); lg.setLineWidth(1)
         lg.circle("line", x, y, r)
         Draw.mark(s.commodity, x, y - 2, math.max(2.5, R.sym(9, cam.scale)))
         if cam.scale > 0.45 then
