@@ -2,7 +2,7 @@
 local E = {}
 local Save = require("company_save")
 E.ambitions = {
-  {id="districts", name="A city connected", target=12, description="Own all twelve districts.", reward=1200},
+  {id="districts", name="A city connected", target=12, description="Hold twelve districts at once.", reward=1200},
   {id="service", name="A company people trust", target=7, description="Supply every signed customer for seven consecutive closes.", reward=350},
   {id="tenders", name="Council favourite", target=10, description="Complete ten municipal tenders.", reward=800},
   {id="customers", name="The next metropolis", target=50, description="Fully supply fifty customers at a close.", reward=1500},

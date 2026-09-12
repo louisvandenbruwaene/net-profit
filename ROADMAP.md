@@ -4,7 +4,9 @@ A plan for turning a fixed twelve district map into an endless one, and a single
 utility network into a distribution empire. Seven phases, each of which leaves a
 game that is finished enough to play if the next one never happens.
 
-Nothing here is built yet. `README.md` describes the game as it is today.
+**All seven are built.** What follows is the design that was implemented, with a
+status line on each phase and a list at the end of every place the built thing
+differs from the plan and why. `README.md` describes how to play it.
 
 ---
 
@@ -33,6 +35,8 @@ when it rots.
 ---
 
 ## 1. Infinite ground
+
+**Built.** `City:surveyCell`, `City:cellSeed`, `test/test_generation.lua`.
 
 **What the player sees.** The map has no edge. Buy outward in any direction for
 as long as the cheque clears. The further out you go, the richer the ground and
@@ -110,6 +114,8 @@ districts intact.
 
 ## 2. The macro shift: hubs
 
+**Built.** Keyed `exchange` in `Graph.KINDS`, because the archived contract game already owns `hub`.
+
 **What the player sees.** Stop drawing a pipe to every house. Drop a hub in a
 town, set the rate you will serve at, and every customer in range who pays that
 much connects itself. The pipes you draw by hand are trunk mains between hubs,
@@ -155,6 +161,8 @@ equals the sum of covered demand, and a thousand client company solves in under
 
 ## 3. The sea, the coast and the islands
 
+**Built.** The coast came forward into phase 1, because an endless map needs to know which way is north before anything else does.
+
 **What the player sees.** Above y = 0 there is sea, and it does not end. Islands
 sit out in it, buyable like ground. Wind parks stand on them. Harbours have to
 be on the coast, which is now a real place rather than a strip of the map edge.
@@ -189,6 +197,8 @@ or import, and then produces forever with no input at all.
 ---
 
 ## 4. The freight layer
+
+**Built.** `City.MODES`, wagons on the edge, the depot yard as the inland freight terminal.
 
 **What the player sees.** A second network, drawn over the first. Distribution
 centres, rail yards, harbours and airports, joined by lines that move anything
@@ -235,6 +245,8 @@ drawn heavier and under the pipes), `company_ui.lua` (route builder).
 ---
 
 ## 5. Commodities and recipes
+
+**Built.** Eighteen commodities, nine works, `City.SOLVE_ORDER`.
 
 **What the player sees.** Beer stops being a thing you buy and becomes a thing
 you make out of water, malt and electricity. Everything the city needs has a
@@ -313,6 +325,8 @@ things the solver already does.
 
 ## 6. Building out of what you make
 
+**Built.** `City.MATERIALS`, stock held in the yards.
+
 **What the player sees.** A hub costs money and steel. A rail line costs money,
 steel and concrete. When your own steelworks is running, expansion gets cheaper.
 
@@ -338,6 +352,8 @@ materials that extend the network.
 ---
 
 ## 7. The automation ladder
+
+**Built.** `City.ORDERS`, four departments.
 
 **What the player sees.** The company stops being a thing you operate and starts
 being a thing you run. Each rung is bought once and then paid for daily.
@@ -417,6 +433,38 @@ Phase 1 alone is worth having: today's game, endless, with wells that cap. Phase
 - **Multi output refineries.** Cut. One output per works.
 - **Save size.** If sparse cells still grow without bound, cap the explored set
   and regenerate anything untouched.
+
+## 12. Where the built thing differs from the plan
+
+Seven places, each of them a thing the plan could not have known:
+
+- **The coast is fixed and the other two havens are not.** The plan had three
+  gateways on three map edges. An endless map has no edges to put them on, so
+  the sea sits north of row one forever and a harbour belongs on that coastline,
+  while a road head and an air freight apron became buildings the company sites
+  wherever it holds ground, each dearer than the last of its kind.
+- **The hub is keyed `exchange`.** The archived contract game already owns `hub`
+  in `Graph.KINDS`, and a duplicate key in a Lua table constructor silently
+  wins. The name on screen is still HUB.
+- **Uranium is gone and coke took its job.** Making the reactor eat imported
+  fuel would have broken every saved company that already had a power station,
+  so the reactor keeps paying for its fuel in cash. Coke is the port-only import
+  that gates a chain instead, and it gates steel.
+- **A highway takes no materials.** Rail is steel by the kilometre, and a
+  company with no steel could never build the line that brings it steel. Tarmac
+  breaks the deadlock and gives the early game its bulk mode.
+- **Diesel is a fleet discount, not a flow.** Working out how much diesel the
+  haulage needs requires knowing the haulage, which requires the flow, which
+  requires the diesel. A company with spare diesel runs its own fleet on it and
+  the bill drops; that is all it does.
+- **The performance work was not where the plan expected.** Hub aggregation
+  mattered far less than two things nobody had listed: the coverage scan was
+  quadratic, and `buildNetwork` was giving four arcs to every node in the
+  company whether anything was tied into it or not. Solving only the commodities
+  that have both a feed and a want did the rest.
+- **Solving a works needed no fixed point.** Keeping wells, mines and quarries
+  free of a power requirement leaves the recipe graph acyclic, so one pass in
+  topological order is exact.
 
 ## 11. Numbers to start from
 
