@@ -155,8 +155,8 @@ do
   local haven=assert(c:build(edge.x+120,edge.y+90,"terminal","port"))
   check(haven.haven=="port","the north edge is the coast")
   check(haven.commodity==nil and haven.output==nil,"a haven carries every trade, without a ceiling")
-  local yard=assert(c:build(edge.x+740,edge.y+90,"junction"))
-  check(select(2,c:layPipe(haven.id,yard.id,"beer",6))=="a haven ships by track only",
+  local yard=assert(c:build(edge.x+740,edge.y+90,"dc"))
+  check(select(2,c:layPipe(haven.id,yard.id,"beer",6))=="a haven ships by bulk line only",
     "nothing is piped straight out of a haven")
   assert(c:layPipe(haven.id,yard.id,"beer",6,true))
   local pub=assert(c:addClient("pub"))
@@ -370,14 +370,23 @@ do
   local t=assert(c:build(hd.x+130,hd.y+100,"terminal","port"))
   check(t.haven=="port","a harbour on the coast opens")
   check(c:havenCost("port")>City.HAVENS.port.price,"and the next harbour costs more")
-  local j=assert(c:build(hd.x+hd.w-130,hd.y+hd.h/2,"junction"))
-  check(c:pipeError(t.id,j.id,"water")=="a haven ships by track only","no main comes off a haven")
-  local rail=assert(c:layPipe(t.id,j.id,"water",8,true))
+  local j=assert(c:build(hd.x+hd.w-130,hd.y+hd.h/2,"dc"))
+  check(c:pipeError(t.id,j.id,"water")=="a haven ships by bulk line only","no main comes off a haven")
+  local rail=assert(c:layPipe(t.id,j.id,"water",1,true))
   check(rail.rail and c:leakChance(rail)==0,"track carries it, and never corrodes")
   check(c:liningCost(rail)==nil,"there is nothing to line on a railway")
+  check(rail.wagons.water==City.MODES.rail.wagonCap,"a railway is bought by the wagon")
+  -- A second wagon, for something else entirely.
+  assert(c:buyLicence("beer"))
+  assert(c:addWagon(rail.id,"beer"))
+  check(rail.wagons.beer==City.MODES.rail.wagonCap and rail.wagonCount==2,
+    "beer and water cannot share a pipe and can share a train")
+  check(select(2,c:addWagon(rail.id,"power"))=="electricity travels by cable, not by freight",
+    "electricity is not freight")
   local spur=c:build(hd.x+hd.w-130,hd.y+hd.h/2-260,"junction")
-  check(select(2,c:layPipe(j.id,spur.id,"water",4,true))=="track must start or end at a haven",
-    "track has to come from somewhere")
+  check(select(2,c:layPipe(j.id,spur.id,"water",4,true))
+    =="bulk runs between havens and distribution centres",
+    "bulk has to run between freight terminals")
   c:refresh()
   check(c:expenseBreakdown().imports==0,"a haven idle at its berths costs nothing per unit")
   -- It only bills for what it actually moves, so a haven is a margin decision
@@ -386,6 +395,7 @@ do
   buyer.x,buyer.y=j.x,j.y+120
   buyer.demand=6
   assert(c:layPipe(j.id,buyer.id,"water",6))
+  c:refresh()
   check(c.served[buyer.id]==6,"freight reaches a customer over the track")
   local bill=c:expenseBreakdown()
   check(bill.imports>0,"and now the haven bills for every unit it landed")
