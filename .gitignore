@@ -1,3 +1,4 @@
 *.love
 dist/
 luac.out
+.DS_Store

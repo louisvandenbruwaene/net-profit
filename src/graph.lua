@@ -28,16 +28,43 @@ Graph.KINDS = {
   manifold = { name = "MANIFOLD", ports = 6,  throughput = 999, cost = 46,  color = {0.78, 0.63, 0.98} },
   pump     = { name = "PUMP",     ports = 2,  throughput = 999, cost = 38,  color = {0.42, 0.88, 0.92} },
   tower    = { name = "TOWER",    ports = 4,  throughput = 999, cost = 92,  color = {0.98, 0.82, 0.38} },
+  -- A gate is a node-split arc the player can tighten by hand: the one piece of
+  -- infrastructure that makes flow scarcer on purpose, so a branch downstream
+  -- can be starved to keep a better-paying branch whole.
+  gate     = { name = "GATE",     ports = 2,  throughput = 6,   cost = 30,  color = {0.98, 0.70, 0.33} },
+  -- A haven: the city's door to the outside world. It produces nothing itself
+  -- and owns no ground worth speaking of, but it can land far more of a
+  -- commodity than any well -- for a price charged on every unit that moves.
+  terminal = { name = "TERMINAL", ports = 4,  throughput = 999, cost = 1400, color = {0.86, 0.74, 0.52} },
+  -- A depot buffers a commodity overnight: surplus production goes in at the
+  -- close, and the next day it feeds the network like a small second well.
+  depot    = { name = "DEPOT",    ports = 3,  throughput = 999, cost = 190, color = {0.62, 0.56, 0.98} },
   -- Customers. Placed by the world, never by the player.
   client   = { name = "CLIENT",   ports = 3,  throughput = INF, cost = 0,   color = {0.98, 0.62, 0.35} },
 }
 
 -- What flows. Each commodity is a separate network sharing the same ground.
+-- What flows, and how it reads on screen. `color` is the legible one, used for
+-- outlines, pipes and text; `fill` is the body of the droplet, which is the
+-- colour the commodity actually is. Oil is black, so it needs a steel rim to
+-- survive a dark background; water and beer are legible as themselves.
+-- `mark` is the glyph the trade is drawn with everywhere: liquids get a
+-- droplet, electricity gets a bolt, because a thing that is not a liquid should
+-- not be drawn as one. `conduit` is what a link carrying it is called.
 Graph.COMMODITIES = {
-  water = { name = "WATER", color = {0.38, 0.72, 0.98} },
-  beer  = { name = "BEER",  color = {0.95, 0.72, 0.28} },
-  oil   = { name = "OIL",   color = {0.72, 0.55, 0.95} },
+  water = { name = "WATER", order = 1, mark = "drop", conduit = "MAIN",
+            color = {0.38, 0.72, 0.98}, fill = {0.22, 0.52, 0.86} },
+  power = { name = "POWER", order = 2, mark = "bolt", conduit = "CABLE",
+            color = {0.78, 0.56, 1.00}, fill = {0.58, 0.32, 0.92} },
+  beer  = { name = "BEER",  order = 3, mark = "drop", conduit = "MAIN",
+            color = {0.95, 0.76, 0.26}, fill = {0.88, 0.66, 0.14} },
+  oil   = { name = "OIL",   order = 4, mark = "drop", conduit = "MAIN",
+            color = {0.60, 0.62, 0.70}, fill = {0.045, 0.05, 0.07} },
 }
+
+-- Stable order, because `pairs` over the table above is not deterministic and
+-- the sidebar must not shuffle itself between frames.
+Graph.TRADES = { "water", "power", "beer", "oil" }
 
 function Graph.new()
   local self = setmetatable({}, Graph)
@@ -246,9 +273,22 @@ function Graph:buildNetwork(uncapped, commodity)
     if node.alive then
       local vin, vout = 2 * node.id - 1, 2 * node.id
       net:arc(vin, vout, node.throughput, { kind = "node", id = node.id })
+      node._feedArc = nil
       if node.kind == "source" and (not commodity or node.commodity == commodity) then
         -- A well produces a finite amount per day.
         net:arc(SS, vin, node.output or INF)
+        node._feedArc = #net.arcs - 1
+      elseif node.kind == "terminal" and (node.output or 0) > 0
+             and (not commodity or node.commodity == commodity) then
+        -- A haven lands as much as its berths allow, and bills per unit.
+        net:arc(SS, vin, node.output)
+        node._feedArc = #net.arcs - 1
+      elseif node.kind == "depot" and (node.stored or 0) > 0
+             and (not commodity or node.commodity == commodity) then
+        -- Yesterday's surplus, available today. A depot only ever gives back
+        -- what was put into it, so it is capacity in time rather than in space.
+        net:arc(SS, vin, node.stored)
+        node._feedArc = #net.arcs - 1
       end
       if (node.kind == "client" or node.kind == "sink") and not node.prospect and not node.supplyClosed
          and (not commodity or node.commodity == commodity) then
@@ -281,12 +321,17 @@ function Graph:maxflow(uncapped, commodity)
   local flow = net:maxflow(SS, TT)
   local seen = net:reachable(SS)
 
-  local served = {}
+  local served, produced = {}, {}
   for _, node in ipairs(self.nodes) do
     if node.alive and (node.kind == "client" or node.kind == "sink") and node._drainArc then
       local a = net.arcs[node._drainArc]
       served[node.id] = a.cap0 - a.cap
     end
+    if node.alive and node._feedArc then
+      local a = net.arcs[node._feedArc]
+      produced[node.id] = a.cap0 - a.cap
+    end
+    node._feedArc = nil
   end
 
   -- Signed flow per edge (positive means a -> b) and load per node, for the
@@ -323,7 +368,7 @@ function Graph:maxflow(uncapped, commodity)
       end
     end
   end
-  return flow, cut, served, detail
+  return flow, cut, served, detail, produced
 end
 
 --------------------------------------------------------------------------------

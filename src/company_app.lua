@@ -8,7 +8,7 @@ local A = require("audio")
 local P = require("palette")
 local App = {}
 local city,cam
-local state={commodity="water",capacity=3,invest=100,tab="network",scroll=0,undo={}}
+local state={commodity="water",capacity=3,invest=100,borrow=500,tab="network",scroll=0,undo={}}
 local testMode, frames = nil,0
 
 local function toast(message,bad)
@@ -26,6 +26,15 @@ local function layout()
   cam:setViewport(UI.width,130,w-UI.width,h-188)
 end
 
+-- Pull back far enough to see every district, bought or not.
+local function fitWorld()
+  layout()
+  local b=city.bounds
+  cam.x,cam.y=b.x+b.w/2,b.y+b.h/2
+  cam.scale=math.max(0.12,math.min(1.45,cam.vw/(b.w+160),cam.vh/(b.h+160)))
+  cam.targetScale=cam.scale
+end
+
 local function fit()
   layout()
   local x0,y0,x1,y1=city.firstSource.x,city.firstSource.y,city.firstSource.x,city.firstSource.y
@@ -39,15 +48,29 @@ end
 
 local function clear()
   state.node,state.edge,state.tool,state.drag,state.pan=nil,nil,nil,nil,nil
+  state.district=nil
+end
+
+-- Selecting anything on the map is a question, and the sidebar is the answer.
+-- Rather than leaving the player on whichever tab they happened to be reading,
+-- every selection opens the tab that can act on it and scrolls straight to the
+-- controls -- so clicking a burst main lands on its Repair button.
+local function reveal(kind)
+  if kind=="district" then
+    state.tab="map"; state.scroll=0
+  else
+    state.tab="network"; state.scroll=UI.revealInspector()
+  end
 end
 
 local function action(name,...)
-  if name=="fit" then fit(); return end
+  if name=="fit" then if state.tab=="map" then fitWorld() else fit() end; return end
+  if name=="fitWorld" then fitWorld(); return end
   if name=="mute" then state.muted=not state.muted; A.setEnabled(not state.muted); return end
   if name=="focusNode" then
     local id=...
     local n=city.g.nodes[id]
-    clear(); state.node=id; state.tab="network"; state.scroll=150
+    clear(); state.node=id; reveal()
     cam:centerOn(n.x,n.y)
     return
   end
@@ -55,13 +78,28 @@ local function action(name,...)
     local id=...
     local e=city.g.edges[id]
     local a,b=city.g.nodes[e.a],city.g.nodes[e.b]
-    clear(); state.edge=id; state.scroll=150
+    clear(); state.edge=id; reveal()
     cam:centerOn((a.x+b.x)/2,(a.y+b.y)/2)
+    return
+  end
+  if name=="focusDistrict" then
+    local id=...
+    local d=city.districts[id]
+    clear(); state.district=id; reveal("district")
+    fitWorld()
+    return
+  end
+  if name=="nextLeak" then
+    local worst
+    for _,pipe in ipairs(city.g.edges) do
+      if pipe.alive and pipe.leaking and (not worst or pipe.cap<worst.cap) then worst=pipe end
+    end
+    if worst then action("focusEdge",worst.id) else toast("No leaking mains") end
     return
   end
   if name=="restart" then
     city=City.new(); clear(); state.undo={}; state.modal=nil; state.scroll=0; state.tab="network"
-    state.commodity="water"; state.capacity=3
+    state.commodity="water"; state.capacity=3; state.borrow=500
     fit(); save(); return
   end
   if name=="undo" then
@@ -84,8 +122,20 @@ local function action(name,...)
     if name=="layPipe" then state.edge=result.id; state.node=nil; A.play("link")
     elseif name=="build" or name=="buySource" then
       state.node=result.id; state.edge=nil; state.tool=nil; R.ring(result.x,result.y,P.good); A.play("place")
+    elseif name=="buyDistrict" then
+      state.district=result.id; R.ring(result.x+result.w/2,result.y+result.h/2,P.good); A.play("place")
     else A.play("upgrade") end
-    toast(({repairPipe="Pipe repaired",reinforcePipe="Pipe lined",buyAds="Advertising booked",invest="Investment placed",upgradeQuality="Treatment upgraded",buyLicence="Trade licence acquired",acceptClient="Customer signed",declineClient="Offer declined"})[name] or "Network updated")
+    if name=="repairAll" then
+      toast(result.fixed.." main"..(result.fixed==1 and "" or "s").." repaired for $"..result.spent)
+    elseif name=="buyDistrict" then
+      toast(result.name.." acquired")
+    else
+      toast(({repairPipe="Pipe repaired",reinforcePipe="Pipe lined",buyAds="Advertising booked",
+        invest="Investment placed",upgradeQuality="Treatment upgraded",buyLicence="Trade licence acquired",
+        acceptClient="Customer signed",declineClient="Offer declined",upgradeSource="Well deepened",
+        hireCrew="Crew hired",dismissCrew="Crew stood down",buyPermit="Permit granted",
+        borrow="Funds drawn",repay="Loan repaid",setGate="Gate set"})[name] or "Network updated")
+    end
   end
   save()
   return result
@@ -119,6 +169,13 @@ function love.load(args)
     if a=="--smoke" or a=="--soak" or a=="--shot" or a=="--tut" or a=="--audio" then testMode=a end
   end
   R.init(); A.init()
+  -- Keep the harness off the user's screen: offscreen, minimised and silent.
+  if testMode then
+    A.setEnabled(false)
+    state.muted = true
+    pcall(love.window.setPosition, -5000, -5000)
+    pcall(love.window.minimize)
+  end
   local err
   if not testMode then city,err=Save.read() end
   city=city or City.new(testMode and {seed=23,obstacles=4} or nil)
@@ -171,12 +228,28 @@ function love.mousepressed(x,y,button)
   if state.tool then
     local wx,wy=cam:toWorld(x,y)
     if state.tool=="source" then action("buySource",state.commodity,wx,wy)
-    else action("build",wx,wy,state.tool) end
+    else action("build",wx,wy,state.tool,state.commodity) end
     return
   end
   local node,edge=hit(x,y)
-  state.node,state.edge=node,edge
-  if node then state.drag=node else state.pan={x=x,y=y,moved=false} end
+  if node or edge then
+    state.node,state.edge,state.district=node,edge,nil
+    reveal()
+    if node then state.drag=node end
+    return
+  end
+  -- Empty ground still answers a question: which district is this, and what
+  -- would it cost? Clicking unowned ground opens the Map tab on that district.
+  local wx,wy=cam:toWorld(x,y)
+  local d=city:districtAt(wx,wy)
+  state.node,state.edge=nil,nil
+  if d and not d.owned then
+    state.district=d.id
+    reveal("district")
+  else
+    state.district=nil
+  end
+  state.pan={x=x,y=y,moved=false}
 end
 
 function love.mousemoved(x,y,dx,dy)
@@ -191,7 +264,9 @@ end
 function love.mousereleased(x,y,button)
   if state.drag and button==1 then
     local target=hit(x,y)
-    if target and target~=state.drag then action("layPipe",state.drag,target,state.commodity,state.capacity) end
+    if target and target~=state.drag then
+      action("layPipe",state.drag,target,state.commodity,state.capacity,state.rail)
+    end
   end
   state.drag,state.pan=nil,nil
 end
@@ -213,14 +288,20 @@ function love.keypressed(key)
   if key=="escape" then clear()
   elseif key=="return" then action("endDay")
   elseif key=="f" then fit()
+  elseif key=="t" then state.rail=not state.rail
   elseif key=="z" then action("undo")
   elseif key=="m" then action("mute")
   elseif key=="u" and state.edge then action("upgradePipe",state.edge)
-  elseif key=="r" and state.edge then action("repairPipe",state.edge)
+  elseif key=="r" then
+    if state.edge then action("repairPipe",state.edge) else action("repairAll") end
+  elseif key=="l" then action("nextLeak")
+  elseif key=="e" and state.edge then action("reinforcePipe",state.edge)
+  elseif key=="e" and state.node and city.g.nodes[state.node].kind=="source" then
+    action("upgradeSource",state.node)
   elseif key=="delete" then
     if state.edge then action("demolishPipe",state.edge) elseif state.node then action("demolishNode",state.node) end
-  elseif tonumber(key) and tonumber(key)>=1 and tonumber(key)<=4 then
-    state.tool=({"junction","manifold","pump","tower"})[tonumber(key)]
+  elseif tonumber(key) and tonumber(key)>=1 and tonumber(key)<=6 then
+    state.tool=({"junction","manifold","pump","tower","gate","depot"})[tonumber(key)]
   end
 end
 

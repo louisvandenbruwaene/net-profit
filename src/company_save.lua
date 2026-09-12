@@ -25,7 +25,7 @@ function Save.pack(city)
     end
   end
   data.nodes, data.edges = city.g.nodes, city.g.edges
-  data.sourceId, data.version = city.firstSource.id, 1
+  data.sourceId, data.version = city.firstSource.id, 2
   return "return " .. encode(data)
 end
 
@@ -39,7 +39,9 @@ function Save.unpack(text)
   end
   if not chunk then return nil, err end
   local ok, data = pcall(chunk)
-  if not ok or type(data) ~= "table" or data.version ~= 1 then return nil, "invalid company save" end
+  if not ok or type(data) ~= "table" or not (data.version == 1 or data.version == 2) then
+    return nil, "invalid company save"
+  end
   local valid, city = pcall(function()
     assert(type(data.day) == "number" and type(data.money) == "number" and type(data.rng) == "number")
     local g = Graph.new()
@@ -57,6 +59,7 @@ function Save.unpack(text)
     assert(data.firstSource and data.firstSource.kind == "source")
     data.nodes, data.edges, data.sourceId, data.version = nil, nil, nil, nil
     setmetatable(data, City)
+    data:migrate()
     data:refresh()
     return data
   end)
