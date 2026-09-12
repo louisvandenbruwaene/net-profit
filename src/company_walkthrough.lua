@@ -312,6 +312,40 @@ function Walk.start(app,mode)
     check(bill.imports>=0,"the ledger carries an import line")
   end
 
+  -- Six companies, kept side by side.
+  do
+    app.state.node,app.state.edge=nil,nil
+    click("companies")
+    check(app.state.modal=="slots","the Companies button opens the picker")
+    check(findButton("slot-restart-1")~=nil,"the company being played is marked as such")
+    check(findButton("slot-new-4")~=nil,"an empty slot offers a new company")
+    check(findButton("slot-play-1")==nil,"and offers no way to load the one already open")
+
+    -- Destroying a company always asks first.
+    click("slot-restart-1")
+    check(app.state.slotConfirm and app.state.slotConfirm.slot==1,"starting over asks for confirmation")
+    check(findButton("slot-yes-1")~=nil and findButton("slot-no-1")~=nil,"with both answers offered")
+    click("slot-no-1")
+    check(app.state.slotConfirm==nil,"and can be backed out of")
+
+    -- A new company in an empty slot leaves the old one alone and switches to it.
+    local before=app.city()
+    local day=before.day
+    click("slot-new-4")
+    local now=app.city()
+    check(now~=before,"a new company in slot 4 is a different company")
+    check(now.slot==4,"and it knows which slot it is")
+    check(now.day==1 and now.money==C.rules.startMoney,"it starts from day one")
+    check(app.state.modal==nil and app.state.tab=="network","and drops the player into it")
+    check(#app.state.undo==0,"with no undo history carried across from the other company")
+    check(day>1,"the company it replaced had been played")
+
+    click("companies")
+    check(app.state.modal=="slots","the picker reopens")
+    click("slots-close")
+    check(app.state.modal==nil,"and closes")
+  end
+
   click("tab-finance")
   love.window.setMode(1100,700,{resizable=true,minwidth=1100,minheight=700})
   love.resize(1100,700)
@@ -335,6 +369,7 @@ function Walk.update(app,mode,frame)
       app.state.tab="map"; app.state.scroll=0
       app.action("fitWorld")
       capture("net-profit-06-map",app)
+    elseif frame==22.5 then
     elseif frame==23 then
       local c=app.city()
       app.state.tab="network"; app.state.scroll=0
@@ -347,6 +382,24 @@ function Walk.update(app,mode,frame)
       e.leaking=true; e.cap=1; c:refresh()
       app.action("focusEdge",e.id)
       capture("net-profit-07-inspector",app)
+    elseif frame==25 then
+      app.state.modal=nil
+      app.action("openSlots")
+      local c=app.city()
+      -- A picker with nothing in it says nothing; give the shot some companies.
+      app.state.slots={
+        {slot=1,empty=false,day=82,money=8705,clients=32,worth=29606,districts=4,
+         trades={"water","power","beer","oil"}},
+        {slot=2,empty=false,day=14,money=1240,clients=7,worth=3180,districts=1,
+         trades={"water","power"}},
+        {slot=3,empty=true},
+        {slot=4,empty=false,day=41,money=62,clients=0,worth=410,districts=2,
+         bankrupt=true,trades={"water","beer"}},
+        {slot=5,empty=true},{slot=6,empty=true},
+      }
+      c.slot=1
+      capture("net-profit-09-companies",app)
+      app.state.modal=nil
     elseif frame==26 then
       love.window.setMode(1100,700,{resizable=true,minwidth=1100,minheight=700})
       love.resize(1100,700); app.state.tab="network"; app.state.node=nil; app.state.edge=nil

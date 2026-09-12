@@ -3,6 +3,7 @@ local City = require("city")
 local Graph = require("graph")
 local R = require("render")
 local Draw = require("company_render")
+local Save = require("company_save")
 local UI = {width=344, buttons={}}
 local lg = love.graphics
 local state, city, act, scroll, H, W
@@ -713,13 +714,86 @@ end
 
 --------------------------------------------------------------------------------
 
+-- Six companies, side by side. The game still opens straight into whichever was
+-- last played, so this is somewhere you go on purpose rather than a menu the
+-- game makes you walk through every launch.
+local function slotsPanel(x,y,w,h)
+  text("Companies",x+32,y+26,"big")
+  text("Six companies kept side by side. The one you are playing is saved automatically before you leave it.",
+    x+32,y+68,"small",P.textDim,w-64)
+  local slots=state.slots or {}
+  local y0,rowH=y+106,74
+  for i=1,Save.SLOTS do
+    local info=slots[i] or {slot=i,empty=true}
+    local active=(city.slot or 1)==i
+    local ry=y0+(i-1)*rowH
+    lg.setColor(active and P.with(P.good,0.10) or P.with(P.bg,0.55))
+    lg.rectangle("fill",x+24,ry,w-48,64,4)
+    lg.setColor(active and P.with(P.good,0.55) or P.panelEdge); lg.setLineWidth(1)
+    lg.rectangle("line",x+24,ry,w-48,64,4)
+    text(i,x+40,ry+18,"mid",active and P.good or P.textDim)
+
+    local confirm=state.slotConfirm
+    local confirming=confirm and confirm.slot==i
+    if confirming then
+      text(confirm.mode=="restart" and "Start over? This company is lost."
+        or "Delete this company? It cannot be undone.",x+72,ry+24,"body",P.bad,w-260)
+      button("slot-yes-"..i,confirm.mode=="restart" and "Start over" or "Delete",
+        x+w-208,ry+16,84,32,function()
+          act(confirm.mode=="restart" and "newSlot" or "deleteSlot",i)
+        end,true,nil,false,P.bad)
+      button("slot-no-"..i,"Cancel",x+w-116,ry+16,80,32,
+        function() state.slotConfirm=nil end,true)
+    elseif info.empty then
+      text("Empty",x+72,ry+14,"body",P.textFaint)
+      text("Start a new company here",x+72,ry+36,"small",P.textFaint)
+      button("slot-new-"..i,"New company",x+w-176,ry+16,140,32,
+        function() act("newSlot",i) end,true,
+        "Begins a fresh company in this slot. The one you are playing is saved first.",
+        false,P.good)
+    else
+      local headline="Day "..info.day.."      $"..info.money
+      text(headline,x+72,ry+12,"body",info.bankrupt and P.bad or P.text)
+      -- The trades this company has opened, as their own symbols, on the
+      -- headline row where nothing else is competing for the space.
+      local tx=x+236
+      for _,name in ipairs(info.trades or {}) do
+        drop(name,tx,ry+21,8); tx=tx+19
+      end
+      local bits={info.clients.." customer"..(info.clients==1 and "" or "s"),
+                  info.districts.." district"..(info.districts==1 and "" or "s"),
+                  "worth $"..info.worth}
+      if info.bankrupt then table.insert(bits,1,"INSOLVENT") end
+      text(table.concat(bits,"   /   "),x+72,ry+36,"small",
+        info.bankrupt and P.bad or P.textDim,w-300)
+      if active then
+        text("PLAYING",x+w-216,ry+18,"small",P.good,90,"right")
+        button("slot-restart-"..i,"Start over",x+w-116,ry+16,80,32,
+          function() state.slotConfirm={slot=i,mode="restart"} end,true,
+          "Replaces this company with a new one")
+      else
+        button("slot-play-"..i,"Play",x+w-208,ry+16,84,32,
+          function() act("loadSlot",i) end,true,
+          "Opens this company. The one you are playing is saved first.",false,P.flow)
+        button("slot-delete-"..i,"Delete",x+w-116,ry+16,80,32,
+          function() state.slotConfirm={slot=i,mode="delete"} end,true,
+          "Removes this company for good")
+      end
+    end
+  end
+  button("slots-close","Close",x+32,y+h-56,w-64,38,
+    function() state.modal=nil; state.slotConfirm=nil end,true,"Back to the network")
+end
+
 local function report()
   local r=city.lastReport
-  local w,h=580,540
+  local w,h = 580,540
+  if state.modal=="slots" then w,h = 680,632 end
   local x,y=(W-w)/2,(H-h)/2
   lg.setColor(0,0,0,0.7); lg.rectangle("fill",0,0,W,H)
   lg.setColor(P.panel); lg.rectangle("fill",x,y,w,h,6)
   lg.setColor(P.panelEdge); lg.rectangle("line",x,y,w,h,6)
+  if state.modal=="slots" then slotsPanel(x,y,w,h); return end
   if state.modal=="restart" then
     text("Start a new company?",x+32,y+34,"big")
     text("The current company save will be replaced.",x+32,y+95,"body",P.textDim,w-64)
@@ -756,7 +830,8 @@ local function report()
       r.tenderNew.units,r.tenderNew.commodity,r.tenderNew.days,r.tenderNew.reward),x+32,ly+112,"small",P.energy,w-64)
   end
   if city.bankrupt then
-    button("new-company","New company",x+32,y+h-66,w-64,38,function() state.modal="restart" end)
+    button("new-company","Companies",x+32,y+h-66,w-64,38,function() act("openSlots") end,
+      true,"Start again here, or open one of your other companies")
   else
     button("continue","Open day "..city.day,x+32,y+h-66,w-64,38,function() state.modal=nil end,true,"Return to the network")
   end
@@ -861,7 +936,9 @@ function UI.draw(c,s,action)
   button("undo","<",16,H-44,36,32,function() act("undo") end,#state.undo>0,"Undo last decision (Z); day closes are final")
   button("fit","[ ]",62,H-44,36,32,function() act("fit") end,true,"Fit the network (F)")
   button("mute",state.muted and "o" or "~",108,H-44,36,32,function() act("mute") end,true,"Toggle sound (M)")
-  button("restart","New company",158,H-44,142,32,function() state.modal="restart" end,true,"Start another company")
+  button("companies","Companies",158,H-44,142,32,
+    function() act("openSlots") end,true,
+    "Six companies, kept side by side. Switch, start another, or delete one.")
   local message=state.toast or (state.tool and (string.upper(state.tool).." selected: click the map to place") or "Operations open")
   text(message,UI.width+20,H-34,"small",state.toastBad and P.bad or P.textDim,math.max(100,W-UI.width-250))
   button("end-day","Close day "..city.day,W-193,H-46,173,36,function() act("endDay") end,

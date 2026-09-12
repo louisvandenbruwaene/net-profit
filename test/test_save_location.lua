@@ -61,5 +61,29 @@ do
     written["/appdata/net-profit/company.lua"]==nil)
 end
 
+-- Slots.
+do
+  ok("there are six companies",Save.SLOTS==6)
+  ok("slots are named predictably",Save.slotName(1)=="company1.lua" and Save.slotName(6)=="company6.lua")
+  ok("only six slots are valid",
+    Save.validSlot(1) and Save.validSlot(6)
+    and not Save.validSlot(0) and not Save.validSlot(7)
+    and not Save.validSlot(1.5) and not Save.validSlot("2") and not Save.validSlot(nil))
+  -- The pre-slot company becomes slot one without being rewritten.
+  local first=Save.namesForSlot(1)
+  ok("slot one answers to its own name first",first[1]=="company1.lua")
+  ok("and falls back to the company that existed before slots",first[2]=="company.lua")
+  ok("no other slot inherits that file",#Save.namesForSlot(2)==1
+    and Save.namesForSlot(2)[1]=="company2.lua")
+
+  -- Each slot resolves across both save directories independently.
+  files={["/appdata/LOVE/net-profit/company3.lua"]="THREE"}
+  local text,from=Save.locate(env("/appdata/net-profit",nil),"company3.lua")
+  ok("a fused build finds slot three saved by the source build",
+    text=="THREE" and from=="/appdata/LOVE/net-profit")
+  text=Save.locate(env("/appdata/net-profit",nil),"company5.lua")
+  ok("and an untouched slot stays empty",text==nil)
+end
+
 print(pass.." passed, "..fail.." failed")
 os.exit(fail==0 and 0 or 1)
