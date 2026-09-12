@@ -3,7 +3,8 @@
 -- put it where nobody has to look at it and stop waiting for the display.
 local function testRun()
   for _, a in ipairs(rawget(_G, "arg") or {}) do
-    if a == "--smoke" or a == "--soak" or a == "--shot" or a == "--tut" or a == "--audio" then
+    if a == "--smoke" or a == "--soak" or a == "--shot" or a == "--tut"
+       or a == "--audio" or a == "--probe" then
       return true
     end
   end

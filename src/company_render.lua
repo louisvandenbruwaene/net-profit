@@ -347,7 +347,23 @@ function Draw.world(city, cam, state)
     elseif n.kind == "source" then
       Draw.mark(n.commodity, x, y - 1, math.max(8, 12 * cam.scale))
       local level = n.level or 1
-      label(string.upper(n.commodity) .. "  " .. n.output, x, y+r+8, color)
+      -- How hard the well is actually being worked, not just how deep it is.
+      -- A well reading 22/22 is the reason a customer downstream is short, and
+      -- that has to be visible without opening anything.
+      local drawn = (city.produced or {})[n.id] or 0
+      local maxed = drawn >= (n.output or 0) and (n.output or 0) > 0
+      label(string.upper(n.commodity) .. "  " .. drawn .. "/" .. (n.output or 0),
+        x, y+r+8, maxed and P.warn or color)
+      -- A capacity bar across the bottom of the well, so the ratio reads at a
+      -- glance from any zoom the labels survive.
+      if cam.scale > 0.5 and (n.output or 0) > 0 then
+        local bw = r * 1.5
+        local frac = math.min(1, drawn / n.output)
+        lg.setColor(P.with(P.textFaint, 0.7))
+        lg.rectangle("fill", x - bw/2, y + r + 24, bw, 3, 1.5)
+        lg.setColor(maxed and P.warn or color)
+        lg.rectangle("fill", x - bw/2, y + r + 24, bw * frac, 3, 1.5)
+      end
       if cam.scale > 0.6 then
         -- Level pips: how far the well has been deepened.
         for i = 1, City.sourceMaxLevel do
@@ -367,7 +383,9 @@ function Draw.world(city, cam, state)
         end
         label((City.HAVENS[n.haven or "port"] or {}).name or "TERMINAL", x, y+r+6, color)
         if cam.scale > 0.6 then
-          label("lands "..(n.output or 0), x, y-r-21, P.textDim, R.fonts.tiny)
+          local landed = (city.produced or {})[n.id] or 0
+          label("lands "..landed.."/"..(n.output or 0), x, y-r-21,
+            landed >= (n.output or 0) and P.warn or P.textDim, R.fonts.tiny)
         end
       elseif n.kind == "depot" then
         if n.commodity then
