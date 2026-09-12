@@ -245,6 +245,19 @@ function Draw.reactor(x, y, r)
                      x + 0.46 * r, y - 0.70 * r, x + 0.30 * r, y - 0.02 * r)
 end
 
+-- A wind turbine: mast, hub, three blades. Drawn instead of the cooling tower
+-- on a wind park, because the two things are not the same building and the
+-- whole point of the island is that it is the one that burns nothing.
+function Draw.turbine(x, y, r)
+  lg.setLineWidth(math.max(1, r * 0.12))
+  lg.line(x, y + 0.9 * r, x, y - 0.25 * r)
+  for i = 0, 2 do
+    local a = -math.pi / 2 + i * math.pi * 2 / 3
+    lg.line(x, y - 0.25 * r, x + math.cos(a) * 0.85 * r, y - 0.25 * r + math.sin(a) * 0.85 * r)
+  end
+  lg.circle("fill", x, y - 0.25 * r, math.max(1, r * 0.14))
+end
+
 -- Every node on the map is a disc: a dark body tinted by its trade, and a rim
 -- in the trade colour. Flat, so the symbol on top of it is what the eye finds.
 function Draw.disc(x, y, r, color, tint)
@@ -293,8 +306,18 @@ local function drawDistrictGround(city, cam)
     if cam:seesBox(d.x, d.y, d.x + d.w, d.y + d.h) then
       local x, y = cam:toScreen(d.x, d.y)
       local w, h = d.w * cam.scale, d.h * cam.scale
-      lg.setColor(d.owned and {0.075,0.12,0.13,0.8} or {0.09,0.11,0.14,0.5})
-      lg.rectangle("fill",x+4,y+4,w-8,h-8,8)
+      if d.island then
+        -- Rock in the water, with a shoreline. Rounded hard, because nothing
+        -- out there was laid out by a surveyor.
+        lg.setColor(d.owned and {0.13,0.13,0.11,0.95} or {0.10,0.11,0.11,0.9})
+        lg.rectangle("fill",x,y,w,h,math.min(w,h)*0.34)
+        lg.setColor(0.52,0.48,0.38,d.owned and 0.55 or 0.3)
+        lg.setLineWidth(2)
+        lg.rectangle("line",x,y,w,h,math.min(w,h)*0.34)
+      else
+        lg.setColor(d.owned and {0.075,0.12,0.13,0.8} or {0.09,0.11,0.14,0.5})
+        lg.rectangle("fill",x+4,y+4,w-8,h-8,8)
+      end
     end
   end
 end
@@ -643,7 +666,10 @@ function Draw.world(city, cam, state)
           premium > 0.10 and P.good or premium < -0.10 and P.bad or P.textDim, R.fonts.tiny)
       end
     elseif n.kind == "source" then
-      if n.plant == "nuclear" then
+      if n.plant == "wind" then
+        lg.setColor(color)
+        Draw.turbine(x, y, r * 0.9)
+      elseif n.plant == "nuclear" then
         lg.setColor(color)
         Draw.reactor(x, y - r * 0.04, r * 0.86)
       else
@@ -656,7 +682,8 @@ function Draw.world(city, cam, state)
       local drawn = (city.produced or {})[n.id] or 0
       local maxed = drawn >= (n.output or 0) and (n.output or 0) > 0
       if named then
-        label((n.plant == "nuclear" and "REACTOR" or string.upper(n.commodity))
+        label((n.plant and string.upper((City.PLANTS[n.plant] or {}).name or "PLANT")
+          or string.upper(n.commodity))
           .. "  " .. drawn .. "/" .. (n.output or 0),
           x, y+r+8, maxed and P.warn or color)
       end
@@ -769,8 +796,8 @@ function Draw.world(city, cam, state)
     local wx,wy = cam:toWorld(mx,my)
     local err, cost, seam
     if state.tool=="source" then
-      err = city:sourceError(state.commodity,wx,wy)
-      cost, seam = city:sourceCost(state.commodity,wx,wy)
+      err = city:sourceError(state.commodity,wx,wy,state.plant)
+      cost, seam = city:sourceCost(state.commodity,wx,wy,state.plant)
     else
       err = city:placementError(wx,wy)
       cost = city:nodeCost(state.tool)

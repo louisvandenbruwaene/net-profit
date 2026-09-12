@@ -374,10 +374,27 @@ function City:cellAt(col, row)
   return id and self.districts[id] or nil
 end
 
--- Bring one cell into being. Sea cells do not exist as ground at all, which is
--- what stops the company walking north.
+-- Names for the ground out in the water, which is not named like a suburb.
+City.ISLAND_NAMES = {
+  head = { "Gull", "Slack", "Herring", "Cormorant", "Salt", "Wreck", "Storm",
+           "Seal", "Tern", "Mussel", "Anchor", "Kelp", "Skerry", "Bell" },
+  tail = { " Island", " Rock", " Holm", " Skerry", " Bank", " Sands", " Reef" },
+}
+
+City.ISLAND = {
+  chance = 0.34,        -- of a surveyed sea cell having anything in it at all
+  minW = 380, maxW = 560,
+  minH = 240, maxH = 360,
+}
+
+-- Bring one cell into being.
+--
+-- North of row one is sea. Most of it is water and generates nothing at all,
+-- which is what stops the company walking north, but some of it is island: real
+-- ground, bought outright rather than next door, and reachable only by a
+-- company that already has a harbour.
 function City:surveyCell(col, row)
-  if row < 1 then return nil end
+  if row < 1 then return self:surveyIsland(col, row) end
   local existing = self:cellAt(col, row)
   if existing then return existing end
 
@@ -414,6 +431,39 @@ function City:surveyCell(col, row)
         .. City.NAMES.tail[self:random(#City.NAMES.tail)]
     end)
   end
+  self:growBounds(d)
+  return d
+end
+
+function City:surveyIsland(col, row)
+  local existing = self:cellAt(col, row)
+  if existing then return existing end
+  local seed = self:cellSeed(col, row)
+  -- One draw decides whether there is anything here, taken from the cell's own
+  -- stream so the same square of sea is empty or not for good.
+  local roll = ((seed * 16807) % 2147483647 - 1) / 2147483646
+  if roll > City.ISLAND.chance then return nil end
+
+  local id = #self.districts + 1
+  local d = { id = id, col = col, row = row, ring = City.ringOf(col, row), island = true }
+  self.districts[id] = d
+  self.cellIndex = self.cellIndex or {}
+  self.cellIndex[City.cellKey(col, row)] = id
+  self:withCell(col, row, function()
+    self:random()
+    d.w = self:rand(City.ISLAND.minW, City.ISLAND.maxW)
+    d.h = self:rand(City.ISLAND.minH, City.ISLAND.maxH)
+    local cellX, cellY = (col - 1) * City.MAP.w, (row - 1) * City.MAP.h
+    d.x = cellX + self:rand(80, City.MAP.w - d.w - 80)
+    d.y = cellY + self:rand(70, City.MAP.h - d.h - 70)
+    d.name = City.ISLAND_NAMES.head[self:random(#City.ISLAND_NAMES.head)]
+      .. City.ISLAND_NAMES.tail[self:random(#City.ISLAND_NAMES.tail)]
+  end)
+  -- Nobody lives out here and nothing is buried under it. What an island is for
+  -- is the wind, and for being somewhere the mainland is not.
+  d.spec = { key = "island", label = "ISLAND", rough = 0, water = 0, oil = 0, bias = {},
+             story = "Bare rock in the sea. The wind never stops, and nobody objects to anything." }
+  d.dressed = true
   self:growBounds(d)
   return d
 end
@@ -485,7 +535,11 @@ end
 function City:districtAt(x, y)
   local col = math.floor(x / City.MAP.w) + 1
   local row = math.floor(y / City.MAP.h) + 1
-  return self:cellAt(col, row)
+  local d = self:cellAt(col, row)
+  -- A land cell fills its square. An island is a rock somewhere inside one, and
+  -- the water around it is not ground.
+  if d and (x < d.x or y < d.y or x >= d.x + d.w or y >= d.y + d.h) then return nil end
+  return d
 end
 
 -- The extent of what the company holds, which is what the map view should
@@ -526,14 +580,19 @@ function City:districtCost(d)
   local ring = (d and d.ring) or 0
   return math.ceil(City.districtPrice.base
     * (City.districtPrice.growth ^ self.districtsBought)
-    * (1 + 0.55 * ring))
+    * (1 + 0.55 * ring)
+    * ((d and d.island) and 1.9 or 1))
 end
 
 function City:districtError(id)
   local d = self.districts[id]
   if not d then return "no such district" end
   if d.owned then return "already owned" end
-  if not self:districtAdjacent(d) then return "not next to your ground" end
+  if d.island then
+    -- Ships do not care what is next door. A harbour is what an island is next
+    -- to, so a company without one has no way to land on it.
+    if not self:havenOf("port") then return "an island needs a harbour to reach it" end
+  elseif not self:districtAdjacent(d) then return "not next to your ground" end
   if self:districtCost(d) > self.money then return "not enough cash" end
   return nil
 end
@@ -714,9 +773,8 @@ function City:crossingCost(ax, ay, bx, by)
 end
 
 function City:placementError(x, y)
-  if y < 0 then return "that is the sea" end
   local d = self:districtAt(x, y)
-  if not d then return "unsurveyed ground" end
+  if not d then return y < 0 and "that is the sea" or "unsurveyed ground" end
   if not d.owned then return "you do not own " .. d.name end
   local o = self:obstacleAt(x, y)
   if o and not (self.permits and self.permits[o.kind]) then
@@ -894,7 +952,8 @@ function City:pipeUpkeep(e)
   return trade.upkeep + self:pipeLength(e) * trade.upkeepPerM
 end
 
-function City:sourceCost(commodity, x, y)
+function City:sourceCost(commodity, x, y, plant)
+  if commodity == "power" then return self:plantCost(plant or "nuclear") end
   local trade = City.trade[commodity] or City.trade.water
   local n = (commodity == "water") and self.sourcesBought or (self.premiumBought and self.premiumBought[commodity]) or 0
   local base = math.ceil(trade.sourceBase * (trade.sourceGrowth ^ n))
@@ -908,6 +967,27 @@ end
 -- Upgrading a well is the hub's reason to exist: it needs no new route, no new
 -- tie-in and no new ground, so it is the cheap way to add supply until the
 -- levels get steep -- at which point sinking a new well is cheaper again.
+-- Electricity is generated, never landed, and there are two ways to generate
+-- it. A reactor is an enormous cheque and a standing crew, and it turns
+-- imported uranium into more power than anything else on the map. A wind park
+-- is cheap, small, burns nothing at all, and can only stand where there is
+-- nobody to object and nothing to shelter it: out in the sea.
+City.PLANTS = {
+  nuclear = { name = "NUCLEAR PLANT", base = 3600, growth = 1.35, output = 45,
+              upkeep = 52, fuel = 0.55, ground = "land",
+              blurb = "Huge output, huge cheque, and fuel so cheap the next customer is nearly free." },
+  wind    = { name = "WIND PARK",     base = 1800, growth = 1.28, output = 12,
+              upkeep = 14, fuel = 0,   ground = "island",
+              blurb = "Burns nothing and owes nobody. Only the islands have the wind for it." },
+}
+City.PLANT_ORDER = { "nuclear", "wind" }
+
+function City:plantCost(plant)
+  local spec = City.PLANTS[plant] or City.PLANTS.nuclear
+  local built = (self.plantsBuilt or {})[plant] or 0
+  return math.ceil(spec.base * (spec.growth ^ built))
+end
+
 City.sourceMaxLevel = 6
 
 function City:sourceUpgradeCost(n)
@@ -920,6 +1000,7 @@ function City:upgradeSource(id)
   local n = self.g.nodes[id]
   if not (n and n.alive and n.kind == "source") then return nil, "no such source" end
   local level = n.level or 1
+  if n.plant then return nil, "a plant is built, not deepened" end
   if level >= City.sourceMaxLevel then return nil, "well is at full yield" end
   if n.cap and (n.output or 0) >= n.cap then
     return nil, "this ground gives no more: " .. n.cap .. " a day is its limit"
@@ -1555,25 +1636,36 @@ end
 -- the mine, the well or the rig is what turns a marked deposit into supply. A
 -- reactor answers to no deposit, only to ground. And nobody brews: beer comes
 -- off a ship like everything else the city does not make for itself.
-function City:sourceError(commodity, x, y)
+function City:sourceError(commodity, x, y, plant)
   if not self.licences[commodity] then return "no licence for that" end
   if commodity == "beer" then return "beer is landed at a haven, not brewed" end
   local err = self:placementError(x, y)
   if err then return err end
-  if commodity ~= "power" then
+  if commodity == "power" then
+    local spec = City.PLANTS[plant or "nuclear"]
+    if not spec then return "no such plant" end
+    local d = self:districtAt(x, y)
+    if spec.ground == "island" and not (d and d.island) then
+      return "a wind park stands on an island"
+    end
+    if spec.ground == "land" and d and d.island then
+      return "there is no room for a reactor out here"
+    end
+  else
     local _, seam = self:sourceCost(commodity, x, y)
     if not seam then return "no " .. commodity .. " here: sink on a marked deposit" end
   end
   return nil
 end
 
-function City:buySource(commodity, px, py)
+function City:buySource(commodity, px, py, plant)
   if not self.licences[commodity] then return nil, "no licence" end
   if commodity == "beer" then return nil, "beer is landed at a haven, not brewed" end
+  plant = commodity == "power" and (plant or "nuclear") or nil
   if px then
-    local err = self:sourceError(commodity, px, py)
+    local err = self:sourceError(commodity, px, py, plant)
     if err then return nil, err end
-    local cost, seam = self:sourceCost(commodity, px, py)
+    local cost, seam = self:sourceCost(commodity, px, py, plant)
     if cost > self.money then return nil, "not enough cash" end
     local trade = City.trade[commodity] or City.trade.water
     self:spend(cost)
@@ -1581,15 +1673,23 @@ function City:buySource(commodity, px, py)
     s.commodity, s.paid, s.level = commodity, cost, 1
     -- The ground, not the equipment, decides the ceiling. A works can be
     -- deepened up to what the deposit gives in a day and not one unit past it.
-    s.cap = seam and seam.cap or City.depositCap(commodity, 0)
-    s.output = math.min(s.cap, math.floor(trade.sourceOutput * (seam and seam.yield or 1)))
+    if plant then
+      local spec = City.PLANTS[plant]
+      s.plant, s.output, s.cap = plant, spec.output, spec.output
+      s.upkeep, s.fuel = spec.upkeep, spec.fuel
+      self.plantsBuilt = self.plantsBuilt or {}
+      self.plantsBuilt[plant] = (self.plantsBuilt[plant] or 0) + 1
+    else
+      s.cap = seam and seam.cap or City.depositCap(commodity, 0)
+      s.output = math.min(s.cap, math.floor(trade.sourceOutput * (seam and seam.yield or 1)))
+    end
     if seam then
       seam.taken = true
       s.seam = true
       self:note("The %s deposit is opened: %d a day for $%d", commodity, s.output, cost)
-    elseif commodity == "power" then
-      s.plant = "nuclear"
-      self:note("Nuclear plant commissioned for $%d: %d units a day", cost, s.output)
+    elseif plant then
+      self:note("%s commissioned for $%d: %d units a day",
+        City.PLANTS[plant].name, cost, s.output)
     else
       self:note("New %s well sunk for $%d", commodity, cost)
     end
@@ -2644,8 +2744,9 @@ function City:fuelBill()
   local total = 0
   for _, n in ipairs(self.g:nodesOfKind("source")) do
     local trade = City.trade[n.commodity or "water"] or City.trade.water
-    if trade.fuelPerUnit then
-      total = total + ((self.produced or {})[n.id] or 0) * trade.fuelPerUnit
+    local rate = n.fuel or trade.fuelPerUnit
+    if rate and rate > 0 then
+      total = total + ((self.produced or {})[n.id] or 0) * rate
     end
   end
   return total
@@ -2656,7 +2757,7 @@ function City:expenseBreakdown()
   for _, n in ipairs(self.g:aliveNodes()) do
     if n.kind == "source" then
       local trade = City.trade[n.commodity] or City.trade.water
-      b.sources = b.sources + trade.sourceUpkeep + ((n.level or 1) - 1) * 2
+      b.sources = b.sources + (n.upkeep or trade.sourceUpkeep) + ((n.level or 1) - 1) * 2
     elseif n.kind == "exchange" then b.structures = b.structures + 0
     elseif n.kind == "terminal" then b.structures = b.structures + City.terminalUpkeep
     elseif n.kind == "depot" then b.structures = b.structures + 3

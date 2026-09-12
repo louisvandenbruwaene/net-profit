@@ -118,6 +118,42 @@ do
 end
 
 --------------------------------------------------------------------------------
+print("the sea has islands, and the islands have wind")
+do
+  local c = City.new({ seed = 24 })
+  c.money = 1e9
+  c.licences.power = true
+  local island
+  for _, d in ipairs(c.districts) do if d.island then island = d; break end end
+  ok("the survey found an island", island ~= nil)
+  ok("it sits north of the coast", island.y < 0)
+  ok("it is smaller than a district", island.w < City.MAP.w and island.h < City.MAP.h)
+  check("the water beside it is not ground", c:districtAt(island.x - 60, island.y + 20), nil)
+  ok("but the rock itself is", c:districtAt(island.x + 20, island.y + 20) == island)
+
+  check("and it cannot be reached without a harbour", c:districtError(island.id),
+    "an island needs a harbour to reach it")
+  -- A harbour on the coast is what makes the sea reachable.
+  local coast
+  for _, d in ipairs(c.districts) do if d.row == 1 and not d.island then coast = d; break end end
+  coast.owned = true
+  c.obstacles = {}
+  assert(c:build(coast.x + 120, coast.y + 90, "terminal", "port"))
+  check("with one, the island is for sale", c:districtError(island.id), nil)
+  assert(c:buyDistrict(island.id))
+
+  check("a wind park cannot stand on the mainland",
+    select(2, c:buySource("power", coast.x + 400, coast.y + 300, "wind")),
+    "a wind park stands on an island")
+  local park = c:buySource("power", island.x + island.w / 2, island.y + island.h / 2, "wind")
+  ok("but it can stand out here", park ~= nil and park.plant == "wind")
+  check("and it burns nothing at all", c:fuelBill(), 0)
+  check("a reactor will not fit on a rock",
+    select(2, c:buySource("power", island.x + 40, island.y + 40, "nuclear")),
+    "there is no room for a reactor out here")
+end
+
+--------------------------------------------------------------------------------
 print("a surveyed city saves and comes back the same")
 do
   local Save = require("company_save")

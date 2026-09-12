@@ -55,11 +55,14 @@ local function connect(app,c)
   love.mousereleased(bx,by,1)
 end
 
-local function capture(name,app,width,height)
+-- `keepCamera` leaves the view exactly where the caller put it. Everything else
+-- is framed on the whole company, which is right for most shots and wrong for
+-- one that is about a particular corner of the map.
+local function capture(name,app,width,height,keepCamera)
     width,height=width or 1440,height or 880
     local canvas=love.graphics.newCanvas(width,height)
     R.viewportOverride={width,height}
-    app.action(app.state.tab=="map" and "fitWorld" or "fit")
+    if not keepCamera then app.action(app.state.tab=="map" and "fitWorld" or "fit") end
     love.graphics.setCanvas(canvas)
     love.draw()
     love.graphics.setCanvas()
@@ -76,7 +79,7 @@ local function capture(name,app,width,height)
     check(count>15,"render contains varied nonblank pixels: "..name)
     data:encode("png",name..".png")
     R.viewportOverride=nil
-    app.action(app.state.tab=="map" and "fitWorld" or "fit")
+    if not keepCamera then app.action(app.state.tab=="map" and "fitWorld" or "fit") end
     canvas:release()
     data:release()
 end
@@ -665,7 +668,31 @@ function Walk.update(app,mode,frame)
       app.camera():centerOn(hub.x,hub.y+30)
       capture("net-profit-19-hub",app,1100,700)
       app.state.node=nil
-    elseif frame==36 then print("screenshots complete"); love.event.quit() end
+    elseif frame==36 then
+      -- The sea: an island bought off the coast, with a wind park on it.
+      local c=app.city()
+      c.money=999999
+      c.obstacles={}
+      c.licences.power=true
+      local coast=c:cellAt(2,1)
+      coast.owned=true
+      -- The harbour from the earlier shot may still be standing here.
+      local port=c:havenOf("port")
+      if not port then port=assert(c:build(coast.x+140,coast.y+90,"terminal","port")) end
+      local island
+      for _,d in ipairs(c.districts) do if d.island then island=d; break end end
+      if island then
+        assert(c:buyDistrict(island.id))
+        local park=assert(c:buySource("power",island.x+island.w/2,island.y+island.h/2,"wind"))
+        c:refresh()
+        app.state.modal=nil; app.state.tab="network"; app.state.scroll=0
+        app.action("focusNode",park.id)
+        app.camera().targetScale=0.32; app.camera().scale=0.32
+        app.camera():centerOn((park.x+port.x)/2,(park.y+port.y)/2-40)
+        capture("net-profit-20-island",app,1100,700,true)
+        app.state.node=nil
+      end
+    elseif frame==38 then print("screenshots complete"); love.event.quit() end
     return
   end
   if mode=="--soak" and frame<70 then
