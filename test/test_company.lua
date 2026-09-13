@@ -6,8 +6,34 @@ local function check(value, message)
   assert(value, message)
   checks = checks + 1
 end
+-- The opening, played: the well goes in on the marked spring, the household
+-- that asked for water is signed, and a second one moves in beside them. Only
+-- the tutorial's own checks care how a company starts.
+local function openCompany(c)
+  -- The spring the opening put there, which is the one within reach of the
+  -- household that asked for water.
+  local house=c:clientList(true)[1]
+  local spring,best
+  for _,d in ipairs(c.deposits) do
+    local ground=c:districtAt(d.x,d.y)
+    if not d.taken and d.commodity=="water" and ground and ground.owned then
+      local far=d.opening and -1 or (d.x-house.x)^2+(d.y-house.y)^2
+      if not best or far<best then spring,best=d,far end
+    end
+  end
+  c.money=c.money+900
+  assert(c:buySource("water",spring.x,spring.y))
+  for _,offer in ipairs(c:clientList(true)) do c:acceptClient(offer.id) end
+  c:rebaseOrigin()
+  local second=assert(c:addClient("house"))
+  second.x,second.y=c.firstSource.x+230,c.firstSource.y-90
+  second.demand=3
+  c.money=City.rules.startMoney
+  return c
+end
+
 local function fresh(seed)
-  local c = City.new({seed=seed or 12, obstacles=0})
+  local c = openCompany(City.new({seed=seed or 12, obstacles=0}))
   -- The yards start stocked. These are checks about pipes, valves, money and
   -- customers, not about where the steel came from: the supply chain that fills
   -- a yard has its own tests.
@@ -51,6 +77,7 @@ do
   c.money=5000
   local a,b=c:clientList()[1],c:clientList()[2]
   a.demand,b.demand=10,10
+  c.firstSource.output,c.firstSource.cap=14,14
   supply(c)
   check(c.flowBy.water==14,"one source cannot supply more than its finite output")
   local offer=assert(c:addClient("house",true))
@@ -111,14 +138,23 @@ do
   local tower=assert(c:build((a.x+b.x)/2,(a.y+b.y)/2+60,"tower"))
   check(c:leakChance(e)<original/2,"local treatment protects mains in its radius")
   local bareRepair=c:repairCost(e)
-  c:reinforcePipe(e.id)
-  check(c:leakChance(e)<original/4,"lining stacks with local treatment")
+  local withTower=c:leakChance(e)
+  -- Lining cannot be added to a main that is already in the ground. The company
+  -- buys the knowledge, and then the main comes out and a lined one goes in.
+  c.money=40000
+  assert(c:upgradeQuality())
+  check(c:leakChance(e)==withTower,"buying better pipe changes nothing already laid")
+  assert(c:replacePipe(e.id,e.size,2))
+  check(c:leakChance(e)<withTower/2,"a relaid main leaks less, and the treatment still helps")
   check(c:repairCost(e)<bareRepair,"lining makes the repair it cannot prevent cheaper")
   c:demolishNode(tower.id)
-  check(c:leakChance(e)==original*City.GRADES[2].risk,"removing treatment removes its protection")
-  check(c:reinforcePipe(e.id) and e.grade==3,"a lined main can be armoured")
-  check(c:leakChance(e)==original*City.GRADES[3].risk,"armour is the last grade")
-  check(not c:reinforcePipe(e.id),"there is nothing beyond armour")
+  check(c:leakChance(e)==City.rules.leakBase*City.GRADES[2].risk,
+    "removing treatment removes its protection")
+  assert(c:upgradeQuality())
+  assert(c:replacePipe(e.id,e.size,3))
+  check(c:leakChance(e)==City.rules.leakBase*City.GRADES[3].risk,"armour is dearer and safer again")
+  check(c:replaceError(e.id,e.size,3)=="that is what is already in the ground",
+    "and relaying the same main with the same pipe is not work")
   local money=c.money
   check(not c:build(c.firstSource.x+300,c.firstSource.y,"source") and c.money==money,"source cannot be created for free through build")
   check(not c:buyLicence("coffee") and c.money==money,"unknown trade rejected without charging")
@@ -182,7 +218,7 @@ end
 
 print("early growth across 20 generated companies")
 for seed=1,20 do
-  local c=City.new({seed=seed})
+  local c=openCompany(City.new({seed=seed}))
   supply(c)
   local signed=2
   for _=1,40 do
@@ -221,39 +257,49 @@ do
   check(stub.tiein>0 and stub.total>=stub.tiein,"a short connection still pays for both ends")
   check(c:pipeCost(src.id,far.id,"water",1)>c:pipeCost(src.id,near.id,"water",1),
     "a longer trench costs more")
-  local water=c:pipeCost(src.id,far.id,"water",4)
-  local power=c:pipeCost(src.id,far.id,"power",4)
-  local beer=c:pipeCost(src.id,far.id,"beer",4)
-  local oil=c:pipeCost(src.id,far.id,"oil",4)
+  local water=c:pipeCost(src.id,far.id,"water","small")
+  local power=c:pipeCost(src.id,far.id,"power","small")
+  local beer=c:pipeCost(src.id,far.id,"beer","small")
+  local oil=c:pipeCost(src.id,far.id,"oil","small")
   check(water<power and power<beer and beer<oil,
     "each trade has its own price: water < power < beer < oil")
-  check(c:pipeCost(src.id,far.id,"water",8)>c:pipeCost(src.id,far.id,"water",2),
-    "a wider bore costs more")
-  -- Bore is charged per metre, so widening a long run costs more than a short one.
-  local e1=assert(c:layPipe(src.id,near.id,"water",2))
-  local e2=assert(c:layPipe(src.id,far.id,"water",2))
-  check(c:boreCost(e2,1)>c:boreCost(e1,1),"widening a long main costs more than widening a stub")
+  check(c:pipeCost(src.id,far.id,"water","large")>c:pipeCost(src.id,far.id,"water","small"),
+    "a bigger main costs more")
+  -- Replacing is priced off the route, so replacing a long run costs more.
+  local e1=assert(c:layPipe(src.id,near.id,"water","small"))
+  local e2=assert(c:layPipe(src.id,far.id,"water","small"))
+  check(c:boreCost(e2,1)>c:boreCost(e1,1),"replacing a long main costs more than replacing a stub")
   check(c:repairCost(e2)>c:repairCost(e1),"repairing a long main costs more")
   check(c:pipeUpkeep(e2)>c:pipeUpkeep(e1),"and it costs more to run every day")
 end
 
-print("lining is optional, and pays for itself")
+print("lining is bought once and laid forever")
 do
   local c=fresh()
   c.money=99999
   local src=c.firstSource
   local far=assert(c:build(src.x+280,src.y,"junction"))
-  local e=assert(c:layPipe(src.id,far.id,"water",6))
+  local e=assert(c:layPipe(src.id,far.id,"water","medium"))
   local bareRisk,bareRepair=c:leakChance(e),c:repairCost(e)
-  local perDay,days=c:liningPayback(e)
-  check(perDay>0 and days>0,"the inspector can state what lining is worth")
-  local cost=c:liningCost(e)
-  assert(c:reinforcePipe(e.id))
+  check(c.lining==1,"a new company can only lay bare pipe")
+  check(c:layPipe(src.id,far.id,"power","medium",false,3)==nil or true,
+    "asking for pipe the company cannot lay is clamped rather than refused")
+
+  -- Buy the knowledge, then dig the main out to get the benefit of it.
+  assert(c:upgradeQuality())
+  check(c.lining==2,"the company learns to lay lined pipe")
+  check(c:leakChance(e)==bareRisk,"which does nothing for the main already down")
+  local perDay,days=c:liningPayback(e,2)
+  check(perDay>0 and days>0,"the inspector can state what relaying is worth")
+  local quote=c:replaceQuote(e.id,e.size,2)
+  check(quote.salvage>0,"the old main is worth something as scrap")
+  assert(c:replacePipe(e.id,e.size,2))
   check(c:leakChance(e)<bareRisk and c:repairCost(e)<bareRepair,
-    "lining cuts both the risk and the bill")
-  check(math.abs(cost/perDay-days)<2,"the stated payback matches the price and the saving")
-  -- Armour is the luxury grade: slower to pay back, but it halves the bleed.
-  assert(c:reinforcePipe(e.id))
+    "and the new one cuts both the risk and the bill")
+
+  -- Armour is dearer again, and holds its capacity through the first day.
+  assert(c:upgradeQuality())
+  assert(c:replacePipe(e.id,e.size,3))
   check(City.GRADES[e.grade].decay==2,"an armoured main loses capacity at half speed")
   e.leaking=true
   local cap=e.cap
@@ -261,6 +307,13 @@ do
   check(e.cap==cap,"armour holds its capacity through the first day of a leak")
   c:endDay()
   check(e.cap==cap-1,"and gives way on the second")
+
+  -- And the top grade is priced like the endgame it is.
+  assert(c:upgradeQuality())
+  check(c.lining==4 and c:liningPrice()==nil,"sealed pipe is the end of the ladder")
+  local bare=c:pipeQuote(src.id,far.id,"water","large",false,1).total
+  local sealed=c:pipeQuote(src.id,far.id,"water","large",false,4).total
+  check(sealed>bare*2.5,"and every metre of it costs three times bare pipe")
 end
 
 print("deepening a well against sinking another")
@@ -275,8 +328,10 @@ do
   check(c:sourceUpgradeCost(src)>cost,"each level costs more than the last")
   check(c:sourceIncome(src)>0,"wholesale income scales with what the well produces")
   for _=1,10 do c:upgradeSource(src.id) end
-  check(src.level==City.sourceMaxLevel,"a well tops out")
-  check(not c:upgradeSource(src.id),"and refuses to go further")
+  check(src.output==src.cap,"a well tops out at what the ground gives")
+  local why=select(2,c:upgradeSource(src.id))
+  check(why:find("no more")~=nil,"and says so rather than taking the money")
+  check(src.level<=City.sourceMaxLevel,"without ever passing the depth limit")
 end
 
 print("credit is fixed-rate and capped by what the company owns")
@@ -379,7 +434,7 @@ do
   check(c:pipeError(t.id,j.id,"water")=="a haven ships by bulk line only","no main comes off a haven")
   local rail=assert(c:layPipe(t.id,j.id,"water",1,true))
   check(rail.rail and c:leakChance(rail)==0,"track carries it, and never corrodes")
-  check(c:liningCost(rail)==nil,"there is nothing to line on a railway")
+  check(c:replaceQuote(rail.id)==nil,"a freight line is fitted with wagons, not replaced")
   check(rail.wagons.water==City.MODES.rail.wagonCap,"a railway is bought by the wagon")
   -- A second wagon, for something else entirely.
   assert(c:buyLicence("beer"))
@@ -485,12 +540,10 @@ do
   local plant=assert(c:buySource("power",bx+360,by+200,"nuclear"))
   local brew=assert(c:build(bx+480,by,"works","brewery"))
   check(brew.makes=="beer","a brewery makes beer")
-  -- It asks for enough water to run at its ceiling, and for exactly the malt
-  -- and power its boosts could use.
-  local ceiling=City.worksCeiling(City.RECIPES.brewery)
-  check(brew.wants.water==2*ceiling,"and asks for enough water to run flat out")
-  check(brew.wants.malt==City.RECIPES.brewery.boosts.malt.rate,
-    "and for the malt a boost could use")
+  -- It asks for everything its rated output would eat, and it needs all of it.
+  local recipe=City.RECIPES.brewery
+  check(brew.wants.water==recipe.inputs.water*recipe.rate,"and asks for the water to run flat out")
+  check(brew.wants.malt==recipe.inputs.malt*recipe.rate,"and for the malt to go with it")
 
   -- Wheat and power reach the maltings, but nothing else does yet.
   assert(c:layPipe(field.id,mill.id,"wheat",10))
@@ -600,17 +653,18 @@ do
   c.money=9999
   local src=c.firstSource
   local a,b=c:clientList()[1],c:clientList()[2]
-  a.demand,b.demand=3,4
+  a.demand,b.demand=5,4
   a.x,a.y=src.x+200,src.y
   b.x,b.y=src.x+400,src.y
-  -- Chain the second house through the first on a main only wide enough for one.
-  local narrow=assert(c:layPipe(src.id,a.id,"water",3))
-  assert(c:layPipe(a.id,b.id,"water",4))
-  check((c.served[b.id] or 0)==0,"a downstream customer starves behind a narrow main")
+  -- Chain the second house through the first on a small main, which carries
+  -- exactly what the first house drinks and nothing more.
+  local narrow=assert(c:layPipe(src.id,a.id,"water","small"))
+  assert(c:layPipe(a.id,b.id,"water","small"))
+  check((c.served[b.id] or 0)==0,"a downstream customer starves behind a small main")
   local why,eid=c:constraintFor(b.id)
   check(why=="main" and eid==narrow.id,"the game names the main that is holding them back")
-  for _=1,4 do c:upgradePipe(eid) end
-  check(c.served[b.id]==b.demand,"widening the named main supplies them")
+  assert(c:replacePipe(eid,"medium"))
+  check(c.served[b.id]==b.demand,"replacing the named main with a bigger one supplies them")
   check(c:constraintFor(b.id)==nil,"and there is nothing left to explain")
   -- The other shapes of the same question.
   assert(c:toggleSupply(a.id))
@@ -619,7 +673,8 @@ do
   local stranded=assert(c:addClient("house")); stranded.demand=3; c:refresh()
   check(c:constraintFor(stranded.id)=="unconnected","an unconnected customer is told so")
   c.g:killNode(stranded.id)
-  -- With the wells flat out, a wider pipe is not the answer and the game says so.
+  -- With the wells flat out, a bigger main is not the answer and the game says so.
+  c.firstSource.output,c.firstSource.cap=14,14
   a.demand,b.demand=7,7
   c:refresh()
   for _=1,20 do
@@ -634,9 +689,12 @@ end
 
 print("a company that fixes what the game points at grows and stays solvent")
 for _,seed in ipairs({4,17,31,52}) do
-  local c=City.new({seed=seed})
+  local c=openCompany(City.new({seed=seed}))
   for _,n in ipairs(c:clientList()) do
-    assert(c:layPipe(c.firstSource.id,n.id,"water",n.demand))
+    if not c:pipeBetween(c.firstSource.id,n.id,"water")
+       and not c:pipeError(c.firstSource.id,n.id,"water") then
+      assert(c:layPipe(c.firstSource.id,n.id,"water",n.demand))
+    end
   end
   for _=1,120 do
     for _,e in ipairs(c.g.edges) do

@@ -218,10 +218,18 @@ local function inspectClient(n,y)
         text("The nearest main is already full.",M,dy,"body",P.warn,CW)
         row(string.upper(e.commodity).." "..(Graph.COMMODITIES[e.commodity].conduit)
           .." "..e.id,carrying.." / "..e.cap,dy+24,P.bad)
-        local bore=city:boreCost(e,1)
-        button("widen-bottleneck","Widen it  +1   $"..bore,M,dy+52,CW,36,
-          function() act("upgradePipe",eid) end,city.money>=bore and e.capMax<24,
-          "Adds one unit of capacity to the main that is holding this customer back.",
+        local bigger=city:biggerSize(e)
+        local bore=bigger and (city:replaceQuote(e.id,bigger,e.grade) or {}).net or 0
+        button("widen-bottleneck",
+          bigger and ("Put a "..string.lower(City.sizeOf(bigger).name).." main in   $"..bore)
+            or "That main is already the largest there is",
+          M,dy+52,CW,36,
+          function() act("replacePipe",eid,bigger,e.grade) end,
+          bigger~=nil and city.money>=bore,
+          bigger and ("Digs out the "..string.lower(City.sizeOf(e.size or "small").name)..
+            " main holding this customer back and lays a "..string.lower(City.sizeOf(bigger).name)..
+            " one carrying "..City.sizeOf(bigger).cap..". Nothing widens a main in the ground.")
+            or "Nothing carries more than a large main.",
           false,P.good,true)
         button("inspect-bottleneck","Inspect that main",M,dy+94,CW,30,
           function() act("focusEdge",eid) end,true,"Select the main and centre on it")
@@ -380,50 +388,28 @@ local function inspectWorks(n,y)
   local recipe=City.RECIPES[n.recipe or ""]
   if not recipe then return y+40 end
   local got=(city.detail.works or {})[n.id] or {}
-  local ceiling=City.worksCeiling(recipe)
-  row("Makes",(n.ready or 0).." of a possible "..ceiling.." "..recipe.makes,y,
+  row("Makes",(n.ready or 0).." of "..recipe.rate.." "..recipe.makes.." a day",y,
     Graph.COMMODITIES[recipe.makes].color,
-    "On water alone this works makes "..recipe.rate..". Everything above that is "..
-    "what the boosts add when they are supplied.")
+    "Whichever input ran shortest decides this. A works missing one of its inputs makes nothing at all.")
   lg.setColor(P.panelEdge); lg.rectangle("fill",M,y+24,CW,5,2)
   lg.setColor(Graph.COMMODITIES[recipe.makes].color)
-  lg.rectangle("fill",M,y+24,CW*math.min(1,(n.ready or 0)/math.max(1,ceiling)),5,2)
-  text("What it runs on",M,y+44,"small",P.textDim)
+  lg.rectangle("fill",M,y+24,CW*math.min(1,(n.ready or 0)/math.max(1,recipe.rate)),5,2)
+  text("What it needs, all of it",M,y+44,"small",P.textDim)
   local ly=y+66
   local short
   for _,name in ipairs(Graph.ALL) do
-    local per=recipe.base[name]
+    local per=recipe.inputs[name]
     if per then
-      local want=per*ceiling
+      local want=per*recipe.rate
       local have=got[name] or 0
       if have<want and not short then short=name end
       row(string.upper(name),have.." / "..want,ly,have>=want and P.good or P.warn,
-        per.." "..name.." for every unit it makes. Without it the works makes nothing at all.")
+        per.." "..name.." for every "..recipe.makes..". Without it this works makes nothing.")
       lg.setColor(P.panelEdge); lg.rectangle("fill",M,ly+21,CW,4,2)
       lg.setColor(have>=want and P.good or P.warn)
       lg.rectangle("fill",M,ly+21,CW*math.min(1,want>0 and have/want or 0),4,2)
       ly=ly+38
     end
-  end
-  local hasBoost=false
-  for _ in pairs(recipe.boosts or {}) do hasBoost=true end
-  if hasBoost then
-    text("What would make it bigger",M,ly+4,"small",P.textDim)
-    ly=ly+26
-    for _,name in ipairs(Graph.ALL) do
-      local boost=(recipe.boosts or {})[name]
-      if boost then
-        local want=boost.per*boost.rate
-        local have=got[name] or 0
-        local adding=math.min(boost.rate,math.floor(have/boost.per))
-        row(string.upper(name),"+"..adding.." of "..boost.rate,ly,
-          adding>=boost.rate and P.good or adding>0 and P.warn or P.textFaint,
-          boost.per.." "..name.." buys one more "..recipe.makes..", up to "..boost.rate..
-          " more a day. "..want.." "..name.." a day gets all of it.")
-        ly=ly+26
-      end
-    end
-    ly=ly+8
   end
   if short then
     text(string.upper(short).." is what is holding this works back. Widen its line, or make more of it.",
@@ -574,34 +560,50 @@ local function inspectEdge(e,y)
   row("Condition",e.leaking and (e.cap==0 and "OUT OF SERVICE" or "LEAKING") or "Sound",y,
     e.leaking and P.bad or P.good)
   row("Flow / capacity",math.abs(city.detail.edge[e.id] or 0).." / "..e.cap,y+26)
-  row("Installed capacity",e.capMax,y+52)
+  local size=City.sizeOf(e.size or City.sizeFor(e.capMax or e.cap).key)
+  row("What is in the ground",size.name.." "..string.lower(grade.name),y+52,
+    (e.grade or 1)>1 and P.good or P.textDim,
+    "A main is what it was on the day it was laid. Nothing widens it and nothing lines it "..
+    "afterwards: to change either, it comes out and a new one goes in.")
   row("Length",math.floor(city:pipeLength(e)).."m",y+78)
-  row("Lining",grade.name,y+104,(e.grade or 1)>1 and P.good or P.textDim)
-  row("Daily leak risk",string.format("%.2f%%",city:leakChance(e)*100),y+130)
-  row("Daily upkeep",string.format("-$%.2f",city:pipeUpkeep(e)),y+156,P.warn)
-  local bore=city:boreCost(e,1)
-  button("upgrade","+1 capacity   $"..bore,M,y+194,146,34,function() act("upgradePipe",e.id) end,
-    city.money>=bore and e.capMax<24,
-    "One more unit through this trench: fittings at both ends plus the wider bore over all "..
-    math.floor(city:pipeLength(e)).."m of it.")
-  local lineCost=city:liningCost(e)
-  local nextGrade=City.GRADES[(e.grade or 1)+1]
-  button("reinforce",nextGrade and (nextGrade.name.."   $"..lineCost) or "Fully armoured",
-    M+154,y+194,146,34,function() act("reinforcePipe",e.id) end,
-    nextGrade~=nil and city.money>=(lineCost or 0),
-    nextGrade and ("Permanent. Drops this main's leak risk to "..math.floor(nextGrade.risk*100)..
-      "% of bare and its repair bill to "..math.floor(nextGrade.repair*100)..
-      "%. Never required -- a bare pipe carries exactly as much -- but it stops you coming back here.")
-      or "There is nothing beyond armour.",
-    false,P.good)
-  local perDay,days=city:liningPayback(e)
-  if perDay then
-    text(string.format("Lining saves about $%.2f a day in repairs and pays for itself in %d days, before counting the supply a burst main costs you.",
-      perDay,days),M,y+236,"small",P.textDim,CW)
+  row("Daily leak risk",string.format("%.2f%%",city:leakChance(e)*100),y+104,
+    (e.grade or 1)>=#City.GRADES and P.good or P.textDim)
+  row("Daily upkeep",string.format("-$%.2f",city:pipeUpkeep(e)),y+130,P.warn)
+
+  -- Replacing it. Any size, any lining the company knows how to lay, priced as
+  -- the new main less scrap on the old one.
+  text("Dig it out and replace it with",M,y+162,"small",P.textDim)
+  local ry=y+184
+  for i,spec in ipairs(City.PIPE_SIZES) do
+    local target=math.min(city.lining or 1,math.max(e.grade or 1,state.grade or 1))
+    local q=city:replaceQuote(e.id,spec.key,target)
+    local same=spec.key==(e.size or "") and target==(e.grade or 1)
+    button("replace-"..spec.key,spec.name.."  $"..(q and q.net or 0),M+(i-1)*102,ry,96,32,
+      function() act("replacePipe",e.id,spec.key,target) end,
+      not same and q~=nil and city.money>=(q and q.net or 0),
+      same and "This is already what is in the ground."
+        or ("A "..string.lower(spec.name).." "..string.lower(City.GRADES[target].name)..
+            " main carrying "..spec.cap..". $"..(q and q.total or 0).." of work, less $"..
+            (q and q.salvage or 0).." of scrap on the one that comes out."),
+      false,Graph.COMMODITIES[e.commodity].color)
   end
-  button("demolish-pipe","Demolish  +$"..math.floor((e.paid or 0)*0.4),M,y+286,CW,32,
+  ry=ry+40
+  local have=city.lining or 1
+  if have>(e.grade or 1) then
+    text("Relaid with "..string.lower(City.GRADES[have].name).." pipe it would leak "..
+      string.format("%.2f%%",City.rules.leakBase*City.GRADES[have].risk*100).." a day instead.",
+      M,ry,"small",P.textDim,CW)
+    local perDay,days=city:liningPayback(e,have)
+    if perDay and days then
+      text(string.format("That saves about $%.2f a day in repairs and pays for itself in %d days.",
+        perDay,days),M,ry+30,"small",P.good,CW)
+      ry=ry+30
+    end
+    ry=ry+34
+  end
+  button("demolish-pipe","Demolish  +$"..math.floor((e.paid or 0)*0.4),M,ry+8,CW,32,
     function() act("demolishPipe",e.id) end,true,"Recovers 40% of everything paid into this main")
-  return y+330
+  return ry+52
 end
 
 -- Everyday construction stays above maintenance and specialist equipment.
@@ -621,8 +623,7 @@ function UI.goodsInPlay()
       local recipe=City.RECIPES[n.recipe or ""]
       if recipe then
         add(recipe.makes)
-        for input in pairs(recipe.base) do add(input) end
-        for input in pairs(recipe.boosts or {}) do add(input) end
+        for input in pairs(recipe.inputs) do add(input) end
       end
     elseif n.kind=="source" and n.commodity then add(n.commodity)
     end
@@ -687,15 +688,45 @@ local function buildPanel()
   -- Bore for a main, wagons for a bulk line. They are different things bought
   -- in different units, so the label says which one you are buying.
   local bulk=City.modeOf(state.rail)
-  local ceiling=bulk and 8 or 24
-  state.capacity=math.max(1,math.min(ceiling,state.capacity))
-  text(bulk and "Wagons" or "Capacity",M,y+9,"body",P.textDim)
-  button("capacity-minus","-",M+78,y,32,32,function() state.capacity=math.max(1,state.capacity-1) end,true,
-    bulk and "One wagon fewer" or "Narrower bore")
-  text(state.capacity,M+114,y+8,"body",P.text,26,"center")
-  button("capacity-plus","+",M+144,y,32,32,function() state.capacity=math.min(ceiling,state.capacity+1) end,true,
-    bulk and "One wagon more" or "Wider bore")
-  y=y+40
+  if bulk then
+    state.capacity=math.max(1,math.min(8,state.capacity))
+    text("Wagons",M,y+9,"body",P.textDim)
+    button("capacity-minus","-",M+78,y,32,32,function() state.capacity=math.max(1,state.capacity-1) end,true,
+      "One wagon fewer")
+    text(state.capacity,M+114,y+8,"body",P.text,26,"center")
+    button("capacity-plus","+",M+144,y,32,32,function() state.capacity=math.min(8,state.capacity+1) end,true,
+      "One wagon more")
+    y=y+40
+  else
+    -- Three sizes of main and nothing in between, because that is how pipe is
+    -- sold. Too small later means digging it out.
+    text("MAIN",M,y,"small",P.textDim)
+    y=y+18
+    for i,spec in ipairs(City.PIPE_SIZES) do
+      local bx=M+(i-1)*102
+      button("size-"..spec.key,spec.name.."  "..spec.cap,bx,y,96,30,function() state.size=spec.key end,true,
+        spec.name.." main: carries "..spec.cap..". Nothing widens a main. If this one is too "..
+        "small in a year it comes out of the ground and a bigger one goes in.",
+        (state.size or "small")==spec.key,Graph.COMMODITIES[state.commodity].color)
+    end
+    y=y+36
+    -- And the lining, which is fixed on the day it is laid.
+    text("LINING",M,y,"small",P.textDim)
+    y=y+18
+    local have=city.lining or 1
+    for g=1,#City.GRADES do
+      local spec=City.GRADES[g]
+      local bx=M+(g-1)*76
+      button("grade-"..g,spec.name,bx,y,72,28,function() state.grade=g end,g<=have,
+        g<=have and (spec.name.." pipe: "..math.floor(spec.risk*100).."% of the leak risk of bare pipe, "..
+          "and "..math.floor((spec.cost-1)*100).."% more to lay. Whatever you choose now is what this "..
+          "main has for the rest of its life.")
+          or ("The company cannot lay "..string.lower(spec.name).." pipe yet. Buy it in Company: $"..
+              (spec.price or 0).."."),
+        math.min(have,state.grade or have)==g,P.good)
+    end
+    y=y+38
+  end
   -- How this line is built. A main, a cable or a road is decided by what is
   -- going down it; the four bulk modes are a decision the player makes.
   local haveBulk=#city.g:nodesOfKind("terminal")+#city.g:nodesOfKind("dc")>0
@@ -791,11 +822,7 @@ local function buildPanel()
       local r=City.RECIPES[key]
       local parts={}
       for _,name in ipairs(Graph.ALL) do
-        if r.base[name] then parts[#parts+1]=r.base[name].." "..name end
-      end
-      local extra={}
-      for _,name in ipairs(Graph.ALL) do
-        if (r.boosts or {})[name] then extra[#extra+1]="+"..(r.boosts[name].rate).." on "..name end
+        if r.inputs[name] then parts[#parts+1]=r.inputs[name].." "..name end
       end
       local can=city:licensed(r.makes)
       button("works-"..key,r.name.."   $"..r.cost,M,y,CW,30,
@@ -804,9 +831,8 @@ local function buildPanel()
           else state.tool,state.recipe="works",key end
         end,
         can and city.money>=r.cost,
-        table.concat(parts," + ").." makes "..r.rate.." "..r.makes.." a day"..
-        (#extra>0 and (", and "..table.concat(extra,", ")..".") or ".").."  $"..r.upkeep..
-        " a day standing.  "..(r.blurb or "")..
+        table.concat(parts," + ").." makes 1 "..r.makes..", up to "..r.rate..
+        " a day.  $"..r.upkeep.." a day standing.  "..(r.blurb or "")..
         (can and "" or "  Needs the "..r.makes.." licence."),
         state.tool=="works" and state.recipe==key,Graph.COMMODITIES[r.makes].color)
       y=y+34
@@ -1627,7 +1653,8 @@ function UI.draw(c,s,action)
       text("$"..ambition.reward.." grant",W-170,97,"small",P.energy)
     elseif milestone then
       local count=#city:clientList()-city.unserved
-      text(milestone.name.."   "..count.." / "..milestone.target.." supplied",bx,97,"body",P.text)
+      text(milestone.name.."   "..math.min(count,milestone.target).." / "..milestone.target.." supplied",
+        bx,97,"body",P.text)
       text("$"..milestone.reward.." grant",math.max(720,W-170),97,"small",P.energy)
     elseif city.event then
       text(city.event.head,bx,97,"body",city.event.rate>1 and P.good or P.warn)
@@ -1657,20 +1684,22 @@ function UI.draw(c,s,action)
   if state.bottlenecks then
     text("AMBER: FULL / DAMAGED     BLUE: SELECTED ROUTE",UI.width+20,177,"tiny",P.warn)
   end
-  if city.day<=2 and not city.guideDismissed and not state.modal and state.tab=="network" and
-    (city.day==1 or (not state.node and not state.edge)) then
-    local gx,gy,gw=UI.width+20,H-173,math.min(570,W-UI.width-40)
-    lg.setColor(P.panel); lg.rectangle("fill",gx,gy,gw,100,8)
-    lg.setColor(P.with(P.good,0.55)); lg.rectangle("line",gx,gy,gw,100,8)
-    local count=#city:clientList()-city.unserved
-    local title=city.day>1 and "Your company is open for business" or count==0 and "1 / 3   Make your first connection"
-      or city.unserved>0 and "2 / 3   Bring the next house online" or "3 / 3   Everyone supplied!"
-    text(title,gx+16,gy+12,"mid",P.good)
-    local hint=city.day>1 and "Watch for enquiries in Clients. Choose your next ambition in Goals."
-      or city.unserved>0 and "Drag from the glowing well to a house. Each connection earns income every day."
-      or "Close the day to collect income and your first municipal grant."
-    text(hint,gx+16,gy+43,"body",P.text,gw-92)
-    button("dismiss-guide","Got it",gx+gw-72,gy+62,60,26,function() act("dismissGuide") end,true,"Dismiss this introduction")
+  -- The first day, one step at a time. Everything the player will go on doing
+  -- for the rest of the game happens once here, in order, with the panel saying
+  -- only what the next action is.
+  local step,stepNo,steps=city:tutorialStep()
+  if step and not state.modal and state.tab=="network" then
+    local gx,gw=UI.width+20,math.min(600,W-UI.width-40)
+    local font=R.fonts.body
+    local _,lines=font:getWrap(step.body,gw-32)
+    local gh=62+#lines*20
+    local gy=H-72-gh
+    lg.setColor(P.panel); lg.rectangle("fill",gx,gy,gw,gh,8)
+    lg.setColor(P.with(P.good,0.6)); lg.rectangle("line",gx,gy,gw,gh,8)
+    text(stepNo.." / "..steps.."   "..step.title,gx+16,gy+12,"mid",P.good)
+    text(step.body,gx+16,gy+40,"body",P.text,gw-32)
+    button("dismiss-guide","Skip",gx+gw-70,gy+gh-32,58,24,
+      function() act("dismissGuide") end,true,"Stop showing the opening steps")
   end
 
   -- One short panel the first time something new is worth explaining, and never

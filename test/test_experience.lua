@@ -4,7 +4,26 @@ local Save=require("company_save")
 local E=require("experience")
 local checks=0
 local function check(ok,message) assert(ok,message); checks=checks+1 end
-local function fresh() return City.new({seed=23,obstacles=0}) end
+-- A company that has been through its opening: well in, first household on
+-- supply, so these checks are about previews rather than about day one.
+local function fresh()
+  local c=City.new({seed=23,obstacles=0})
+  local house=c:clientList(true)[1]
+  local spring,best
+  for _,d in ipairs(c.deposits) do
+    local ground=c:districtAt(d.x,d.y)
+    if not d.taken and d.commodity=="water" and ground and ground.owned then
+      local far=d.opening and -1 or (d.x-house.x)^2+(d.y-house.y)^2
+      if not best or far<best then spring,best=d,far end
+    end
+  end
+  c.money=c.money+900
+  assert(c:buySource("water",spring.x,spring.y))
+  for _,offer in ipairs(c:clientList(true)) do c:acceptClient(offer.id) end
+  c:rebaseOrigin()
+  c.money=City.rules.startMoney
+  return c
+end
 
 do
   local c=fresh()

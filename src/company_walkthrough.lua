@@ -46,7 +46,10 @@ local function scrollTo(app,id)
 end
 
 local function connect(app,c)
-  local src=app.city().firstSource
+  -- From the first well if there is one, and from the map's anchor otherwise:
+  -- on day one the anchor is the household itself, before anything is built.
+  local city=app.city()
+  local src=city.g:nodesOfKind("source")[1] or city.firstSource
   local cam=app.camera()
   local ax,ay=cam:toScreen(src.x,src.y)
   local bx,by=cam:toScreen(c.x,c.y)
@@ -88,15 +91,40 @@ function Walk.start(app,mode)
   print("Net Profit: "..mode)
   if mode=="--shot" then capture("net-profit-01-opening",app); return end
   local c=app.city()
-  check(c.money==380,"new company has cash")
-  for _,n in ipairs(c:clientList()) do connect(app,n) end
-  check(c.unserved==0,"real drags supply both starting customers")
-  check(c.money<380 and c.money>150,"route costs deducted")
+  check(c.money==C.rules.startMoney,"new company has cash")
+
+  -- The opening, played the way a player plays it: find the mark, sink the
+  -- well on it, run a main to the house, sign the contract.
+  local step=c:tutorialStep()
+  check(step and step.key=="well","the first thing asked for is a well")
+  local dep
+  for _,d in ipairs(c.deposits) do
+    if d.opening then dep=d; break end
+  end
+  check(dep~=nil,"the survey marked water on the home ground")
+  app.state.tool="source"; app.state.commodity="water"
+  local cam=app.camera()
+  local dx,dy=cam:toScreen(dep.x,dep.y)
+  love.mousepressed(dx,dy,1)
+  love.mousereleased(dx,dy,1)
+  local well=c.g:nodesOfKind("source")[1]
+  check(well~=nil,"clicking the mark sinks a well on it")
+  check(c:tutorialStep().key=="main","and the next step is the main")
+
+  local offerHouse=c:clientList(true)[1]
+  connect(app,offerHouse)
+  check(c.g:degree(offerHouse.id)>0,"a main reaches the house")
+  check(c:tutorialStep().key=="sign","and the last thing to do is sign them up")
   love.keypressed("z")
   c=app.city()
-  check(c.unserved==1,"undo restores graph and delivery")
-  connect(app,c:clientList()[2])
-  check(c.unserved==0,"route can be laid after undo")
+  offerHouse=c:clientList(true)[1]
+  check(c.g:degree(offerHouse.id)==0,"undo takes the main back out of the ground")
+  connect(app,offerHouse)
+  check(c.g:degree(offerHouse.id)>0,"and it can be laid again")
+  app.action("focusNode",offerHouse.id)
+  love.draw()
+  click("accept")
+  check(#c:clientList()==1 and c.unserved==0,"signing the contract puts them on supply")
   local x=app.camera().x
   love.mousepressed(440,210,1)
   love.mousemoved(480,220,40,10)
@@ -108,15 +136,18 @@ function Walk.start(app,mode)
   app.action("focusEdge",e.id)
   love.draw()
   click("repair")
-  check(not e.leaking and e.cap==3,"repair button restores installed capacity")
+  check(not e.leaking and e.cap==e.capMax,"repair button restores installed capacity")
   click("tab-finance")
+  -- The opening spends nearly everything, so the treasury checks get a float.
+  c.money=c.money+500
+  love.draw()
   click("invest")
   check(c:investedTotal()==100,"investment UI locks actual cash")
   local snap=assert(Save.unpack(Save.pack(c)))
   check(snap.money==c.money and snap:investedTotal()==100,"save round trip preserves company")
   click("end-day")
   check(c.day==2 and app.state.modal=="report","closing day opens financial statement")
-  check(c.lastReport.bonus==60,"first-supply milestone pays once")
+  check(c.lastReport.bonus==60,"the first supply grant pays once")
   local day=c.day
   love.mousepressed(100,250,1)
   check(c.day==day,"report prevents background actions")
@@ -164,24 +195,24 @@ function Walk.start(app,mode)
     local src=c.firstSource
     local a,b=c:clientList()[1],c:clientList()[2]
     for _,e in ipairs(c.g.edges) do if e.alive then c:demolishPipe(e.id) end end
-    a.demand,b.demand=3,4
+    a.demand,b.demand=5,4
     a.x,a.y=src.x+200,src.y
     b.x,b.y=src.x+400,src.y
-    local narrow=assert(c:layPipe(src.id,a.id,"water",3))
-    assert(c:layPipe(a.id,b.id,"water",4))
-    check((c.served[b.id] or 0)==0,"the downstream house is starved behind a narrow main")
+    local narrow=assert(c:layPipe(src.id,a.id,"water","small"))
+    assert(c:layPipe(a.id,b.id,"water","small"))
+    check((c.served[b.id] or 0)==0,"the downstream house is starved behind a small main")
     app.action("focusNode",b.id)
     local widen=findButton("widen-bottleneck")
     check(widen and widen.enabled,"the customer panel offers to widen the main that is at fault")
-    for _=1,4 do
+    for _=1,3 do
       love.draw()
       local btn=findButton("widen-bottleneck")
-      if not btn then break end
+      if not btn or not btn.enabled then break end
       love.mousepressed(btn.x+btn.w/2,btn.y+btn.h/2,1)
       love.mousereleased(btn.x+btn.w/2,btn.y+btn.h/2,1)
     end
-    check(c.served[b.id]==b.demand,"pressing it until it goes away supplies the customer")
-    check(findButton("widen-bottleneck")==nil,"and then there is nothing left to widen")
+    check(c.served[b.id]==b.demand,"pressing it puts a bigger main in and supplies the customer")
+    check(narrow.size~="small","the small main was dug out rather than widened")
   end
 
   -- Repair everything, in one decision.
@@ -329,7 +360,7 @@ function Walk.start(app,mode)
     c.stock.steel=400
     local rail=assert(c:layPipe(t.id,j.id,"water",2,true))
     check(rail.rail and c:leakChance(rail)==0,"track carries the load and never corrodes")
-    check(c:liningCost(rail)==nil,"there is nothing to line on a railway")
+    check(c:replaceQuote(rail.id)==nil,"a freight line is fitted with wagons, not replaced")
     app.action("focusEdge",rail.id)
     check(findButton("repair")==nil,"a railway offers no repair, because it never needs one")
     local bill=c:expenseBreakdown()
@@ -471,9 +502,9 @@ function Walk.start(app,mode)
     -- of prices on day one.
     check(findButton("tool-depot")==nil,"storage is not offered to a company with two customers")
     check(findButton("tool-exchange")==nil,"and neither is a hub")
-    for i=1,5 do
+    for i=1,8 do
       local extra=assert(c:addClient("house"))
-      extra.x,extra.y=c.firstSource.x+180+i*60,c.firstSource.y+320
+      extra.x,extra.y=c.firstSource.x+180+(i%5)*60,c.firstSource.y+320+math.floor(i/5)*70
     end
     c:refresh()
     love.draw()
@@ -481,8 +512,23 @@ function Walk.start(app,mode)
     check(findButton("tool-exchange")~=nil,"and so does the hub")
     local n=c:clientList()[1]
     c.money=9999; c.licences.power=true
-    assert(c:layPipe(c.firstSource.id,n.id,"water",3))
-    local power=assert(c:layPipe(c.firstSource.id,n.id,"power",3))
+    -- This company has been switched, closed and reloaded by now, so make sure
+    -- there is a well and put the customer beside it.
+    local well=c.g:nodesOfKind("source")[1]
+    if not well then
+      for _,d in ipairs(c.deposits) do
+        if not d.taken and d.commodity=="water" and not c:sourceError("water",d.x,d.y) then
+          well=c:buySource("water",d.x,d.y); break
+        end
+      end
+    end
+    check(well~=nil,"there is a well to trace a route back to")
+    n.x,n.y=well.x+220,well.y+80
+    c:refresh()
+    if not c:pipeBetween(well.id,n.id,"water") then
+      assert(c:layPipe(well.id,n.id,"water","small"))
+    end
+    local power=assert(c:layPipe(well.id,n.id,"power","small"))
     local ax,ay,bx,by=Draw.edgePoints(app.camera(),c,power)
     check(ax==ax and ay==ay and bx==bx and by==by,"shared power lines have finite rendering coordinates")
     click("filter-all")
@@ -519,7 +565,28 @@ end
 function Walk.update(app,mode,frame)
   if mode=="--shot" then
     if frame==8 then
-      for _,c in ipairs(app.city():clientList()) do connect(app,c) end
+      -- Play the opening, so every shot after this one is of a company that is
+      -- actually trading.
+      local c=app.city()
+      local house=c:clientList(true)[1]
+      local spring,best
+      for _,d in ipairs(c.deposits) do
+        local ground=c:districtAt(d.x,d.y)
+        if not d.taken and d.commodity=="water" and ground and ground.owned then
+          local far=d.opening and -1 or (d.x-house.x)^2+(d.y-house.y)^2
+          if not best or far<best then spring,best=d,far end
+        end
+      end
+      assert(c:buySource("water",spring.x,spring.y))
+      c:rebaseOrigin()
+      for _,offer in ipairs(c:clientList(true)) do
+        connect(app,offer)
+        c:acceptClient(offer.id)
+      end
+      local extra=assert(c:addClient("house"))
+      extra.x,extra.y=c.firstSource.x+200,c.firstSource.y-160
+      extra.demand=3
+      connect(app,extra)
       app.state.node=nil; app.state.edge=nil
       capture("net-profit-02-supplied",app)
     elseif frame==14 then

@@ -78,15 +78,15 @@ local function displaced(before,after,except)
   end
   return count
 end
-function E.pipePreview(c,a,b,trade,capacity,rail)
-  return memo(c,table.concat({"pipe",a,b,trade,capacity,tostring(rail),c.money},":"),function()
+function E.pipePreview(c,a,b,trade,capacity,rail,grade)
+  return memo(c,table.concat({"pipe",a,b,trade,tostring(capacity),tostring(rail),tostring(grade),c.money},":"),function()
     local err=c:pipeError(a,b,trade,rail)
     if err then return {error=err} end
-    local q=c:pipeQuote(a,b,trade,capacity,rail)
+    local q=c:pipeQuote(a,b,trade,capacity,rail,grade)
     local copy=assert(Save.unpack(Save.pack(c)))
     copy.money=math.max(copy.money,q.total)
     local before=c:dailyRevenue()-c:dailyExpenses()
-    assert(copy:layPipe(a,b,trade,capacity,rail))
+    assert(copy:layPipe(a,b,trade,capacity,rail,grade))
     local target=copy.g.nodes[b]
     return {cost=q.total,cash=c.money-q.total,delivery=copy.served[b] or 0,
       demand=target.kind=="client" and not target.prospect and target.demand or nil,
@@ -103,7 +103,7 @@ function E.offerPreview(c,id)
     local candidates={}
     for _,source in ipairs(copy.g:aliveNodes()) do
       if source.id~=id and not source.prospect and not copy:pipeError(source.id,id,n.commodity) then
-        candidates[#candidates+1]={id=source.id,cost=copy:pipeCost(source.id,id,n.commodity,math.min(24,n.demand),false)}
+        candidates[#candidates+1]={id=source.id,cost=copy:pipeCost(source.id,id,n.commodity,n.demand,false,copy.lining)}
       end
     end
     table.sort(candidates,function(a,b) return a.cost<b.cost or (a.cost==b.cost and a.id<b.id) end)

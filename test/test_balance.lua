@@ -15,10 +15,26 @@ local function ok(name, cond, detail)
   else fail = fail + 1; print("  FAIL  " .. name .. (detail and ("  (" .. detail .. ")") or "")) end
 end
 
+-- A company that has been through its first day: the well is in and the first
+-- household is signed, which is where every one of these checks starts from.
 local function fresh()
   local c = City.new({ seed = 31, obstacles = 0 })
   c.money = 1e9
   for _, d in ipairs(c.districts) do d.owned = true end
+  -- The spring the opening put there, which is the one within reach of the
+  -- household that asked for water.
+  local house = c:clientList(true)[1]
+  local spring, best
+  for _, d in ipairs(c.deposits) do
+    local ground = c:districtAt(d.x, d.y)
+    if not d.taken and d.commodity == "water" and ground and ground.owned then
+      local far = d.opening and -1 or (d.x - house.x) ^ 2 + (d.y - house.y) ^ 2
+      if not best or far < best then spring, best = d, far end
+    end
+  end
+  assert(c:buySource("water", spring.x, spring.y))
+  for _, offer in ipairs(c:clientList(true)) do c:acceptClient(offer.id) end
+  c:rebaseOrigin()
   return c
 end
 
@@ -30,14 +46,16 @@ do
   local src = c.firstSource
   local hubSpot = assert(c:build(src.x + 700, src.y, "junction"))
 
-  -- What n houses cost connected one by one, all the way back to the well.
+  -- What n houses of demand three cost connected one by one, all the way back
+  -- to the well. Each needs a main of its own, and the smallest there is
+  -- carries five.
   local function direct(n)
     local capex, upkeep = 0, 0
     for i = 1, n do
       local a = math.pi * 2 * i / n
       local spot = c:build(hubSpot.x + math.cos(a) * 260, hubSpot.y + math.sin(a) * 260, "junction")
       if spot then
-        local q = c:pipeQuote(src.id, spot.id, "water", 3)
+        local q = c:pipeQuote(src.id, spot.id, "water", "small")
         capex = capex + q.total
         upkeep = upkeep + City.trade.water.upkeep + q.metres * City.trade.water.upkeepPerM
         c:demolishNode(spot.id)
@@ -46,12 +64,14 @@ do
     return capex, upkeep
   end
 
-  -- What they cost behind a hub: one trunk, the hub, and a joining fee each.
+  -- What they cost behind a hub: as many trunk mains as their demand needs, the
+  -- hub itself, and a joining fee each.
   local function hubbed(n)
-    local trunk = c:pipeQuote(src.id, hubSpot.id, "water", math.min(24, 3 * n))
-    local capex = City.price.exchange + trunk.total + n * City.hub.connect
+    local trunk = c:pipeQuote(src.id, hubSpot.id, "water", "large")
+    local trunks = math.ceil(3 * n / trunk.capacity)
+    local capex = City.price.exchange + trunks * trunk.total + n * City.hub.connect
     local upkeep = City.hub.upkeep + n * City.hub.perClient
-      + City.trade.water.upkeep + trunk.metres * City.trade.water.upkeepPerM
+      + trunks * (City.trade.water.upkeep + trunk.metres * City.trade.water.upkeepPerM)
     return capex, upkeep
   end
 
@@ -60,82 +80,108 @@ do
   ok("a handful of houses is cheaper connected directly", d4 < h4,
     string.format("$%d direct against $%d hubbed", d4, h4))
 
-  local d9, du9 = direct(9)
-  local h9, hu9 = hubbed(9)
-  ok("nine is cheaper behind a hub", h9 < d9, string.format("$%d against $%d", h9, d9))
-  ok("and cheaper to run", hu9 < du9, string.format("$%.1f against $%.1f a day", hu9, du9))
+  local d12, du12 = direct(12)
+  local h12, hu12 = hubbed(12)
+  ok("a dozen is cheaper behind a hub", h12 < d12, string.format("$%d against $%d", h12, d12))
+  ok("and cheaper to run", hu12 < du12, string.format("$%.1f against $%.1f a day", hu12, du12))
 
-  local d20 = direct(20)
-  local h20 = hubbed(20)
-  ok("twenty is far cheaper behind a hub", h20 < d20 * 0.6,
+  local d20, du20 = direct(20)
+  local h20, hu20 = hubbed(20)
+  ok("twenty is much cheaper behind a hub", h20 < d20 * 0.8,
     string.format("$%d against $%d", h20, d20))
+  ok("and half the running cost", hu20 < du20 * 0.7,
+    string.format("$%.1f against $%.1f a day", hu20, du20))
 
-  -- The reason: a wide main is not priced as a bundle of narrow ones.
-  local one = c:pipeQuote(src.id, hubSpot.id, "water", 1).total
-  local wide = c:pipeQuote(src.id, hubSpot.id, "water", 12).total
-  ok("twelve units of bore cost less than twelve mains", wide < one * 12 * 0.5,
-    string.format("$%d against $%d", wide, one * 12))
+  -- The reason: one big main is not priced as four small ones.
+  local small = c:pipeQuote(src.id, hubSpot.id, "water", "small").total
+  local large = c:pipeQuote(src.id, hubSpot.id, "water", "large").total
+  ok("a large main costs less than the four small ones it replaces",
+    large < small * 4, string.format("$%d against $%d", large, small * 4))
+  ok("and carries the same", City.sizeOf("large").cap == City.sizeOf("small").cap * 4)
 end
 
 --------------------------------------------------------------------------------
-print("a new trade needs the licence, one building and water")
+print("the trades arrive in an order their chains can support")
 do
-  -- Every trade a company can take on must be startable with what it already
-  -- has: water, and one building that needs nothing else.
-  for _, trade in ipairs({ "power", "beer", "food" }) do
-    local c = fresh()
+  -- Each trade must be reachable when it is offered: everything its works eats
+  -- is either water, or something an earlier trade already made possible.
+  local reached = { water = true }
+  for _, trade in ipairs(City.LICENCE_ORDER) do
     local recipe = City.RECIPES[City.MADE_BY[trade] or ""]
-    ok(trade .. " has a building that makes it", recipe ~= nil)
     if recipe then
-      local needs = {}
-      for key in pairs(recipe.base) do needs[#needs + 1] = key end
-      ok(trade .. " is made from water and nothing else",
-        #needs == 1 and needs[1] == "water", table.concat(needs, "+"))
-      local bill = 0
-      for _, amount in pairs(recipe.materials or {}) do bill = bill + amount end
-      ok(trade .. " needs no materials to enter", bill == 0)
-
-      -- And the money works out from a modest bank balance.
-      c.money = 2600
-      ok(trade .. " licence and building fit in $2600",
-        City.price[trade .. "Licence"] + recipe.cost <= 2600,
-        "$" .. (City.price[trade .. "Licence"] + recipe.cost))
-      assert(c:buyLicence(trade))
-      local src = c.firstSource
-      src.output, src.cap = 40, 40
-      local works = assert(c:build(src.x + 240, src.y, "works", City.MADE_BY[trade]))
-      assert(c:layPipe(src.id, works.id, "water", 12))
-      c:refresh()
-      ok(trade .. " is being made on water alone", (works.ready or 0) > 0,
-        tostring(works.ready))
+      local missing = {}
+      for key in pairs(recipe.inputs) do
+        -- Anything a haven lands counts as reachable: that is what a haven is.
+        local landed = Graph.COMMODITIES[key].landed ~= false
+        local dug = City.EXTRACTOR_OF[key] ~= nil
+        if not (reached[key] or landed or dug) then missing[#missing + 1] = key end
+      end
+      ok(trade .. " can be made when it is offered", #missing == 0,
+        table.concat(missing, ", "))
     end
+    reached[trade] = true
   end
+
+  -- Power is first because it needs nothing but water, and everything else
+  -- needs power.
+  ok("power comes first", City.LICENCE_ORDER[1] == "power")
+  local turbine = City.RECIPES.turbine
+  local inputs = {}
+  for key in pairs(turbine.inputs) do inputs[#inputs + 1] = key end
+  ok("and a turbine hall runs on water alone",
+    #inputs == 1 and inputs[1] == "water", table.concat(inputs, "+"))
+  ok("beer comes last", City.LICENCE_ORDER[#City.LICENCE_ORDER] == "beer")
+  ok("and it genuinely needs malt", City.RECIPES.brewery.inputs.malt ~= nil)
+  ok("food genuinely needs something imported", City.RECIPES.foodworks.inputs.salt ~= nil)
+  ok("and salt cannot be dug", City.EXTRACTOR_OF.salt == nil)
+
+  -- The first trade is affordable out of an early company's takings.
+  local c = fresh()
+  ok("the power licence and a turbine hall fit in $1800",
+    City.price.powerLicence + City.RECIPES.turbine.cost <= 1800,
+    "$" .. (City.price.powerLicence + City.RECIPES.turbine.cost))
+  assert(c:buyLicence("power"))
+  local src = c.firstSource
+  src.output, src.cap = 40, 40
+  local hall = assert(c:build(src.x + 240, src.y, "works", "turbine"))
+  assert(c:layPipe(src.id, hall.id, "water", "medium"))
+  c:refresh()
+  ok("and it is making electricity out of water", (hall.ready or 0) > 0, tostring(hall.ready))
 end
 
 --------------------------------------------------------------------------------
-print("the chain is a reward, not an entry fee")
+print("a main is what it was on the day it was laid")
 do
   local c = fresh()
-  assert(c:buyLicence("beer"))
   local src = c.firstSource
-  src.output, src.cap = 60, 60
-  local brew = assert(c:build(src.x + 240, src.y, "works", "brewery"))
-  assert(c:layPipe(src.id, brew.id, "water", 24))
-  c:refresh()
-  local plain = brew.ready
-  ok("water alone makes beer", plain == City.RECIPES.brewery.rate, tostring(plain))
+  local far = assert(c:build(src.x + 260, src.y + 120, "junction"))
+  local main = assert(c:layPipe(src.id, far.id, "water", "small"))
+  ok("a small main carries five", main.cap == 5)
+  ok("and nothing widens it", c:replaceQuote(main.id, "small", 1) ~= nil
+    and c:replaceError(main.id, "small", 1) == "that is what is already in the ground")
 
-  -- Add power and the same building makes more of it.
-  assert(c:buyLicence("power"))
-  local hall = assert(c:build(src.x + 180, src.y + 200, "works", "turbine"))
-  assert(c:layPipe(src.id, hall.id, "water", 16))
-  assert(c:layPipe(hall.id, brew.id, "power", 8))
-  c:refresh()
-  ok("and power makes more of it", brew.ready > plain,
-    string.format("%d against %d", brew.ready, plain))
+  local before = c.money
+  assert(c:replacePipe(main.id, "large"))
+  ok("a large one can take its place", main.cap == 20)
+  ok("at the price of the new main less scrap on the old", c.money < before)
+
+  -- Lining is bought once and then paid for in every metre laid with it.
+  ok("a bare main leaks at the base rate", c:leakChance(main) == City.rules.leakBase)
+  c.money = 1e9
+  while c:liningPrice() do assert(c:upgradeQuality()) end
+  ok("the company can reach sealed pipe", c.lining == #City.GRADES)
+  ok("but the main in the ground has not changed",
+    c:leakChance(main) == City.rules.leakBase)
+  local bare = c:pipeQuote(src.id, far.id, "water", "large", false, 1).total
+  local sealed = c:pipeQuote(src.id, far.id, "water", "large", false, #City.GRADES).total
+  ok("sealed pipe costs far more to lay", sealed > bare * 2.5,
+    string.format("$%d against $%d", sealed, bare))
+  assert(c:replacePipe(main.id, "large", #City.GRADES))
+  ok("and once relaid it almost never leaks",
+    c:leakChance(main) <= City.rules.leakBase * 0.05,
+    string.format("%.4f", c:leakChance(main)))
 end
 
---------------------------------------------------------------------------------
 print("the map's prices point north")
 do
   local c = City.new({ seed = 31 })
