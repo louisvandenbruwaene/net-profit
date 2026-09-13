@@ -54,6 +54,7 @@ end
 
 local function clear()
   state.node,state.edge,state.tool,state.drag,state.pan=nil,nil,nil,nil,nil
+  state.link=nil
   state.district=nil
   state.rename=nil; state.renameSelectAll=nil
 end
@@ -70,7 +71,7 @@ local function resetSession()
   state.capacity=1; state.size="small"; state.recentSizes={"small"}
   state.borrow=500
   state.invest=100
-  state.rail=nil
+  state.rail=nil; state.transit=nil
   state.filter=nil; state.bottlenecks=nil; state.rename=nil; state.advanced=nil
 end
 
@@ -148,6 +149,14 @@ local function action(name,...)
     local e=city.g.edges[id]
     local a,b=city.g.nodes[e.a],city.g.nodes[e.b]
     clear(); state.filter=nil; state.modal=nil; state.edge=id; reveal()
+    cam:centerOn((a.x+b.x)/2,(a.y+b.y)/2)
+    return
+  end
+  if name=="focusLink" then
+    local id=...
+    local l=city.links[id]
+    local a,b=city.g.nodes[l.a],city.g.nodes[l.b]
+    clear(); state.filter=nil; state.modal=nil; state.link=id; reveal()
     cam:centerOn((a.x+b.x)/2,(a.y+b.y)/2)
     return
   end
@@ -239,6 +248,8 @@ local function action(name,...)
       for _,n in ipairs(city:clientList()) do
         if (city.served[n.id] or 0)>=n.demand then R.ring(n.x,n.y,P.good) end
       end
+    elseif name=="layLink" then
+      state.link=result.id; state.node=nil; state.edge=nil; A.play("link")
     elseif name=="build" or name=="buySource" then
       state.node=result.id; state.edge=nil; state.tool=nil; R.ring(result.x,result.y,P.good); A.play("place")
     elseif name=="buyDistrict" then
@@ -255,7 +266,11 @@ local function action(name,...)
         invest="Investment placed",upgradeQuality="Treatment upgraded",buyLicence="Trade licence acquired",
         acceptClient="Customer signed",declineClient="Offer declined",upgradeSource="Well deepened",
         hireCrew="Crew hired",dismissCrew="Crew stood down",buyPermit="Permit granted",
-        borrow="Funds drawn",repay="Loan repaid",setGate="Gate set"})[name] or "Network updated")
+        borrow="Funds drawn",repay="Loan repaid",setGate="Gate set",
+        layLink=(name=="layLink" and result.mode=="road") and "Road laid" or "Route opened",
+        setLinkPrice="Price set",setEdgeToll="Toll set",setStationPrice="Pump price set",
+        addVehicle="Vehicle added",removeVehicle="Vehicle sold",demolishLink="Line lifted",
+        upgradeResort="Resort built up"})[name] or "Network updated")
     end
   end
   save()
@@ -283,7 +298,16 @@ local function hit(x,y)
       if d<dist then nearest,dist=e.id,d end
     end
   end
-  return nil,nearest
+  if nearest or state.filter then return nil,nearest,nil end
+  local link,linkDist=nil,10
+  for _,l in ipairs(city.links or {}) do
+    if l.alive then
+      local ax,ay,bx,by=Draw.linkPoints(cam,city,l)
+      local d=pointDistance(x,y,ax,ay,bx,by)
+      if d<linkDist then link,linkDist=l.id,d end
+    end
+  end
+  return nil,nil,link
 end
 
 function love.load(args)
@@ -345,7 +369,7 @@ end
 
 function love.update(dt)
   R.update(dt); cam:update(dt)
-  state.hoverNode,state.hoverEdge=hit(love.mouse.getPosition())
+  state.hoverNode,state.hoverEdge,state.hoverLink=hit(love.mouse.getPosition())
   if state.toastTime then
     state.toastTime=state.toastTime-dt
     if state.toastTime<=0 then state.toast=nil; state.toastBad=nil end
@@ -384,17 +408,18 @@ function love.mousepressed(x,y,button)
     else action("build",wx,wy,state.tool,state.commodity) end
     return
   end
-  local node,edge=hit(x,y)
-  if node or edge then
+  local node,edge,link=hit(x,y)
+  if node or edge or link then
     -- Clicking what is already selected puts it down. A structure waits for the
     -- release, because pressing on it is also how a main is dragged out of it.
     if edge and not node and state.edge==edge then state.edge=nil; return end
+    if link and state.link==link then state.link=nil; return end
     state.deselect=node and state.node==node and node or nil
-    state.node,state.edge,state.district=node,edge,nil
+    state.node,state.edge,state.link,state.district=node,edge,link,nil
     reveal()
     if node then
       state.drag=node
-      if not state.rail then state.size=E.dragSize(city,node,nil,state) end
+      if not state.rail and not state.transit then state.size=E.dragSize(city,node,nil,state) end
     end
     return
   end
@@ -402,7 +427,7 @@ function love.mousepressed(x,y,button)
   -- would it cost? Clicking unowned ground opens the Map tab on that district.
   local wx,wy=cam:toWorld(x,y)
   local d=city:districtAt(wx,wy)
-  state.node,state.edge=nil,nil
+  state.node,state.edge,state.link=nil,nil,nil
   if d and not d.owned then
     state.district=d.id
     reveal("district")
@@ -413,8 +438,8 @@ function love.mousepressed(x,y,button)
 end
 
 function love.mousemoved(x,y,dx,dy)
-  state.hoverNode,state.hoverEdge=hit(x,y)
-  if state.drag and not state.rail then
+  state.hoverNode,state.hoverEdge,state.hoverLink=hit(x,y)
+  if state.drag and not state.rail and not state.transit then
     local target=state.hoverNode~=state.drag and state.hoverNode or nil
     state.size=E.dragSize(city,state.drag,target,state)
   end
@@ -428,7 +453,9 @@ end
 function love.mousereleased(x,y,button)
   if state.drag and button==1 then
     local target=hit(x,y)
-    if target and target~=state.drag then
+    if target and target~=state.drag and state.transit then
+      action("layLink",state.drag,target,state.transit)
+    elseif target and target~=state.drag then
       local size=not state.rail and E.dragSize(city,state.drag,target,state) or nil
       if size then state.size=size end
       if action("layPipe",state.drag,target,state.commodity,
@@ -441,7 +468,7 @@ function love.mousereleased(x,y,button)
     end
   end
   if state.pan and state.pan.deselect and not state.pan.moved and button~=1 then
-    state.node,state.edge,state.district=nil,nil,nil
+    state.node,state.edge,state.link,state.district=nil,nil,nil,nil
   end
   state.drag,state.pan,state.deselect=nil,nil,nil
 end
@@ -490,7 +517,9 @@ function love.keypressed(key)
   elseif key=="e" and state.node and city.g.nodes[state.node].kind=="source" then
     action("upgradeSource",state.node)
   elseif key=="delete" then
-    if state.edge then action("demolishPipe",state.edge) elseif state.node then action("demolishNode",state.node) end
+    if state.edge then action("demolishPipe",state.edge)
+    elseif state.link then action("demolishLink",state.link)
+    elseif state.node then action("demolishNode",state.node) end
   elseif tonumber(key) and tonumber(key)>=1 and tonumber(key)<=9 then
     state.tool=({"junction","manifold","pump","tower","gate","depot","exchange","terminal","dc"})[tonumber(key)]
   end

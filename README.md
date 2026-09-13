@@ -196,6 +196,35 @@ closing a day is final.
   hired once, paid daily, and unlocks at a company size where doing it by hand
   has become clerical work.
 
+## People
+
+- **People settle where the service is good.** A district with three signed
+  customers counts as settled and grows toward seventy people for each of them,
+  as fast as their supply is reliable. Customers left short cost it people. Out
+  past the second ring some ground is already a town, full of people nobody
+  moves.
+- **People travel.** Every day they commute to the nearest populated districts
+  and take day trips to resorts, and each trip has a price it is worth to them.
+  Trips are routed like freight over whatever the company has built, the best
+  paying first and the cheapest way first, and what does not fit waits.
+- **Roads and tolls.** Once a district has people, stops and roads appear. Pick
+  up Road and drag between two places people board, and every driver on it pays
+  your toll. Freight highways carry drivers too, and are tolled the same way.
+- **Buses, ferries and airlines.** Once a road exists, a bus route runs seats
+  along it, a ferry calls at the coast, the river and the islands once there is
+  a harbour, and an airline flies between two air freight aprons. A driver takes
+  the car when that is cheaper, and everyone else takes the seats.
+- **Petrol and cars.** A petrol works refines oil into gasoline, and a filling
+  station on a road sells it to every driver passing at the price you set. A car
+  works turns steel, glass, imported rubber and power into cars, which reach the
+  yards and are sold at the close to the districts with room for more drivers.
+- **Resorts.** Once a passenger route has carried somebody, a resort can stand on
+  the coast, an island or the riverbank. It pulls day trips from every town in
+  reach and takes their money when they arrive.
+- **The internet.** Once a reactor is running, the internet licence opens. A data
+  centre turns water and power into internet, and subscribers take it by fibre,
+  the way a workshop takes power.
+
 ## What Things Cost
 
 Nothing in the network has a flat price. A link is quoted the way a contractor
@@ -400,6 +429,7 @@ and window tests under Xvfb and uploads the packaged game.
 | File | Responsibility |
 | --- | --- |
 | `src/city.lua` | Company, prices, ground, construction, customers, daily economy and wear |
+| `src/people.lua` | Population, trip demand and routing, roads, passenger routes, filling stations, resorts and cars |
 | `src/graph.lua` | Dinic max flow, finite source output, separate commodities |
 | `src/company_app.lua` | Input, camera, action history and game lifecycle |
 | `src/company_ui.lua` | Network inspector, treasury, clients, journal and report |
@@ -408,6 +438,7 @@ and window tests under Xvfb and uploads the packaged game.
 | `src/experience.lua` | Isolated planning previews, ambitions, names, district stories and route overlays |
 | `src/company_walkthrough.lua` | Rendered input and screenshot checks |
 | `test/test_company.lua` | Regression and multi-company economy tests |
+| `test/test_people.lua` | Population, trips, tolls, routes, petrol, resorts, cars and the internet |
 | `test/test_save_location.lua` | Save slots, and finding a company either build wrote |
 
 The previous contract game is retained for comparison with

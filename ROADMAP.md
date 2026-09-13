@@ -518,10 +518,12 @@ numbers are the whole freight game, and they are the first thing to tune.
 
 ## 14. People, and the businesses that move them
 
-**Not built. This is a plan, not a report.** Everything above this line shipped
-and is played today. Everything below is one long answer to "what next", broken
-into phases the same way phases 1-7 were: each one ships something playable on
-its own, and the game is not broken if the next one never happens.
+**Built.** Every phase below shipped together, in `src/people.lua` and the
+structures, trades and screens around it, with the two open questions decided
+as the plan recommended: population grows on its own, and the internet is a
+wired fifth utility. The sections keep their original shape as the design
+record, and where the build differs from the sketch the difference is noted in
+place. `test/test_people.lua` covers every phase.
 
 The reason this needs its own section rather than three lines in phase 4: a
 person is not a commodity. Water flows through a pipe and is gone; a person
@@ -557,14 +559,13 @@ particular road. The company owns capacity on routes, trips consume it, money
 changes hands. This is what keeps it a max-flow-and-money game instead of a
 different game.
 
-**Open question for you:** should population be a thing the *player* grows
-(build houses, a district's population is your customer count, full stop), or
-a thing that grows on its own once the utilities are there (closer to a city
-builder, and closer to what "create cities in later regions" sounds like you
-want)? The phases below assume the second — population arrives once a
-district is served well enough to be worth living in, which reuses the
-service-quality numbers the game already tracks — but this is a real fork and
-worth deciding before anything is built on it.
+**Decided: population grows on its own.** A district with at least three signed
+customers counts as settled and grows toward what they can house, seventy
+people each and capped by a ceiling its ring sets, as fast as their supply is
+reliable. It loses people for the share of them that went short, and ground
+nobody lives on empties out. Trips are a gravity model: commuters go to the
+three nearest populated districts, weighted by how many people live there, and
+a resort in reach takes a third of a district's trips as day trips.
 
 ### 14.1 Roads and tolls
 
@@ -578,6 +579,12 @@ is new is that a highway edge can exist without a `dc` at both ends, and it
 carries a `toll` field the player sets (a rate slider, exactly like a hub's
 floor). Freight still uses it as it does today. Trips use it and pay the toll
 into the same ledger a hub's `perClient` fee lands in.
+
+**As built.** A road laid for people is its own link between any two places
+people board (a stop, a filling station, a resort, a yard or a haven), kept
+beside the pipe graph rather than inside it, because the flow solver has no use
+for a trip. Every freight highway carries trips as well and is tolled the same
+way, so one road serves both. A road carries 400 trips a day.
 
 **Files.** `city.lua` (highway edges between districts, toll field, trip
 routing reuses `rangeBetween`/`crossingCost`), `company_ui.lua` (toll slider on
@@ -686,18 +693,17 @@ to how much water and power it actually got, the same `worksOutput` starvation
 logic already used for every other works (no power, no income; half the
 water it wants, half the income). No new commodity is required for this half.
 
-**Internet as a commodity**, if you want it sold to the population rather than
-only implied, is the one open design choice here. The clean version, given
+**Decided: internet as a commodity**, sold to the population rather than only
+implied. The clean version, given
 `role = utility` already means "sold to a client by the day": houses gain
 internet as a fifth utility, sold and piped (well, cabled) exactly like power,
 and a data centre's income scales with how many houses you actually serve
 rather than being a flat number — which turns internet from flavour text into
 a real reason to have wired a neighbourhood for it, and ties the whole phase
-back into the network the rest of the game is about. This is more build than
-the flat-income version and is the one I'd actually recommend, but it is your
-call: the flat-income version ships in an afternoon, the wired version is a
-proper new trade with its own licence, its own price curve, and its own place
-in the sidebar next to water, power, beer and oil.
+back into the network the rest of the game is about. That is what shipped: a
+proper new trade with its own licence, subscribers as its customers, fibre as
+its conduit, and its own place in the sidebar next to water, power, beer and
+oil. The data centre is a works that turns water and power into internet.
 
 **Files.** `city.lua` (data centre recipe, income-only works), `graph.lua`
 (internet commodity, if wired), `company_ui.lua`.

@@ -590,12 +590,18 @@ function Walk.start(app,mode)
       end
     end
     check(well~=nil,"there is a well to trace a route back to")
-    n.x,n.y=well.x+220,well.y+80
-    c:refresh()
     -- A well answers to a trunk of either trade, so water and power share the
-    -- same manifold off it rather than each finding their own way to n.
+    -- same manifold off it rather than each finding their own way to n. This
+    -- company was started from the clock a few steps back, so whatever the day
+    -- scattered near the well decides where there is room for it.
     local hub=distributionPoint(c,well)
-    if not hub then hub=assert(c:build(well.x+100,well.y+40,"manifold")) end
+    for _,off in ipairs({{100,40},{-100,40},{100,-60},{-100,-60},{0,110},{0,-110}}) do
+      if hub then break end
+      hub=c:build(well.x+off[1],well.y+off[2],"manifold")
+    end
+    check(hub~=nil,"there is room beside the well for a manifold")
+    n.x,n.y=hub.x+120,hub.y+40
+    c:refresh()
     if not c:pipeBetween(well.id,hub.id,"water") then
       assert(c:layPipe(well.id,hub.id,"water","large"))
     end
@@ -630,6 +636,75 @@ function Walk.start(app,mode)
     click("tab-customers")
     click("sort-clients")
     check(app.state.clientSort=="income","customer list supports income sorting")
+  end
+
+  -- People: two towns, a road and a bus between them, laid, priced and lifted
+  -- through the same drags and buttons as a main.
+  do
+    local c=app.city()
+    c.money=99999
+    c.obstacles={}
+    local home=c.districts[C.MAP.start]
+    local west=c:cellAt(home.col-1,home.row)
+    west.owned=true
+    home.population,west.population=600,600
+    c:refresh()
+    app.state.node,app.state.edge,app.state.link,app.state.transit=nil,nil,nil,nil
+    app.state.modal=nil; app.state.tab="network"; app.state.scroll=0; app.state.advanced=true
+    local function anywhere(id)
+      for s=0,2400,120 do
+        app.state.scroll=s
+        if findButton(id) then app.state.scroll=0; return true end
+      end
+      app.state.scroll=0
+      return false
+    end
+    check(anywhere("tool-stop"),"a stop is offered once people live here")
+    check(not anywhere("tool-resort"),"a resort is not, before anybody rides a route")
+    local function spot(d)
+      for i=0,60 do
+        local x=d.x+d.w/2+((i*137)%500)-250
+        local y=d.y+d.h/2+((i*89)%360)-180
+        if not c:placementError(x,y) then return x,y end
+      end
+      error("no clear ground in "..d.name)
+    end
+    local ax,ay=spot(home)
+    local bx,by=spot(west)
+    local cam=app.camera()
+    cam:centerOn((ax+bx)/2,(ay+by)/2); cam.scale=0.4; cam.targetScale=0.4
+    app.state.tool="stop"; clickWorld(app,ax,ay)
+    app.state.tool="stop"; clickWorld(app,bx,by)
+    local stops=c.g:nodesOfKind("stop")
+    check(#stops==2,"two stops are placed on the map")
+    app.state.node=nil
+    click("transit-road")
+    check(app.state.transit=="road","the Road button picks up a road")
+    local function drag(from,to)
+      local sx,sy=cam:toScreen(from.x,from.y)
+      local tx,ty=cam:toScreen(to.x,to.y)
+      love.mousepressed(sx,sy,1)
+      love.mousemoved(tx,ty,tx-sx,ty-sy)
+      love.mousereleased(tx,ty,1)
+    end
+    drag(stops[1],stops[2])
+    local road=c.links[#c.links]
+    check(road and road.mode=="road" and road.alive,"dragging between the stops lays a road")
+    check(app.state.link==road.id,"and opens the road's own panel")
+    click("link-price-up")
+    check(road.toll==2,"its toll is set from that panel")
+    click("link-price-down")
+    check(c.transit.carried>0,"drivers use it the moment it is open")
+    click("back-to-build")
+    click("transit-bus")
+    drag(stops[1],stops[2])
+    local bus=c.links[#c.links]
+    check(bus.mode=="bus" and bus.alive,"with Bus picked up, the same drag opens a bus route")
+    click("vehicle-up")
+    check(bus.vehicles==2,"a second bus is added from the route panel")
+    love.keypressed("delete")
+    check(not bus.alive,"delete lifts the selected route")
+    app.state.transit=nil; app.state.link=nil
   end
 
   click("tab-finance")
@@ -924,6 +999,50 @@ function Walk.update(app,mode,frame)
       c:refresh()
       app.action("fit")
       capture("net-profit-22-lesson",app,1100,700)
+    elseif frame==41 then
+      -- People: two towns joined by a road with a filling station on it, a bus
+      -- beside the road, and a resort on the coast pulling day trips.
+      local c=app.city()
+      c.money=999999
+      c.obstacles={}
+      c.stock.concrete,c.stock.glass=400,400
+      local home=c.districts[C.MAP.start]
+      local west=c:cellAt(home.col-1,home.row)
+      local coast=c:cellAt(home.col,home.row-1)
+      west.owned,coast.owned=true,true
+      home.population,west.population=820,640
+      c:refresh()
+      local function place(x,y,kind)
+        for i=0,60 do
+          local n=c:build(x+((i*137)%240)-120,y+((i*89)%200)-100,kind)
+          if n then return n end
+        end
+        error("nowhere to put a "..kind)
+      end
+      local a=place(home.x+320,home.y+220,"stop")
+      local b=place(west.x+620,west.y+220,"stop")
+      local direct=assert(c:layLink(a.id,b.id,"road"))
+      local station=place((a.x+b.x)/2,(a.y+b.y)/2+70,"station")
+      assert(c:layLink(a.id,station.id,"road"))
+      assert(c:layLink(station.id,b.id,"road"))
+      assert(c:demolishLink(direct.id))
+      assert(c:layLink(a.id,b.id,"road"))
+      local bus=assert(c:layLink(a.id,b.id,"bus"))
+      local resort=place(coast.x+coast.w/2-200,coast.y+90,"resort")
+      assert(c:layLink(a.id,resort.id,"road"))
+      c:refresh()
+      -- The shot is of the network, not of a lesson panel sitting on top of it.
+      for _,lesson in ipairs(C.LESSONS) do c.taught[lesson.key]=true end
+      app.state.modal=nil; app.state.tab="network"; app.state.scroll=0; app.state.bottlenecks=nil
+      app.action("focusLink",bus.id)
+      local x0,y0=math.min(a.x,b.x,station.x,resort.x),math.min(a.y,b.y,station.y,resort.y)
+      local x1,y1=math.max(a.x,b.x,station.x,resort.x),math.max(a.y,b.y,station.y,resort.y)
+      local cam=app.camera()
+      local scale=math.min(0.62,cam.vw/(x1-x0+500),cam.vh/(y1-y0+420))
+      cam.targetScale,cam.scale=scale,scale
+      cam:centerOn((x0+x1)/2,(y0+y1)/2)
+      capture("net-profit-23-people",app,1100,700,true)
+      app.state.link=nil
     elseif frame==42 then print("screenshots complete"); love.event.quit() end
     return
   end

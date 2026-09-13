@@ -27,7 +27,7 @@ function Save.pack(city)
     if k ~= "g" and k ~= "firstSource" and k ~= "served" and k ~= "detail"
        and k ~= "flowBy" and k ~= "produced" and k ~= "producedBy" and k ~= "spare"
        and k ~= "wellSpare" and k ~= "capacityBy" and k ~= "unserved"
-       and k ~= "adoptedFrom" and k ~= "cellIndex" and k ~= "cellRng" then
+       and k ~= "adoptedFrom" and k ~= "cellIndex" and k ~= "cellRng" and k ~= "transit" then
       data[k] = v
     end
   end
@@ -273,7 +273,7 @@ function Save.summarize(slot)
     if n.alive and n.kind == "client" and not n.prospect then clients = clients + 1 end
   end
   local trades = {}
-  for _, name in ipairs({ "water", "power", "beer", "oil" }) do
+  for _, name in ipairs(Graph.TRADES) do
     if city.licences and city.licences[name] then trades[#trades + 1] = name end
   end
   return {
