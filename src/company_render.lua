@@ -433,29 +433,42 @@ end
 -- The sea is drawn from the coast up to whatever the camera can see, because it
 -- has no far shore. A harbour has to stand on the strip of city just below the
 -- line, so the line is drawn as something you can aim at.
+-- Runs fn clipped to a band of screen rows, inside whatever clip is already set,
+-- so water on one side of the coastline can never be painted over the other.
+local function withinRows(top, bottom, fn)
+  local sx, sy, sw, sh = lg.getScissor()
+  top = math.max(0, top)
+  lg.intersectScissor(0, top, lg.getWidth(), math.max(0, bottom - top))
+  fn()
+  if sx then lg.setScissor(sx, sy, sw, sh) else lg.setScissor() end
+end
+
 local function drawSea(city, cam, state)
   local left, top = cam:toWorld(cam.vx, cam.vy)
   local right = cam:toWorld(cam.vx + cam.vw, cam.vy)
   if top > 0 then return end
-  local x0, y0 = cam:toScreen(left - 200, top - 200)
-  local x1, y1 = cam:toScreen(right + 200, 0)
-  lg.setColor(0.07, 0.14, 0.22, 1)
-  lg.rectangle("fill", x0, y0, x1 - x0, y1 - y0)
-  -- Swell, drawn as long lines running with the coast rather than across it.
-  lg.setColor(0.30, 0.48, 0.72, 0.26)
-  lg.setLineWidth(math.max(1, 1.6 * cam.scale))
-  local rows = 7
-  for i = 1, rows do
-    local wy = -((i / rows) ^ 1.5) * (0 - (top - 200))
-    local pts = {}
-    for j = 0, 28 do
-      local t = j / 28
-      local wx = left - 200 + (right - left + 400) * t
-      local sx, sy = cam:toScreen(wx, wy + math.sin(t * math.pi * 5 + i * 1.7) * 26)
-      pts[#pts + 1] = sx; pts[#pts + 1] = sy
+  local _, coast = cam:toScreen(0, 0)
+  withinRows(0, coast, function()
+    local x0, y0 = cam:toScreen(left - 200, top - 200)
+    local x1, y1 = cam:toScreen(right + 200, 0)
+    lg.setColor(0.07, 0.14, 0.22, 1)
+    lg.rectangle("fill", x0, y0, x1 - x0, y1 - y0)
+    -- Swell, drawn as long lines running with the coast rather than across it.
+    lg.setColor(0.30, 0.48, 0.72, 0.26)
+    lg.setLineWidth(math.max(1, 1.6 * cam.scale))
+    local rows = 7
+    for i = 1, rows do
+      local wy = -((i / rows) ^ 1.5) * (0 - (top - 200))
+      local pts = {}
+      for j = 0, 28 do
+        local t = j / 28
+        local wx = left - 200 + (right - left + 400) * t
+        local sx, sy = cam:toScreen(wx, wy + math.sin(t * math.pi * 5 + i * 1.7) * 26)
+        pts[#pts + 1] = sx; pts[#pts + 1] = sy
+      end
+      lg.line(pts)
     end
-    lg.line(pts)
-  end
+  end)
   -- The coastline itself.
   local cx0, cy = cam:toScreen(left - 200, 0)
   local cx1 = cam:toScreen(right + 200, 0)
@@ -477,44 +490,54 @@ local function drawSea(city, cam, state)
   end
 end
 
--- The river does not know where it ends, so neither does this: it is drawn
--- the whole length the game ever bothers to generate, and the scissor already
--- set for the world layer clips whatever the camera cannot see.
+-- Only the reach the camera can see is drawn, and none of it north of the
+-- coastline: the estuary opens into the sea rather than being painted over it.
+-- Each stretch between two samples is its own quad, bank to bank, because the
+-- channel as a whole is nowhere near convex.
 local function drawRiver(city, cam)
-  local r = city.river
-  if not r then return end
-  local len = 30000
-  local nx, ny = -r.dy, r.dx
-  local hw = r.width / 2
-  local x0, y0 = r.x0, r.y0
-  local x1, y1 = r.x0 + r.dx * len, r.y0 + r.dy * len
-  local ax, ay = cam:toScreen(x0 + nx * hw, y0 + ny * hw)
-  local bx, by = cam:toScreen(x1 + nx * hw, y1 + ny * hw)
-  local cx, cy = cam:toScreen(x1 - nx * hw, y1 - ny * hw)
-  local ex, ey = cam:toScreen(x0 - nx * hw, y0 - ny * hw)
+  local p = city:riverPath()
+  if not p then return end
+  local _, top = cam:toWorld(cam.vx, cam.vy)
+  local _, bottom = cam:toWorld(cam.vx, cam.vy + cam.vh)
+  if bottom < 0 then return end
+  local first, last = city:riverSpan(top - p.maxHalf, bottom + p.maxHalf)
+  if last - first < 1 then return end
   local col = City.OBSTACLES.river.color
-  lg.setColor(P.with(col, 0.30))
-  lg.polygon("fill", ax, ay, bx, by, cx, cy, ex, ey)
-  lg.setColor(P.with(col, 0.55))
-  lg.setLineWidth(1.4)
-  lg.line(ax, ay, bx, by)
-  lg.line(ex, ey, cx, cy)
-  -- Current, drawn with the flow rather than across it.
-  lg.setColor(P.with({ 1, 1, 1 }, 0.12))
-  lg.setLineWidth(math.max(1, 1.4 * cam.scale))
-  for i = 0, 1 do
-    local off = (i - 0.5) * hw * 0.6
-    local pts = {}
-    for j = 0, 40 do
-      local t = j / 40 * len
-      local wob = math.sin(t * 0.01 + i * 2.1) * hw * 0.15
-      local sx, sy = cam:toScreen(x0 + r.dx * t + nx * (off + wob), y0 + r.dy * t + ny * (off + wob))
-      pts[#pts + 1] = sx; pts[#pts + 1] = sy
+  local _, coast = cam:toScreen(0, 0)
+  withinRows(coast, lg.getHeight(), function()
+    local left, right = {}, {}
+    for i = first, last do
+      local x, y, hw, nx, ny = p.x[i], p.y[i], p.hw[i], p.nx[i], p.ny[i]
+      local lx, ly = cam:toScreen(x + nx * hw, y + ny * hw)
+      local rx, ry = cam:toScreen(x - nx * hw, y - ny * hw)
+      left[#left + 1], left[#left + 2] = lx, ly
+      right[#right + 1], right[#right + 2] = rx, ry
     end
-    lg.line(pts)
-  end
+    lg.setColor(P.with(col, 0.30))
+    for k = 1, #left - 2, 2 do
+      lg.polygon("fill", left[k], left[k + 1], left[k + 2], left[k + 3],
+        right[k + 2], right[k + 3], right[k], right[k + 1])
+    end
+    lg.setColor(P.with(col, 0.55))
+    lg.setLineWidth(1.4)
+    lg.line(left)
+    lg.line(right)
+    -- Current, drawn with the flow and following every bend.
+    lg.setColor(P.with({ 1, 1, 1 }, 0.12))
+    lg.setLineWidth(math.max(1, 1.4 * cam.scale))
+    for _, side in ipairs({ -0.3, 0.3 }) do
+      local pts = {}
+      for i = first, last do
+        local off = side * p.hw[i]
+        local sx, sy = cam:toScreen(p.x[i] + p.nx[i] * off, p.y[i] + p.ny[i] * off)
+        pts[#pts + 1], pts[#pts + 2] = sx, sy
+      end
+      lg.line(pts)
+    end
+  end)
   if cam.scale > 0.28 then
-    local mx, my = cam:toScreen(x0 + r.dx * 260, y0 + r.dy * 260)
+    local i = math.floor(280 / City.riverStep) + 1
+    local mx, my = cam:toScreen(p.x[i], p.y[i])
     label("THE RIVER", mx, my, P.with(col, 0.85), R.fonts.tiny)
   end
 end

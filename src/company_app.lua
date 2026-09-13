@@ -2,13 +2,14 @@ local City = require("city")
 local Camera = require("camera")
 local Save = require("company_save")
 local Draw = require("company_render")
+local E = require("experience")
 local UI = require("company_ui")
 local R = require("render")
 local A = require("audio")
 local P = require("palette")
 local App = {}
 local city,cam
-local state={commodity="water",havenKind="port",plant="nuclear",recipe="turbine",size="small",grade=1,capacity=1,invest=100,borrow=500,tab="network",scroll=0,undo={}}
+local state={commodity="water",havenKind="port",plant="nuclear",recipe="turbine",size="small",recentSizes={"small"},grade=1,capacity=1,invest=100,borrow=500,tab="network",scroll=0,undo={}}
 local testMode, frames = nil,0
 
 local function toast(message,bad)
@@ -66,7 +67,7 @@ local function resetSession()
   state.scroll=0
   state.tab="network"
   state.commodity="water"
-  state.capacity=1; state.size="small"
+  state.capacity=1; state.size="small"; state.recentSizes={"small"}
   state.borrow=500
   state.invest=100
   state.rail=nil
@@ -391,7 +392,10 @@ function love.mousepressed(x,y,button)
     state.deselect=node and state.node==node and node or nil
     state.node,state.edge,state.district=node,edge,nil
     reveal()
-    if node then state.drag=node end
+    if node then
+      state.drag=node
+      if not state.rail then state.size=E.dragSize(city,node,nil,state) end
+    end
     return
   end
   -- Empty ground still answers a question: which district is this, and what
@@ -410,6 +414,10 @@ end
 
 function love.mousemoved(x,y,dx,dy)
   state.hoverNode,state.hoverEdge=hit(x,y)
+  if state.drag and not state.rail then
+    local target=state.hoverNode~=state.drag and state.hoverNode or nil
+    state.size=E.dragSize(city,state.drag,target,state)
+  end
   if state.pan then
     local p=state.pan
     if p.moved then cam:pan(dx,dy)
@@ -421,9 +429,13 @@ function love.mousereleased(x,y,button)
   if state.drag and button==1 then
     local target=hit(x,y)
     if target and target~=state.drag then
-      action("layPipe",state.drag,target,state.commodity,
-        state.rail and state.capacity or (state.size or "small"),state.rail,
-        math.min(city.lining or 1,state.grade or 1))
+      local size=not state.rail and E.dragSize(city,state.drag,target,state) or nil
+      if size then state.size=size end
+      if action("layPipe",state.drag,target,state.commodity,
+        state.rail and state.capacity or size,state.rail,
+        math.min(city.lining or 1,state.grade or 1)) and size then
+        E.useSize(state,size)
+      end
     elseif target==state.drag and state.deselect==state.drag then
       state.node=nil
     end

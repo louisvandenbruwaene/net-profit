@@ -80,6 +80,21 @@ do
 end
 do
   local c=fresh()
+  local well=c.firstSource
+  local hub=assert(c:build(well.x+90,well.y-90,"junction"))
+  local house=c:clientList()[1]
+  local state={size="small",recentSizes={"small"}}
+  check(E.dragSize(c,well.id,nil,state)=="large","a drag out of a well picks up a trunk")
+  E.useSize(state,"medium")
+  check(E.dragSize(c,hub.id,nil,state)=="medium","a junction keeps the last size used")
+  check(E.dragSize(c,hub.id,house.id,state)=="small","a house always takes the smallest main")
+  check(E.dragSize(c,well.id,hub.id,state)=="large","a well never takes a size it refuses")
+  E.useSize(state,"large"); E.useSize(state,"small")
+  check(E.dragSize(c,well.id,hub.id,state)=="large","and remembers the last trunk it was given")
+  check(E.dragSize(c,well.id,nil,{recentSizes={"massive"}})=="large","a size not yet unlocked is never picked")
+end
+do
+  local c=fresh()
   check(c:chooseAmbition("service"),"a player can select an ambition")
   check(not c:chooseAmbition("missing"),"unknown ambitions are rejected")
   assert(c:setCompanyName("  Brightwater Co.  "))

@@ -662,15 +662,19 @@ do
   c:refresh()
   assert(c:hireOrder("dispatchers"))
   c.dispatchRate=5
-  local waiting=#c:clientList(true)
-  check(waiting>0,"there are offers on the table")
-  c:endDay()
-  local left=0
+  -- Only what is on the table when they sit down: an offer that arrives later
+  -- in the same close is tomorrow's work.
+  local paying,cheap={},{}
   for _,offer in ipairs(c:clientList(true)) do
-    if (offer.rate or 0)>=5 then left=left+1 end
+    table.insert((offer.rate or 0)>=5 and paying or cheap,offer)
   end
-  check(left==0,"dispatchers sign everything paying the floor")
-  check(#c:clientList(true)<waiting,"and leave the cheap ones alone")
+  check(#paying>0 and #cheap>0,"there are offers on the table, both sides of the floor")
+  c:endDay()
+  local unsigned,untouched=0,0
+  for _,offer in ipairs(paying) do if offer.prospect then unsigned=unsigned+1 end end
+  for _,offer in ipairs(cheap) do if offer.alive and offer.prospect then untouched=untouched+1 end end
+  check(unsigned==0,"dispatchers sign everything paying the floor")
+  check(untouched==#cheap,"and leave the cheap ones alone")
 
   -- The wage is real and shows up in the ledger.
   local wages=c:expenseBreakdown().crews

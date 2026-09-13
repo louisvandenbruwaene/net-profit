@@ -552,8 +552,8 @@ function City.new(opts)
   self.event = nil
   self.districtsBought = 0
 
-  self:layOutDistricts(opts)
   self:layOutRiver()
+  self:layOutDistricts(opts)
 
   -- The opening is a job rather than a company: a spring the survey has marked
   -- in the middle of your ground, one household that has asked to be connected,
@@ -991,52 +991,139 @@ City.PERMIT_ORDER = { "park", "river", "bedrock" }
 --------------------------------------------------------------------------------
 -- The river
 --
--- Not a scattered obstacle like a wood or a bedrock sill: one band of water
+-- Not a scattered obstacle like a wood or a bedrock sill: one channel of water
 -- that starts at the coast and runs on for as long as the map is generated,
 -- because a real river does not stop at a district line and does not end
 -- inland. It is placed once, off the home district's own ground so the opening
--- is never fought across it, and it drifts further from that ground the
--- further downstream it runs, so it can never double back through it either.
+-- is never fought across it. Its general heading drifts away from that ground
+-- and its bends never swing far enough back to reach it.
+--
+-- No river runs straight. The course meanders in long bends with shorter ones
+-- riding on them, swings wider in some reaches than others, flares where it
+-- meets the sea and narrows upstream.
 --------------------------------------------------------------------------------
 City.riverWidth = 170
 -- How far a wellhead may stand off the bank and still draw on the river rather
 -- than on the deposit under it. Wider than the river itself, because "beside
 -- it" is the point -- a well sunk in the water is just a well sunk in the water.
 City.riverWellReach = 220
+City.riverStep = 40
+City.riverLength = 30000
 
+-- The course is a pure function of the river table, so it is rebuilt after a
+-- load rather than written into the save.
+local riverPaths = setmetatable({}, { __mode = "k" })
+
+-- Laid out from the map's own arithmetic rather than from the district table,
+-- so it exists before any cell is dressed and no cell scatters ground into it.
 function City:layOutRiver()
-  local home = self.districts[City.MAP.start]
-  local mouthX = home.x + home.w + 300
-  local angle = math.rad(18)
+  local homeCol = (City.MAP.start - 1) % City.MAP.cols + 1
   self.river = {
-    x0 = mouthX, y0 = 0,
-    -- A unit vector, mostly south and drifting east, so the band only ever
-    -- moves further from the home district as it runs on.
-    dx = math.sin(angle), dy = math.cos(angle),
+    x0 = homeCol * City.MAP.w + 300, y0 = 0,
+    angle = math.rad(18),
     width = City.riverWidth,
+    -- The bends come out of a stream of their own. The shared stream is spent
+    -- by leaks and offers, so drawing on it here would move the river on reload.
+    meander = self:cellSeed(-4096, -4096),
   }
 end
 
--- Perpendicular distance from a point to the river's own line, or nil if the
--- point is out at sea or upstream of the mouth -- the river has a start, even
--- though it has no end.
-function City:riverProjection(x, y)
+-- The sampled course: centreline, half-width and unit bank normal per sample.
+-- Amplitudes and wavelengths are bounded together: the tightest bend keeps a
+-- radius wider than the channel, so the inner bank never folds over itself,
+-- and the course always makes headway south, so samples stay sorted by y.
+function City:riverPath()
   local r = self.river
-  if not r or y < 0 then return nil end
-  local t = (x - r.x0) * r.dx + (y - r.y0) * r.dy
-  if t < 0 then return nil end
-  local px, py = r.x0 + r.dx * t, r.y0 + r.dy * t
-  return math.sqrt((x - px) ^ 2 + (y - py) ^ 2)
+  if not r or not r.meander then return nil end
+  local path = riverPaths[r]
+  if path then return path end
+
+  local state = r.meander
+  local function roll(lo, hi)
+    state = (state * 16807) % 2147483647
+    return lo + (state - 1) / 2147483646 * (hi - lo)
+  end
+  local bends = {
+    { amp = 220, wave = 1400 * roll(0.92, 1.1), phase = roll(0, 2 * math.pi) },
+    { amp = 45, wave = 620 * roll(0.92, 1.1), phase = roll(0, 2 * math.pi) },
+  }
+  local swellWave, swellPhase = 5200 * roll(0.9, 1.1), roll(0, 2 * math.pi)
+  local ux, uy = math.sin(r.angle), math.cos(r.angle)
+  local function centre(s)
+    local off = 0
+    for _, b in ipairs(bends) do
+      off = off + b.amp * math.sin(2 * math.pi * s / b.wave + b.phase)
+    end
+    -- The estuary leaves the coast on its heading and eases into its bends
+    -- slowly, because that is where the channel is widest.
+    local k = math.min(1, s / 900)
+    off = off * k * k * (3 - 2 * k) * (0.75 + 0.25 * math.sin(2 * math.pi * s / swellWave + swellPhase))
+    return r.x0 + ux * s + uy * off, r.y0 + uy * s - ux * off
+  end
+
+  path = { n = 0, x = {}, y = {}, hw = {}, nx = {}, ny = {}, maxHalf = 0 }
+  local steps = math.floor(City.riverLength / City.riverStep)
+  for i = 0, steps do
+    local s = i * City.riverStep
+    local x, y = centre(s)
+    local ax, ay = centre(s + 1)
+    local tx, ty = ax - x, ay - y
+    local len = math.sqrt(tx * tx + ty * ty)
+    local hw = r.width / 2 * (0.85 + 0.55 * math.exp(-s / 300))
+    local j = i + 1
+    path.x[j], path.y[j], path.hw[j] = x, y, hw
+    path.nx[j], path.ny[j] = -ty / len, tx / len
+    path.maxHalf = math.max(path.maxHalf, hw)
+  end
+  path.n = steps + 1
+  riverPaths[r] = path
+  return path
+end
+
+local function firstSampleFrom(p, y)
+  local lo, hi = 1, p.n
+  while lo < hi do
+    local mid = math.floor((lo + hi) / 2)
+    if p.y[mid] < y then lo = mid + 1 else hi = mid end
+  end
+  return lo
+end
+
+-- The samples whose centreline lies between two heights, widened by one on each
+-- side so the segments crossing either height are included.
+function City:riverSpan(y0, y1)
+  local p = self:riverPath()
+  if not p then return nil end
+  return math.max(1, firstSampleFrom(p, y0) - 1), math.min(p.n, firstSampleFrom(p, y1) + 1)
+end
+
+-- How far a point stands outside the bank (negative inside the channel) and the
+-- half-width there, or nil at sea or where no reach of the river comes close.
+function City:riverEdge(x, y)
+  local p = self:riverPath()
+  if not p or y < 0 then return nil end
+  local window = p.maxHalf + City.riverWellReach
+  local first, last = self:riverSpan(y - window, y + window)
+  local best, bestHw
+  for i = first, last - 1 do
+    local ax, ay = p.x[i], p.y[i]
+    local dx, dy = p.x[i + 1] - ax, p.y[i + 1] - ay
+    local t = math.max(0, math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy)))
+    local hw = p.hw[i] + (p.hw[i + 1] - p.hw[i]) * t
+    local edge = math.sqrt((x - ax - dx * t) ^ 2 + (y - ay - dy * t) ^ 2) - hw
+    if not best or edge < best then best, bestHw = edge, hw end
+  end
+  return best, bestHw
 end
 
 function City:riverAt(x, y)
-  local dist = self:riverProjection(x, y)
-  return dist ~= nil and dist <= self.river.width / 2
+  local edge = self:riverEdge(x, y)
+  return edge ~= nil and edge <= 0
 end
 
 function City:nearRiver(x, y)
-  local dist = self:riverProjection(x, y)
-  return dist ~= nil and dist <= self.river.width / 2 + City.riverWellReach
+  local edge = self:riverEdge(x, y)
+  return edge ~= nil and edge <= City.riverWellReach
 end
 
 -- Sampled rather than solved as a segment-against-a-band intersection: a main
@@ -1097,6 +1184,10 @@ function City:scatterObstacles(n, district)
       if home and (x - (b.x + b.w / 2)) ^ 2 + (y - (b.y + b.h / 2)) ^ 2 < (r + 340) ^ 2 then
         clear = false
       end
+      -- The river is the seed's alone, so keeping ground off it cannot make a
+      -- cell depend on anything the player did.
+      local edge = self:riverEdge(x, y)
+      if edge and edge < r + 30 then clear = false end
       for _, o in ipairs(placed) do
         if (o.x - x) ^ 2 + (o.y - y) ^ 2 < (o.r + r + 40) ^ 2 then clear = false; break end
       end
@@ -1182,7 +1273,8 @@ function City:obstacleAt(x, y)
   -- moved out of the scattered list and into a band of its own. `r` stands in
   -- for a radius so anything that scales off one (a deposit's yield bonus) does
   -- not have to know the difference either.
-  if self:riverAt(x, y) then return { kind = "river", river = true, r = City.riverWidth / 2 } end
+  local edge, hw = self:riverEdge(x, y)
+  if edge and edge <= 0 then return { kind = "river", river = true, r = hw } end
   return nil
 end
 
@@ -3378,15 +3470,18 @@ function City:migrate()
       owned, #self.districts - owned)
   end
 
-  -- A save from before the river existed still has a home district to lay it
-  -- out from, and the river's geometry answers to nothing but that.
-  if not self.river then
+  -- A save from before the river existed, or from when it ran dead straight,
+  -- still has a home district to lay a meandering one out from, and the
+  -- river's geometry answers to nothing but that and the seed.
+  if not (self.river and self.river.meander) then
     self:layOutRiver()
-    -- The band replaces the old scattered ponds outright, so a save carrying
-    -- one from before this change would otherwise show both: the real river
-    -- and a leftover circle that scatterObstacles will never draw again.
+    -- The river replaces the old scattered ponds outright, and ground scattered
+    -- before its course was known may stand in the new channel. Both go, or
+    -- the map would show water and parkland painted over each other.
     for i = #self.obstacles, 1, -1 do
-      if self.obstacles[i].kind == "river" then table.remove(self.obstacles, i) end
+      local o = self.obstacles[i]
+      local edge = self:riverEdge(o.x, o.y)
+      if o.kind == "river" or (edge and edge < o.r) then table.remove(self.obstacles, i) end
     end
   end
 
