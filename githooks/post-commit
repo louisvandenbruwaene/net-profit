@@ -1,0 +1,22 @@
+#!/bin/sh
+# Keeps ~/Applications/Net Profit.app in step with the checkout. That app is a
+# frozen zip fused into a copy of the LOVE runtime (see macos/install.sh), so
+# without this it silently drifts from HEAD the moment you commit again.
+#
+# Installed via: git config core.hooksPath githooks
+set -eu
+
+project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+
+case "$(uname -s)" in
+  Darwin) ;;
+  *) exit 0 ;;
+esac
+
+[ -d "$HOME/Applications/Net Profit.app" ] || [ -d /Applications/love.app ] || [ -d "$HOME/Applications/love.app" ] || exit 0
+
+if make -C "$project_dir" mac-install >/tmp/net-profit-install.log 2>&1; then
+  printf 'Net Profit.app rebuilt from %s\n' "$(git -C "$project_dir" rev-parse --short HEAD)"
+else
+  printf 'Net Profit.app rebuild failed, see /tmp/net-profit-install.log\n' >&2
+fi

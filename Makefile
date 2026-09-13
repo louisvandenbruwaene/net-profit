@@ -1,4 +1,4 @@
-.PHONY: run mac-run mac-install test bench smoke soak tutorial audio shots dist install export clean
+.PHONY: run mac-run mac-install hooks test bench smoke soak tutorial audio shots dist install export clean
 
 # The headless suites are plain Lua and run under whatever interpreter is here:
 # 5.4 if it is installed, otherwise 5.3, plain lua, or LuaJIT.
@@ -19,6 +19,12 @@ mac-run:
 
 mac-install:
 	@sh macos/install.sh
+
+# Wires githooks/post-commit so the app in ~/Applications rebuilds itself
+# after every commit instead of quietly drifting behind the checkout.
+hooks:
+	@git config core.hooksPath githooks
+	@echo "post-commit will now run mac-install automatically"
 
 # Pure Lua rules, persistence, economy, and archived contract regressions.
 test:
