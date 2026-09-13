@@ -477,6 +477,48 @@ local function drawSea(city, cam, state)
   end
 end
 
+-- The river does not know where it ends, so neither does this: it is drawn
+-- the whole length the game ever bothers to generate, and the scissor already
+-- set for the world layer clips whatever the camera cannot see.
+local function drawRiver(city, cam)
+  local r = city.river
+  if not r then return end
+  local len = 30000
+  local nx, ny = -r.dy, r.dx
+  local hw = r.width / 2
+  local x0, y0 = r.x0, r.y0
+  local x1, y1 = r.x0 + r.dx * len, r.y0 + r.dy * len
+  local ax, ay = cam:toScreen(x0 + nx * hw, y0 + ny * hw)
+  local bx, by = cam:toScreen(x1 + nx * hw, y1 + ny * hw)
+  local cx, cy = cam:toScreen(x1 - nx * hw, y1 - ny * hw)
+  local ex, ey = cam:toScreen(x0 - nx * hw, y0 - ny * hw)
+  local col = City.OBSTACLES.river.color
+  lg.setColor(P.with(col, 0.30))
+  lg.polygon("fill", ax, ay, bx, by, cx, cy, ex, ey)
+  lg.setColor(P.with(col, 0.55))
+  lg.setLineWidth(1.4)
+  lg.line(ax, ay, bx, by)
+  lg.line(ex, ey, cx, cy)
+  -- Current, drawn with the flow rather than across it.
+  lg.setColor(P.with({ 1, 1, 1 }, 0.12))
+  lg.setLineWidth(math.max(1, 1.4 * cam.scale))
+  for i = 0, 1 do
+    local off = (i - 0.5) * hw * 0.6
+    local pts = {}
+    for j = 0, 40 do
+      local t = j / 40 * len
+      local wob = math.sin(t * 0.01 + i * 2.1) * hw * 0.15
+      local sx, sy = cam:toScreen(x0 + r.dx * t + nx * (off + wob), y0 + r.dy * t + ny * (off + wob))
+      pts[#pts + 1] = sx; pts[#pts + 1] = sy
+    end
+    lg.line(pts)
+  end
+  if cam.scale > 0.28 then
+    local mx, my = cam:toScreen(x0 + r.dx * 260, y0 + r.dy * 260)
+    label("THE RIVER", mx, my, P.with(col, 0.85), R.fonts.tiny)
+  end
+end
+
 local function drawSeams(city, cam)
   for _, s in ipairs(city.deposits or {}) do
     if not s.taken and cam:sees(s.x, s.y, City.seamRange * cam.scale + 40) then
@@ -511,6 +553,7 @@ function Draw.world(city, cam, state)
   R.drawGrid(cam, city.bounds.w, city.bounds.h)
   drawSea(city, cam, state)
   drawDistrictGround(city, cam)
+  drawRiver(city, cam)
 
   for _, o in ipairs(city.obstacles) do
     if cam:sees(o.x, o.y, o.r * cam.scale + 60) then

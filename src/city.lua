@@ -263,11 +263,13 @@ function City:bulkError(a, b, mode)
     return "bulk runs between havens and distribution centres"
   end
   if spec.needs == "coast" then
+    -- The river reaches the sea, so a berth on its bank is as good as one on
+    -- the coast itself: a barge does not care which water it is floating on.
     local function afloat(n)
       local d = self:districtAt(n.x, n.y)
-      return self:onCoast(n.x, n.y) or (d and d.island)
+      return self:onCoast(n.x, n.y) or (d and d.island) or self:nearRiver(n.x, n.y)
     end
-    if not (afloat(na) and afloat(nb)) then return "a ship calls at the coast, not inland" end
+    if not (afloat(na) and afloat(nb)) then return "a ship calls at the coast or the river, not inland" end
   elseif spec.needs == "air" then
     if not (na.haven == "airfield" and nb.haven == "airfield") then
       return "air freight flies between air freight havens"
@@ -507,6 +509,7 @@ function City.new(opts)
   self.districtsBought = 0
 
   self:layOutDistricts(opts)
+  self:layOutRiver()
 
   -- The opening is a job rather than a company: a spring the survey has marked
   -- in the middle of your ground, one household that has asked to be connected,
@@ -889,10 +892,14 @@ function City:districtCost(d)
   local ring = (d and d.ring) or 0
   local row = (d and d.row) or 1
   local inland = math.min(1.45, 0.72 + 0.11 * math.max(0, row - 1))
+  -- Waterfront still tempts the routes in cheapest, but the ground itself is
+  -- the one everybody else wants too, and it prices accordingly.
+  local coastal = (row == 1) and 1.15 or 1
   return math.ceil(City.districtPrice.base
     * (City.districtPrice.growth ^ self.districtsBought)
     * (1 + 0.55 * ring)
     * inland
+    * coastal
     * ((d and d.island) and 1.9 or 1))
 end
 
@@ -937,6 +944,68 @@ City.PERMITS = {
 }
 City.PERMIT_ORDER = { "park", "river", "bedrock" }
 
+--------------------------------------------------------------------------------
+-- The river
+--
+-- Not a scattered obstacle like a wood or a bedrock sill: one band of water
+-- that starts at the coast and runs on for as long as the map is generated,
+-- because a real river does not stop at a district line and does not end
+-- inland. It is placed once, off the home district's own ground so the opening
+-- is never fought across it, and it drifts further from that ground the
+-- further downstream it runs, so it can never double back through it either.
+--------------------------------------------------------------------------------
+City.riverWidth = 170
+-- How far a wellhead may stand off the bank and still draw on the river rather
+-- than on the deposit under it. Wider than the river itself, because "beside
+-- it" is the point -- a well sunk in the water is just a well sunk in the water.
+City.riverWellReach = 220
+
+function City:layOutRiver()
+  local home = self.districts[City.MAP.start]
+  local mouthX = home.x + home.w + 300
+  local angle = math.rad(18)
+  self.river = {
+    x0 = mouthX, y0 = 0,
+    -- A unit vector, mostly south and drifting east, so the band only ever
+    -- moves further from the home district as it runs on.
+    dx = math.sin(angle), dy = math.cos(angle),
+    width = City.riverWidth,
+  }
+end
+
+-- Perpendicular distance from a point to the river's own line, or nil if the
+-- point is out at sea or upstream of the mouth -- the river has a start, even
+-- though it has no end.
+function City:riverProjection(x, y)
+  local r = self.river
+  if not r or y < 0 then return nil end
+  local t = (x - r.x0) * r.dx + (y - r.y0) * r.dy
+  if t < 0 then return nil end
+  local px, py = r.x0 + r.dx * t, r.y0 + r.dy * t
+  return math.sqrt((x - px) ^ 2 + (y - py) ^ 2)
+end
+
+function City:riverAt(x, y)
+  local dist = self:riverProjection(x, y)
+  return dist ~= nil and dist <= self.river.width / 2
+end
+
+function City:nearRiver(x, y)
+  local dist = self:riverProjection(x, y)
+  return dist ~= nil and dist <= self.river.width / 2 + City.riverWellReach
+end
+
+-- Sampled rather than solved as a segment-against-a-band intersection: a main
+-- is short enough that walking its length in two dozen steps never misses a
+-- crossing worth charging for.
+function City:segRiver(ax, ay, bx, by)
+  for i = 0, 24 do
+    local t = i / 24
+    if self:riverAt(ax + (bx - ax) * t, ay + (by - ay) * t) then return true end
+  end
+  return false
+end
+
 function City:buyPermit(kind)
   local spec = City.PERMITS[kind]
   if not spec then return nil, "unknown permit" end
@@ -968,7 +1037,9 @@ end
 -- happened to be surveyed first. Everything an obstacle is checked against is
 -- placed by this same call, and everything placed stays inside the cell.
 function City:scatterObstacles(n, district)
-  local kinds = { "bedrock", "park", "river" }
+  -- The river is not one of these any more: it is one band running the length
+  -- of the map, laid out once in layOutRiver rather than scattered per cell.
+  local kinds = { "bedrock", "park" }
   local b = district or self.bounds
   local home = district and district.id == City.MAP.start
   local placed = {}
@@ -1062,6 +1133,12 @@ function City:obstacleAt(x, y)
   for _, o in ipairs(self.obstacles) do
     if (x - o.x) ^ 2 + (y - o.y) ^ 2 <= o.r * o.r then return o end
   end
+  -- The river reads as an obstacle to every caller that asks "what is standing
+  -- here", so the park/river/bedrock permit machinery does not need to know it
+  -- moved out of the scattered list and into a band of its own. `r` stands in
+  -- for a radius so anything that scales off one (a deposit's yield bonus) does
+  -- not have to know the difference either.
+  if self:riverAt(x, y) then return { kind = "river", river = true, r = City.riverWidth / 2 } end
   return nil
 end
 
@@ -1080,6 +1157,11 @@ function City:crossingCost(ax, ay, bx, by)
       if not cross then return nil, o end
       mult = math.max(mult, cross)
     end
+  end
+  if self:segRiver(ax, ay, bx, by) then
+    local cross = self:groundCross("river")
+    if not cross then return nil, { kind = "river" } end
+    mult = math.max(mult, cross)
   end
   return mult
 end
@@ -1349,6 +1431,14 @@ City.RECIPES = {
   concrete   = { name = "CONCRETE PLANT", makes = "concrete", rate = 6, cost = 1900, upkeep = 18,
                  inputs = { cement = 1, sand = 2, water = 1 }, materials = { steel = 20 },
                  blurb = "Cement, sand and water. Half of every big building on the map." },
+
+  -- Water's second source. It takes nothing off the network -- the sea is the
+  -- input, and the sea is not modelled as a commodity -- so it never competes
+  -- with a well for anything but the ground it stands on, which is why it
+  -- answers to no deposit and the map's one truly endless input.
+  purifier   = { name = "PURIFICATION CENTRE", makes = "water", rate = 16, cost = 2600, upkeep = 24,
+                 inputs = {}, materials = { steel = 20, concrete = 20 }, coastal = true,
+                 blurb = "No deposit, no well: turns the sea itself into supply. Stands only on the coast." },
 }
 
 -- Stable order for every list of works in the interface.
@@ -1512,6 +1602,9 @@ function City:plantCost(plant)
 end
 
 City.sourceMaxLevel = 6
+-- What a well, a rig or a plant answers to: enough to feed more than one
+-- route, never enough to fan out like a hub.
+City.sourcePorts = 4
 
 function City:sourceUpgradeCost(n)
   local trade = City.trade[n.commodity] or City.trade.water
@@ -1799,6 +1892,12 @@ function City:build(x, y, kind, commodity)
   if kind == "works" and not recipe then return nil, "choose what the works makes" end
   if recipe and not self:licensed(recipe.makes) then
     return nil, "no licence for " .. recipe.makes
+  end
+  if recipe and recipe.coastal then
+    local d = self:districtAt(x, y)
+    if not (self:onCoast(x, y) or (d and d.island)) then
+      return nil, "a " .. string.lower(recipe.name) .. " stands on the coast"
+    end
   end
   local cost = gateway and self:havenCost(gateway)
     or (recipe and recipe.cost)
@@ -2314,7 +2413,11 @@ end
 -- off a ship like everything else the city does not make for itself.
 function City:sourceError(commodity, x, y, plant)
   if not self:licensed(commodity) then return "no licence for that" end
-  local madeBy = commodity ~= "power" and City.RECIPES[City.MADE_BY[commodity] or ""]
+  -- Water is both dug and desalinated: an extractor for a commodity always
+  -- wins this check, because a recipe existing besides it does not mean the
+  -- ground stopped giving it up.
+  local madeBy = commodity ~= "power" and not City.EXTRACTOR_OF[commodity]
+    and City.RECIPES[City.MADE_BY[commodity] or ""]
   if madeBy then
     return string.lower(commodity) .. " is made in a " .. string.lower(madeBy.name)
   end
@@ -2341,7 +2444,8 @@ end
 
 function City:buySource(commodity, px, py, plant)
   if not self:licensed(commodity) then return nil, "no licence" end
-  local madeBy = commodity ~= "power" and City.RECIPES[City.MADE_BY[commodity] or ""]
+  local madeBy = commodity ~= "power" and not City.EXTRACTOR_OF[commodity]
+    and City.RECIPES[City.MADE_BY[commodity] or ""]
   if madeBy then
     return nil, string.lower(commodity) .. " is made in a "
       .. string.lower(madeBy.name) .. ", not taken out of the ground"
@@ -2360,6 +2464,10 @@ function City:buySource(commodity, px, py, plant)
     self:spendMaterials(bill)
     local s = self.g:addNode(px, py, "source")
     s.commodity, s.paid, s.level = commodity, cost, 1
+    -- Four ports: enough for a well, a rig or a plant to feed a couple of
+    -- routes, never enough to turn a producing building into a distribution
+    -- point in its own right. That job belongs to a hub.
+    s.ports = City.sourcePorts
     -- The ground, not the equipment, decides the ceiling. A works can be
     -- deepened up to what the deposit gives in a day and not one unit past it.
     if plant then
@@ -2370,7 +2478,13 @@ function City:buySource(commodity, px, py, plant)
       self.plantsBuilt[plant] = (self.plantsBuilt[plant] or 0) + 1
     elseif seam then
       local d = self:districtAt(px, py)
-      s.cap = seam.cap or City.depositCap(commodity, (d and d.ring) or 0, false)
+      if commodity == "water" and self:nearRiver(px, py) then
+        -- A well sunk on the bank never runs dry: the river behind it is the
+        -- one ceiling in the game that upgrading can never reach.
+        s.cap = Graph.INF
+      else
+        s.cap = seam.cap or City.depositCap(commodity, (d and d.ring) or 0, false)
+      end
       s.output = math.min(s.cap, math.floor(trade.sourceOutput * (seam.yield or 1)))
     else
       -- Ground that is not a marked deposit still has a ceiling, and it is the
@@ -3201,6 +3315,10 @@ function City:migrate()
     self:note("Survey filed: %d districts held, %d more available to purchase",
       owned, #self.districts - owned)
   end
+
+  -- A save from before the river existed still has a home district to lay it
+  -- out from, and the river's geometry answers to nothing but that.
+  if not self.river then self:layOutRiver() end
 
   -- Ground saved before the map was endless: every cell was authored, none of
   -- them knew what ring they were in, and the survey stopped at twelve. Fill in
