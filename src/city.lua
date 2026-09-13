@@ -3638,6 +3638,9 @@ function City:tutorialStep()
   for i, step in ipairs(City.TUTORIAL) do
     if not step.done(self) then return step, i, #City.TUTORIAL end
   end
+  -- Finished for good. Without this latch, a company that closes its only well
+  -- a fortnight later would be told how to sink its first one.
+  self.guideDismissed = true
   return nil
 end
 
