@@ -3,20 +3,47 @@
 # frozen zip fused into a copy of the LOVE runtime (see macos/install.sh), so
 # without this it silently drifts from HEAD the moment you commit again.
 #
+# A copy already running holds the old code in memory, and reopening the game
+# only brings that process back, so it is quit first (the game saves on quit)
+# and reopened in the background once the new build is in place.
+#
 # Installed via: git config core.hooksPath githooks
 set -eu
 
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+app="$HOME/Applications/Net Profit.app"
+bundle_id="eu.vandenbruwaene.netprofit"
+log=/tmp/net-profit-install.log
 
 case "$(uname -s)" in
   Darwin) ;;
   *) exit 0 ;;
 esac
 
-[ -d "$HOME/Applications/Net Profit.app" ] || [ -d /Applications/love.app ] || [ -d "$HOME/Applications/love.app" ] || exit 0
+[ -d "$app" ] || [ -d /Applications/love.app ] || [ -d "$HOME/Applications/love.app" ] || exit 0
 
-if make -C "$project_dir" mac-install >/tmp/net-profit-install.log 2>&1; then
+running() { pgrep -f "$app/Contents/MacOS/love" >/dev/null 2>&1; }
+
+was_running=false
+if running; then
+  was_running=true
+  osascript -e "tell application id \"$bundle_id\" to quit" >/dev/null 2>&1 || true
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    running || break
+    sleep 0.5
+  done
+  if running; then
+    printf 'Net Profit is still open and did not quit: not rebuilding under it. Quit it and run make mac-install.\n' >&2
+    exit 0
+  fi
+fi
+
+if make -C "$project_dir" mac-install >"$log" 2>&1; then
   printf 'Net Profit.app rebuilt from %s\n' "$(git -C "$project_dir" rev-parse --short HEAD)"
+  if $was_running; then
+    open -g "$app"
+    printf 'Net Profit was open, so it was restarted on the new build\n'
+  fi
 else
-  printf 'Net Profit.app rebuild failed, see /tmp/net-profit-install.log\n' >&2
+  printf 'Net Profit.app rebuild failed, see %s\n' "$log" >&2
 fi

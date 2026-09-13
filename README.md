@@ -32,7 +32,9 @@ changing the source, or use `make run` to play the checkout directly.
 
 `make hooks` (once, per checkout) wires a git hook that reruns `make mac-install`
 after every commit, so the app in `~/Applications` never drifts behind the
-source without you noticing.
+source without you noticing. A copy of the game already open would keep the old
+code in memory, so the hook quits it first (the game saves on quit) and reopens
+it in the background on the new build.
 
 Your company is found either way. LÖVE gives a fused app a different save
 directory from a game run out of a source folder, so the game looks in both and
