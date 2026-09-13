@@ -3380,7 +3380,15 @@ function City:migrate()
 
   -- A save from before the river existed still has a home district to lay it
   -- out from, and the river's geometry answers to nothing but that.
-  if not self.river then self:layOutRiver() end
+  if not self.river then
+    self:layOutRiver()
+    -- The band replaces the old scattered ponds outright, so a save carrying
+    -- one from before this change would otherwise show both: the real river
+    -- and a leftover circle that scatterObstacles will never draw again.
+    for i = #self.obstacles, 1, -1 do
+      if self.obstacles[i].kind == "river" then table.remove(self.obstacles, i) end
+    end
+  end
 
   -- Ground saved before the map was endless: every cell was authored, none of
   -- them knew what ring they were in, and the survey stopped at twelve. Fill in
