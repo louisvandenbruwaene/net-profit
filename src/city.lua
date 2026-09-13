@@ -14,7 +14,10 @@ City.__index = City
 -- their price does not depend on what flows through them.
 City.price = {
   junction = 22, manifold = 46, pump = 38, tower = 92, gate = 30, depot = 190,
-  exchange = 500, dc = 1500,
+  -- A hub is not a bigger junction: it is a whole neighbourhood's last mile,
+  -- bought outright and never drawn. It is priced like the business it
+  -- replaces, not like the pipe fitting it resembles.
+  exchange = 1400, dc = 1500,
   terminal = 2200,
   powerLicence = 340, beerLicence = 600, oilLicence = 1500, foodLicence = 900,
   qualityBase = 140,
@@ -392,6 +395,44 @@ function City.sizeFor(capacity)
   return City.PIPE_SIZES[#City.PIPE_SIZES], #City.PIPE_SIZES
 end
 
+--------------------------------------------------------------------------------
+-- What a structure will answer to
+--
+-- The four sizes are not just a price ladder, they are what makes a network a
+-- network rather than a spiderweb of point-to-point stubs. A house is a
+-- nozzle: it could never use more than a small main and would not know what
+-- to do with one. A well, a rig or a plant is the opposite end of the same
+-- idea -- it is a lot of ground answering through one wellhead, so nothing
+-- smaller than a trunk is allowed to be the whole of its output. Everything
+-- between the two -- a junction, a manifold, a pump, a hub -- is not listed
+-- here at all, because passing a trunk in and a stub out, at two different
+-- sizes, is the entire reason to build one.
+--------------------------------------------------------------------------------
+City.SIZE_LIMIT = {
+  client = { max = "small" },
+  sink   = { max = "small" },
+  source = { min = "large" },
+  works  = { min = "large" },
+}
+
+-- The narrowest and widest size either end of a-b will accept, or nil if the
+-- two ends want incompatible things -- a well cannot be wired straight to a
+-- house at any size, and that is the point: something has to stand between
+-- them and change the pipe's size.
+function City:sizeRange(a, b)
+  local lo, hi = 1, #City.PIPE_SIZES
+  for _, id in ipairs({ a, b }) do
+    local n = self.g.nodes[id]
+    local lim = n and City.SIZE_LIMIT[n.kind]
+    if lim then
+      if lim.min then lo = math.max(lo, (select(2, City.sizeOf(lim.min)))) end
+      if lim.max then hi = math.min(hi, (select(2, City.sizeOf(lim.max)))) end
+    end
+  end
+  if lo > hi then return nil end
+  return lo, hi
+end
+
 -- What the company knows how to lay. Each level is bought once and then costs
 -- more every time it is used, and the top one is a main that practically never
 -- fails and practically never pays for itself in money alone.
@@ -423,7 +464,10 @@ City.rules = {
   investSd = 0.05,
   sourceIncome = 12,        -- wholesale, per well per day
   repLoss = 8,
-  startMoney = 460,   -- a well, a main to the first house, and a little room
+  -- A well answers to a trunk main now, so the opening is a well, a junction,
+  -- the trunk into it, a stub on to the first house, and still a little room:
+  -- four purchases where there used to be two, not two purchases stretched.
+  startMoney = 750,
 }
 
 -- Customers. Rich ones pay far more and forgive far less, which is the whole
@@ -1260,6 +1304,9 @@ function City:pipeError(a, b, commodity, rail)
   end
   local mult, blocker = self:crossingCost(na.x, na.y, nb.x, nb.y)
   if not mult then return "cannot cross " .. string.lower(City.OBSTACLES[blocker.kind].name) end
+  if not mode and not self:sizeRange(a, b) then
+    return "needs a structure between them to change pipe size"
+  end
   return nil
 end
 
@@ -1786,7 +1833,10 @@ function City:widenHubFeeds()
             local flow = math.abs((self.detail.edge or {})[e.id] or 0)
             if e.commodity == name and flow >= e.cap and (e.capMax or e.cap) < 24 then
               local cost = self:boreCost(e, 1)
-              if cost <= self.money and (not bestCost or cost < bestCost) then
+              -- A main already at the top size short of massive has nothing
+              -- to bore up to until massive is unlocked: boreCost says so
+              -- with nil, not with a price, and this is not a bill to skip.
+              if cost and cost <= self.money and (not bestCost or cost < bestCost) then
                 best, bestCost = e, cost
               end
             end
@@ -1968,8 +2018,15 @@ function City:layPipe(a, b, commodity, size, rail, grade)
   grade = math.max(1, math.min(self.lining or 1, grade or self.lining or 1))
   local err = self:pipeError(a, b, commodity, rail)
   if err then return nil, err end
-  if not mode and not self:sizeAllowed(City.asSize(size)) then
-    return nil, "massive mains open at " .. City.UNLOCKS.massive.clients .. " customers"
+  if not mode then
+    local spec = City.asSize(size)
+    if not self:sizeAllowed(spec) then
+      return nil, "massive mains open at " .. City.UNLOCKS.massive.clients .. " customers"
+    end
+    local lo, hi = self:sizeRange(a, b)
+    local _, idx = City.sizeOf(spec.key)
+    if idx < lo then return nil, City.PIPE_SIZES[lo].name .. " main or bigger, here" end
+    if idx > hi then return nil, City.PIPE_SIZES[hi].name .. " main or smaller, here" end
   end
   local cost = self:pipeCost(a, b, commodity, wagons or size, rail, grade)
   if cost > self.money then return nil, "not enough cash" end
@@ -2049,6 +2106,11 @@ function City:replaceError(id, size, grade)
   if not self:sizeAllowed(spec) then
     return "massive mains open at " .. City.UNLOCKS.massive.clients .. " customers"
   end
+  local lo, hi = self:sizeRange(e.a, e.b)
+  local _, idx = City.sizeOf(spec.key)
+  if not lo then return "needs a structure between them to change pipe size" end
+  if idx < lo then return City.PIPE_SIZES[lo].name .. " main or bigger, here" end
+  if idx > hi then return City.PIPE_SIZES[hi].name .. " main or smaller, here" end
   local q = self:replaceQuote(id, size, grade)
   if q.net > self.money then return "not enough cash" end
   return nil
@@ -3626,9 +3688,17 @@ City.TUTORIAL = {
     done = function(c) return #c.g:nodesOfKind("source") > 0 end,
   },
   {
-    key = "main", title = "Run a main to the house",
-    body = "Drag from the well to the house. A small main carries " .. City.PIPE_SIZES[1].cap ..
-           ", which is plenty for one household, and nothing widens a main once it is in the ground.",
+    key = "junction", title = "Build a junction",
+    body = "A well answers to a trunk main and a house only ever takes the smallest one there " ..
+           "is, so nothing connects them directly. Press \"Junction\" on the left and click a " ..
+           "spot between the well and the house: that is where the main steps down.",
+    done = function(c) return #c.g:nodesOfKind("junction") > 0 end,
+  },
+  {
+    key = "main", title = "Run the mains",
+    body = "Drag a " .. City.PIPE_SIZES[3].key .. " main from the well to the junction, then a " ..
+           City.PIPE_SIZES[1].key .. " main from the junction to the house. Nothing widens a " ..
+           "main once it is in the ground.",
     done = function(c)
       for _, n in ipairs(c.g.nodes) do
         if n.alive and n.kind == "client" and c.g:degree(n.id) > 0 then return true end

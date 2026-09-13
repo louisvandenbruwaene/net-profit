@@ -25,18 +25,28 @@ local function fresh()
   return c
 end
 
+-- A well answers to a trunk main only; these previews are about the preview
+-- machinery, not about that limit, so they route through a junction built
+-- beside the well.
+local function trunk(c,src)
+  local hub=assert(c:build(src.x+90,src.y-90,"junction"))
+  assert(c:layPipe(src.id,hub.id,"water","large"))
+  return hub
+end
+
 do
   local c=fresh()
   local n=c:clientList()[1]
+  local hub=trunk(c,c.firstSource)
   local before=Save.pack(c)
   local net=c:dailyRevenue()-c:dailyExpenses()
-  local p=E.pipePreview(c,c.firstSource.id,n.id,"water",n.demand,false)
+  local p=E.pipePreview(c,hub.id,n.id,"water",n.demand,false)
   check(Save.pack(c)==before,"a quote must not mutate cash, randomness, logs or graph")
   check(p.delivery==n.demand and p.demand==n.demand,"quote solves actual delivery")
-  assert(c:layPipe(c.firstSource.id,n.id,"water",n.demand))
+  assert(c:layPipe(hub.id,n.id,"water",n.demand))
   check(p.cash==c.money,"remaining cash matches the committed action")
   check(p.net==c:dailyRevenue()-c:dailyExpenses()-net,"net preview includes upkeep")
-  check(E.pipePreview(c,c.firstSource.id,n.id,"water",n.demand,false).error~=nil,"cached quote invalidates after construction")
+  check(E.pipePreview(c,hub.id,n.id,"water",n.demand,false).error~=nil,"cached quote invalidates after construction")
   local route=E.route(c,n.id)
   check(route[c.g.edges[1].id],"selected route reaches its source")
   c:demolishPipe(c.g.edges[1].id)
@@ -45,9 +55,10 @@ end
 do
   local c=fresh()
   local n=c:clientList()[1]
+  local hub=trunk(c,c.firstSource)
   c.money=0
   local before=Save.pack(c)
-  local p=E.pipePreview(c,c.firstSource.id,n.id,"water",n.demand,false)
+  local p=E.pipePreview(c,hub.id,n.id,"water",n.demand,false)
   check(p.cash<0 and p.delivery==n.demand,"unaffordable plans still explain their potential")
   check(Save.pack(c)==before,"unaffordable preview leaves company untouched")
   n.prospect=true; c:refresh()
@@ -56,7 +67,7 @@ do
   check(offer.cost and offer.delivery==n.demand,"offer estimates a feasible direct full-supply connection")
   check(Save.pack(c)==saved and n.prospect,"offer simulation neither signs nor spends")
   c.money=1000
-  assert(c:layPipe(c.firstSource.id,n.id,"water",n.demand))
+  assert(c:layPipe(hub.id,n.id,"water",n.demand))
   check(E.offerPreview(c,n.id).cost==0,"existing routes are recognized before signing")
 end
 do
@@ -67,7 +78,8 @@ do
   check(c.companyName=="Brightwater Co.","company names are trimmed")
   check(not c:setCompanyName("  "),"empty names are rejected")
   assert(c:dismissGuide())
-  for _,n in ipairs(c:clientList()) do assert(c:layPipe(c.firstSource.id,n.id,"water",n.demand)) end
+  local hub=trunk(c,c.firstSource)
+  for _,n in ipairs(c:clientList()) do assert(c:layPipe(hub.id,n.id,"water",n.demand)) end
   for _=1,6 do E.close(c,{unhappy=0,bonus=0}) end
   local clone=assert(Save.unpack(Save.pack(c)))
   check(clone.serviceStreak==6 and clone.ambition=="service","ambition progress survives reload")

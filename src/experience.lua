@@ -84,9 +84,21 @@ function E.tutorialTarget(c,state)
     end
     return nil
   end
+  if step.key=="junction" then
+    if state.node or state.edge then return {button="back-to-build"} end
+    if state.tool~="junction" then return {button="tool-junction"} end
+    if well and house then return {x=(well.x+house.x)/2,y=(well.y+house.y)/2} end
+    return nil
+  end
   if step.key=="main" and well and house then
+    local junction
+    for _,n in ipairs(c.g:aliveNodes()) do
+      if n.kind=="junction" then junction=n end
+    end
+    if not junction then return nil end
     if state.commodity~="water" and not (state.node or state.edge) then return {button="water"} end
-    return {from=well,to=house}
+    if not c:pipeBetween(well.id,junction.id,"water") then return {from=well,to=junction} end
+    return {from=junction,to=house}
   end
   if step.key=="sign" and house then
     if state.node==house.id then return {button="accept"} end

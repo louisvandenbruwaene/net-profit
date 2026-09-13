@@ -47,20 +47,26 @@ do
   local hubSpot = assert(c:build(src.x + 700, src.y, "junction"))
 
   -- What n houses of demand three cost connected one by one, all the way back
-  -- to the well. Each needs a main of its own, and the smallest there is
-  -- carries seven.
+  -- to the well. A well answers to a trunk only, so even the "direct" plan
+  -- pays for one manifold and one trunk main before a single house is
+  -- reached; each house after that needs a stub of its own, and the
+  -- smallest main there is carries seven.
   local function direct(n)
-    local capex, upkeep = 0, 0
+    local manifoldSpot = assert(c:build(src.x + 90, src.y - 90, "manifold"))
+    local trunk = c:pipeQuote(src.id, manifoldSpot.id, "water", "large")
+    local capex, upkeep = City.price.manifold + trunk.total,
+      City.trade.water.upkeep + trunk.metres * City.trade.water.upkeepPerM
     for i = 1, n do
       local a = math.pi * 2 * i / n
-      local spot = c:build(hubSpot.x + math.cos(a) * 260, hubSpot.y + math.sin(a) * 260, "junction")
+      local spot = c:build(manifoldSpot.x + math.cos(a) * 260, manifoldSpot.y + math.sin(a) * 260, "junction")
       if spot then
-        local q = c:pipeQuote(src.id, spot.id, "water", "small")
+        local q = c:pipeQuote(manifoldSpot.id, spot.id, "water", "small")
         capex = capex + q.total
         upkeep = upkeep + City.trade.water.upkeep + q.metres * City.trade.water.upkeepPerM
         c:demolishNode(spot.id)
       end
     end
+    c:demolishNode(manifoldSpot.id)
     return capex, upkeep
   end
 
@@ -80,17 +86,21 @@ do
   ok("a handful of houses is cheaper connected directly", d4 < h4,
     string.format("$%d direct against $%d hubbed", d4, h4))
 
-  local d12, du12 = direct(12)
-  local h12, hu12 = hubbed(12)
-  ok("a dozen is cheaper behind a hub", h12 < d12, string.format("$%d against $%d", h12, d12))
-  ok("and cheaper to run", hu12 < du12, string.format("$%.1f against $%.1f a day", hu12, du12))
+  -- A hub is priced like the business it replaces, not like a fitting, so a
+  -- dozen houses tight around one manifold still comes in under it on the
+  -- cheque: a hub is not the early move any more, it is the one a company
+  -- grows into.
+  local d12 = direct(12)
+  local h12 = hubbed(12)
+  ok("a dozen is still cheaper direct, while the network is this small", d12 < h12,
+    string.format("$%d against $%d", d12, h12))
 
-  local d20, du20 = direct(20)
-  local h20, hu20 = hubbed(20)
-  ok("twenty is much cheaper behind a hub", h20 < d20 * 0.8,
-    string.format("$%d against $%d", h20, d20))
-  ok("and half the running cost", hu20 < du20 * 0.7,
-    string.format("$%.1f against $%.1f a day", hu20, du20))
+  -- What it buys instead is a lower running cost once the company is large
+  -- enough that the difference is worth having.
+  local d100, du100 = direct(100)
+  local h100, hu100 = hubbed(100)
+  ok("at real scale a hub costs less to run than a hundred private mains", hu100 < du100,
+    string.format("$%.1f against $%.1f a day", hu100, du100))
 
   -- The reason: one big main is not priced as four small ones.
   local small = c:pipeQuote(src.id, hubSpot.id, "water", "small").total
@@ -144,7 +154,7 @@ do
   local src = c.firstSource
   src.output, src.cap = 40, 40
   local hall = assert(c:build(src.x + 240, src.y, "works", "turbine"))
-  assert(c:layPipe(src.id, hall.id, "water", "medium"))
+  assert(c:layPipe(src.id, hall.id, "water", "large"))
   c:refresh()
   ok("and it is making electricity out of water", (hall.ready or 0) > 0, tostring(hall.ready))
 end
@@ -154,8 +164,13 @@ print("a main is what it was on the day it was laid")
 do
   local c = fresh()
   local src = c.firstSource
+  -- A well answers to a trunk only, so the small-to-large upgrade this test
+  -- is about happens one hop downstream of it, between two unrestricted
+  -- structures.
+  local hub = assert(c:build(src.x + 90, src.y - 90, "junction"))
+  assert(c:layPipe(src.id, hub.id, "water", "large"))
   local far = assert(c:build(src.x + 260, src.y + 120, "junction"))
-  local main = assert(c:layPipe(src.id, far.id, "water", "small"))
+  local main = assert(c:layPipe(hub.id, far.id, "water", "small"))
   ok("a small main carries seven", main.cap == 7)
   ok("and nothing widens it", c:replaceQuote(main.id, "small", 1) ~= nil
     and c:replaceError(main.id, "small", 1) == "that is what is already in the ground")
@@ -164,7 +179,7 @@ do
   assert(c:replacePipe(main.id, "large"))
   ok("a large one can take its place", main.cap == 25)
   ok("but not a massive one, before the company is big enough",
-    c:replaceError(main.id, "massive", 1) ~= nil and not c:layPipe(src.id, far.id, "water", "massive"))
+    c:replaceError(main.id, "massive", 1) ~= nil and not c:layPipe(hub.id, far.id, "water", "massive"))
   ok("at the price of the new main less scrap on the old", c.money < before)
 
   -- Lining is bought once and then paid for in every metre laid with it.
@@ -174,8 +189,8 @@ do
   ok("the company can reach sealed pipe", c.lining == #City.GRADES)
   ok("but the main in the ground has not changed",
     c:leakChance(main) == City.rules.leakBase)
-  local bare = c:pipeQuote(src.id, far.id, "water", "large", false, 1).total
-  local sealed = c:pipeQuote(src.id, far.id, "water", "large", false, #City.GRADES).total
+  local bare = c:pipeQuote(hub.id, far.id, "water", "large", false, 1).total
+  local sealed = c:pipeQuote(hub.id, far.id, "water", "large", false, #City.GRADES).total
   ok("sealed pipe costs far more to lay", sealed > bare * 2.5,
     string.format("$%d against $%d", sealed, bare))
   assert(c:replacePipe(main.id, "large", #City.GRADES))

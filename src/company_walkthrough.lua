@@ -45,14 +45,37 @@ local function scrollTo(app,id)
   error("button not reachable by scrolling: "..id)
 end
 
+-- The structure already carrying the well's trunk main, if one has been
+-- built: a well answers to a trunk and nothing else, so whatever it feeds
+-- into is where every stub to a customer actually comes from.
+local function distributionPoint(city,src)
+  for _,ei in ipairs(city.g.adj[src.id] or {}) do
+    local e=city.g.edges[ei]
+    if e.alive then
+      local other=(e.a==src.id) and e.b or e.a
+      local n=city.g.nodes[other]
+      if n and n.alive and not C.SIZE_LIMIT[n.kind] then return n end
+    end
+  end
+  return nil
+end
+
 local function connect(app,c)
   -- From the first well if there is one, and from the map's anchor otherwise:
   -- on day one the anchor is the household itself, before anything is built.
   local city=app.city()
   local src=city.g:nodesOfKind("source")[1] or city.firstSource
+  local hub=distributionPoint(city,src)
+  if not hub then
+    -- No trunk laid yet. A well only ever answers to one, so this is not a
+    -- shortcut around the rule, it is what a player would do first anyway.
+    hub=assert(city:build(src.x+90,src.y+60,"junction"))
+    assert(city:layPipe(src.id,hub.id,"water","large"))
+  end
   local cam=app.camera()
-  local ax,ay=cam:toScreen(src.x,src.y)
+  local ax,ay=cam:toScreen(hub.x,hub.y)
   local bx,by=cam:toScreen(c.x,c.y)
+  app.state.size="small"
   love.mousepressed(ax,ay,1)
   love.mousemoved(bx,by,bx-ax,by-ay)
   love.mousereleased(bx,by,1)
@@ -113,10 +136,38 @@ function Walk.start(app,mode)
   love.mousereleased(dx,dy,1)
   local well=c.g:nodesOfKind("source")[1]
   check(well~=nil,"clicking the mark sinks a well on it")
-  check(c:tutorialStep().key=="main","and the next step is the main")
-  check(E.tutorialTarget(c,app.state).from==well,"then it traces the drag out of the well")
-
   local offerHouse=c:clientList(true)[1]
+
+  -- A well answers to a trunk, and a house takes only the smallest main there
+  -- is: the guide now walks a junction in between before it ever points at a
+  -- drag, because no size of main can span the two directly.
+  check(c:tutorialStep().key=="junction","and the next step is a junction")
+  check(E.tutorialTarget(c,app.state).button=="back-to-build","the guide first clears the well's own selection")
+  click("back-to-build")
+  check(E.tutorialTarget(c,app.state).button=="tool-junction","then points at the junction tool")
+  app.state.tool="junction"
+  local jaim=E.tutorialTarget(c,app.state)
+  check(jaim.x==(well.x+offerHouse.x)/2 and jaim.y==(well.y+offerHouse.y)/2,
+    "and, with the junction in hand, at a spot between the well and the house")
+  local jx,jy=cam:toScreen(jaim.x,jaim.y)
+  love.mousepressed(jx,jy,1)
+  love.mousereleased(jx,jy,1)
+  local junction=c.g:nodesOfKind("junction")[1]
+  check(junction~=nil,"clicking the spot builds a junction")
+
+  check(c:tutorialStep().key=="main","and the next step is the main")
+  local target=E.tutorialTarget(c,app.state)
+  check(target.from==well and target.to==junction,"then it traces the drag out of the well, into the junction")
+  app.state.size="large"
+  local wx,wy=cam:toScreen(well.x,well.y)
+  local jx2,jy2=cam:toScreen(junction.x,junction.y)
+  love.mousepressed(wx,wy,1)
+  love.mousemoved(jx2,jy2,jx2-wx,jy2-wy)
+  love.mousereleased(jx2,jy2,1)
+  check(c.g:degree(well.id)>0,"a trunk main reaches the junction")
+  target=E.tutorialTarget(c,app.state)
+  check(target.from==junction and target.to==offerHouse,"and then out of the junction, to the house")
+
   connect(app,offerHouse)
   check(c.g:degree(offerHouse.id)>0,"a main reaches the house")
   check(c:tutorialStep().key=="sign","and the last thing to do is sign them up")
@@ -220,8 +271,25 @@ function Walk.start(app,mode)
     a.demand,b.demand=C.sizeOf("small").cap,2
     a.x,a.y=src.x+200,src.y
     b.x,b.y=src.x+400,src.y
-    local narrow=assert(c:layPipe(src.id,a.id,"water","small"))
-    assert(c:layPipe(a.id,b.id,"water","small"))
+    -- Something is usually still standing near the well by this point in the
+    -- walkthrough -- the tutorial's own junction survived the pipe-lifting
+    -- above -- so this tries a small ring of spots rather than one fixed one.
+    local function nearby(x,y,kind)
+      for _,off in ipairs({{60,-90},{-90,60},{90,90},{-90,-90},{130,0},{0,130}}) do
+        local n=c:build(x+off[1],y+off[2],kind)
+        if n then return n end
+      end
+      return assert(nil,"nowhere to put a "..kind)
+    end
+    -- A house takes only the smallest main there is, forever, so the main
+    -- that is short has to be the trunk feeding both houses, not either
+    -- house's own stub: a stub can never be the thing a bigger main replaces.
+    local hub=nearby(src.x,src.y,"junction")
+    assert(c:layPipe(src.id,hub.id,"water","large"))
+    local relay=nearby(hub.x+90,hub.y+30,"junction")
+    local narrow=assert(c:layPipe(hub.id,relay.id,"water","small"))
+    assert(c:layPipe(relay.id,a.id,"water","small"))
+    assert(c:layPipe(relay.id,b.id,"water","small"))
     check((c.served[b.id] or 0)==0,"the downstream house is starved behind a small main")
     app.action("focusNode",b.id)
     local widen=findButton("widen-bottleneck")
@@ -394,7 +462,11 @@ function Walk.start(app,mode)
     c.money=9999
     local src=c.firstSource
     if c.g:degree(src.id)==0 then
-      for _,n in ipairs(c:clientList()) do c:layPipe(src.id,n.id,"water",n.demand) end
+      local hub=assert(c:build(src.x+100,src.y+60,"junction"))
+      assert(c:layPipe(src.id,hub.id,"water","large"))
+      for _,n in ipairs(c:clientList()) do
+        if not c:pipeError(hub.id,n.id,"water") then c:layPipe(hub.id,n.id,"water",n.demand) end
+      end
     end
     local degree=c.g:degree(src.id)
     check(degree>0,"the first well is carrying mains")
@@ -520,10 +592,20 @@ function Walk.start(app,mode)
     check(well~=nil,"there is a well to trace a route back to")
     n.x,n.y=well.x+220,well.y+80
     c:refresh()
-    if not c:pipeBetween(well.id,n.id,"water") then
-      assert(c:layPipe(well.id,n.id,"water","small"))
+    -- A well answers to a trunk of either trade, so water and power share the
+    -- same manifold off it rather than each finding their own way to n.
+    local hub=distributionPoint(c,well)
+    if not hub then hub=assert(c:build(well.x+100,well.y+40,"manifold")) end
+    if not c:pipeBetween(well.id,hub.id,"water") then
+      assert(c:layPipe(well.id,hub.id,"water","large"))
     end
-    local power=assert(c:layPipe(well.id,n.id,"power","small"))
+    if not c:pipeBetween(hub.id,n.id,"water") then
+      assert(c:layPipe(hub.id,n.id,"water","small"))
+    end
+    if not c:pipeBetween(well.id,hub.id,"power") then
+      assert(c:layPipe(well.id,hub.id,"power","large"))
+    end
+    local power=assert(c:layPipe(hub.id,n.id,"power","small"))
     local ax,ay,bx,by=Draw.edgePoints(app.camera(),c,power)
     check(ax==ax and ay==ay and bx==bx and by==by,"shared power lines have finite rendering coordinates")
     click("filter-all")
@@ -784,10 +866,10 @@ function Walk.update(app,mode,frame)
         local mill=assert(c:build(bx+250,by,"works","maltings"))
         local plant=assert(c:buySource("power",bx+370,by+210,"nuclear"))
         local brew=assert(c:build(bx+500,by,"works","brewery"))
-        assert(c:layPipe(field.id,mill.id,"wheat",10))
-        assert(c:layPipe(plant.id,mill.id,"power",10))
-        assert(c:layPipe(plant.id,brew.id,"power",10))
-        assert(c:layPipe(mill.id,brew.id,"malt",10))
+        assert(c:layPipe(field.id,mill.id,"wheat","large"))
+        assert(c:layPipe(plant.id,mill.id,"power","large"))
+        assert(c:layPipe(plant.id,brew.id,"power","large"))
+        assert(c:layPipe(mill.id,brew.id,"malt","large"))
         local dep
         for _,d in ipairs(c.deposits) do
           if d.commodity=="water" and c:districtAt(d.x,d.y)==farm and not d.taken then dep=d; break end
