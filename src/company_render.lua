@@ -6,14 +6,27 @@ local E = require("experience")
 local Draw = {}
 local lg = love.graphics
 
-local function label(text, x, y, color, font)
-  font = font or R.fonts.small
-  lg.setFont(font)
-  local w = font:getWidth(text)
-  lg.setColor(P.with(P.bg, 0.94))
-  lg.rectangle("fill", x - w / 2 - 4, y - 1, w + 8, font:getHeight() + 2, 3)
-  lg.setColor(color or P.text)
-  lg.print(text, x - w / 2, y)
+local labels,occupied={},{}
+local labelPriority=0
+local function label(value,x,y,color,font)
+  labels[#labels+1]={text=tostring(value),x=x,y=y,color=color or P.text,font=font or R.fonts.small,priority=labelPriority,order=#labels+1}
+end
+local function drawLabels(cam)
+  table.sort(labels,function(a,b) return a.priority>b.priority or (a.priority==b.priority and a.order<b.order) end)
+  for _,item in ipairs(labels) do
+    local f=item.font
+    local w,h=f:getWidth(item.text)+8,f:getHeight()+4
+    local x,y=item.x-w/2,item.y-2
+    local clear=x>=cam.vx+4 and x+w<=cam.vx+cam.vw-4 and y>=cam.vy and y+h<=cam.vy+cam.vh
+    for _,r in ipairs(occupied) do
+      if x<r.x+r.w and x+w>r.x and y<r.y+r.h and y+h>r.y then clear=false; break end
+    end
+    if clear then
+      occupied[#occupied+1]={x=x,y=y,w=w,h=h}
+      lg.setColor(P.with(P.bg,0.94)); lg.rectangle("fill",x,y,w,h,3)
+      lg.setFont(f); lg.setColor(item.color); lg.print(item.text,x+4,y+2)
+    end
+  end
 end
 
 --------------------------------------------------------------------------------
@@ -386,6 +399,7 @@ local function drawDistrictGround(city, cam)
       else
         lg.setColor(d.owned and {0.075,0.12,0.13,0.8} or {0.09,0.11,0.14,0.5})
         lg.rectangle("fill",x+4,y+4,w-8,h-8,8)
+
       end
     end
   end
@@ -492,7 +506,8 @@ end
 local function withinRows(top, bottom, fn)
   local sx, sy, sw, sh = lg.getScissor()
   top = math.max(0, top)
-  lg.intersectScissor(0, top, lg.getWidth(), math.max(0, bottom - top))
+  local width=R.dimensions()
+  lg.intersectScissor(0, top, width, math.max(0, bottom - top))
   fn()
   if sx then lg.setScissor(sx, sy, sw, sh) else lg.setScissor() end
 end
@@ -537,7 +552,7 @@ local function drawSea(city, cam, state)
     lg.setColor(P.with(P.good, 0.5)); lg.setLineWidth(1)
     lg.rectangle("line", sx, sy, ex - sx, ey - sy)
   end
-  if cam.scale > 0.16 then
+  if cam.scale > 0.16 and coast>cam.vy+40 then
     local _, ly = cam:toScreen(0, -150)
     label("THE SEA", cam.vx + cam.vw / 2, math.max(cam.vy + 16, ly),
       P.with({ 0.55, 0.75, 0.95 }, 0.8), R.fonts.tiny)
@@ -554,11 +569,15 @@ local function drawRiver(city, cam)
   local _, top = cam:toWorld(cam.vx, cam.vy)
   local _, bottom = cam:toWorld(cam.vx, cam.vy + cam.vh)
   if bottom < 0 then return end
-  local first, last = city:riverSpan(top - p.maxHalf, bottom + p.maxHalf)
-  if last - first < 1 then return end
+  local paths={p}
+  for _,branch in ipairs(p.branches or {}) do paths[#paths+1]=branch end
   local col = City.OBSTACLES.river.color
   local _, coast = cam:toScreen(0, 0)
-  withinRows(coast, lg.getHeight(), function()
+  local _,viewHeight=R.dimensions()
+  withinRows(coast, viewHeight, function()
+    for _,p in ipairs(paths) do
+    local first,last=city:riverSpan(top-p.maxHalf,bottom+p.maxHalf,p)
+    if last-first>=1 then
     local left, right = {}, {}
     for i = first, last do
       local x, y, hw, nx, ny = p.x[i], p.y[i], p.hw[i], p.nx[i], p.ny[i]
@@ -567,15 +586,20 @@ local function drawRiver(city, cam)
       left[#left + 1], left[#left + 2] = lx, ly
       right[#right + 1], right[#right + 2] = rx, ry
     end
-    lg.setColor(P.with(col, 0.30))
+    lg.setColor(0.075,0.155,0.235,1)
     for k = 1, #left - 2, 2 do
       lg.polygon("fill", left[k], left[k + 1], left[k + 2], left[k + 3],
         right[k + 2], right[k + 3], right[k], right[k + 1])
     end
     lg.setColor(P.with(col, 0.55))
     lg.setLineWidth(1.4)
-    lg.line(left)
-    lg.line(right)
+    -- Do not draw a bank across a tributary mouth.
+    for _,bank in ipairs({left,right}) do
+      for k=1,#bank-2,2 do
+        local wx,wy=cam:toWorld((bank[k]+bank[k+2])/2,(bank[k+1]+bank[k+3])/2)
+        if (city:riverEdge(wx,wy) or 0)>-2 then lg.line(bank[k],bank[k+1],bank[k+2],bank[k+3]) end
+      end
+    end
     -- Current, drawn with the flow and following every bend.
     lg.setColor(P.with({ 1, 1, 1 }, 0.12))
     lg.setLineWidth(math.max(1, 1.4 * cam.scale))
@@ -588,6 +612,8 @@ local function drawRiver(city, cam)
       end
       lg.line(pts)
     end
+    end
+    end
   end)
   if cam.scale > 0.28 then
     local i = math.floor(280 / City.riverStep) + 1
@@ -596,7 +622,7 @@ local function drawRiver(city, cam)
   end
 end
 
-local function drawSeams(city, cam)
+local function drawSeams(city, cam, state)
   for _, s in ipairs(city.deposits or {}) do
     if not s.taken and cam:sees(s.x, s.y, City.seamRange * cam.scale + 40) then
       local x, y = cam:toScreen(s.x, s.y)
@@ -611,13 +637,15 @@ local function drawSeams(city, cam)
         local spec = Graph.COMMODITIES[s.commodity] or Graph.COMMODITIES.water
         local r = City.seamRange * cam.scale
         local dim = not d.owned and 0.5 or 1
+        local focused=state.tool=="source" and state.commodity==s.commodity
+        if not focused then dim=dim*0.45 end
         lg.setColor(P.with(spec.color, 0.09 * dim)); lg.circle("fill", x, y, r)
         lg.setColor(P.with(spec.color, 0.45 * dim)); lg.setLineWidth(1)
         lg.circle("line", x, y, r)
         Draw.mark(s.commodity, x, y - 2, math.max(2.5, R.sym(9, cam.scale)))
         if cam.scale > 0.45 then
           label(string.upper(s.commodity) .. "  x" .. string.format("%.1f", s.yield),
-            x, y + r + 4, spec.color, R.fonts.tiny)
+            x, y + (focused and r or 20) + 4, P.with(spec.color,focused and 1 or 0.7), R.fonts.tiny)
         end
       end
     end
@@ -692,8 +720,9 @@ local function drawLinks(city, cam, state)
 end
 
 function Draw.world(city, cam, state)
+  labels,occupied={},{}; labelPriority=0
   local _,height = R.dimensions()
-  lg.setScissor(cam.vx, 80, cam.vw, height-138)
+  lg.setScissor(cam.vx, cam.vy, cam.vw, cam.vh)
   R.drawGrid(cam, city.bounds.w, city.bounds.h)
   drawSea(city, cam, state)
   drawDistrictGround(city, cam)
@@ -719,7 +748,7 @@ function Draw.world(city, cam, state)
     end
   end
   drawDistrictChrome(city, cam, state)
-  drawSeams(city, cam)
+  drawSeams(city, cam, state)
 
   -- What each hub covers. Drawn faintly all the time, because the radius is the
   -- thing the player is actually placing, and drawn with its spokes when the
@@ -869,6 +898,8 @@ function Draw.world(city, cam, state)
     -- Two thresholds, in pixels of disc radius. A label wider than the thing
     -- it names is worse than no label, and a pip under a pixel is grit.
     local named, fine = r >= 7.5, r >= 10
+    labelPriority=(state.node==n.id or state.hoverNode==n.id) and 3 or 1
+    occupied[#occupied+1]={x=x-r-3,y=y-r-3,w=r*2+6,h=r*2+6}
     local spec = n.commodity and Graph.COMMODITIES[n.commodity]
       or (n.makes and Graph.COMMODITIES[n.makes])
     local color = spec and spec.color or Graph.KINDS[n.kind].color
@@ -898,7 +929,7 @@ function Draw.world(city, cam, state)
           or string.format("%d/%d",served,n.demand)
         label(title,x,y+r+6,n.prospect and P.energy or (served>=n.demand and P.good or P.warn))
       end
-      if cam.scale > 0.72 then
+      if cam.scale > 1.1 or state.node==n.id or state.hoverNode==n.id then
         local premium = city:ratePremium(n)
         local tag = E.clientName(city,n) .. "  $" .. n.rate
         label(tag, x, y-r-21,
@@ -1128,6 +1159,7 @@ function Draw.world(city, cam, state)
     label(err or ("$"..cost),mx,my+30,color)
     if seam and not err then label("SEAM: x"..string.format("%.1f",seam.yield).." output",mx,my+48,P.energy,R.fonts.tiny) end
   end
+  drawLabels(cam)
   lg.setScissor()
 end
 

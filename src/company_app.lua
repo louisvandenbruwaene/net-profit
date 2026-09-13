@@ -11,6 +11,7 @@ local App = {}
 local city,cam
 local state={commodity="water",havenKind="port",plant="nuclear",recipe="turbine",size="small",recentSizes={"small"},grade=1,capacity=1,invest=100,borrow=500,tab="network",scroll=0,undo={}}
 local testMode, frames = nil,0
+local walkthroughRunning=false
 
 local function toast(message,bad)
   state.toast,state.toastBad,state.toastTime=tostring(message),bad,5
@@ -72,7 +73,7 @@ local function resetSession()
   state.borrow=500
   state.invest=100
   state.rail=nil; state.transit=nil
-  state.filter=nil; state.bottlenecks=nil; state.rename=nil; state.advanced=nil
+  state.filter=nil; state.bottlenecks=nil; state.rename=nil; state.advanced=nil; state.lineOptions=nil; state.showPermits=nil
 end
 
 -- Selecting anything on the map is a question, and the sidebar is the answer.
@@ -101,40 +102,7 @@ local function slotSummaries()
 end
 
 local function action(name,...)
-  if name=="addWagon" then
-    local id,commodity=...
-    local ok,err=city:addWagon(id,commodity)
-    if not ok then toast(err,true) else A.play("upgrade") end
-    return
-  end
-  if name=="hireOrder" or name=="dismissOrder" then
-    local key=...
-    local ok,err=city[name=="hireOrder" and "hireOrder" or "dismissOrder"](city,key)
-    if not ok then toast(err,true) else A.play("upgrade") end
-    return
-  end
-  if name=="replacePipe" then
-    local id,size,grade=...
-    local ok,err=city:replacePipe(id,size,grade)
-    if not ok then toast(err,true) else A.play("upgrade"); state.edge=id end
-    return
-  end
-  if name=="teach" then city:teach((...)); return end
-  if name=="setDispatchRate" then city.dispatchRate=math.max(0,select(1,...)); return end
-  if name=="setReserve" then city.estateReserve=math.max(0,select(1,...)); return end
-  if name=="setHubFloor" then
-    local id,value=...
-    local n=city.g.nodes[id]
-    if n and n.kind=="exchange" then n.floor=math.max(0,math.floor(value)); city:refresh() end
-    return
-  end
-  if name=="setHubAuto" then
-    local id,value=...
-    local n=city.g.nodes[id]
-    if n and n.kind=="exchange" then n.autoWiden=value and true or nil end
-    return
-  end
-  if name=="fit" then if state.tab=="map" then fitWorld() else fit() end; return end
+  if name=="fit" then fit(); return end
   if name=="fitWorld" then fitWorld(); return end
   if name=="mute" then state.muted=not state.muted; A.setEnabled(not state.muted); return end
   if name=="focusNode" then
@@ -164,7 +132,6 @@ local function action(name,...)
     local id=...
     local d=city.districts[id]
     clear(); state.district=id; reveal("district")
-    fitWorld()
     return
   end
   if name=="nextLeak" then
@@ -233,7 +200,19 @@ local function action(name,...)
   end
   if city.bankrupt then return end
   local snapshot=Save.pack(city)
-  local result,err=city[name](city,...)
+  local result,err
+  if name=="setDispatchRate" or name=="setReserve" then
+    local field=name=="setReserve" and "estateReserve" or "dispatchRate"
+    city[field]=math.max(0,select(1,...)); result=true
+  elseif name=="setHubFloor" or name=="setHubAuto" then
+    local id,value=...
+    local n=city.g.nodes[id]
+    if n and n.alive and n.kind=="exchange" then
+      if name=="setHubFloor" then n.floor=math.max(0,math.floor(value))
+      else n.autoWiden=value and true or nil end
+      city:refresh(); result=true
+    else err="Select a hub first" end
+  else result,err=city[name](city,...) end
   if not result then toast(err or "Action unavailable",true); A.play("denied"); return nil end
   if name=="endDay" then
     state.undo={}; clear(); state.rename=nil; state.modal="report"; state.reportDetails=false
@@ -382,9 +361,13 @@ function love.update(dt)
     if state.toastTime<=0 then state.toast=nil; state.toastBad=nil end
   end
   state.scroll=math.max(0,math.min(state.scroll,UI.maxScroll or 0))
-  if testMode then
+  if testMode and not walkthroughRunning then
     frames=frames+1
-    if frames==3 then require("company_walkthrough").start(App,testMode) end
+    if frames==3 then
+      walkthroughRunning=true
+      require("company_walkthrough").start(App,testMode)
+      walkthroughRunning=false
+    end
     if frames>3 then require("company_walkthrough").update(App,testMode,frames) end
   end
 end
@@ -435,7 +418,7 @@ function love.mousepressed(x,y,button)
   local wx,wy=cam:toWorld(x,y)
   local d=city:districtAt(wx,wy)
   state.node,state.edge,state.link=nil,nil,nil
-  if d and not d.owned then
+  if d then
     state.district=d.id
     reveal("district")
   else
@@ -502,14 +485,14 @@ function love.keypressed(key)
   end
   if state.modal then
     if key=="escape" or key=="return" then
-      if not city.bankrupt then state.modal=nil end
+      if not city.bankrupt or state.modal=="slots" then state.modal=nil end
     end
     return
   end
   if key=="escape" then clear()
   elseif key=="return" then action("endDay")
   elseif key=="f" then fit()
-  elseif key=="t" then state.rail=(state.rail==nil) and "rail" or nil
+  elseif key=="t" and (#city.g:nodesOfKind("terminal")+#city.g:nodesOfKind("dc")>0) then state.rail=(state.rail==nil) and "rail" or nil
   elseif key=="z" then action("undo")
   elseif key=="m" then action("mute")
   elseif key=="u" and state.edge then action("upgradePipe",state.edge)

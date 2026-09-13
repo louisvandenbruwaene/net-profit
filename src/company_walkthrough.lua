@@ -88,6 +88,7 @@ local function capture(name,app,width,height,keepCamera)
     width,height=width or 1440,height or 880
     local canvas=love.graphics.newCanvas(width,height)
     R.viewportOverride={width,height}
+    if keepCamera then app.camera():setViewport(UI.width,190,width-UI.width,height-248) end
     if not keepCamera then app.action(app.state.tab=="map" and "fitWorld" or "fit") end
     love.graphics.setCanvas(canvas)
     love.draw()
@@ -245,6 +246,7 @@ function Walk.start(app,mode)
   love.keypressed("z")
   c=app.city()
   check(not c.g.nodes[offer.id].supplyClosed,"undo restores the service valve")
+  click("tab-stats")
   click("tab-ledger")
   love.draw()
 
@@ -371,18 +373,20 @@ function Walk.start(app,mode)
   -- Ground: districts are bought, and buying opens them for building.
   do
     c.money=99999
-    click("tab-map")
     local target
     for i,d in ipairs(c.districts) do
       if not d.owned and not c:districtError(i) then target=i; break end
     end
     check(target~=nil,"an adjacent district is available to buy")
     local before=#c:ownedDistricts()
+    app.action("focusDistrict",target)
     click("district-"..target)
     check(#c:ownedDistricts()==before+1,"a district can be bought")
     local d=c.districts[target]
     check(c:placementError(d.x+d.w/2,d.y+d.h/2)==nil or true,"bought ground accepts structures")
-    app.state.scroll=460
+    click("tab-finance")
+    click("company-permits")
+    scrollTo(app,"permit-park")
     click("permit-park")
     check(c.permits.park,"a permit can be granted")
     check(c:groundCross("park")==1.0,"and it drops the crossing charge on that ground")
@@ -563,6 +567,7 @@ function Walk.start(app,mode)
     love.textinput("Brightwater")
     love.keypressed("return")
     check(c.companyName=="Brightwater" and not app.state.rename,"text input saves a company name without closing the day")
+    click("tab-stats")
     click("tab-ambitions")
     click("ambition-service")
     check(c.ambition=="service","goal selection is actionable")
@@ -715,9 +720,52 @@ function Walk.start(app,mode)
     app.state.transit=nil; app.state.link=nil
   end
 
+  -- Management decisions must participate in the same undo transaction as builds.
+  do
+    local before=Save.pack(app.city())
+    local depth=#app.state.undo
+    check(app.action("setReserve",321),"reserve action reports success")
+    check(app.city().estateReserve==321 and #app.state.undo==math.min(30,depth+1),"reserve decision records undo")
+    app.action("undo")
+    check(Save.pack(app.city())==Save.pack(assert(Save.unpack(before))),"undo restores the saved company before changing reserve")
+    before=Save.pack(app.city())
+    check(app.action("teach","regression-lesson"),"lesson acknowledgement reports success")
+    app.action("undo")
+    check(Save.pack(app.city())==Save.pack(assert(Save.unpack(before))),"lesson acknowledgement follows the normal transaction path")
+    app.state.tab="network"; app.state.scroll=0
+    check(findButton("size-small")==nil,"pipe sizes stay out of the opening build panel")
+    click("line-options")
+    check(findButton("size-small")~=nil,"pipe choices remain available on demand")
+    click("line-options")
+  end
+
   click("tab-finance")
   love.window.setMode(1100,700,{resizable=true,minwidth=1100,minheight=700})
   love.resize(1100,700)
+  click("tab-finance")
+  -- All menus stay reachable in the smallest supported window.
+  click("tab-stats")
+  check(findButton("tab-map")==nil,"there is no separate map tab")
+  check(findButton("tab-ambitions")~=nil and findButton("tab-ledger")~=nil,"goals and history live inside stats")
+  click("tab-ambitions")
+  check(findButton("stats-back")~=nil,"goals have a clear way back")
+  click("stats-back")
+  click("tab-network")
+  local c=app.city()
+  local licences={}
+  for _,name in ipairs(require("graph").TRADES) do licences[name]=c.licences[name]; c.licences[name]=true end
+  love.draw()
+  for i,a in ipairs(UI.buttons) do
+    if a.y==138 then
+      for j=i+1,#UI.buttons do
+        local b=UI.buttons[j]
+        if b.y==138 then check(a.x+a.w<=b.x or b.x+b.w<=a.x,"map controls do not overlap with all trades open") end
+      end
+    end
+  end
+  for name,value in pairs(licences) do c.licences[name]=value end
+  -- False and missing licence entries both mean closed.
+  for _,name in ipairs(require("graph").TRADES) do if licences[name]==nil then c.licences[name]=nil end end
   click("tab-finance")
   capture("net-profit-test-compact",app,1100,700)
 end
@@ -1051,7 +1099,18 @@ function Walk.update(app,mode,frame)
       cam:centerOn((x0+x1)/2,(y0+y1)/2)
       capture("net-profit-23-people",app,1100,700,true)
       app.state.link=nil
-    elseif frame==42 then print("screenshots complete"); love.event.quit() end
+    elseif frame==42 then
+      app.state.tab="stats"; app.state.scroll=0
+      capture("net-profit-24-stats",app,1100,700)
+    elseif frame==43 then
+      local c=app.city()
+      app.state.tab="network"; app.state.scroll=0; app.state.node=nil; app.state.edge=nil
+      local cam=app.camera()
+      app.action("fitWorld")
+      cam.scale,cam.targetScale=0.15,0.15
+      cam.x,cam.y=c.river.x0+650,1250
+      capture("net-profit-25-river",app,1440,880,true)
+    elseif frame==44 then print("screenshots complete"); love.event.quit() end
     return
   end
   if mode=="--soak" and frame<70 then

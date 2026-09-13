@@ -120,4 +120,28 @@ do
   local old=fresh()
   check(E.companyName(old) and E.progress(old,E.ambitions[2])==0,"older saves need no new fields")
 end
+do
+  local c=fresh()
+  local diverse,efficient=E.ambitions[4],E.ambitions[5]
+  check(E.progress(c,diverse)==0,"unserved signed customers do not count as a supplied trade")
+  local customers={}
+  for i=1,20 do
+    customers[i]={id=i,commodity=({"water","power","beer","oil"})[(i-1)%4+1],demand=3}
+  end
+  local company={served={},unserved=0,money=0,ambition="efficient"}
+  function company:clientList() return customers end
+  function company:dailyRevenue() return 400 end
+  function company:dailyExpenses() return 150 end
+  function company:note() end
+  for _,n in ipairs(customers) do company.served[n.id]=3 end
+  check(E.progress(company,diverse)==4,"diversification counts distinct supplied trades")
+  check(E.progress(company,efficient)==250,"efficient growth requires net profit after upkeep")
+  company.unserved=1
+  check(E.progress(company,efficient)==0,"shortfalls block the efficient growth grant")
+  company.unserved=0
+  E.close(company,{unhappy=0,bonus=0})
+  check(company.money==2400 and company.ambitionsDone.efficient,"efficient growth pays its grant on day close")
+  E.close(company,{unhappy=0,bonus=0})
+  check(company.money==2400,"the growth grant is awarded only once")
+end
 print(checks.." experience checks passed")

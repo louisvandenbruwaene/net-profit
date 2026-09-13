@@ -27,10 +27,25 @@ function E.useSize(state,key)
   end
   state.recentSizes=recent
 end
+function E.recipeSummary(r)
+  local G=require("graph")
+  local needs,materials={},{}
+  local function name(key) return key=="power" and "electricity" or key end
+  for _,key in ipairs(G.ALL) do
+    if r.inputs[key] then needs[#needs+1]=(r.inputs[key]*r.rate).." "..name(key) end
+    if (r.materials or {})[key] then materials[#materials+1]=r.materials[key].." "..name(key) end
+  end
+  return (#needs>0 and ("Requires "..table.concat(needs,", ").." per day. ") or "No supply needed. ")
+    .."Produces "..r.rate.." "..name(r.makes).." per day. Costs $"..r.upkeep.." per day."
+    ..(#materials>0 and (" Build with "..table.concat(materials,", ")..".") or "")
+    ..(r.coastal and " Build on the coast." or "")
+end
 E.ambitions = {
   {id="districts", name="A city connected", target=12, description="Hold twelve districts at once.", reward=1200},
   {id="service", name="A company people trust", target=7, description="Supply every signed customer for seven consecutive closes.", reward=350},
   {id="customers", name="The next metropolis", target=50, description="Fully supply fifty customers at a close.", reward=1500},
+  {id="diversified", name="Everyday essentials", target=4, description="Fully supply customers in four trades at once.", reward=1800},
+  {id="efficient", name="Built to last", target=250, description="Earn $250 net/day with 20+ customers and no shortfalls.", reward=2400},
 }
 -- The authored twelve have a story each. Generated ground tells its own, out of
 -- the character the survey found there, so every district has something to say
@@ -74,6 +89,19 @@ end
 function E.progress(c,a)
   if a.id=="districts" then return #c:ownedDistricts() end
   if a.id=="service" then return c.serviceStreak or 0 end
+  if a.id=="diversified" then
+    local trades,count={},0
+    for _,n in ipairs(c:clientList()) do
+      if (c.served[n.id] or 0)>=n.demand and not trades[n.commodity] then
+        trades[n.commodity]=true; count=count+1
+      end
+    end
+    return count
+  end
+  if a.id=="efficient" then
+    if #c:clientList()<20 or c.unserved>0 then return 0 end
+    return math.max(0,c:dailyRevenue()-c:dailyExpenses())
+  end
   return #c:clientList()-c.unserved
 end
 function E.close(c,report)
@@ -168,7 +196,7 @@ function E.pipePreview(c,a,b,trade,capacity,rail,grade)
   end)
 end
 function E.offerPreview(c,id)
-  return memo(c,"offer:"..id,function()
+  return memo(c,"offer:"..id..":"..c.money,function()
     local copy=assert(Save.unpack(Save.pack(c)))
     local n=assert(copy:acceptClient(id))
     local net=copy:dailyRevenue()-copy:dailyExpenses()-(c:dailyRevenue()-c:dailyExpenses())
