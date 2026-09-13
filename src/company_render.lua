@@ -825,8 +825,10 @@ function Draw.world(city, cam, state)
         label(err,(x+mx)/2,(y+my)/2-24,P.bad)
       else
         -- The quote, itemised, right where the pipe is being drawn.
-        local q = city:pipeQuote(from.id,target,state.commodity,state.capacity,state.rail)
-        local p=E.pipePreview(city,from.id,target,state.commodity,state.capacity,state.rail)
+        local want = state.rail and state.capacity or (state.size or "small")
+        local grade = math.min(city.lining or 1, state.grade or 1)
+        local q = city:pipeQuote(from.id,target,state.commodity,want,state.rail,grade)
+        local p=E.pipePreview(city,from.id,target,state.commodity,want,state.rail,grade)
         if not p.error then
           local unsigned=city.g.nodes[target].prospect
           local note=unsigned and "Unsigned offer: sign before earning income."
@@ -840,8 +842,11 @@ function Draw.world(city, cam, state)
           lg.setFont(R.fonts.mid); lg.setColor(P.energy)
           lg.print("Build for $"..q.total,qx+14,qy+10)
           lg.setFont(R.fonts.small); lg.setColor(P.textDim)
-          lg.print(string.format("%dm  /  %s $%d  /  %s $%d  /  bore $%d",math.floor(q.metres),
-            state.rail and "yards" or "tie-in",q.tiein,state.rail and "track" or "trench",q.trench,q.bore),qx+14,qy+38)
+          lg.print(string.format("%dm  /  %s  /  %s $%d  /  %s $%d  /  lining $%d",math.floor(q.metres),
+            state.rail and (q.capacity.." wagons") or
+              (string.lower(City.sizeOf(q.size).name).." main, carries "..q.capacity),
+            state.rail and "yards" or "tie-in",q.tiein,
+            state.rail and "track" or "trench",q.trench,q.bore),qx+14,qy+38)
           local detail=string.format("Net change $%+d/day",p.net)
           if p.demand then detail=p.delivery.."/"..p.demand.." supplied  /  "..detail end
           lg.setFont(R.fonts.body); lg.setColor(P.good); lg.print(detail,qx+14,qy+61)

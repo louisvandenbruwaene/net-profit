@@ -14,7 +14,7 @@ City.__index = City
 -- their price does not depend on what flows through them.
 City.price = {
   junction = 22, manifold = 46, pump = 38, tower = 92, gate = 30, depot = 190,
-  exchange = 700, dc = 1500,
+  exchange = 500, dc = 1500,
   terminal = 2200,
   powerLicence = 340, beerLicence = 600, oilLicence = 1500, foodLicence = 900,
   qualityBase = 140,
@@ -307,6 +307,7 @@ City.GOODS = {
   sand   = { importCost = 0.6,  wholesale = 7,  wholesalePerUnit = 0.22, sourceUpkeep = 7,
              sourceBase = 600,  sourceGrowth = 1.28, sourceOutput = 12, upgradeBase = 220,
              upgradeGrowth = 1.4, upgradeStep = 3 },
+  salt   = { importCost = 1.3 },
   coke   = { importCost = 2.4 },
   malt   = { importCost = 2.2 },
   cement = { importCost = 1.7 },
@@ -337,14 +338,61 @@ end
 -- less often, a cheaper repair when it does, and a player who spends the day
 -- building instead of chasing burst mains. On a short water stub that is a poor
 -- trade. On a 600m oil trunk it pays for itself in about a fortnight.
+--------------------------------------------------------------------------------
+-- Pipe
+--
+-- A main is a thing that was put in the ground once. It comes in three sizes
+-- and nothing widens it: if the small main you laid three years ago is too
+-- small now, it comes out and a bigger one goes in, which is exactly what
+-- happens in a real street.
+--
+-- The lining is decided the same way. Whatever the company knew how to lay on
+-- the day the main went in is what that main has forever, so the old cheap
+-- pipes at the centre of the network stay the weakest thing you own until
+-- somebody digs them up. That is the whole reason to go back and replace
+-- perfectly working mains.
+--------------------------------------------------------------------------------
+City.PIPE_SIZES = {
+  { key = "small",  name = "SMALL",  cap = 5,  tiein = 1.0, trench = 1.0 },
+  { key = "medium", name = "MEDIUM", cap = 10, tiein = 1.6, trench = 1.7 },
+  { key = "large",  name = "LARGE",  cap = 20, tiein = 2.6, trench = 2.9 },
+}
+
+-- Callers may name a size or say how much they need carried. Saying how much
+-- gets the smallest main that does it, which is what a contractor would sell
+-- you and what every older caller in the game meant anyway.
+function City.asSize(size)
+  if type(size) == "number" then return (City.sizeFor(size)) end
+  return (City.sizeOf(size))
+end
+
+function City.sizeOf(key)
+  for i, spec in ipairs(City.PIPE_SIZES) do
+    if spec.key == key then return spec, i end
+  end
+  return City.PIPE_SIZES[1], 1
+end
+
+-- The smallest size that would carry this much, for migrating old mains and for
+-- the departments deciding what to replace a full one with.
+function City.sizeFor(capacity)
+  for i, spec in ipairs(City.PIPE_SIZES) do
+    if spec.cap >= capacity then return spec, i end
+  end
+  return City.PIPE_SIZES[#City.PIPE_SIZES], #City.PIPE_SIZES
+end
+
+-- What the company knows how to lay. Each level is bought once and then costs
+-- more every time it is used, and the top one is a main that practically never
+-- fails and practically never pays for itself in money alone.
 City.GRADES = {
-  { name = "Bare",     risk = 1.00, repair = 1.00, decay = 1 },
-  { name = "Lined",    risk = 0.45, repair = 0.70, decay = 1 },
-  -- Armour is the luxury grade. Its money payback is slow by design; what it
-  -- actually buys is a main that almost never fails and, when it does, bleeds
-  -- capacity at half speed -- so it is bought for peace of mind on the trunk
-  -- routes a whole district hangs off, not to save a few dollars a week.
-  { name = "Armoured", risk = 0.12, repair = 0.45, decay = 2 },
+  { name = "Bare",     risk = 1.00, repair = 1.00, decay = 1, cost = 1.00, price = 0 },
+  { name = "Lined",    risk = 0.45, repair = 0.70, decay = 1, cost = 1.35, price = 900 },
+  { name = "Armoured", risk = 0.12, repair = 0.45, decay = 2, cost = 1.95, price = 3200 },
+  -- Sealed pipe is the end of the maintenance game. It is priced as such: the
+  -- licence to lay it costs more than most of the network, and every metre of
+  -- it costs three times bare pipe.
+  { name = "Sealed",   risk = 0.02, repair = 0.30, decay = 3, cost = 3.20, price = 11000 },
 }
 
 City.rules = {
@@ -365,7 +413,7 @@ City.rules = {
   investSd = 0.05,
   sourceIncome = 12,        -- wholesale, per well per day
   repLoss = 8,
-  startMoney = 380,   -- two connections and a little room; prices are per-trade now
+  startMoney = 460,   -- a well, a main to the first house, and a little room
 }
 
 -- Customers. Rich ones pay far more and forgive far less, which is the whole
@@ -426,6 +474,7 @@ function City.new(opts)
   self.money = City.rules.startMoney
   self.reputation = 50
   self.quality = 0
+  self.lining = 1
   self.adDaysLeft = 0
   self.investments = {}
   self.obstacles = {}
@@ -454,19 +503,27 @@ function City.new(opts)
 
   self:layOutDistricts(opts)
 
+  -- The opening is a job rather than a company: a spring the survey has marked
+  -- in the middle of your ground, one household that has asked to be connected,
+  -- and just enough money to sink the well and lay the main. Everything the
+  -- player will do for the rest of the game, they do once here first.
   local home = self.districts[City.MAP.start]
   local cx, cy = home.x + home.w / 2, home.y + home.h / 2
-  local src = self.g:addNode(cx, cy, "source")
-  src.commodity = "water"
-  src.output = City.trade.water.sourceOutput
-  src.level = 1
-  self.firstSource = src
-
-  for i = 1, 2 do
-    local c = self:addClient("house")
-    c.x, c.y = cx + (i == 1 and -210 or 220), cy + (i == 1 and -70 or 65)
-    c.demand = 3
-  end
+  self.deposits[#self.deposits + 1] = {
+    x = cx - 150, y = cy - 20, commodity = "water", taken = false,
+    yield = 1.5, discount = 1.0, cap = City.depositCap("water", 0),
+    -- Marked, so the opening can point at this one rather than at whichever
+    -- spring the survey happened to scatter nearby.
+    opening = true,
+  }
+  local first = self:addClient("house", true)
+  -- Close enough to the spring that one main reaches it. The opening is three
+  -- actions, and "you also need a junction halfway" is not one of them.
+  first.x, first.y = cx + 110, cy + 45
+  first.demand, first.rate = 3, City.CLIENTS.house.rate
+  -- Nothing else is standing yet, so the map anchors on the household until
+  -- there is a well to anchor on.
+  self.firstSource = first
 
   self:refresh()
   return self
@@ -1158,59 +1215,47 @@ end
 
 -- The itemised quote. The UI shows this line by line, because a price the
 -- player cannot decompose is a price they cannot plan around.
-function City:pipeQuote(a, b, commodity, capacity, rail)
-  if rail then return self:railQuote(a, b, capacity) end
-  capacity = capacity or 1
+-- A quote for one main: two tie-ins, a trench, and what the lining adds to
+-- both. `size` is a size key and `grade` is a lining level.
+function City:pipeQuote(a, b, commodity, size, rail, grade)
+  if rail then return self:railQuote(a, b, size) end
+  local spec = City.asSize(size)
+  local lining = City.GRADES[grade or 1] or City.GRADES[1]
   local trade = City.trade[commodity] or City.trade.water
   local na, nb = self.g.nodes[a], self.g.nodes[b]
   local metres = self:nodeDistance(a, b)
   local mult = self:crossingCost(na.x, na.y, nb.x, nb.y) or 1
-  local tiein = self:tieinCost(a, commodity) + self:tieinCost(b, commodity)
-  local trench = metres * trade.trench * mult
-  local extra = math.max(0, capacity - 1)
-  -- Fittings are charged per unit of capacity at both ends, because a valve is
-  -- a valve. The pipe in the ground is not: a main twice as wide is nothing
-  -- like twice as dear to lay, so the per metre charge follows the square root
-  -- of capacity rather than capacity itself.
-  --
-  -- This is the number that decides how the game is played. Under a linear
-  -- charge a fat trunk was the most expensive thing on the map and running a
-  -- separate stub to every house was the cheap answer, which is backwards: one
-  -- big main into a hub and short spurs out of it is the design that should
-  -- win, and past half a dozen customers it now does.
-  local bore = extra * trade.bore
-    + metres * trade.borePerM * mult * (math.sqrt(capacity) - 1) * City.rules.boreScale
+  local tiein = (self:tieinCost(a, commodity) + self:tieinCost(b, commodity)) * spec.tiein
+  local trench = metres * trade.trench * mult * spec.trench
+  local bore = (tiein + trench) * (lining.cost - 1)
   local q = {
-    metres = metres, ground = mult, capacity = capacity, commodity = commodity,
+    metres = metres, ground = mult, commodity = commodity,
+    size = spec.key, capacity = spec.cap, grade = grade or 1,
     tiein = math.ceil(tiein), trench = math.ceil(trench), bore = math.ceil(bore),
   }
   q.total = q.tiein + q.trench + q.bore
   return q
 end
 
-function City:pipeCost(a, b, commodity, capacity, rail)
-  return self:pipeQuote(a, b, commodity, capacity, rail).total
+
+function City:pipeCost(a, b, commodity, size, rail, grade)
+  return self:pipeQuote(a, b, commodity, size, rail, grade).total
 end
 
 -- One more unit through an existing trench: fittings at both ends plus the
 -- wider bore over its whole length. Widening a long oil trunk is a real
 -- decision; widening a stub is loose change.
-function City:boreCost(e, units)
-  units = units or 1
-  if e.rail then
-    return math.ceil(units * (City.rail.bore + self:pipeLength(e) * City.rail.borePerM))
+-- What it costs to put a bigger main where this one is. Nothing widens, so
+-- this is the price of the replacement, less what the old pipe is worth as
+-- scrap.
+function City:boreCost(e, _)
+  if e.bulk then
+    return math.ceil(City.MODES[e.bulk].perWagon * (1 + (e.wagonCount or 1) * 0.1))
   end
-  local trade = City.trade[e.commodity] or City.trade.water
-  local na, nb = self.g.nodes[e.a], self.g.nodes[e.b]
-  local metres = self:pipeLength(e)
-  local mult = self:crossingCost(na.x, na.y, nb.x, nb.y) or 1
-  -- Widening is quoted as the difference between the two pipes, so the same
-  -- economies of scale apply: the tenth unit of bore costs less in the ground
-  -- than the second did.
-  local from, to = e.capMax or e.cap, (e.capMax or e.cap) + units
-  local along = metres * trade.borePerM * mult * City.rules.boreScale
-    * (math.sqrt(to) - math.sqrt(from))
-  return math.ceil(units * trade.bore + along)
+  local bigger = self:biggerSize(e)
+  if not bigger then return nil end
+  local q = self:replaceQuote(e.id, bigger, e.grade)
+  return q and q.net or nil
 end
 
 function City:gradeOf(e) return City.GRADES[e.grade or 1] or City.GRADES[1] end
@@ -1224,18 +1269,6 @@ function City:repairCost(e)
     + trade.repairPerLost * math.max(1, lost)
     + self:pipeLength(e) * trade.repairPerM
   return math.ceil(raw * self:gradeOf(e).repair)
-end
-
--- Lining is priced off the route it protects, so the pipes worth lining are
--- exactly the long, wide, expensive ones that hurt most when they burst.
-function City:liningCost(e)
-  local grade = e.grade or 1
-  if e.rail then return nil end
-  if grade >= #City.GRADES then return nil end
-  local trade = City.trade[e.commodity] or City.trade.water
-  local route = self:pipeQuote(e.a, e.b, e.commodity, e.capMax or e.cap)
-  local rate = (grade == 1) and trade.liningRate or trade.armourRate
-  return math.ceil(math.max(18, (route.trench + route.bore) * rate + trade.tiein))
 end
 
 -- Daily running cost of one pipe: a long pressurised oil main is not the same
@@ -1274,58 +1307,42 @@ end
 -- would thank anyone for.
 --------------------------------------------------------------------------------
 City.RECIPES = {
-  -- The way into a trade. Water and one building, and nothing else: a company
-  -- that has just bought a licence can be selling the thing that afternoon.
+  -- Electricity is the first thing a company can make for itself, and the only
+  -- one that needs nothing but water. Everything else on this list needs
+  -- electricity, which is why it comes first and why a turbine hall is cheap.
   turbine    = { name = "TURBINE HALL",   makes = "power",  rate = 8,  cost = 800,  upkeep = 14,
-                 base = { water = 2 }, boosts = {},
-                 materials = {},
-                 blurb = "Water in, electricity out. The cheap way into the power trade, and it needs nothing you do not already have." },
-  brewery    = { name = "BREWERY",        makes = "beer",   rate = 5,  cost = 1000, upkeep = 14,
-                 base = { water = 2 },
-                 boosts = { malt = { per = 1, rate = 7 }, power = { per = 1, rate = 6 } },
-                 materials = {},
-                 blurb = "Water alone makes a small beer. Malt and power make it a business." },
-  foodworks  = { name = "FOODWORKS",      makes = "food",   rate = 5,  cost = 950, upkeep = 12,
-                 base = { water = 1 },
-                 boosts = { wheat = { per = 2, rate = 7 }, power = { per = 1, rate = 5 } },
-                 materials = {},
-                 blurb = "Bread and water to begin with. Wheat and power to feed a city." },
+                 inputs = { water = 2 }, materials = {},
+                 blurb = "Water in, electricity out. The one works that needs nothing you do not already have." },
 
-  -- Everything past the first building: more output for more of a chain.
+  -- Everything else needs a chain, and the chain is the game. A works with an
+  -- input missing makes nothing at all: there is no half recipe and no way to
+  -- fake the thing it is short of.
   maltings   = { name = "MALTINGS",       makes = "malt",   rate = 10, cost = 1400, upkeep = 14,
-                 base = { wheat = 1, water = 1 },
-                 boosts = { power = { per = 1, rate = 6 } },
-                 materials = { steel = 20 },
-                 blurb = "Turns a field of wheat into what a brewery actually wants." },
+                 inputs = { wheat = 1, water = 1, power = 1 }, materials = { steel = 20 },
+                 blurb = "Wheat, water and power become what a brewery actually wants." },
+  brewery    = { name = "BREWERY",        makes = "beer",   rate = 10, cost = 1800, upkeep = 20,
+                 inputs = { malt = 1, water = 2, power = 1 }, materials = { steel = 20 },
+                 blurb = "Malt, water and power. Beer is the end of the longest chain in the game and it pays like it." },
+  foodworks  = { name = "FOODWORKS",      makes = "food",   rate = 10, cost = 1300, upkeep = 16,
+                 inputs = { wheat = 1, salt = 1, water = 1, power = 1 }, materials = {},
+                 blurb = "Wheat, salt, water and power. Nobody mines salt here, so a haven is part of the recipe." },
   refinery   = { name = "REFINERY",       makes = "diesel", rate = 6,  cost = 2200, upkeep = 22,
-                 base = { oil = 2 },
-                 boosts = { power = { per = 1, rate = 6 } },
-                 materials = { steel = 30, concrete = 20 },
+                 inputs = { oil = 2, power = 1 }, materials = { steel = 30, concrete = 20 },
                  blurb = "Your own crude becomes your own fuel, and the haulage bill drops." },
   sawmill    = { name = "SAWMILL",        makes = "planks", rate = 6,  cost = 1600, upkeep = 16,
-                 base = { timber = 2 },
-                 boosts = { power = { per = 1, rate = 6 } },
-                 materials = { steel = 20 },
+                 inputs = { timber = 2, power = 1 }, materials = { steel = 20 },
                  blurb = "Parkland becomes timber becomes planks." },
   steelworks = { name = "STEELWORKS",     makes = "steel",  rate = 4,  cost = 3600, upkeep = 38,
-                 base = { ore = 2, coke = 1 },
-                 boosts = { power = { per = 3, rate = 6 } },
-                 materials = { steel = 60, concrete = 40 },
+                 inputs = { ore = 2, coke = 1, power = 3 }, materials = { steel = 60, concrete = 40 },
                  blurb = "Ore from the frontier and coke off a ship. Everything the company builds is made of this." },
   glassworks = { name = "GLASSWORKS",     makes = "glass",  rate = 4,  cost = 2200, upkeep = 20,
-                 base = { sand = 2 },
-                 boosts = { power = { per = 2, rate = 6 } },
-                 materials = { steel = 30, concrete = 20 },
+                 inputs = { sand = 2, power = 2 }, materials = { steel = 30, concrete = 20 },
                  blurb = "Coastal sand, and a furnace." },
   cementworks= { name = "CEMENT WORKS",   makes = "cement", rate = 5,  cost = 2400, upkeep = 22,
-                 base = { rock = 2 },
-                 boosts = { power = { per = 2, rate = 6 } },
-                 materials = { steel = 30, concrete = 20 },
+                 inputs = { rock = 2, power = 2 }, materials = { steel = 30, concrete = 20 },
                  blurb = "Bedrock stops being a wall and becomes the other half of concrete." },
   concrete   = { name = "CONCRETE PLANT", makes = "concrete", rate = 6, cost = 1900, upkeep = 18,
-                 base = { cement = 1, sand = 2 },
-                 boosts = { water = { per = 1, rate = 6 } },
-                 materials = { steel = 20 },
+                 inputs = { cement = 1, sand = 2, water = 1 }, materials = { steel = 20 },
                  blurb = "Cement, sand and water. Half of every big building on the map." },
 }
 
@@ -1358,10 +1375,7 @@ local function solveOrder()
     local recipe = City.RECIPES[City.MADE_BY[key] or ""]
     local best = 0
     if recipe then
-      for input in pairs(recipe.base) do
-        best = math.max(best, levelOf(input, seen) + 1)
-      end
-      for input in pairs(recipe.boosts or {}) do
+      for input in pairs(recipe.inputs) do
         best = math.max(best, levelOf(input, seen) + 1)
       end
     end
@@ -1386,46 +1400,26 @@ City.SOLVE_ORDER, City.SOLVE_LEVEL = solveOrder()
 -- What a works can put out today: whichever input ran shortest decides, and
 -- nothing exceeds the rated output. A works with no power makes nothing at all,
 -- which is the whole reason a power station matters.
--- The most a works could ever make: its base rate plus everything the boosts
--- would add if all of them were fully supplied.
-function City.worksCeiling(recipe)
-  local ceiling = recipe.rate
-  for _, boost in pairs(recipe.boosts or {}) do ceiling = ceiling + boost.rate end
-  return ceiling
-end
-
--- What a works can put out today.
---
--- The base inputs are consumed per unit of whatever it actually makes, and they
--- are the hard limit: no water, no beer. The boosts do not gate anything, they
--- raise the ceiling, each by as much of itself as turned up. A brewery with
--- water alone is a small brewery and a brewery with water, malt and power is
--- three times the business, which is the whole shape of the game: unlocking a
--- trade needs one building, and the chain behind it is the reward rather than
--- the entry fee.
+-- What a works can put out today: whichever input ran shortest decides, and
+-- nothing exceeds the rated output. There is no partial recipe. A brewery with
+-- no malt makes no beer at all, which is what makes the chain behind it worth
+-- building rather than an optimisation to get round to.
 function City:worksOutput(n)
   local recipe = City.RECIPES[n.recipe or ""]
   if not recipe then return 0 end
   local got = (self.detail.works or {})[n.id] or {}
-  local ceiling = recipe.rate
-  for key, boost in pairs(recipe.boosts or {}) do
-    ceiling = ceiling + math.min(boost.rate, math.floor((got[key] or 0) / boost.per))
+  local best = recipe.rate
+  for key, per in pairs(recipe.inputs) do
+    best = math.min(best, math.floor((got[key] or 0) / per))
   end
-  local limit = ceiling
-  for key, per in pairs(recipe.base) do
-    limit = math.min(limit, math.floor((got[key] or 0) / per))
-  end
-  return math.max(0, limit)
+  return math.max(0, best)
 end
 
 function City:worksWants(n)
   local recipe = City.RECIPES[n.recipe or ""]
   if not recipe then return {} end
-  local wants, ceiling = {}, City.worksCeiling(recipe)
-  for key, per in pairs(recipe.base) do wants[key] = per * ceiling end
-  for key, boost in pairs(recipe.boosts or {}) do
-    wants[key] = (wants[key] or 0) + boost.per * boost.rate
-  end
+  local wants = {}
+  for key, per in pairs(recipe.inputs) do wants[key] = per * recipe.rate end
   return wants
 end
 
@@ -1543,7 +1537,14 @@ function City:upgradeSource(id)
   return n
 end
 
-function City:qualityCost() return City.price.qualityBase * (self.quality + 1) end
+-- What the next lining level costs to acquire. It is bought once and then paid
+-- for again in every metre laid with it.
+function City:liningPrice()
+  local nextGrade = City.GRADES[(self.lining or 1) + 1]
+  return nextGrade and nextGrade.price or nil
+end
+
+function City:qualityCost() return self:liningPrice() or 0 end
 
 function City:spend(amount)
   if amount > self.money then return false end
@@ -1580,7 +1581,7 @@ City.BUILDABLE = { junction = true, manifold = true, pump = true, tower = true,
 -- everybody who moves in afterwards is free.
 City.hub = {
   radius = 700,          -- how far the last mile reaches
-  connect = 20,          -- one off, per customer picked up
+  connect = 12,          -- one off, per customer picked up
   perClient = 0.35,      -- per customer per day, whatever they take
   upkeep = 6,            -- the hub itself, per day
   floorStep = 1,         -- the rate floor moves in whole dollars
@@ -1857,24 +1858,25 @@ function City:setGate(id, value)
   return n
 end
 
-function City:layPipe(a, b, commodity, capacity, rail)
-  capacity = capacity or 1
-  if type(capacity) ~= "number" or capacity % 1 ~= 0 or capacity < 1 or capacity > 24 then
-    return nil, "capacity must be between 1 and 24"
-  end
+function City:layPipe(a, b, commodity, size, rail, grade)
+  local mode = City.modeOf(rail)
+  local wagons = mode and math.max(1, math.min(8, math.floor(tonumber(size) or 1))) or nil
+  grade = math.max(1, math.min(self.lining or 1, grade or self.lining or 1))
   local err = self:pipeError(a, b, commodity, rail)
   if err then return nil, err end
-  local cost = self:pipeCost(a, b, commodity, capacity, rail)
+  local cost = self:pipeCost(a, b, commodity, wagons or size, rail, grade)
   if cost > self.money then return nil, "not enough cash" end
   -- A bulk line is built out of steel by the kilometre. Mains are not: a water
   -- main is a trench and a pipe, and the game has always priced it that way.
-  local mode = City.modeOf(rail)
   local bill = mode and self:materialsFor("bulk", mode) or {}
   local scale = self:nodeDistance(a, b) / 1000
   local short = self:materialError(bill, scale)
   if short then return nil, short end
   self:spend(cost)
   self:spendMaterials(bill, scale)
+
+  local spec = not mode and City.asSize(size) or nil
+  local capacity = spec and spec.cap or 1
   local e = self.g:addEdge(a, b, capacity)
   -- canLink refuses a duplicate, so a second commodity needs the raw insert.
   if not e then
@@ -1886,22 +1888,85 @@ function City:layPipe(a, b, commodity, capacity, rail)
   e.commodity = commodity
   e.capMax = capacity
   e.paid = cost
-  e.grade = 1
   e.leaking = false
-  local mode = City.modeOf(rail)
+  -- The lining is decided here and never again. Whatever the company could lay
+  -- on the day this main went in is what it has for the rest of its life.
+  e.grade = grade
+  if spec then e.size = spec.key end
   if mode then
     -- A bulk line is bought by the wagon, and the first wagon carries whatever
-    -- the player was holding when they drew it. `capacity` is wagons here, not
-    -- bore, and the line's capacity is what those wagons can hold.
-    local spec = City.MODES[mode]
-    e.bulk, e.rail = mode, true
-    e.wagons = { [commodity] = capacity * spec.wagonCap }
-    e.wagonCount = capacity
-    e.cap = capacity * spec.wagonCap
+    -- the player was holding when they drew it.
+    local modeSpec = City.MODES[mode]
+    e.bulk, e.rail, e.size = mode, true, nil
+    e.wagons = { [commodity] = wagons * modeSpec.wagonCap }
+    e.wagonCount = wagons
+    e.cap = wagons * modeSpec.wagonCap
     e.capMax = e.cap
+    e.grade = 1
   end
   self:refresh()
   return e
+end
+
+--------------------------------------------------------------------------------
+-- Replacing a main
+--
+-- Nothing widens. A main that is too small comes out of the ground and a bigger
+-- one goes in, and the same is true of a main that was laid before the company
+-- knew how to line properly. What comes back is scrap value on the old pipe,
+-- which is a fraction of what it cost, so laying the right main first time is
+-- worth real money and going back to fix an old mistake is a decision.
+--------------------------------------------------------------------------------
+City.salvage = 0.3
+
+function City:replaceQuote(id, size, grade)
+  local e = self.g.edges[id]
+  if not (e and e.alive) then return nil end
+  if e.bulk then return nil end
+  grade = math.max(1, math.min(self.lining or 1, grade or e.grade or 1))
+  local q = self:pipeQuote(e.a, e.b, e.commodity, size or e.size or (e.capMax or e.cap), false, grade)
+  q.salvage = math.floor((e.paid or 0) * City.salvage)
+  q.net = math.max(0, q.total - q.salvage)
+  return q
+end
+
+function City:replaceError(id, size, grade)
+  local e = self.g.edges[id]
+  if not (e and e.alive) then return "no such main" end
+  if e.bulk then return "a freight line is fitted with wagons, not replaced" end
+  local spec = City.asSize(size or e.size)
+  grade = math.max(1, math.min(self.lining or 1, grade or e.grade or 1))
+  if spec.key == (e.size or "") and grade == (e.grade or 1) then
+    return "that is what is already in the ground"
+  end
+  local q = self:replaceQuote(id, size, grade)
+  if q.net > self.money then return "not enough cash" end
+  return nil
+end
+
+function City:replacePipe(id, size, grade)
+  local err = self:replaceError(id, size, grade)
+  if err then return nil, err end
+  local e = self.g.edges[id]
+  local spec = City.asSize(size or e.size)
+  grade = math.max(1, math.min(self.lining or 1, grade or e.grade or 1))
+  local q = self:replaceQuote(id, spec.key, grade)
+  self:spend(q.net)
+  e.size, e.grade = spec.key, grade
+  e.cap, e.capMax = spec.cap, spec.cap
+  e.paid = q.total
+  e.leaking, e.burstReported, e.decayTick, e.fullFor = false, nil, nil, 0
+  self:note("A %s main was dug out and replaced with %s %s pipe for $%d",
+    e.commodity, string.lower(spec.name), string.lower(City.GRADES[grade].name), q.net)
+  self:refresh()
+  return e
+end
+
+-- The next size up, for the departments and for the hub feeds.
+function City:biggerSize(e)
+  local _, index = City.sizeOf(e.size or City.sizeFor(e.capMax or e.cap).key)
+  local nextSpec = City.PIPE_SIZES[index + 1]
+  return nextSpec and nextSpec.key or nil
 end
 
 -- Wagons, holds and aircraft. A bulk line carries as many commodities as it has
@@ -2016,19 +2081,6 @@ function City:repairPipe(id)
   return cost
 end
 
-function City:reinforcePipe(id)
-  local e = self.g.edges[id]
-  if not (e and e.alive) then return nil, "no such pipe" end
-  local cost = self:liningCost(e)
-  if not cost then return nil, "already armoured" end
-  if cost > self.money then return nil, "not enough cash" end
-  self:spend(cost)
-  e.grade = (e.grade or 1) + 1
-  e.paid = (e.paid or 0) + cost
-  self:note("A %s main was %s for $%d", e.commodity,
-    string.lower(City.GRADES[e.grade].name), cost)
-  return e
-end
 
 function City:demolishPipe(id)
   local e = self.g.edges[id]
@@ -2396,13 +2448,18 @@ function City:buyLicence(commodity)
   return true
 end
 
+-- Buying the ability to lay better pipe. It changes nothing that is already in
+-- the ground, which is the point: the old cheap mains at the centre of the
+-- network stay the weakest thing the company owns until somebody digs them up.
 function City:upgradeQuality()
-  if self.quality >= 5 then return nil, "already at the top grade" end
-  local cost = self:qualityCost()
+  local cost = self:liningPrice()
+  if not cost then return nil, "sealed pipe is the best there is" end
   if cost > self.money then return nil, "not enough cash" end
   self:spend(cost)
-  self.quality = self.quality + 1
-  self:note("Treatment upgraded to grade %d: pipes will foul more slowly", self.quality)
+  self.lining = (self.lining or 1) + 1
+  self.quality = self.lining - 1
+  self:note("The company can now lay %s pipe. Mains already in the ground are unchanged.",
+    string.lower(City.GRADES[self.lining].name))
   return true
 end
 
@@ -2481,7 +2538,13 @@ function City:addClient(kind, prospect, district)
   for _, n in ipairs(self.g:nodesOfKind("source")) do
     if n.commodity == spec.commodity then sources[#sources + 1] = n end
   end
+  -- On the very first day there is nothing standing at all, so the anchor is
+  -- the middle of the home district.
   local anchor = #sources > 0 and sources[self:random(#sources)] or self.firstSource
+  if not anchor then
+    local home = self.districts[City.MAP.start]
+    anchor = { x = home.x + home.w / 2, y = home.y + home.h / 2 }
+  end
   if district and not (anchor.x >= district.x and anchor.x < district.x + district.w
       and anchor.y >= district.y and anchor.y < district.y + district.h) then
     -- A customer in a newly bought district anchors on that district instead,
@@ -2937,25 +3000,24 @@ function City:leakChance(e)
       break
     end
   end
-  return City.rules.leakBase * q * g
+  return City.rules.leakBase * g
 end
 
--- What lining saves per day, in money: the repair it avoids, weighted by how
--- often it would have happened. The inspector prints this so the investment can
--- be judged rather than guessed at.
-function City:liningPayback(e)
-  local grade = e.grade or 1
-  if grade >= #City.GRADES then return nil end
-  local here = City.GRADES[grade]
-  local next_ = City.GRADES[grade + 1]
+-- What replacing this main with a better lined one would save per day: the
+-- repairs it avoids, weighted by how often they would have happened. The
+-- inspector prints it beside the price of the work, so digging up a working
+-- main is a decision with a number on it rather than a hunch.
+function City:liningPayback(e, grade)
+  local here = City.GRADES[e.grade or 1]
+  local target = City.GRADES[grade or ((e.grade or 1) + 1)]
+  if not target or target == here then return nil end
   local trade = City.trade[e.commodity] or City.trade.water
   local base = trade.repairBase + trade.repairPerLost * 2 + self:pipeLength(e) * trade.repairPerM
   local risk = self:leakChance(e) / here.risk
-  -- A leak also costs capacity every day until it is noticed and fixed.
-  local perDay = risk * (here.risk * base * here.repair - next_.risk * base * next_.repair)
-  local cost = self:liningCost(e)
+  local perDay = risk * (here.risk * base * here.repair - target.risk * base * target.repair)
   if perDay <= 0 then return nil end
-  return perDay, math.ceil(cost / perDay)
+  local q = self:replaceQuote(e.id, e.size, grade or ((e.grade or 1) + 1))
+  return perDay, q and math.ceil(q.net / perDay) or nil
 end
 
 --------------------------------------------------------------------------------
@@ -3299,6 +3361,20 @@ function City:migrate()
         (City.HAVENS[n.haven] or City.HAVENS.port).name)
     end
   end
+  -- Mains used to be any width between one and twenty four, and lining could be
+  -- added to one already in the ground. Each of them becomes the size it would
+  -- be sold as today, rounded up so nothing on the map carries less than it did
+  -- yesterday, and the lining it already has is the lining it keeps.
+  self.lining = self.lining or math.max(1, math.min(#City.GRADES, 1 + (self.quality or 0)))
+  for _, e in ipairs(self.g.edges or {}) do
+    if not e.bulk and not e.size then
+      local spec = City.sizeFor(e.capMax or e.cap or 1)
+      e.size = spec.key
+      e.capMax = math.max(e.capMax or e.cap or 1, spec.cap)
+      e.cap = math.min(e.cap or e.capMax, e.capMax)
+    end
+  end
+
   -- Track was the only bulk line there was, and it carried one commodity in
   -- whatever bore it was built to. It becomes a railway with a wagon big enough
   -- for exactly what it was already carrying, so nothing on the map moves less
@@ -3503,11 +3579,64 @@ end
 -- Trades arrive one at a time, in the order a company would actually take them
 -- on: the cheap one that needs nothing but water, then the one that pays, then
 -- the two that need the map.
-City.LICENCE_ORDER = { "power", "beer", "food", "oil" }
+-- Power first, because it needs nothing but water and everything else needs
+-- it. Then oil, which is a rig on marked ground. Then food, which needs a farm
+-- and a haven for the salt. Beer last: wheat, a maltings, a brewery, water and
+-- power, which is the longest chain in the game.
+City.LICENCE_ORDER = { "power", "oil", "food", "beer" }
 
 function City:nextLicence()
   for _, name in ipairs(City.LICENCE_ORDER) do
     if not self.licences[name] then return name end
+  end
+  return nil
+end
+
+--------------------------------------------------------------------------------
+-- The first day
+--
+-- Four things, in the order they have to happen, each of them the thing the
+-- player will go on doing for the rest of the game: find the water, sink a
+-- well on it, run a main to somebody who wants it, and sign them up. The panel
+-- shows one step at a time and disappears for good when they are done.
+--------------------------------------------------------------------------------
+City.TUTORIAL = {
+  {
+    key = "well", title = "Sink your first well",
+    body = "The survey marked water on your ground: it is the ring with a droplet in it. " ..
+           "Press \"Sink a water well\" on the left, then click the mark. Water can only be " ..
+           "taken where it was found.",
+    done = function(c) return #c.g:nodesOfKind("source") > 0 end,
+  },
+  {
+    key = "main", title = "Run a main to the house",
+    body = "Drag from the well to the house. A small main carries five, which is plenty for " ..
+           "one household, and nothing widens a main once it is in the ground.",
+    done = function(c)
+      for _, n in ipairs(c.g.nodes) do
+        if n.alive and n.kind == "client" and c.g:degree(n.id) > 0 then return true end
+      end
+      return false
+    end,
+  },
+  {
+    key = "sign", title = "Sign the contract",
+    body = "The household is an offer until you sign it. Click it and press Sign contract. " ..
+           "From then on they pay for every unit that reaches them, every day.",
+    done = function(c) return #c:clientList() > 0 end,
+  },
+  {
+    key = "close", title = "Close the day",
+    body = "Income is collected at the close, and so are the bills. Press Close day when you " ..
+           "are ready: there will be a grant waiting for a company that supplies everyone.",
+    done = function(c) return c.day > 1 end,
+  },
+}
+
+function City:tutorialStep()
+  if self.guideDismissed then return nil end
+  for i, step in ipairs(City.TUTORIAL) do
+    if not step.done(self) then return step, i, #City.TUTORIAL end
   end
   return nil
 end
@@ -3821,7 +3950,7 @@ function City:dismissCrew()
 end
 
 City.MILESTONES = {
-  {name = "First supply", target = 2, reward = 60},
+  {name = "First supply", target = 1, reward = 60},
   {name = "Neighbourhood utility", target = 5, reward = 150},
   {name = "City supplier", target = 10, reward = 350},
   {name = "Utility empire", target = 20, reward = 800},

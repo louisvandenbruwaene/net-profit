@@ -2,10 +2,12 @@
 
 A turn-based utility-company game about networks, cash, and promises.
 
-Start with one water well, two houses, one district and $380. Build a network,
-sign new customers, keep the pipes flowing, buy the ground you want to grow
-into, and decide how much of today's cash you can afford to put into tomorrow's
-company. The map and company persist between days.
+You start with a marked spring, one household asking to be connected, one
+district and $460. Sink the well, run a main to the house, sign the contract,
+and close the day. After that: sign new customers, keep the mains sound, buy the
+ground you want to grow into, and decide how much of today's cash you can
+afford to put into tomorrow's company. The map and company persist between
+days.
 
 The city does not end. South, east and west it carries on for as long as you can
 pay to go, generated as you survey it and richer the further out you get. North
@@ -56,7 +58,9 @@ Test modes use isolated companies and never read or overwrite your saves.
 | --- | --- |
 | Lay a pipe or cable | Drag from one structure to another |
 | Choose the trade | Water / Power / Beer / Oil in Build |
-| Choose the bore | Capacity minus / plus in Build before laying |
+| Choose the size of main | SMALL / MEDIUM / LARGE in Build before laying |
+| Choose the lining | Bare / Lined / Armoured / Sealed, up to what the company can lay |
+| Replace a main | Select it, then a size under "Dig it out and replace it with" |
 | Choose how it is carried | MAIN / RAIL / HWY / SEA / AIR under the capacity row, or T |
 | Inspect | Click a structure, a customer, a main, or empty ground |
 | Build a structure | Toolbar or keys 1-9, then place |
@@ -71,7 +75,7 @@ Test modes use isolated companies and never read or overwrite your saves.
 | Fit the network | F, or the fit button |
 | See the whole city | Open the Map tab |
 | Widen a selected main | U |
-| Line a selected main, deepen a selected well | E |
+| Put a bigger main in place of a selected one, or deepen a selected well | E |
 | Repair a selected main, or all of them | R |
 | Jump to the worst leaking main | L |
 | Demolish selection | Delete, or the inspector button |
@@ -154,17 +158,27 @@ closing a day is final.
   the cheapest freight there is and only calls at the coast; air costs more than
   most freight is worth and flies one aircraft type per route. Beer, oil and
   water need three different mains and share one train, each in its own wagon.
-- **Trades arrive one at a time.** The sidebar offers the trade you hold and the
-  one you could take on next, and nothing further out. A trade needs three
-  things and no more: the licence, one building, and water piped to it. A
-  turbine hall makes electricity out of water alone, a brewery makes beer out of
-  water alone, a foodworks makes food out of water alone. Everything else in the
-  chain makes them bigger later and none of it is needed to start.
-- **Works.** Ten of them, one output each. The three above are the doors into a
-  trade; maltings, refinery, sawmill, steelworks, glassworks, cement works and
-  concrete plant are what a company builds once it has one. A works makes what
-  its base inputs allow, up to a ceiling its boosts raise, and its inspector
-  names whichever one is holding it back.
+- **Mains come in three sizes and nothing widens them.** Small carries 5, medium
+  10, large 20. If the small main you laid last year is too small now, it comes
+  out of the ground and a bigger one goes in, and the old pipe is worth about a
+  third of what it cost as scrap. One large main costs less than the four small
+  ones it replaces, which is why a trunk into a hub beats a stub to every house.
+- **Lining is decided when a main is laid, and never again.** The company buys
+  the ability to lay bare, lined, armoured and finally sealed pipe, at $900,
+  $3200 and $11000, and each grade costs more per metre than the last. Sealed
+  pipe practically never fails and costs three times bare pipe to lay. Nothing
+  improves a main already in the ground, so the cheap pipes at the centre of an
+  old network stay the weakest thing you own until somebody digs them up.
+- **Trades arrive one at a time,** in the order their chains can support:
+  electricity, then oil, then food, then beer. Power needs nothing but water and
+  a turbine hall, and everything else needs power. Oil is a rig on marked
+  ground. Food needs wheat from a farm and salt, which nobody mines here, so a
+  haven is part of the recipe. Beer needs malt, which needs wheat, and water and
+  power besides: it is the longest chain in the game and it pays like it.
+- **Works.** Ten of them, one output each, and a works missing any one of its
+  inputs makes nothing at all. There is no half recipe. The inspector names
+  whichever input is holding it back, which is the same question the game
+  already answers for a short customer.
 - **Design is rewarded.** A main twice as wide is nothing like twice as dear to
   lay, so one big trunk into a hub with short spurs out of it beats a separate
   main to every house from about nine customers on, and beats it on upkeep from
@@ -190,15 +204,18 @@ would quote it, and the quote is itemised on screen while you drag it:
   end of the job and charges more; a manifold is a set of ports waiting for you
   and charges less.
 - **Trench**, charged per metre, multiplied by the ground crossed.
-- **Bore**, charged per extra unit of capacity both as fittings at the ends and
-  as wider pipe over the whole run. A fat trunk main across the map is the most
-  expensive thing you can build; a fat stub is nearly free.
+- **Size**, which multiplies both. A medium main is about 1.7 times a small one
+  and carries twice as much; a large one is about 2.9 times and carries four
+  times as much. One large main is cheaper than the four small ones it replaces,
+  which is the whole argument for a trunk into a hub.
+- **Lining**, which adds 35%, 95% or 220% to the lot, depending on what the
+  company can lay and what you choose for this main.
 
-Each trade prices all three differently. Water is cheap and thin-margined, power
+Each trade prices all of it differently. Water is cheap and thin-margined, power
 sits just above it, beer is food-grade, and oil is pressurised and hazardous and
 its prices say so - which is why a factory pays $26 a unit and a house pays $4.
-Repairs, daily upkeep and lining are all priced off the same length and trade, so
-a long oil trunk is a standing liability and a garden stub is not.
+Repairs and daily upkeep are priced off the same length and trade, so a long oil
+trunk is a standing liability and a garden stub is not.
 
 | | Water | Power | Beer | Oil |
 | --- | --- | --- | --- | --- |
@@ -222,13 +239,12 @@ a long oil trunk is a standing liability and a garden stub is not.
 - **Failure:** a main has a daily chance to develop a leak. Once leaking it loses
   capacity every close until repaired. At zero it stays installed and repairable.
   Lost customers damage reputation.
-- **Lining:** never required - a bare pipe carries exactly as much on the day it
-  is laid. Lining cuts a main's leak risk to 45% and its repair bill to 70%, and
-  armour takes those to 12% and 45% and halves the rate a leaking main bleeds
-  capacity. The inspector states what each would save per day and how long it
-  would take to pay for itself. On a short water stub that is a poor trade; on a
-  long oil trunk it pays back in about a month, and it is the difference between
-  playing the game and chasing burst mains around it.
+- **Lining:** never required - a bare main carries exactly as much as a sealed
+  one. Lined pipe cuts a main's leak risk to 45% and its repair bill to 70%,
+  armoured to 12% and 45% while halving the rate a leaking main bleeds capacity,
+  and sealed to 2% and 30%. What it is lined with is decided when it is laid, so
+  improving an old main means digging it out. The inspector states what relaying
+  would save per day and how long it would take to pay for itself.
 - **Crews:** $340 to hire, $14 a day each, up to four. At every close each crew
   repairs the worst leaking main on the books and bills you for the work. The
   wage is the price of not clicking.

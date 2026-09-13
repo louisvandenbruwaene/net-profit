@@ -13,6 +13,31 @@ local function ok(name, cond)
   if cond then pass = pass + 1 else fail = fail + 1; print("  FAIL  " .. name) end
 end
 
+
+-- Most of these checks are about a company that is already trading, so this
+-- plays the opening for them: the well goes in on the marked spring and the
+-- household that asked for water is signed.
+local function opened(opts)
+  local c = City.new(opts or { obstacles = 0 })
+  -- The spring the opening put there, which is the one within reach of the
+  -- household that asked for water.
+  local house = c:clientList(true)[1]
+  local spring, best
+  for _, d in ipairs(c.deposits) do
+    local ground = c:districtAt(d.x, d.y)
+    if not d.taken and d.commodity == "water" and ground and ground.owned then
+      local far = d.opening and -1 or (d.x - house.x) ^ 2 + (d.y - house.y) ^ 2
+      if not best or far < best then spring, best = d, far end
+    end
+  end
+  c.money = c.money + 600
+  assert(c:buySource("water", spring.x, spring.y))
+  for _, offer in ipairs(c:clientList(true)) do c:acceptClient(offer.id) end
+  c:rebaseOrigin()
+  c.money = City.rules.startMoney
+  return c
+end
+
 math.randomseed(7)
 
 --------------------------------------------------------------------------------
@@ -21,27 +46,36 @@ do
   local c = City.new({ obstacles = 0 })
   check("starts on day 1", c.day, 1)
   check("has starting cash", c.money, City.rules.startMoney)
-  check("has one well", #c.g:nodesOfKind("source"), 1)
-  check("has two customers", #c:clientList(), 2)
-  ok("customers want water", c:clientList()[1].commodity == "water")
-  check("nothing is served yet", c.served[c:clientList()[1].id] or 0, 0)
+  -- A company starts as a job rather than a business: a marked spring, one
+  -- household asking to be connected, and nothing built.
+  check("has no well yet", #c.g:nodesOfKind("source"), 0)
+  check("has nobody signed", #c:clientList(), 0)
+  check("but somebody has asked", #c:clientList(true), 1)
+  ok("and they want water", c:clientList(true)[1].commodity == "water")
+  local spring
+  for _, d in ipairs(c.deposits) do
+    local ground = c:districtAt(d.x, d.y)
+    if d.commodity == "water" and ground and ground.owned then spring = d; break end
+  end
+  ok("the survey marked water on the home ground", spring ~= nil)
+  ok("and the opening step is to sink a well", c:tutorialStep().key == "well")
   check("no beer licence", c.licences.beer, false)
 end
 
 --------------------------------------------------------------------------------
 print("supplying a customer earns money")
 do
-  local c = City.new({ obstacles = 0 })
+  local c = opened()
   local src = c.firstSource
   local cust = c:clientList()[1]
   -- Put the customer within one pipe of the well so the test is about money.
   cust.x, cust.y = src.x + 200, src.y
   cust.demand = 3
 
-  local e = c:layPipe(src.id, cust.id, "water")
+  local e = c:layPipe(src.id, cust.id, "water", "small")
   ok("pipe laid", e ~= nil)
-  for _ = 1, 2 do c:upgradePipe(e.id) end
-  check("pipe carries 3", c.served[cust.id], 3)
+  check("a small main carries five", e.cap, 5)
+  check("the customer takes what they asked for", c.served[cust.id], 3)
 
   local before = c.money
   local rep = c:endDay()
@@ -53,7 +87,7 @@ end
 --------------------------------------------------------------------------------
 print("commodities do not mix")
 do
-  local c = City.new({ obstacles = 0 })
+  local c = opened()
   c.licences.beer = true
   local src = c.firstSource
   local cust = c:clientList()[1]
@@ -67,47 +101,55 @@ do
 
   local water = c:layPipe(src.id, cust.id, "water")
   ok("a water main is a separate pipe", water ~= nil and water.id ~= beer.id)
-  c:upgradePipe(water.id)
   check("now water arrives", c.served[cust.id], 2)
 end
 
 --------------------------------------------------------------------------------
 print("pipes rot and can be repaired")
 do
-  local c = City.new({ obstacles = 0 })
+  local c = opened()
   local src = c.firstSource
   local cust = c:clientList()[1]
   cust.x, cust.y = src.x + 200, src.y
-  local e = c:layPipe(src.id, cust.id, "water")
-  for _ = 1, 3 do c:upgradePipe(e.id) end
-  check("built to capacity 4", e.cap, 4)
-  check("and remembers it", e.capMax, 4)
+  local e = c:layPipe(src.id, cust.id, "water", "medium")
+  check("built as a medium main", e.cap, 10)
+  check("and remembers it", e.capMax, 10)
 
   e.leaking = true
   c:endDay()
-  check("a leak costs capacity every day", e.cap, 3)
+  check("a leak costs capacity every day", e.cap, 9)
   c:endDay()
-  check("and keeps costing", e.cap, 2)
+  check("and keeps costing", e.cap, 8)
 
   local before = c.money
   local cost = c:repairPipe(e.id)
   ok("repair charges", cost ~= nil and c.money == before - cost)
-  check("capacity restored", e.cap, 4)
+  check("capacity restored", e.cap, 10)
   check("leak stopped", e.leaking, false)
 
-  ok("quality lowers the leak rate",
-     c:leakChance(e) == City.rules.leakBase)
+  -- Nothing widens a main. A bigger one goes in its place, and the old one is
+  -- worth something as scrap.
   c.money = 10000
-  c:upgradeQuality()
-  ok("after a treatment upgrade", c:leakChance(e) < City.rules.leakBase)
-  local g2 = c:reinforcePipe(e.id)
-  ok("reinforcing halves it again", g2 ~= nil)
+  local was = e.paid
+  ok("a medium main can be replaced with a large one", c:replacePipe(e.id, "large") ~= nil)
+  check("which carries twice as much", e.cap, 20)
+  ok("and cost less than the whole job", e.paid > was)
+
+  -- Lining is fixed when the main is laid, and only better lining lowers risk.
+  ok("a bare main leaks at the base rate", c:leakChance(e) == City.rules.leakBase)
+  ok("the company cannot lay lined pipe yet", c.lining == 1)
+  c.money = 40000
+  ok("until it buys the knowledge", c:upgradeQuality() ~= nil)
+  ok("which does nothing to pipe already in the ground",
+     c:leakChance(e) == City.rules.leakBase)
+  assert(c:replacePipe(e.id, "large", 2))
+  ok("but a main relaid with it leaks far less", c:leakChance(e) < City.rules.leakBase)
 end
 
 --------------------------------------------------------------------------------
 print("customers leave when starved")
 do
-  local c = City.new({ obstacles = 0 })
+  local c = opened()
   local cust = c:clientList()[1]
   local patience = City.CLIENTS[cust.clientType].patience
   local rep0 = c.reputation
@@ -122,7 +164,7 @@ end
 --------------------------------------------------------------------------------
 print("money can be put to work")
 do
-  local c = City.new({ obstacles = 0 })
+  local c = opened()
   c.money = 1000
   ok("investing takes the cash out of hand", c:invest(500) and c.money == 500)
   check("and is held", c:investedTotal(), 500)
@@ -173,7 +215,7 @@ end
 --------------------------------------------------------------------------------
 print("ground blocks and taxes routes")
 do
-  local c = City.new({ obstacles = 0 })
+  local c = opened()
   local src = c.firstSource
   -- Clear the randomly placed customers so this block tests only the ground.
   for _, cl in ipairs(c:clientList()) do c.g:killNode(cl.id) end

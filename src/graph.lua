@@ -46,7 +46,7 @@ Graph.KINDS = {
   -- The key is "exchange" and the name on screen is HUB, because the archived
   -- contract game above already owns "hub" in this table and a duplicate key in
   -- a Lua constructor silently wins. Do not rename either one.
-  exchange = { name = "HUB",      ports = 8,  throughput = 999, cost = 700,  color = {0.45, 0.86, 0.72} },
+  exchange = { name = "HUB",      ports = 8,  throughput = 999, cost = 500,  color = {0.45, 0.86, 0.72} },
   -- A works takes things off the network and puts something else back on: a
   -- customer and a well in one building. What it makes and what it wants are
   -- written on the node by the city, so the solver never has to know a recipe.
@@ -102,6 +102,8 @@ Graph.COMMODITIES = {
             color = {0.52, 0.72, 0.44}, fill = {0.32, 0.50, 0.28} },
   ore   = { name = "ORE",   order = 13, mark = "box", conduit = "ROAD", form = "solid", role = "feed",
             color = {0.72, 0.50, 0.42}, fill = {0.50, 0.32, 0.26} },
+  salt  = { name = "SALT",  order = 13.5, mark = "box", conduit = "ROAD", form = "solid", role = "feed",
+            color = {0.92, 0.92, 0.96}, fill = {0.70, 0.72, 0.78} },
   coke  = { name = "COKE",  order = 14, mark = "box", conduit = "ROAD", form = "solid", role = "feed",
             color = {0.46, 0.46, 0.52}, fill = {0.20, 0.20, 0.24} },
   rock  = { name = "ROCK",  order = 15, mark = "box", conduit = "ROAD", form = "solid", role = "feed",

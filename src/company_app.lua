@@ -8,7 +8,7 @@ local A = require("audio")
 local P = require("palette")
 local App = {}
 local city,cam
-local state={commodity="water",havenKind="port",plant="nuclear",recipe="brewery",capacity=3,invest=100,borrow=500,tab="network",scroll=0,undo={}}
+local state={commodity="water",havenKind="port",plant="nuclear",recipe="turbine",size="small",grade=1,capacity=1,invest=100,borrow=500,tab="network",scroll=0,undo={}}
 local testMode, frames = nil,0
 
 local function toast(message,bad)
@@ -66,7 +66,7 @@ local function resetSession()
   state.scroll=0
   state.tab="network"
   state.commodity="water"
-  state.capacity=3
+  state.capacity=1; state.size="small"
   state.borrow=500
   state.invest=100
   state.rail=nil
@@ -109,6 +109,12 @@ local function action(name,...)
     local key=...
     local ok,err=city[name=="hireOrder" and "hireOrder" or "dismissOrder"](city,key)
     if not ok then toast(err,true) else A.play("upgrade") end
+    return
+  end
+  if name=="replacePipe" then
+    local id,size,grade=...
+    local ok,err=city:replacePipe(id,size,grade)
+    if not ok then toast(err,true) else A.play("upgrade"); state.edge=id end
     return
   end
   if name=="teach" then city:teach((...)); return end
@@ -244,7 +250,7 @@ local function action(name,...)
     elseif name=="layPipe" then
       toast(city.unserved==0 and "Everyone supplied! Close the day to collect your earnings." or "Connection built. Keep the supply flowing.")
     else
-      toast(({repairPipe="Pipe repaired",reinforcePipe="Pipe lined",buyAds="Advertising booked",
+      toast(({repairPipe="Pipe repaired",replacePipe="Main replaced",buyAds="Advertising booked",
         invest="Investment placed",upgradeQuality="Treatment upgraded",buyLicence="Trade licence acquired",
         acceptClient="Customer signed",declineClient="Offer declined",upgradeSource="Well deepened",
         acceptTender="Tender signed, bond posted",declineTender="Tender declined",
@@ -406,7 +412,9 @@ function love.mousereleased(x,y,button)
   if state.drag and button==1 then
     local target=hit(x,y)
     if target and target~=state.drag then
-      action("layPipe",state.drag,target,state.commodity,state.capacity,state.rail)
+      action("layPipe",state.drag,target,state.commodity,
+        state.rail and state.capacity or (state.size or "small"),state.rail,
+        math.min(city.lining or 1,state.grade or 1))
     end
   end
   state.drag,state.pan=nil,nil
@@ -452,7 +460,7 @@ function love.keypressed(key)
   elseif key=="r" then
     if state.edge then action("repairPipe",state.edge) else action("repairAll") end
   elseif key=="l" then action("nextLeak")
-  elseif key=="e" and state.edge then action("reinforcePipe",state.edge)
+  elseif key=="e" and state.edge then action("upgradePipe",state.edge)
   elseif key=="e" and state.node and city.g.nodes[state.node].kind=="source" then
     action("upgradeSource",state.node)
   elseif key=="delete" then

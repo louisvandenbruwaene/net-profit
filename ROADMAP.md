@@ -434,6 +434,31 @@ Phase 1 alone is worth having: today's game, endless, with wells that cap. Phase
 - **Save size.** If sparse cells still grow without bound, cap the explored set
   and regenerate anything untouched.
 
+## 13. The rebalance, and what it changed underneath
+
+Two passes after the seven phases, both of them about what the game asks of a
+player rather than what it contains.
+
+The first made every trade reachable: the licence, one building and water. It
+also made wide mains cheap, ground cheapest at the coast, and nothing visible
+before it can be used.
+
+The second undid one of its own answers. Giving every works a base recipe and
+optional boosts meant a brewery could make beer out of water, which made the
+chain an optimisation rather than the game. Recipes are strict again: a works
+missing any input makes nothing. What replaced the boosts is the order trades
+arrive in. Power needs only water and everything else needs power, so it comes
+first; oil is a rig on marked ground; food needs a farm and a haven for salt,
+which nobody mines here; beer needs malt, and malt needs wheat, so it is last.
+The balance suite now checks that property directly: every input of every trade
+is water, or something an earlier trade reached, or something a haven lands.
+
+Mains stopped being a number. Three sizes, nothing widens, and the lining is
+whatever the company knew how to lay on the day the main went in. That is one
+rule doing three jobs: it makes the size decision matter when it is made, it
+gives an old network a real weakness rather than a cosmetic one, and it gives
+the player a reason to go back and dig up mains that are working perfectly well.
+
 ## 12. Where the built thing differs from the plan
 
 Seven places, each of them a thing the plan could not have known:
