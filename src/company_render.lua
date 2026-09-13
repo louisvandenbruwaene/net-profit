@@ -919,6 +919,8 @@ function Draw.world(city, cam, state)
           lg.setColor(p.cash<0 and P.bad or P.text)
           lg.print(p.cash<0 and ("Need $"..(-p.cash).." more cash") or ("Cash after building: $"..p.cash),qx+14,qy+84)
           if note then lg.setFont(R.fonts.small); lg.setColor(P.warn); lg.print(note,qx+14,qy+111) end
+        else
+          label(p.error,(x+mx)/2,(y+my)/2-24,P.bad)
         end
       end
     end

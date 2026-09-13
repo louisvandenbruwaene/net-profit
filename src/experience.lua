@@ -129,7 +129,10 @@ function E.pipePreview(c,a,b,trade,capacity,rail,grade)
     local copy=assert(Save.unpack(Save.pack(c)))
     copy.money=math.max(copy.money,q.total)
     local before=c:dailyRevenue()-c:dailyExpenses()
-    assert(copy:layPipe(a,b,trade,capacity,rail,grade))
+    -- pipeError does not know the size being asked for, so a size either end
+    -- refuses only shows up here.
+    local laid,why=copy:layPipe(a,b,trade,capacity,rail,grade)
+    if not laid then return {error=why} end
     local target=copy.g.nodes[b]
     return {cost=q.total,cash=c.money-q.total,delivery=copy.served[b] or 0,
       demand=target.kind=="client" and not target.prospect and target.demand or nil,
