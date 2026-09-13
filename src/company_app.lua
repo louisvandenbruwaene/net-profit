@@ -413,18 +413,13 @@ function love.mousepressed(x,y,button)
     end
     return
   end
-  -- Empty ground still answers a question: which district is this, and what
-  -- would it cost? Clicking unowned ground opens the Map tab on that district.
+  -- Empty ground: dragging just pans the camera. A plain click (no drag) on
+  -- unowned ground opens the Map tab so it can be bought; owned ground has
+  -- nothing left to show, so it only clears the selection.
   local wx,wy=cam:toWorld(x,y)
   local d=city:districtAt(wx,wy)
-  state.node,state.edge,state.link=nil,nil,nil
-  if d then
-    state.district=d.id
-    reveal("district")
-  else
-    state.district=nil
-  end
-  state.pan={x=x,y=y,moved=false}
+  state.node,state.edge,state.link,state.district=nil,nil,nil,nil
+  state.pan={x=x,y=y,moved=false,district=(d and not d.owned) and d.id or nil}
 end
 
 function love.mousemoved(x,y,dx,dy)
@@ -455,6 +450,10 @@ function love.mousereleased(x,y,button)
   end
   if state.pan and state.pan.deselect and not state.pan.moved and button~=1 then
     state.node,state.edge,state.link,state.district=nil,nil,nil,nil
+  end
+  if state.pan and state.pan.district and not state.pan.moved and button==1 then
+    state.district=state.pan.district
+    reveal("district")
   end
   state.drag,state.pan,state.deselect=nil,nil,nil
 end
