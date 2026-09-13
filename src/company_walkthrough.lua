@@ -762,12 +762,22 @@ function Walk.update(app,mode,frame)
       app.state.modal=nil; app.state.tab="network"; app.state.scroll=0
       local c=app.city()
       local n=c:clientList(true)[1]
-      if n and not c:pipeError(c.firstSource.id,n.id,"water") then
+      -- A customer is only ever reached by a stub out of a structure that
+      -- steps the well's trunk down, so the preview is drawn out of one.
+      local from=n and distributionPoint(c,c.firstSource)
+      if n and (not from or c:pipeError(from.id,n.id,"water")) then
+        c.money=math.max(c.money,1000)
+        for _,off in ipairs({{-140,0},{140,0},{0,-140},{0,140}}) do
+          from=c:build(n.x+off[1],n.y+off[2],"junction")
+          if from then break end
+        end
+      end
+      if from and not c:pipeError(from.id,n.id,"water") then
         app.action("fit")
         local x,y=app.camera():toScreen(n.x,n.y)
         love.mouse.setPosition(x,y)
-        app.state.drag=c.firstSource.id; app.state.hoverNode=n.id
-        app.state.commodity="water"; app.state.capacity=n.demand
+        app.state.drag=from.id; app.state.hoverNode=n.id
+        app.state.commodity="water"; app.state.size="small"
         capture("net-profit-17-construction-preview",app,1100,700)
         app.state.drag=nil
       else error("construction preview fixture needs a reachable offer") end
@@ -888,7 +898,7 @@ function Walk.update(app,mode,frame)
           assert(c:layPipe(mill.id,brew.id,"water",22))
         end
         local hub=assert(c:build(brew.x+250,brew.y+40,"exchange"))
-        assert(c:layPipe(brew.id,hub.id,"beer",8))
+        assert(c:layPipe(brew.id,hub.id,"beer","large"))
         for i=1,4 do
           local pub=assert(c:addClient("pub"))
           pub.x,pub.y=hub.x+math.cos(i*1.7)*260,hub.y+math.sin(i*1.7)*220

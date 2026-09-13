@@ -710,7 +710,7 @@ local function buildPanel()
       local bx=M+(i-1)*76
       local open=city:sizeAllowed(spec)
       if not open and state.size==spec.key then state.size="large" end
-      button("size-"..spec.key,spec.name.." "..spec.cap,bx,y,72,30,function() state.size=spec.key end,open,
+      button("size-"..spec.key,spec.name.." "..spec.cap,bx,y,72,30,function() state.size=spec.key; E.useSize(state,spec.key) end,open,
         open and (spec.name.." main: carries "..spec.cap..". Nothing widens a main. If this one is too "..
           "small in a year it comes out of the ground and a bigger one goes in.")
           or ("A massive main carries "..spec.cap..". "..city:unlockHint(spec.unlock)..

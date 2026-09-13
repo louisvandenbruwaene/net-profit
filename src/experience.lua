@@ -1,6 +1,32 @@
 -- Presentation helpers and planning simulations. Previews never mutate a company.
 local E = {}
+local City = require("city")
 local Save = require("company_save")
+
+-- The main a drag out of `a` lays, into `b` once it has a target: the most
+-- recently chosen size both ends accept, or failing that the accepted size
+-- nearest the last choice. A well always answers with a trunk and a house
+-- always with the smallest main, whatever was laid before.
+function E.dragSize(c,a,b,state)
+  local recent=state.recentSizes or {state.size or "small"}
+  local lo,hi=c:sizeRange(a,b)
+  if not lo then return recent[1] end
+  while hi>lo and not c:sizeAllowed(City.PIPE_SIZES[hi]) do hi=hi-1 end
+  for _,key in ipairs(recent) do
+    local _,i=City.sizeOf(key)
+    if i>=lo and i<=hi then return key end
+  end
+  local _,i=City.sizeOf(recent[1])
+  return City.PIPE_SIZES[math.max(lo,math.min(hi,i))].key
+end
+
+function E.useSize(state,key)
+  local recent={key}
+  for _,k in ipairs(state.recentSizes or {}) do
+    if k~=key then recent[#recent+1]=k end
+  end
+  state.recentSizes=recent
+end
 E.ambitions = {
   {id="districts", name="A city connected", target=12, description="Hold twelve districts at once.", reward=1200},
   {id="service", name="A company people trust", target=7, description="Supply every signed customer for seven consecutive closes.", reward=350},

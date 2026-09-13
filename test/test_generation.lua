@@ -182,5 +182,71 @@ do
   ok("ground bought stays bought", #clone:ownedDistricts() == #c:ownedDistricts())
 end
 
+--------------------------------------------------------------------------------
+print("the river meanders, keeps off the home district, and never folds")
+do
+  local c = City.new({ seed = 4242 })
+  local home = c.districts[City.MAP.start]
+  local base = c.river
+  local ux, uy = math.sin(base.angle), math.cos(base.angle)
+  local bent, south, clear, open = true, true, true, true
+  for seed = 1, 40 do
+    c.river = { x0 = base.x0, y0 = base.y0, angle = base.angle, width = base.width,
+      meander = c:cellSeed(seed, -seed) }
+    local p = c:riverPath()
+    local swing = 0
+    for i = 1, p.n do
+      local x, y, hw = p.x[i], p.y[i], p.hw[i]
+      swing = math.max(swing, math.abs((x - base.x0) * uy - (y - base.y0) * ux))
+      local gx = math.max(home.x - x, 0, x - (home.x + home.w))
+      local gy = math.max(home.y - y, 0, y - (home.y + home.h))
+      if gx * gx + gy * gy <= hw * hw then clear = false end
+      if i > 1 then
+        if y <= p.y[i - 1] then south = false end
+        local tx, ty = x - p.x[i - 1], y - p.y[i - 1]
+        for _, side in ipairs({ 1, -1 }) do
+          local bx = (x + side * p.nx[i] * hw) - (p.x[i - 1] + side * p.nx[i - 1] * p.hw[i - 1])
+          local by = (y + side * p.ny[i] * hw) - (p.y[i - 1] + side * p.ny[i - 1] * p.hw[i - 1])
+          if bx * tx + by * ty <= 0 then open = false end
+        end
+      end
+    end
+    if swing < 150 then bent = false end
+  end
+  ok("every river swings well off a straight line", bent)
+  ok("its course always makes headway south", south)
+  ok("it never touches the home district", clear)
+  ok("neither bank ever folds back over itself", open)
+
+  c.river = base
+  local p = c:riverPath()
+  local i = 60
+  local bx, by = p.x[i] + p.nx[i] * (p.hw[i] + 8), p.y[i] + p.ny[i] * (p.hw[i] + 8)
+  ok("mid-channel is river", c:riverAt(p.x[i], p.y[i]))
+  ok("just past the bank is dry ground", not c:riverAt(bx, by))
+  ok("where a well still draws on the river", c:nearRiver(bx, by))
+  ok("and well away from it does not", not c:nearRiver(p.x[i] + 1500, p.y[i]))
+  ok("the sea at the mouth is not river", not c:riverAt(p.x[1], -5))
+  local fresh = City.new({ seed = 4242 })
+  fresh.money = 1e9
+  for _, cell in ipairs({ {3,2}, {3,3}, {4,3}, {4,4} }) do fresh:buyDistrict(fresh:cellAt(cell[1], cell[2]).id) end
+  local dry = true
+  for _, o in ipairs(fresh.obstacles) do
+    local edge = fresh:riverEdge(o.x, o.y)
+    if edge and edge < o.r then dry = false end
+  end
+  ok("no park or bedrock is scattered into the river", dry)
+
+  local again = City.new({ seed = 4242 }):riverPath()
+  ok("the same seed lays the same course", again.x[400] == p.x[400] and again.y[400] == p.y[400])
+  local Save = require("company_save")
+  local clone = assert(Save.unpack(Save.pack(c)))
+  ok("the course survives a save and load", math.abs(clone:riverPath().x[400] - p.x[400]) < 1e-6)
+  c.river = { x0 = base.x0, y0 = 0, dx = ux, dy = uy, width = base.width }
+  local old = assert(Save.unpack(Save.pack(c)))
+  ok("a straight river from an older save is re-laid with bends",
+    old.river.meander ~= nil and old:riverPath() ~= nil)
+end
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)
