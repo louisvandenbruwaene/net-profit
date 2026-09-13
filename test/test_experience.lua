@@ -72,6 +72,14 @@ do
 end
 do
   local c=fresh()
+  local well=c.firstSource
+  local hub=assert(c:build(well.x+90,well.y-90,"junction"))
+  local ok,p=pcall(E.pipePreview,c,well.id,hub.id,"water","small",false)
+  check(ok and p.error and p.error:find("LARGE"),"dragging a small main out of a well explains the size instead of crashing")
+  check(E.pipePreview(c,well.id,hub.id,"water","large",false).error==nil,"and the trunk it asks for previews normally")
+end
+do
+  local c=fresh()
   check(c:chooseAmbition("service"),"a player can select an ambition")
   check(not c:chooseAmbition("missing"),"unknown ambitions are rejected")
   assert(c:setCompanyName("  Brightwater Co.  "))
