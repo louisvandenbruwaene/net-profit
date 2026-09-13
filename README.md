@@ -119,8 +119,7 @@ and traces a route from a selected customer to supply in blue. A full main is
 not necessarily a service problem, and alternative routes may exist.
 
 Choose an optional ambition in Goals: hold twelve districts, maintain seven
-consecutive closes of full service, finish ten council tenders, or fully supply
-fifty customers. The selected ambition is evaluated at each day close and pays
+consecutive closes of full service, or fully supply fifty customers. The selected ambition is evaluated at each day close and pays
 its grant once. Progress and completed ambitions survive switching goals and
 reloading. The service streak counts from play with this version; it resets on
 a shortfall. Company names and guide dismissal also persist.
@@ -309,15 +308,6 @@ trunk is a standing liability and a garden stub is not.
   the customers that district brings.
 - **Investments:** deposits are locked for exactly seven closes. Return is
   normally distributed with mean 10% and standard deviation 5%; losses are possible.
-- **Tenders:** the council offers a contract to hold a delivery level you do not
-  yet have - say 9 units of water a day, on 3 day closes - for a fee. It is an
-  offer you answer, in Clients. Accepting posts a bid bond out of the till, which
-  comes back with the fee if you deliver and is forfeited if you do not, so an
-  ambitious tender is a wager on whether you can grow the network in time.
-  Declining costs nothing, and an offer nobody answers is withdrawn in a few days.
-  A close counts only on days when the whole trade is delivering at or above the
-  level asked for, which is why it pays for supply held rather than for one good
-  day.
 - **Markets:** a heatwave, a beer festival or an excise rise moves what one trade
   pays for a few days. It is the only thing that changes a price without you
   touching anything, and it is what makes a full depot worth having.

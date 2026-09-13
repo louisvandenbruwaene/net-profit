@@ -102,7 +102,11 @@ function Walk.start(app,mode)
     if d.opening then dep=d; break end
   end
   check(dep~=nil,"the survey marked water on the home ground")
+  local E=require("experience")
+  check(E.tutorialTarget(c,app.state).button=="source","the guide points at the well button")
   app.state.tool="source"; app.state.commodity="water"
+  local aim=E.tutorialTarget(c,app.state)
+  check(aim.x==dep.x and aim.y==dep.y,"and, with the well in hand, at the marked spring")
   local cam=app.camera()
   local dx,dy=cam:toScreen(dep.x,dep.y)
   love.mousepressed(dx,dy,1)
@@ -110,6 +114,7 @@ function Walk.start(app,mode)
   local well=c.g:nodesOfKind("source")[1]
   check(well~=nil,"clicking the mark sinks a well on it")
   check(c:tutorialStep().key=="main","and the next step is the main")
+  check(E.tutorialTarget(c,app.state).from==well,"then it traces the drag out of the well")
 
   local offerHouse=c:clientList(true)[1]
   connect(app,offerHouse)
@@ -123,8 +128,25 @@ function Walk.start(app,mode)
   check(c.g:degree(offerHouse.id)>0,"and it can be laid again")
   app.action("focusNode",offerHouse.id)
   love.draw()
+  check(E.tutorialTarget(c,app.state).button=="accept","and points at Sign contract once the house is open")
   click("accept")
   check(#c:clientList()==1 and c.unserved==0,"signing the contract puts them on supply")
+  check(E.tutorialTarget(c,app.state).button=="end-day","and then at Close day")
+
+  -- Clicking a selected structure again puts it down, and so does a right click.
+  do
+    app.action("focusNode",offerHouse.id)
+    local hx,hy=app.camera():toScreen(offerHouse.x,offerHouse.y)
+    love.mousepressed(hx,hy,1); love.mousereleased(hx,hy,1)
+    check(app.state.node==nil,"clicking the selected house again deselects it")
+    love.mousepressed(hx,hy,1); love.mousereleased(hx,hy,1)
+    check(app.state.node==offerHouse.id,"and clicking once more selects it")
+    love.mousepressed(hx,hy,2); love.mousereleased(hx,hy,2)
+    check(app.state.node==nil,"a right click deselects too")
+    app.state.tool="exchange"
+    love.mousepressed(hx,hy,2); love.mousereleased(hx,hy,2)
+    check(app.state.tool==nil,"and puts down a tool in hand")
+  end
   local x=app.camera().x
   love.mousepressed(440,210,1)
   love.mousemoved(480,220,40,10)
@@ -195,7 +217,7 @@ function Walk.start(app,mode)
     local src=c.firstSource
     local a,b=c:clientList()[1],c:clientList()[2]
     for _,e in ipairs(c.g.edges) do if e.alive then c:demolishPipe(e.id) end end
-    a.demand,b.demand=5,4
+    a.demand,b.demand=C.sizeOf("small").cap,2
     a.x,a.y=src.x+200,src.y
     b.x,b.y=src.x+400,src.y
     local narrow=assert(c:layPipe(src.id,a.id,"water","small"))
@@ -416,33 +438,6 @@ function Walk.start(app,mode)
     check(c.g.nodes[src.id].alive,"which undo can take back")
   end
 
-  -- A tender is an offer you answer, not a scoreboard that ticks.
-  do
-    c.money=9999
-    c.flowBy={water=6}
-    local t=assert(c:rollTender())
-    t.id=101; t.commodity="water"; t.units=9; t.days=3
-    t.bond=math.ceil(t.reward*C.tenderBond)
-    c.tenders={t}
-    app.state.node,app.state.edge=nil,nil
-    click("tab-customers")
-    check(findButton("tender-accept-101")~=nil,"an offered tender can be accepted")
-    check(findButton("tender-decline-101")~=nil,"or declined")
-    local money=c.money
-    click("tender-accept-101")
-    check(t.status=="accepted","accepting signs the contract")
-    check(c.money==money-t.bond,"and posts the bond")
-    love.draw()
-    check(findButton("tender-accept-101")==nil,"a signed tender stops offering to be signed")
-    -- Declining a different one costs nothing and clears it.
-    local t2=assert(c:rollTender()); t2.id=102
-    c.tenders={t2}
-    money=c.money
-    love.draw()
-    click("tender-decline-102")
-    check(#c.tenders==0 and c.money==money,"declining removes it and costs nothing")
-  end
-
   -- Six companies, kept side by side.
   do
     app.state.node,app.state.edge=nil,nil
@@ -593,19 +588,6 @@ function Walk.update(app,mode,frame)
       app.action("endDay"); capture("net-profit-03-report",app)
     elseif frame==20 then
       app.state.modal=nil; app.state.tab="finance"; capture("net-profit-04-company",app)
-    elseif frame==21 then
-      local c=app.city()
-      c.money=9999
-      -- One offered and one signed, so the shot shows both halves of the deal.
-      local a=assert(c:rollTender()); a.id=201; a.commodity="water"; a.units=9; a.days=3
-      a.bond=math.ceil(a.reward*C.tenderBond); a.offerExpires=c.day+3
-      local b=assert(c:rollTender()); b.id=202; b.commodity="water"; b.units=5; b.days=4
-      b.bond=math.ceil(b.reward*C.tenderBond); b.status="accepted"; b.met=2
-      b.expires=c.day+5
-      c.tenders={a,b}
-      app.state.modal=nil; app.state.node=nil; app.state.edge=nil
-      app.state.tab="customers"; app.state.scroll=0
-      capture("net-profit-10-tenders",app)
     elseif frame==19 then
       -- A capped wellhead: what a closed well leaves behind, and the strip
       -- that replaces it without taking the mains off.
@@ -739,7 +721,14 @@ function Walk.update(app,mode,frame)
       c.obstacles={}
       local src=c.firstSource
       src.output,src.cap=60,60
-      local hub=assert(c:build(src.x+260,src.y+90,"exchange"))
+      -- The days before this frame are random, so a customer may have moved in
+      -- where the hub goes. Clear the spot rather than move the shot.
+      local hx,hy=src.x+260,src.y+90
+      for _,n in ipairs(c.g:aliveNodes()) do
+        if n.id~=src.id and (n.x-hx)^2+(n.y-hy)^2<(C.rules.minSpacing*2)^2 then c.g:killNode(n.id) end
+      end
+      c:refresh()
+      local hub=assert(c:build(hx,hy,"exchange"))
       for i=1,9 do
         local a=i/9*math.pi*2
         local cl=assert(c:addClient(i%3==0 and "estate" or "house",i%4==0))

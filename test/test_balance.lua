@@ -48,7 +48,7 @@ do
 
   -- What n houses of demand three cost connected one by one, all the way back
   -- to the well. Each needs a main of its own, and the smallest there is
-  -- carries five.
+  -- carries seven.
   local function direct(n)
     local capex, upkeep = 0, 0
     for i = 1, n do
@@ -97,7 +97,7 @@ do
   local large = c:pipeQuote(src.id, hubSpot.id, "water", "large").total
   ok("a large main costs less than the four small ones it replaces",
     large < small * 4, string.format("$%d against $%d", large, small * 4))
-  ok("and carries the same", City.sizeOf("large").cap == City.sizeOf("small").cap * 4)
+  ok("and carries no more", City.sizeOf("large").cap <= City.sizeOf("small").cap * 4)
 end
 
 --------------------------------------------------------------------------------
@@ -156,13 +156,15 @@ do
   local src = c.firstSource
   local far = assert(c:build(src.x + 260, src.y + 120, "junction"))
   local main = assert(c:layPipe(src.id, far.id, "water", "small"))
-  ok("a small main carries five", main.cap == 5)
+  ok("a small main carries seven", main.cap == 7)
   ok("and nothing widens it", c:replaceQuote(main.id, "small", 1) ~= nil
     and c:replaceError(main.id, "small", 1) == "that is what is already in the ground")
 
   local before = c.money
   assert(c:replacePipe(main.id, "large"))
-  ok("a large one can take its place", main.cap == 20)
+  ok("a large one can take its place", main.cap == 25)
+  ok("but not a massive one, before the company is big enough",
+    c:replaceError(main.id, "massive", 1) ~= nil and not c:layPipe(src.id, far.id, "water", "massive"))
   ok("at the price of the new main less scrap on the old", c.money < before)
 
   -- Lining is bought once and then paid for in every metre laid with it.

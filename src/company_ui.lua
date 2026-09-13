@@ -222,14 +222,16 @@ local function inspectClient(n,y)
         local bore=bigger and (city:replaceQuote(e.id,bigger,e.grade) or {}).net or 0
         button("widen-bottleneck",
           bigger and ("Put a "..string.lower(City.sizeOf(bigger).name).." main in   $"..bore)
-            or "That main is already the largest there is",
+            or (e.size=="large" and not city:unlocked("massive") and "Massive mains are not open yet"
+              or "That main is already the largest there is"),
           M,dy+52,CW,36,
           function() act("replacePipe",eid,bigger,e.grade) end,
           bigger~=nil and city.money>=bore,
           bigger and ("Digs out the "..string.lower(City.sizeOf(e.size or "small").name)..
             " main holding this customer back and lays a "..string.lower(City.sizeOf(bigger).name)..
             " one carrying "..City.sizeOf(bigger).cap..". Nothing widens a main in the ground.")
-            or "Nothing carries more than a large main.",
+            or (e.size=="large" and city:unlockHint("massive") and ("Massive mains: "..
+              string.lower(city:unlockHint("massive"))..".") or "Nothing carries more than a massive main."),
           false,P.good,true)
         button("inspect-bottleneck","Inspect that main",M,dy+94,CW,30,
           function() act("focusEdge",eid) end,true,"Select the main and centre on it")
@@ -578,10 +580,12 @@ local function inspectEdge(e,y)
     local target=math.min(city.lining or 1,math.max(e.grade or 1,state.grade or 1))
     local q=city:replaceQuote(e.id,spec.key,target)
     local same=spec.key==(e.size or "") and target==(e.grade or 1)
-    button("replace-"..spec.key,spec.name.."  $"..(q and q.net or 0),M+(i-1)*102,ry,96,32,
+    local open=city:sizeAllowed(spec)
+    button("replace-"..spec.key,spec.name:sub(1,3).." $"..(q and q.net or 0),M+(i-1)*76,ry,72,32,
       function() act("replacePipe",e.id,spec.key,target) end,
-      not same and q~=nil and city.money>=(q and q.net or 0),
+      open and not same and q~=nil and city.money>=(q and q.net or 0),
       same and "This is already what is in the ground."
+        or not open and ("Massive mains: "..string.lower(city:unlockHint(spec.unlock))..".")
         or ("A "..string.lower(spec.name).." "..string.lower(City.GRADES[target].name)..
             " main carrying "..spec.cap..". $"..(q and q.total or 0).." of work, less $"..
             (q and q.salvage or 0).." of scrap on the one that comes out."),
@@ -703,10 +707,14 @@ local function buildPanel()
     text("MAIN",M,y,"small",P.textDim)
     y=y+18
     for i,spec in ipairs(City.PIPE_SIZES) do
-      local bx=M+(i-1)*102
-      button("size-"..spec.key,spec.name.."  "..spec.cap,bx,y,96,30,function() state.size=spec.key end,true,
-        spec.name.." main: carries "..spec.cap..". Nothing widens a main. If this one is too "..
-        "small in a year it comes out of the ground and a bigger one goes in.",
+      local bx=M+(i-1)*76
+      local open=city:sizeAllowed(spec)
+      if not open and state.size==spec.key then state.size="large" end
+      button("size-"..spec.key,spec.name.." "..spec.cap,bx,y,72,30,function() state.size=spec.key end,open,
+        open and (spec.name.." main: carries "..spec.cap..". Nothing widens a main. If this one is too "..
+          "small in a year it comes out of the ground and a bigger one goes in.")
+          or ("A massive main carries "..spec.cap..". "..city:unlockHint(spec.unlock)..
+            ", once one trunk into a hub is worth more than a row of large ones."),
         (state.size or "small")==spec.key,Graph.COMMODITIES[state.commodity].color)
     end
     y=y+36
@@ -1137,55 +1145,6 @@ local function customers()
     state.clientSort=state.clientSort=="income" and "urgency" or "income"
   end,true,"Switch between potential daily revenue and the nearest service or offer deadline")
   y=y+46
-  if #city.tenders>0 then
-    heading("MUNICIPAL TENDERS",y)
-    text("The council pays for supply held at a level, not for one good day.",
-      M,y+20,"small",P.textFaint,CW)
-    y=y+60
-    for _,t in ipairs(city.tenders) do
-      local have=(city.flowBy[t.commodity] or 0)
-      local short=city:tenderShortfall(t)
-      local meeting=short<=0
-      local spec=Graph.COMMODITIES[t.commodity]
-      drop(t.commodity,M+9,y+10,9)
-      text("Deliver "..t.units.." "..string.lower(spec.name).." a day",M+24,y,"body",P.text)
-
-      if t.status=="offered" then
-        -- An offer. Say the whole deal in a sentence, then ask.
-        text("on "..t.days.." day closes, for $"..t.reward..".",M,y+24,"small",P.textDim,CW)
-        text("You deliver "..have.." now"..
-             (short>0 and (", so you need "..short.." more.") or ", which already meets it."),
-          M,y+42,"small",short>0 and P.warn or P.good,CW)
-        button("tender-accept-"..t.id,"Accept   $"..t.bond.." bond",M,y+64,182,34,
-          function() act("acceptTender",t.id) end,city.money>=t.bond,
-          "Posting the bond signs the contract. Deliver "..t.units.." "..t.commodity..
-          " on "..t.days.." day closes and you get the $"..t.reward.." plus the bond back. "..
-          "Miss the deadline and the bond is forfeited.",false,P.good,short<=0)
-        button("tender-decline-"..t.id,"Decline",M+190,y+64,110,34,
-          function() act("declineTender",t.id) end,true,
-          "Costs nothing. An offer nobody answers is withdrawn in a few days anyway.")
-        lg.setFont(R.fonts.tiny); lg.setColor(P.textFaint)
-        lg.printf("offer open until day "..t.offerExpires,M,y+104,CW,"left")
-        y=y+124
-      else
-        -- Signed. Show what is still owed and how long there is to do it.
-        text(t.met.." of "..t.days.." closes met   /   $"..t.reward.." plus $"..t.bond.." bond",
-          M,y+24,"small",P.textDim,CW)
-        text(meeting and ("Delivering "..have..": this close counts.")
-          or ("Delivering "..have..", "..short.." short. This close does not count."),
-          M,y+42,"small",meeting and P.good or P.warn,CW)
-        local bw=CW*math.min(1,t.met/t.days)
-        lg.setColor(P.panelEdge); lg.rectangle("fill",M,y+64,CW,4,2)
-        lg.setColor(meeting and P.good or P.warn); lg.rectangle("fill",M,y+64,bw,4,2)
-        local left=t.expires-city.day+1
-        lg.setFont(R.fonts.tiny); lg.setColor(left<=2 and P.bad or P.textFaint)
-        lg.printf(left.." day"..(left==1 and "" or "s").." left to finish, or the bond is lost",
-          M,y+74,CW,"left")
-        y=y+100
-      end
-    end
-    line(y); y=y+22
-  end
   for _,prospect in ipairs({true,false}) do
     heading(prospect and "CONNECTION ENQUIRIES" or "ACTIVE CUSTOMERS",y)
     y=y+30
@@ -1480,10 +1439,10 @@ local function report()
   text("$"..city.money,x+310,y+96,"big",P.energy)
   text(string.format("%d supply shortfalls  /  %d customers lost",r.unhappy,#r.left),
     x+32,y+144,"body",r.unhappy>0 and P.warn or P.good)
-  local reward=(r.bonus or 0)+(r.tender or 0)
+  local reward=r.bonus or 0
   if reward>0 then
     lg.setColor(P.with(P.good,0.12)); lg.rectangle("fill",x+24,y+174,w-48,44,5)
-    text(r.achievement or ("Municipal award!  +$"..reward),x+32,y+186,"body",P.good,w-64)
+    text(r.achievement or ("Municipal grant!  +$"..reward),x+32,y+186,"body",P.good,w-64)
   else
     text(profit>=0 and r.unhappy==0 and "A good day's work. Your city keeps moving."
       or "A new day to get the network back on track.",x+32,y+183,"body",P.textDim,w-64)
@@ -1503,16 +1462,16 @@ local function report()
   else
     button("report-clients","Review customers",x+290,newsY,258,32,function()
       state.modal=nil; state.tab="customers"; state.scroll=0
-    end,true,"Review offers, deadlines and tenders")
+    end,true,"Review offers and deadlines")
   end
-  local event=r.event or (r.tenderNew and "A new council tender is waiting in Clients.")
+  local event=r.event
   if event then text(event,x+32,y+274,"small",P.energy,w-64) end
   button("report-details",state.reportDetails and "Hide accounting" or "Show accounting",x+32,y+316,w-64,30,
     function() state.reportDetails=not state.reportDetails end,true,"Revenue, expenses, repairs, investments and awards")
   if state.reportDetails then
     local entries={
       {"Revenue",r.revenue},{"Operating costs",-r.expenses},{"Crew repairs",-(r.crewCost or 0)},
-      {"Investment profit / loss",r.interest or 0},{"Tenders & grants",reward},{"Bonds forfeited",-(r.tenderLost or 0)},
+      {"Investment profit / loss",r.interest or 0},{"Grants",reward},
     }
     for i,v in ipairs(entries) do
       text(v[1],x+32,y+360+(i-1)*24,"small",P.textDim)
@@ -1728,10 +1687,37 @@ function UI.draw(c,s,action)
   button("companies","Companies",184,H-44,142,32,
     function() act("openSlots") end,true,
     "Six companies, kept side by side. Switch, start another, or delete one.")
-  local message=state.toast or (state.tool and (string.upper(state.tool).." selected: click the map to place") or "Operations open")
+  local message=state.toast or (state.tool and (string.upper(state.tool).." selected: click the map to place, right-click or Esc to put it down")
+    or (state.node or state.edge) and "Click it again, right-click or press Esc to deselect" or "Operations open")
   text(message,UI.width+20,H-34,"small",state.toastBad and P.bad or P.textDim,math.max(100,W-UI.width-250))
   button("end-day","Close day "..city.day,W-193,H-46,173,36,function() act("endDay") end,
     not city.bankrupt,"Settle revenue, expenses, investments and pipe wear (Enter)",true,P.good)
+
+  -- The opening guide does not only say what to press: it points at it. A
+  -- sidebar button gets a ring and an arrow from the map side; the bottom bar
+  -- gets one from above. Map targets are drawn with the world.
+  local target=not state.modal and E.tutorialTarget(city,state)
+  if target and target.button then
+    for _,b in ipairs(UI.buttons) do
+      if b.id==target.button then
+        local pulse=0.5+0.5*math.sin(R.t*5)
+        local bob=6*math.sin(R.t*6)
+        lg.setColor(P.with(P.good,0.55+0.45*pulse)); lg.setLineWidth(3)
+        lg.rectangle("line",b.x-4,b.y-4,b.w+8,b.h+8,6)
+        if b.x>W/2 or b.y>H-70 then
+          local ax,ay=b.x+b.w/2,b.y-14+bob
+          lg.polygon("fill",ax,ay,ax-11,ay-16,ax+11,ay-16)
+          lg.rectangle("fill",ax-4,ay-34,8,19)
+        else
+          local ax,ay=b.x+b.w+14+bob,b.y+b.h/2
+          lg.polygon("fill",ax,ay,ax+16,ay-11,ax+16,ay+11)
+          lg.rectangle("fill",ax+15,ay-4,19,8)
+        end
+        lg.setLineWidth(1)
+        break
+      end
+    end
+  end
   if state.modal then UI.buttons={}; report() end
 
   local mx,my=love.mouse.getPosition()

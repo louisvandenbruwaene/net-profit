@@ -805,10 +805,33 @@ function Draw.world(city, cam, state)
     end
   end
 
-  if city.day==1 and not city.guideDismissed and city.unserved>0 then
-    local x,y=cam:toScreen(city.firstSource.x,city.firstSource.y)
-    lg.setColor(P.with(P.good,0.45)); lg.setLineWidth(2)
-    lg.circle("line",x,y,34+5*math.sin(R.t*3))
+  -- The opening guide, where it points at the map: the spring to sink the well
+  -- on, the house to sign, or a ghost of the drag from one to the other.
+  local guide = E.tutorialTarget(city,state)
+  if guide and (guide.x or guide.from) then
+    local pulse = 0.5+0.5*math.sin(R.t*5)
+    lg.setColor(P.with(P.good,0.55+0.45*pulse)); lg.setLineWidth(3)
+    if guide.from then
+      local ax,ay = cam:toScreen(guide.from.x,guide.from.y)
+      local bx,by = cam:toScreen(guide.to.x,guide.to.y)
+      lg.circle("line",ax,ay,30+4*pulse)
+      lg.circle("line",bx,by,30+4*pulse)
+      local len = math.max(1,math.sqrt((bx-ax)^2+(by-ay)^2))
+      lg.setLineWidth(2)
+      for d=0,len,16 do
+        local t0,t1 = d/len,math.min(1,(d+8)/len)
+        lg.line(ax+(bx-ax)*t0,ay+(by-ay)*t0,ax+(bx-ax)*t1,ay+(by-ay)*t1)
+      end
+      local t = (R.t*0.6)%1
+      lg.circle("fill",ax+(bx-ax)*t,ay+(by-ay)*t,8)
+    else
+      local x,y = cam:toScreen(guide.x,guide.y)
+      lg.circle("line",x,y,30+5*pulse)
+      local ty = y-36+6*math.sin(R.t*6)
+      lg.polygon("fill",x,ty,x-11,ty-16,x+11,ty-16)
+      lg.rectangle("fill",x-4,ty-34,8,19)
+    end
+    lg.setLineWidth(1)
   end
   R.drawEffects(cam)
   local mx,my = love.mouse.getPosition()
