@@ -976,7 +976,7 @@ local function buildPanel()
   local bill,count=city:repairAllCost()
   if count>0 then
     button("repair-all","Repair "..count.." mains  $"..bill,M,y,CW,36,function() act("repairAll") end,
-      city.money>=bill,"Repair every damaged main",false,P.bad)
+      city.money>=bill,"Repair every damaged main",false,P.bad,true)
     y=y+44
   else text("All mains sound",M,y,"body",P.good); y=y+28 end
   row("Maintenance crews",(city.crews or 0).." / "..City.crewMax,y)
@@ -1673,28 +1673,6 @@ function UI.draw(c,s,action)
     lg.rectangle("fill",UI.width-9,165+(H-266)*math.min(1,state.scroll/UI.maxScroll),3,30)
   end
 
-  -- Map tools stay available while an inspector or a long list is open.
-  -- Only the trades the company actually runs get a filter. A button for a
-  -- trade nobody has a licence for filters nothing.
-  local filters={"all"}
-  for _,name in ipairs(Graph.TRADES) do
-    if city.licences[name] then filters[#filters+1]=name end
-  end
-  local filterWidth=math.min(77,(W-UI.width-330)/#filters)
-  for i,name in ipairs(filters) do
-    button("filter-"..name,name=="all" and "All trades" or name:sub(1,1):upper()..name:sub(2),
-      UI.width+16+(i-1)*filterWidth,138,filterWidth-5,28,function() state.filter=name~="all" and name or nil end,
-      true,"Filter visible utility lines and customers",(state.filter or "all")==name,
-      name=="all" and P.flow or Graph.COMMODITIES[name].color)
-  end
-  button("bottlenecks","Supply overlay",UI.width+24+#filters*filterWidth,138,130,28,function() state.bottlenecks=not state.bottlenecks end,
-    true,"Orange: full or damaged pipes. Blue: this client's supply route.",state.bottlenecks,P.warn)
-  button("quick-build","Build tools",W-151,138,130,28,function()
-    state.node,state.edge,state.tool=nil,nil,nil; state.tab="network"; state.scroll=0
-  end,true,"Return to construction without moving the map")
-  if state.bottlenecks then
-    text("Orange: full or damaged. Blue: selected route.",UI.width+20,177,"tiny",P.warn)
-  end
   -- The first day, one step at a time. Everything the player will go on doing
   -- for the rest of the game happens once here, in order, with the panel saying
   -- only what the next action is.

@@ -389,13 +389,14 @@ local function drawDistrictGround(city, cam)
       local x, y = cam:toScreen(d.x, d.y)
       local w, h = d.w * cam.scale, d.h * cam.scale
       if d.island then
-        -- Rock in the water, with a shoreline. Rounded hard, because nothing
-        -- out there was laid out by a surveyor.
+        -- A speck of rock in the water, not a surveyed lot: a smooth oval,
+        -- never a straight edge.
+        local cx,cy=x+w/2,y+h/2
         lg.setColor(d.owned and {0.13,0.13,0.11,0.95} or {0.10,0.11,0.11,0.9})
-        lg.rectangle("fill",x,y,w,h,math.min(w,h)*0.34)
+        lg.ellipse("fill",cx,cy,w/2,h/2)
         lg.setColor(0.52,0.48,0.38,d.owned and 0.55 or 0.3)
         lg.setLineWidth(2)
-        lg.rectangle("line",x,y,w,h,math.min(w,h)*0.34)
+        lg.ellipse("line",cx,cy,w/2,h/2)
       else
         lg.setColor(d.owned and {0.075,0.12,0.13,0.8} or {0.09,0.11,0.14,0.5})
         lg.rectangle("fill",x+4,y+4,w-8,h-8,8)
@@ -411,21 +412,24 @@ local function drawDistrictChrome(city, cam, state)
     if cam:seesBox(d.x, d.y, d.x + d.w, d.y + d.h) then
     local x, y = cam:toScreen(d.x, d.y)
     local w, h = d.w * cam.scale, d.h * cam.scale
+    local cx, cy = x + w / 2, y + h / 2
     if d.owned then
       lg.setColor(P.with(P.panelEdge, 0.55))
-      lg.rectangle("line", x, y, w, h)
+      if d.island then lg.ellipse("line", cx, cy, w / 2, h / 2)
+      else lg.rectangle("line", x, y, w, h) end
     else
       -- Ground you do not own is visibly not yours, but still legible enough
       -- to plan towards.
       lg.setColor(P.with(P.bg, 0.62))
-      lg.rectangle("fill", x, y, w, h)
+      if d.island then lg.ellipse("fill", cx, cy, w / 2, h / 2)
+      else lg.rectangle("fill", x, y, w, h) end
       local hot = state.district == d.id
       local buyable = not city:districtError(d.id)
       lg.setColor(P.with(hot and P.energy or buyable and P.good or P.textFaint, hot and 0.9 or 0.45))
       lg.setLineWidth(hot and 2 or 1)
-      lg.rectangle("line", x + 2, y + 2, w - 4, h - 4)
+      if d.island then lg.ellipse("line", cx, cy, w / 2 - 2, h / 2 - 2)
+      else lg.rectangle("line", x + 2, y + 2, w - 4, h - 4) end
       if cam.scale > 0.19 then
-        local cx, cy = x + w / 2, y + h / 2
         label(string.upper(d.name), cx, cy - 20, buyable and P.text or P.textDim, R.fonts.body)
         if (d.population or 0) > 0 then
           label("POP " .. d.population, cx, cy - 44, P.textDim, R.fonts.tiny)
@@ -440,9 +444,9 @@ local function drawDistrictChrome(city, cam, state)
       end
     end
     if cam.scale > 0.34 and d.owned then
-      label(string.upper(d.name), x + w / 2, y + 6, P.textFaint, R.fonts.tiny)
+      label(string.upper(d.name), cx, (d.island and cy - h / 2 + 16) or y + 6, P.textFaint, R.fonts.tiny)
       if (d.population or 0) > 0 then
-        label("POP " .. d.population, x + w / 2, y + 24, P.textDim, R.fonts.tiny)
+        label("POP " .. d.population, cx, (d.island and cy - h / 2 + 34) or y + 24, P.textDim, R.fonts.tiny)
       end
     end
     end

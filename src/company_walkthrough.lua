@@ -571,12 +571,7 @@ function Walk.start(app,mode)
     click("tab-ambitions")
     click("ambition-service")
     check(c.ambition=="service","goal selection is actionable")
-    click("filter-water")
-    check(app.state.filter=="water","trade filters update the map")
-    click("bottlenecks")
-    check(app.state.bottlenecks,"supply overlay is available from every tab")
-    click("quick-build")
-    check(findButton("source") and findButton("tool-junction"),"quick build reveals essential tools")
+    click("tab-network")
     click("advanced")
     -- Equipment arrives as the company grows rather than sitting behind a wall
     -- of prices on day one.
@@ -627,7 +622,6 @@ function Walk.start(app,mode)
     local power=assert(c:layPipe(hub.id,n.id,"power","small"))
     local ax,ay,bx,by=Draw.edgePoints(app.camera(),c,power)
     check(ax==ax and ay==ay and bx==bx and by==by,"shared power lines have finite rendering coordinates")
-    click("filter-all")
     app.state.node=n.id
     love.draw()
     check(next(E.route(c,n.id))~=nil,"overlay traces a customer to supply")
@@ -751,21 +745,6 @@ function Walk.start(app,mode)
   check(findButton("stats-back")~=nil,"goals have a clear way back")
   click("stats-back")
   click("tab-network")
-  local c=app.city()
-  local licences={}
-  for _,name in ipairs(require("graph").TRADES) do licences[name]=c.licences[name]; c.licences[name]=true end
-  love.draw()
-  for i,a in ipairs(UI.buttons) do
-    if a.y==138 then
-      for j=i+1,#UI.buttons do
-        local b=UI.buttons[j]
-        if b.y==138 then check(a.x+a.w<=b.x or b.x+b.w<=a.x,"map controls do not overlap with all trades open") end
-      end
-    end
-  end
-  for name,value in pairs(licences) do c.licences[name]=value end
-  -- False and missing licence entries both mean closed.
-  for _,name in ipairs(require("graph").TRADES) do if licences[name]==nil then c.licences[name]=nil end end
   click("tab-finance")
   capture("net-profit-test-compact",app,1100,700)
 end

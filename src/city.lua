@@ -753,8 +753,9 @@ City.ISLAND_NAMES = {
 
 City.ISLAND = {
   chance = 0.34,        -- of a surveyed sea cell having anything in it at all
-  minW = 380, maxW = 560,
-  minH = 240, maxH = 360,
+  minW = 460, maxW = 680,
+  minH = 300, maxH = 400,
+  coastGap = 200,        -- minimum sea between an island's near edge and the coast
 }
 
 -- Bring one cell into being.
@@ -830,7 +831,9 @@ function City:surveyIsland(col, row)
     d.h = self:rand(City.ISLAND.minH, City.ISLAND.maxH)
     local cellX, cellY = (col - 1) * City.MAP.w, (row - 1) * City.MAP.h
     d.x = cellX + self:rand(80, City.MAP.w - d.w - 80)
-    d.y = cellY + self:rand(70, City.MAP.h - d.h - 70)
+    -- The south edge of the cell borders the coast (row 0) or the next
+    -- stretch of sea, so an island keeps clear water between it and that edge.
+    d.y = cellY + self:rand(40, City.MAP.h - d.h - City.ISLAND.coastGap)
     d.name = City.ISLAND_NAMES.head[self:random(#City.ISLAND_NAMES.head)]
       .. City.ISLAND_NAMES.tail[self:random(#City.ISLAND_NAMES.tail)]
   end)
