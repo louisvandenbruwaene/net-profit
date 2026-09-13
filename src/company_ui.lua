@@ -1316,8 +1316,7 @@ local function mapTab()
     local d=city.districts[state.district]
     if d then
       single(d.name,M,y,"mid",P.energy,CW)
-      text(d.owned and "You own this land." or "Buy this land to build here.",M,y+28,"small",P.textDim,CW)
-      y=y+100
+      y=y+36
       if (d.population or 0)>0 then
         row("People",d.population,y,P.text,
           "Good supply brings more people. Poor supply makes people leave.")
@@ -1672,42 +1671,6 @@ function UI.draw(c,s,action)
     lg.setColor(P.panelEdge); lg.rectangle("fill",UI.width-9,165,3,H-236)
     lg.setColor(P.textDim)
     lg.rectangle("fill",UI.width-9,165+(H-266)*math.min(1,state.scroll/UI.maxScroll),3,30)
-  end
-
-  -- The strip above the map: the next milestone, or whatever is on fire.
-  -- Silent when nothing needs attention, so the map keeps the space instead.
-  local leaks=0
-  for _,pipe in ipairs(city.g.edges) do if pipe.alive and pipe.leaking then leaks=leaks+1 end end
-  local requests=(leaks==0 and city.unserved==0) and #city:clientList(true) or 0
-  if leaks>0 or city.unserved>0 or requests>0 then
-    lg.setColor(P.with(P.bg,0.94)); lg.rectangle("fill",UI.width+1,81,W-UI.width-1,47)
-    local bx=UI.width+22
-    if leaks>0 or city.unserved>0 then
-      local msg={}
-      if leaks>0 then msg[#msg+1]=leaks.." leaking main"..(leaks==1 and "" or "s") end
-      if city.unserved>0 then msg[#msg+1]=city.unserved.." customer"..(city.unserved==1 and "" or "s").." short" end
-      single(table.concat(msg," / "),bx,97,"body",leaks>0 and P.bad or P.warn, W-360-bx-12)
-      if leaks>0 then
-        local bill,count=city:repairAllCost()
-        button("banner-repair","Repair all  $"..bill,W-360,90,150,30,function() act("repairAll") end,
-          city.money>=bill,"Fix every damaged main at once",false,P.bad,true)
-        button("banner-next","Worst main",W-200,90,110,30,function()
-          local worst
-          for _,pipe in ipairs(city.g.edges) do
-            if pipe.alive and pipe.leaking and (not worst or pipe.cap<worst.cap) then worst=pipe end
-          end
-          if worst then act("focusEdge",worst.id) end
-        end,true,"Inspect the main losing the most capacity (L)")
-      elseif city.unserved>0 then
-        button("banner-short","Who is short?",W-200,90,150,30,function()
-          local short=city:shortCustomers()[1]
-          if short then act("focusNode",short.id) end
-        end,true,"Open the first customer who is not getting what they signed for, and say why")
-      end
-    else
-      text(requests.." open request"..(requests==1 and "" or "s"),bx,97,"body",P.textDim)
-      button("review-requests","View requests",W-200,90,150,30,function() state.tab="customers"; state.scroll=0 end)
-    end
   end
 
   -- Map tools stay available while an inspector or a long list is open.
