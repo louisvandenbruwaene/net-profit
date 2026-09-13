@@ -63,6 +63,12 @@ Graph.KINDS = {
   -- A depot buffers a commodity overnight: surplus production goes in at the
   -- close, and the next day it feeds the network like a small second well.
   depot    = { name = "DEPOT",    ports = 3,  throughput = 999, cost = 190, color = {0.62, 0.56, 0.98} },
+  -- The people network. A stop is where a district boards a road or a route, a
+  -- filling station sells petrol to the drivers passing it, and a resort is
+  -- somewhere worth travelling to.
+  stop     = { name = "STOP",     ports = 6,  throughput = 999, cost = 120,  color = {0.94, 0.84, 0.44} },
+  station  = { name = "STATION",  ports = 3,  throughput = 999, cost = 260,  color = {0.98, 0.62, 0.34} },
+  resort   = { name = "RESORT",   ports = 4,  throughput = 999, cost = 4800, color = {0.98, 0.58, 0.74} },
   -- Customers. Placed by the world, never by the player.
   client   = { name = "CLIENT",   ports = 3,  throughput = INF, cost = 0,   color = {0.98, 0.62, 0.35} },
 }
@@ -97,6 +103,9 @@ Graph.COMMODITIES = {
             color = {0.60, 0.62, 0.70}, fill = {0.045, 0.05, 0.07} },
   food  = { name = "FOOD",  order = 5, mark = "box",  conduit = "ROAD", form = "solid",  role = "utility",
             color = {0.96, 0.55, 0.42}, fill = {0.78, 0.36, 0.26} },
+  internet = { name = "INTERNET", order = 6, mark = "signal", conduit = "FIBRE", form = "data", role = "utility",
+            landed = false,
+            color = {0.40, 0.92, 0.82}, fill = {0.16, 0.62, 0.56} },
 
   -- Feedstock: what the works eat.
   wheat = { name = "WHEAT", order = 10, mark = "box", conduit = "ROAD", form = "solid", role = "feed",
@@ -120,6 +129,12 @@ Graph.COMMODITIES = {
             color = {0.74, 0.74, 0.78}, fill = {0.52, 0.52, 0.56} },
   diesel= { name = "DIESEL",order = 18, mark = "drop",conduit = "MAIN", form = "liquid", role = "feed",
             color = {0.86, 0.64, 0.30}, fill = {0.60, 0.40, 0.16} },
+  -- Fuel is sold to people rather than to a customer on a main: it goes down a
+  -- main to a filling station and out of it by the tankful.
+  gasoline={ name = "GASOLINE",order = 19, mark = "drop",conduit = "MAIN", form = "liquid", role = "fuel",
+            color = {0.98, 0.66, 0.34}, fill = {0.86, 0.46, 0.16} },
+  rubber= { name = "RUBBER",order = 20, mark = "box", conduit = "ROAD", form = "solid", role = "feed",
+            color = {0.56, 0.54, 0.50}, fill = {0.28, 0.27, 0.24} },
 
   -- Materials: what the company builds with.
   steel = { name = "STEEL", order = 30, mark = "box", conduit = "ROAD", form = "solid", role = "material",
@@ -130,12 +145,17 @@ Graph.COMMODITIES = {
             color = {0.60, 0.88, 0.88}, fill = {0.34, 0.64, 0.66} },
   concrete={name = "CONCRETE",order=33,mark = "box", conduit = "ROAD", form = "solid", role = "material",
             color = {0.70, 0.70, 0.72}, fill = {0.46, 0.46, 0.50} },
+
+  -- Vehicles: taken in at the yards like materials, and sold to the districts.
+  cars  = { name = "CARS",  order = 35, mark = "box", conduit = "ROAD", form = "solid", role = "vehicle",
+            landed = false,
+            color = {0.90, 0.42, 0.48}, fill = {0.66, 0.22, 0.28} },
 }
 
 -- The four trades the company sells by the day and holds a licence for. The
 -- sidebar's trade row is these, and nothing else: a player picking a main to lay
 -- is choosing a business, not shopping through nineteen tables.
-Graph.TRADES = { "water", "power", "beer", "oil" }
+Graph.TRADES = { "water", "power", "beer", "oil", "internet" }
 
 -- Everything, in a stable order, for the places that really do mean everything.
 Graph.ALL = {}
@@ -416,6 +436,10 @@ function Graph:buildNetwork(uncapped, commodity)
         -- A yard takes materials in and holds them for the builders.
         net:arc(vout, TT, uncapped and INF or node.intake[commodity])
         node._drainArc = #net.arcs - 1
+      elseif node.kind == "station" and commodity == "gasoline" then
+        -- A filling station is a customer for petrol, sized to its tank.
+        net:arc(vout, TT, uncapped and INF or (node.fuelWanted or 30))
+        node._drainArc = #net.arcs - 1
       elseif node.kind == "works" and commodity and (node.wants or {})[commodity] then
         -- A works is a customer for each of its inputs, and it asks for exactly
         -- what its rated output would eat.
@@ -455,7 +479,7 @@ function Graph:maxflow(uncapped, commodity)
   local served, produced = {}, {}
   for _, node in ipairs(self.nodes) do
     if node.alive and node._drainArc and (node.kind == "client" or node.kind == "sink"
-       or node.kind == "exchange" or node.kind == "works" or node.kind == "dc") then
+       or node.kind == "exchange" or node.kind == "works" or node.kind == "dc" or node.kind == "station") then
       local a = net.arcs[node._drainArc]
       served[node.id] = a.cap0 - a.cap
     end

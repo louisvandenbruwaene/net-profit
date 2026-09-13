@@ -19,7 +19,9 @@ City.price = {
   -- replaces, not like the pipe fitting it resembles.
   exchange = 1400, dc = 1500,
   terminal = 2200,
+  stop = 120, station = 260, resort = 4800,
   powerLicence = 340, beerLicence = 600, oilLicence = 1500, foodLicence = 900,
+  internetLicence = 2400,
   qualityBase = 140,
   ads = 90,
 }
@@ -113,6 +115,14 @@ City.FORMS = {
     liningRate = 0.40, armourRate = 0.72,
     upkeep = 0.45, upkeepPerM = 0.0023,
   },
+  -- Fibre is cable carrying a signal rather than a current: cheaper to dig in
+  -- than a power line, and it fouls just the same.
+  data = {
+    tiein = 18, trench = 0.13, bore = 9, borePerM = 0.034,
+    repairBase = 18, repairPerLost = 7, repairPerM = 0.036,
+    liningRate = 0.40, armourRate = 0.72,
+    upkeep = 0.40, upkeepPerM = 0.0020,
+  },
   -- Solids go by road, which is cheap to lay and dear to run, and short: a
   -- lorry route across three districts is a railway waiting to be built.
   solid = {
@@ -152,6 +162,7 @@ City.MATERIALS = {
   -- is no railway yet and no way to build one.
   rail     = { steel = 12 },      -- per kilometre of line
   highway  = {},
+  resort   = { concrete = 40, glass = 20 },
 }
 
 -- How much room a yard has for materials, and how fast it takes delivery.
@@ -266,13 +277,7 @@ function City:bulkError(a, b, mode)
     return "bulk runs between havens and distribution centres"
   end
   if spec.needs == "coast" then
-    -- The river reaches the sea, so a berth on its bank is as good as one on
-    -- the coast itself: a barge does not care which water it is floating on.
-    local function afloat(n)
-      local d = self:districtAt(n.x, n.y)
-      return self:onCoast(n.x, n.y) or (d and d.island) or self:nearRiver(n.x, n.y)
-    end
-    if not (afloat(na) and afloat(nb)) then return "a ship calls at the coast or the river, not inland" end
+    if not (self:afloat(na) and self:afloat(nb)) then return "a ship calls at the coast or the river, not inland" end
   elseif spec.needs == "air" then
     if not (na.haven == "airfield" and nb.haven == "airfield") then
       return "air freight flies between air freight havens"
@@ -321,6 +326,8 @@ City.GOODS = {
   planks = { importCost = 3.2 },
   glass  = { importCost = 5.5 },
   concrete = { importCost = 2.8 },
+  gasoline = { importCost = 4.5, wholesale = 20, wholesalePerUnit = 1.0, sourceUpkeep = 10 },
+  rubber = { importCost = 2.6 },
 }
 
 -- Built once, at load: every commodity gets a full price list, made of its
@@ -481,6 +488,10 @@ City.CLIENTS = {
   -- A market is the shop end of the food chain: wheat becomes food becomes a
   -- queue of people who will pay for it.
   market  = { name = "MARKET",  commodity = "food",  demand = {3, 6}, rate = 9,  patience = 2, weight = 6 },
+  -- A household that wants a line as well as a tap. A district that leans to
+  -- houses leans to subscribers at half the rate.
+  subscriber = { name = "SUBSCRIBER", commodity = "internet", demand = {1, 3}, rate = 14, patience = 2,
+                 weight = 5, follows = "house" },
 }
 
 City.OBSTACLES = {
@@ -533,7 +544,8 @@ function City.new(opts)
   self.investments = {}
   self.obstacles = {}
   self.deposits = {}
-  self.licences = { water = true, power = false, beer = false, oil = false, food = false }
+  self.licences = { water = true, power = false, beer = false, oil = false, food = false, internet = false }
+  self.links = {}
   self.permits = { park = false, river = false, bedrock = false }
   self.sourcesBought = 0
   self.log = {}
@@ -668,6 +680,11 @@ City.ARCHETYPES = {
   { key = "frontier", label = "WILDERNESS", rough = 4, water = 2, oil = 3,
     bias = { house = 3, workshop = 2, factory = 3 },
     story = "Nobody out here yet. The deepest seams on the map are, though." },
+  -- Only out past the second ring: a town that was here before the company,
+  -- full of people and with nobody moving them.
+  { key = "city",     label = "CITY",       rough = 2, water = 3, oil = 0, population = 900,
+    bias = { house = 12, estate = 6, pub = 4, workshop = 4 },
+    story = "A town that was here before the company. Thousands of people, and nobody moving them." },
 }
 
 -- What a deposit at this distance can give in a day, whatever is built on top
@@ -773,11 +790,16 @@ function City:surveyCell(col, row)
           or (a.key == "farm" and math.max(1, 8 - ring))
           or (a.key == "frontier" and math.min(9, ring * 3))
           or (a.key == "works" and math.min(7, 1 + ring))
+          or (a.key == "city" and (ring >= 2 and 3 or 0))
           or 4
         for _ = 1, weight do pool[#pool + 1] = a end
       end
       d.spec = pool[self:random(#pool)]
       d.archetype = d.spec.key
+      if d.spec.population then
+        d.population = d.spec.population + 150 * ring
+        d.founded = d.population
+      end
       d.name = City.NAMES.head[self:random(#City.NAMES.head)]
         .. City.NAMES.tail[self:random(#City.NAMES.tail)]
     end)
@@ -1578,6 +1600,19 @@ City.RECIPES = {
   purifier   = { name = "PURIFICATION CENTRE", makes = "water", rate = 16, cost = 2600, upkeep = 24,
                  inputs = {}, materials = { steel = 20, concrete = 20 }, coastal = true,
                  blurb = "No deposit, no well: turns the sea itself into supply. Stands only on the coast." },
+
+  -- The businesses a population opens. Each is hidden until there is somebody
+  -- to sell to: nobody refines petrol for a city with no roads.
+  petrolworks= { name = "PETROL WORKS",   makes = "gasoline", rate = 8, cost = 2400, upkeep = 22,
+                 inputs = { oil = 2, power = 1 }, materials = { steel = 30, concrete = 20 }, unlock = "fuel",
+                 blurb = "Crude becomes what every car in the city burns, sold at your filling stations." },
+  carworks   = { name = "CAR WORKS",      makes = "cars",   rate = 3,  cost = 5200, upkeep = 40,
+                 inputs = { steel = 2, glass = 1, rubber = 1, power = 3 }, materials = { steel = 60, concrete = 40 },
+                 unlock = "fuel",
+                 blurb = "Steel, glass, imported rubber and power. Cars reaching a yard are sold to the districts, and more drivers pay more tolls and buy more petrol." },
+  datacentre = { name = "DATA CENTRE",    makes = "internet", rate = 20, cost = 9000, upkeep = 70,
+                 inputs = { water = 2, power = 3 }, materials = { steel = 80, concrete = 60 }, unlock = "internet",
+                 blurb = "Drinks water and power by the tanker-load and puts out the internet, cabled to subscribers like power to a workshop." },
 }
 
 -- Stable order for every list of works in the interface.
@@ -1795,7 +1830,7 @@ end
 
 City.BUILDABLE = { junction = true, manifold = true, pump = true, tower = true,
                    gate = true, depot = true, terminal = true, exchange = true,
-                   works = true, dc = true }
+                   works = true, dc = true, stop = true, station = true, resort = true }
 
 --------------------------------------------------------------------------------
 -- Hubs
@@ -2032,6 +2067,12 @@ function City:build(x, y, kind, commodity)
   end
   local recipe = kind == "works" and City.RECIPES[commodity or ""] or nil
   if kind == "works" and not recipe then return nil, "choose what the works makes" end
+  local unlock = City.BUILD_UNLOCK[kind] or (recipe and recipe.unlock)
+  if unlock and not self:unlocked(unlock) then return nil, "not available yet" end
+  if kind == "resort" then
+    local why = self:resortSiteError(x, y)
+    if why then return nil, why end
+  end
   if recipe and not self:licensed(recipe.makes) then
     return nil, "no licence for " .. recipe.makes
   end
@@ -2071,6 +2112,12 @@ function City:build(x, y, kind, commodity)
     n.throughput = 999
     n.commodity = commodity or "water"
     n.stored, n.capacityStore = 0, City.depotCapacity
+  elseif kind == "station" then
+    n.throughput = 999
+    n.price, n.fuelWanted = City.PEOPLE.pumpPrice + 1, City.PEOPLE.stationTank
+  elseif kind == "resort" then
+    n.throughput = 999
+    n.level = 1
   elseif kind == "terminal" then
     -- A haven has no commodity and no output: everything the outside world
     -- sells arrives here, in any quantity, and is paid for by the unit as it
@@ -2240,9 +2287,9 @@ function City:wagonError(id, commodity)
   local e = self.g.edges[id]
   if not (e and e.alive and e.bulk) then return "not a bulk line" end
   if not Graph.COMMODITIES[commodity] then return "no such commodity" end
-  if Graph.COMMODITIES[commodity].form == "energy" then
-    return "electricity travels by cable, not by freight"
-  end
+  local form = Graph.COMMODITIES[commodity].form
+  if form == "energy" then return "electricity travels by cable, not by freight" end
+  if form == "data" then return "the internet travels by fibre, not by freight" end
   if not self:licensed(commodity) then return "no licence for that" end
   if (e.wagons or {})[commodity] then return "it already carries that" end
   if e.bulk == "air" then
@@ -2481,6 +2528,7 @@ function City:demolishNode(id)
 
   local refund = math.floor((n.paid or self:nodeCost(n.kind)) * 0.4)
   self.g:killNode(id)
+  self:cutLinks(id)
   self.money = self.money + refund
   self:rebaseOrigin()
   self:refresh()
@@ -2713,11 +2761,13 @@ function City:buySource(commodity, px, py, plant)
   return nil, "no room for a new well"
 end
 
-City.LICENSABLE = { power = true, beer = true, oil = true, food = true }
+City.LICENSABLE = { power = true, beer = true, oil = true, food = true, internet = true }
 
 function City:buyLicence(commodity)
   if not City.LICENSABLE[commodity] then return nil, "unknown trade" end
   if self.licences[commodity] then return nil, "already held" end
+  local unlock = City.LICENCE_UNLOCK[commodity]
+  if unlock and not self:unlocked(unlock) then return nil, "not available yet" end
   local cost = City.price[commodity .. "Licence"]
   if cost > self.money then return nil, "not enough cash" end
   self:spend(cost)
@@ -2795,10 +2845,11 @@ end
 function City:pickClientType(district)
   local bias = district and City.DISTRICTS[district.id] and City.DISTRICTS[district.id].bias
   local pool = {}
-  for _, key in ipairs({"house", "estate", "workshop", "pub", "factory"}) do
+  for _, key in ipairs({"house", "estate", "workshop", "pub", "factory", "subscriber"}) do
     local spec = City.CLIENTS[key]
     if self.licences[spec.commodity] then
-      local weight = (bias and bias[key]) or (bias and 0) or spec.weight
+      local leaning = bias and (bias[key] or (spec.follows and math.floor((bias[spec.follows] or 0) / 2)))
+      local weight = leaning or (bias and 0) or spec.weight
       for _ = 1, weight do pool[#pool + 1] = key end
     end
   end
@@ -2905,7 +2956,8 @@ function City:refresh()
   for _, yard in ipairs(yards) do
     yard.intake = {}
     for _, name in ipairs(Graph.ALL) do
-      if Graph.COMMODITIES[name].role == "material" then
+      local role = Graph.COMMODITIES[name].role
+      if role == "material" or role == "vehicle" then
         local share = math.floor(self:yardIntake(name) / #yards)
         if share > 0 then yard.intake[name] = share end
       end
@@ -2950,6 +3002,8 @@ function City:refresh()
       for key in pairs(n.intake or {}) do wants[key] = true end
     elseif n.kind == "client" and not n.hub and not n.prospect then
       wants[n.commodity] = true
+    elseif n.kind == "station" then
+      wants.gasoline = true
     end
   end
 
@@ -3039,6 +3093,9 @@ function City:refresh()
   -- everything downstream -- income, patience, the short customer report --
   -- reads a per customer number exactly as it always did.
   self:shareHubSupply()
+
+  -- People travel on what the day's solve left in the filling stations.
+  self:routeTrips()
 
   self.revision = (self.revision or 0) + 1
   self.unserved = 0
@@ -3151,7 +3208,7 @@ function City:dailyRevenue()
   for _, n in ipairs(self.g:aliveNodes()) do
     if n.kind == "source" then rev = rev + self:sourceIncome(n) end
   end
-  return rev
+  return rev + self:transitIncome()
 end
 
 function City:leakChance(e)
@@ -3228,7 +3285,15 @@ function City:endDay()
   for _, n in ipairs(self.g:aliveNodes()) do
     if n.kind == "source" then report.revenue = report.revenue + self:sourceIncome(n) end
   end
+  -- 2a. Everybody who travelled today paid for it on the way.
+  local transit = self.transit or {}
+  report.trips, report.tripsCarried = transit.trips or 0, transit.carried or 0
+  report.transitIncome = self:transitIncome()
+  report.revenue = report.revenue + report.transitIncome
   self.money = self.money + report.revenue - report.expenses
+
+  -- 2b. People settle where the service is good and drift away where it is not.
+  report.grown = self:growPopulation()
 
   -- 3. Pipes foul. A leak is a condition, not an event: it keeps costing
   --    capacity every day until somebody pays to fix it.
@@ -3269,6 +3334,10 @@ function City:endDay()
       report.delivered[material] = units
     end
   end
+
+  -- 3a1b. Cars that reached a yard are sold to the districts that want them.
+  report.carsSold, report.carIncome = self:sellCars()
+  report.revenue = report.revenue + report.carIncome
 
   -- 3a2. Connections made today. A hub picks customers up the moment it can
   --      reach them, and the joining fee falls due at the close.
@@ -3433,6 +3502,8 @@ function City:migrate()
   self.licences = self.licences or { water = true }
   if self.licences.power == nil then self.licences.power = false end
   if self.licences.food == nil then self.licences.food = false end
+  if self.licences.internet == nil then self.licences.internet = false end
+  self.links = self.links or {}
 
   if not self.districts then
     local old = self.bounds or { x = 0, y = 0, w = 2000, h = 1400 }
@@ -3730,6 +3801,13 @@ City.UNLOCKS = {
   yard     = { haven = true, name = "Depot yards and bulk freight" },
   orders   = { clients = 6,  name = "Departments" },
   massive  = { clients = 15, name = "Massive mains" },
+  -- The people network opens as there are people to move, and not before:
+  -- nothing to toll, fuel or fly until somebody lives somewhere.
+  roads    = { population = true, name = "Roads and stops" },
+  routes   = { road = true, name = "Passenger routes" },
+  fuel     = { road = true, name = "Filling stations and cars" },
+  resort   = { passengers = true, name = "Resorts" },
+  internet = { reactor = true, name = "Data centres and the internet" },
 }
 
 function City:licenceCount()
@@ -3744,6 +3822,10 @@ function City:unlocked(key)
   if spec.haven and #self.g:nodesOfKind("terminal") == 0 then return false end
   if spec.licences and self:licenceCount() < spec.licences then return false end
   if spec.clients and #self:clientList() < spec.clients then return false end
+  if spec.population and not self:settled() then return false end
+  if spec.road and not (self:settled() and self:hasRoad()) then return false end
+  if spec.passengers and not self:hasPassengers() then return false end
+  if spec.reactor and not self:hasReactor() then return false end
   return true
 end
 
@@ -3752,6 +3834,10 @@ function City:unlockHint(key)
   local spec = City.UNLOCKS[key]
   if not spec or self:unlocked(key) then return nil end
   if spec.haven then return "Opens once you have a haven" end
+  if spec.population then return "Opens once a district has people enough to travel" end
+  if spec.road then return "Opens once people live here and a road is built" end
+  if spec.passengers then return "Opens once a passenger route carries somebody" end
+  if spec.reactor then return "Opens once a reactor is running" end
   if spec.licences and self:licenceCount() < spec.licences then
     return "Opens once you hold a second trade licence"
   end
@@ -3765,11 +3851,14 @@ end
 -- it. Then oil, which is a rig on marked ground. Then food, which needs a farm
 -- and a haven for the salt. Beer last: wheat, a maltings, a brewery, water and
 -- power, which is the longest chain in the game.
-City.LICENCE_ORDER = { "power", "oil", "food", "beer" }
+City.LICENCE_ORDER = { "power", "oil", "food", "beer", "internet" }
 
+-- A trade behind an unlock is not next until it is open: the internet licence
+-- is not a greyed button waiting for a reactor, it is simply not there.
 function City:nextLicence()
   for _, name in ipairs(City.LICENCE_ORDER) do
-    if not self.licences[name] then return name end
+    local unlock = City.LICENCE_UNLOCK[name]
+    if not self.licences[name] and not (unlock and not self:unlocked(unlock)) then return name end
   end
   return nil
 end
@@ -3894,6 +3983,30 @@ City.LESSONS = {
            "buying ground, reporting on what is under it. They are on the Company tab, and none of them does anything " ..
            "you could not do by hand.",
     when = function(c) return c:unlocked("orders") end,
+  },
+  {
+    key = "people", title = "People want to go places",
+    body = "A district with enough supplied customers fills with people, and people travel. Build a stop in two towns, " ..
+           "pick up Road in Build tools and drag between them: every driver on it pays your toll.",
+    when = function(c) return c:unlocked("roads") end,
+  },
+  {
+    key = "routes", title = "Seats for the people without a car",
+    body = "With a road built, a bus route runs seats along it, a ferry calls at the coast and the river, and an airline " ..
+           "flies between air freight aprons. Petrol works, filling stations and the car works are open too.",
+    when = function(c) return c:unlocked("routes") end,
+  },
+  {
+    key = "resort", title = "Somewhere worth going",
+    body = "A resort on the coast, an island or the riverbank pulls day trips from every town in reach and takes their " ..
+           "money when they arrive. Build it up and it reaches further.",
+    when = function(c) return c:unlocked("resort") end,
+  },
+  {
+    key = "internet", title = "The fifth trade",
+    body = "With a reactor running, the internet licence is on the Company tab. A data centre turns water and power into " ..
+           "internet, and subscribers take it by fibre, the way a workshop takes power.",
+    when = function(c) return c:unlocked("internet") end,
   },
 }
 
@@ -4117,13 +4230,14 @@ function City:expenseBreakdown()
   b.haulage = self:haulageBill()
   b.hubs = self:hubBill()
   b.fuel = self:fuelBill()
+  b.transit = self:transitBill()
   for _, e in ipairs(self.g.edges) do
     if e.alive then b.pipes = b.pipes + self:pipeUpkeep(e) end
   end
   b.crews = (self.crews or 0) * City.crewWage + self:orderWages()
   b.interest = self:loanInterest()
   b.total = math.ceil(b.office + b.sources + b.structures + b.pipes + b.crews
-    + b.interest + b.imports + b.haulage + b.fuel + b.hubs)
+    + b.interest + b.imports + b.haulage + b.fuel + b.hubs + b.transit)
   return b
 end
 
@@ -4170,5 +4284,7 @@ function City:awardMilestones()
   end
   return total
 end
+
+require("people")(City)
 
 return City

@@ -140,7 +140,11 @@ do
   for key in pairs(turbine.inputs) do inputs[#inputs + 1] = key end
   ok("and a turbine hall runs on water alone",
     #inputs == 1 and inputs[1] == "water", table.concat(inputs, "+"))
-  ok("beer comes last", City.LICENCE_ORDER[#City.LICENCE_ORDER] == "beer")
+  -- Beer is the last trade a chain has to be built for. The internet comes
+  -- after it, and only once a reactor is running.
+  ok("beer is the last chain trade", City.LICENCE_ORDER[#City.LICENCE_ORDER - 1] == "beer")
+  ok("and the internet waits behind it for a reactor",
+    City.LICENCE_ORDER[#City.LICENCE_ORDER] == "internet" and City.LICENCE_UNLOCK.internet == "internet")
   ok("and it genuinely needs malt", City.RECIPES.brewery.inputs.malt ~= nil)
   ok("food genuinely needs something imported", City.RECIPES.foodworks.inputs.salt ~= nil)
   ok("and salt cannot be dug", City.EXTRACTOR_OF.salt == nil)

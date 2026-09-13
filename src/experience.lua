@@ -66,7 +66,8 @@ function E.clientName(c,n)
     estate={"Garden Court","Riverside Flats","Orchard Court"},
     pub={"The Copper Tap","The Fox & Fir","The Little Barrel"},
     workshop={"Finch & Sons","Atlas Repairs","Cooper Works"},
-    factory={"Northstar Mills","Union Foundry","Beacon Works"}}
+    factory={"Northstar Mills","Union Foundry","Beacon Works"},
+    subscriber={"Home Office","Corner Studio","Attic Flat"}}
   local list=names[n.clientType] or names.house
   return list[(n.id-1)%#list+1].." "..n.id
 end
