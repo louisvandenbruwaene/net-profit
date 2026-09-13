@@ -872,7 +872,7 @@ function Draw.world(city, cam, state)
       end
       -- The bill of materials, before the click rather than after it.
       if not err then
-        local bill = state.tool=="works" and city:materialsFor("works")
+        local bill = state.tool=="works" and city:materialsFor("works",state.recipe)
           or city:materialsFor(state.tool)
         err = city:materialError(bill)
       end

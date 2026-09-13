@@ -467,7 +467,18 @@ function Walk.start(app,mode)
     click("quick-build")
     check(findButton("source") and findButton("tool-junction"),"quick build reveals essential tools")
     click("advanced")
-    check(findButton("tool-depot"),"specialist equipment can be expanded")
+    -- Equipment arrives as the company grows rather than sitting behind a wall
+    -- of prices on day one.
+    check(findButton("tool-depot")==nil,"storage is not offered to a company with two customers")
+    check(findButton("tool-exchange")==nil,"and neither is a hub")
+    for i=1,5 do
+      local extra=assert(c:addClient("house"))
+      extra.x,extra.y=c.firstSource.x+180+i*60,c.firstSource.y+320
+    end
+    c:refresh()
+    love.draw()
+    check(findButton("tool-depot")~=nil,"storage appears once there are customers to store for")
+    check(findButton("tool-exchange")~=nil,"and so does the hub")
     local n=c:clientList()[1]
     c.money=9999; c.licences.power=true
     assert(c:layPipe(c.firstSource.id,n.id,"water",3))
@@ -727,15 +738,16 @@ function Walk.update(app,mode,frame)
         end
         if dep then
           local well=assert(c:buySource("water",dep.x,dep.y))
+          well.output,well.cap=48,48
           local from=well.id
           for _=1,10 do
             local n=c.g.nodes[from]
             local far=math.sqrt((n.x-mill.x)^2+(n.y-mill.y)^2)
-            if far<=300 then assert(c:layPipe(from,mill.id,"water",14)); break end
+            if far<=300 then assert(c:layPipe(from,mill.id,"water",24)); break end
             local j=assert(c:build(n.x+(mill.x-n.x)/far*280,n.y+(mill.y-n.y)/far*280,"junction"))
-            assert(c:layPipe(from,j.id,"water",14)); from=j.id
+            assert(c:layPipe(from,j.id,"water",24)); from=j.id
           end
-          assert(c:layPipe(mill.id,brew.id,"water",14))
+          assert(c:layPipe(mill.id,brew.id,"water",22))
         end
         local hub=assert(c:build(brew.x+250,brew.y+40,"exchange"))
         assert(c:layPipe(brew.id,hub.id,"beer",8))
@@ -752,7 +764,19 @@ function Walk.update(app,mode,frame)
         capture("net-profit-21-chain",app,1100,700,true)
         app.state.node=nil
       end
-    elseif frame==40 then print("screenshots complete"); love.event.quit() end
+    elseif frame==40 then
+      -- A lesson panel, at the moment it would actually appear.
+      local c=app.city()
+      c.money=6000
+      c.guideDismissed=true
+      c.taught={}
+      c.licences.power=true
+      app.state.modal=nil; app.state.tab="network"; app.state.scroll=0
+      app.state.node=nil; app.state.edge=nil
+      c:refresh()
+      app.action("fit")
+      capture("net-profit-22-lesson",app,1100,700)
+    elseif frame==42 then print("screenshots complete"); love.event.quit() end
     return
   end
   if mode=="--soak" and frame<70 then

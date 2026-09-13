@@ -485,34 +485,41 @@ do
   local plant=assert(c:buySource("power",bx+360,by+200,"nuclear"))
   local brew=assert(c:build(bx+480,by,"works","brewery"))
   check(brew.makes=="beer","a brewery makes beer")
-  check(brew.wants.malt==8 and brew.wants.water==16,
-    "and asks for what its rated output would eat")
+  -- It asks for enough water to run at its ceiling, and for exactly the malt
+  -- and power its boosts could use.
+  local ceiling=City.worksCeiling(City.RECIPES.brewery)
+  check(brew.wants.water==2*ceiling,"and asks for enough water to run flat out")
+  check(brew.wants.malt==City.RECIPES.brewery.boosts.malt.rate,
+    "and for the malt a boost could use")
 
   -- Wheat and power reach the maltings, but nothing else does yet.
   assert(c:layPipe(field.id,mill.id,"wheat",10))
   assert(c:layPipe(plant.id,mill.id,"power",10))
   c:refresh()
-  check(mill.ready==0,"a works with an input missing makes nothing at all")
+  check(mill.ready==0,"a maltings with no water makes nothing at all")
 
   local dep
   for _,d in ipairs(c.deposits) do
     if d.commodity=="water" and c:districtAt(d.x,d.y)==farm then dep=d; break end
   end
   local well=assert(c:buySource("water",dep.x,dep.y))
+  -- A deep one: the maltings and the brewery both drink, and this check is
+  -- about the chain rather than about the well.
+  well.output,well.cap=40,40
   local from=well.id
   for _=1,10 do
     local n=c.g.nodes[from]
     local far=math.sqrt((n.x-mill.x)^2+(n.y-mill.y)^2)
-    if far<=300 then assert(c:layPipe(from,mill.id,"water",14)); break end
+    if far<=300 then assert(c:layPipe(from,mill.id,"water",24)); break end
     local j=assert(c:build(n.x+(mill.x-n.x)/far*280,n.y+(mill.y-n.y)/far*280,"junction"))
-    assert(c:layPipe(from,j.id,"water",14)); from=j.id
+    assert(c:layPipe(from,j.id,"water",24)); from=j.id
   end
   c:refresh()
   check(mill.ready>0,"with water it starts making malt")
 
   assert(c:layPipe(mill.id,brew.id,"malt",10))
   assert(c:layPipe(plant.id,brew.id,"power",10))
-  assert(c:layPipe(mill.id,brew.id,"water",14))
+  assert(c:layPipe(mill.id,brew.id,"water",20))
   c:refresh()
   check(brew.ready>0,"and the brewery downstream starts making beer")
   check(c.capacityBy.beer==brew.ready,"which is the city's whole beer supply")
