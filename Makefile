@@ -35,6 +35,7 @@ test:
 	@$(LUA) test/test_balance.lua
 	@$(LUA) test/test_company.lua
 	@$(LUA) test/test_experience.lua
+	@$(LUA) test/test_comfort.lua
 	@$(LUA) test/test_people.lua
 	@$(LUA) test/test_save_location.lua
 

@@ -245,19 +245,19 @@ City.MODES = {
   rail    = { name = "RAILWAY",  order = 1, tiein = 240, perM = 0.52, perWagon = 120,
               haulPerUnit = 0.10, haulPerM = 0.00035, wagonCap = 40, range = 4000,
               needs = "land", colour = {0.72, 0.74, 0.80},
-              blurb = "Huge to build, nearly free to run, and it crosses districts." },
+              blurb = "High build cost. Low daily cost. Good for long routes." },
   highway = { name = "HIGHWAY",  order = 2, tiein = 140, perM = 0.30, perWagon = 50,
               haulPerUnit = 0.55, haulPerM = 0.0022, wagonCap = 18, range = 2000,
               needs = "land", diesel = true, colour = {0.92, 0.80, 0.42},
-              blurb = "Cheap to lay and dear to run: every load is a driver and a tank of diesel." },
+              blurb = "Low build cost. High daily cost." },
   sea     = { name = "SHIPPING", order = 3, tiein = 520, perM = 0.08, perWagon = 150,
               haulPerUnit = 0.08, haulPerM = 0.00012, wagonCap = 90, range = 1e9,
               needs = "coast", diesel = true, colour = {0.40, 0.68, 0.92},
-              blurb = "The cheapest freight there is, and it only calls at the coast." },
+              blurb = "Low daily cost. Requires water access." },
   air     = { name = "AIR FREIGHT", order = 4, tiein = 680, perM = 0.10, perWagon = 90,
               haulPerUnit = 3.20, haulPerM = 0.0040, wagonCap = 10, range = 1e9,
               needs = "air", colour = {0.86, 0.62, 0.98},
-              blurb = "Costs more than most freight is worth, and arrives anywhere. One aircraft type per route." },
+              blurb = "High daily cost. Requires airports. One plane type per route." },
 }
 City.MODE_ORDER = { "rail", "highway", "sea", "air" }
 
@@ -471,6 +471,8 @@ City.rules = {
   investSd = 0.05,
   sourceIncome = 12,        -- wholesale, per well per day
   repLoss = 8,
+  repDecline = 1,
+  repIgnored = 2,
   -- A well answers to a trunk main now, so the opening is a well, a junction,
   -- the trunk into it, a stub on to the first house, and still a little room:
   -- four purchases where there used to be two, not two purchases stretched.
@@ -1066,8 +1068,8 @@ function City:riverPath()
     return lo + (state - 1) / 2147483646 * (hi - lo)
   end
   local bends = {
-    { amp = 220, wave = 1400 * roll(0.92, 1.1), phase = roll(0, 2 * math.pi) },
-    { amp = 45, wave = 620 * roll(0.92, 1.1), phase = roll(0, 2 * math.pi) },
+    { amp = 240, wave = 5200 * roll(0.92, 1.1), phase = roll(0, 2 * math.pi) },
+    { amp = 35, wave = 1900 * roll(0.92, 1.1), phase = roll(0, 2 * math.pi) },
   }
   local swellWave, swellPhase = 5200 * roll(0.9, 1.1), roll(0, 2 * math.pi)
   local ux, uy = math.sin(r.angle), math.cos(r.angle)
@@ -1080,7 +1082,7 @@ function City:riverPath()
     -- slowly, because that is where the channel is widest.
     local k = math.min(1, s / 900)
     off = off * k * k * (3 - 2 * k) * (0.75 + 0.25 * math.sin(2 * math.pi * s / swellWave + swellPhase))
-    return r.x0 + ux * s + uy * off, r.y0 + uy * s - ux * off
+    return r.x0 + ux * (s-500*(1-math.exp(-s/500))) + uy * off, r.y0 + uy * s
   end
 
   path = { n = 0, x = {}, y = {}, hw = {}, nx = {}, ny = {}, maxHalf = 0 }
@@ -1095,9 +1097,35 @@ function City:riverPath()
     local j = i + 1
     path.x[j], path.y[j], path.hw[j] = x, y, hw
     path.nx[j], path.ny[j] = -ty / len, tx / len
+    if i==0 then path.nx[j],path.ny[j]=-1,0 end
     path.maxHalf = math.max(path.maxHalf, hw)
   end
   path.n = steps + 1
+  path.branches={}
+  for branch=1,4 do
+    local join=math.floor((branch==1 and 1000 or branch==2 and 2200 or branch*1900)/City.riverStep)+1
+    local side=branch%2==1 and 1 or -1
+    local length=branch==1 and 5200 or 7200
+    local stream={n=0,x={},y={},hw={},nx={},ny={},maxHalf=0}
+    local function point(t)
+      local spread=t*t/(t+700)
+      local bend=95*math.sin(t/1100)*math.min(1,t/1200)
+      return path.x[join]+side*(spread*0.60+bend),path.y[join]+t
+    end
+    for i=0,math.floor(length/City.riverStep) do
+      local t=i*City.riverStep
+      local x,y=point(t)
+      local xx,yy=point(t+1)
+      local dx,dy=xx-x,yy-y
+      local len=math.sqrt(dx*dx+dy*dy)
+      local j=i+1
+      local half=path.hw[join]*0.72*math.min(1,(length-t)/700)
+      stream.x[j],stream.y[j],stream.hw[j]=x,y,half
+      stream.nx[j],stream.ny[j]=-dy/len,dx/len
+      stream.maxHalf=math.max(stream.maxHalf,half); stream.n=j
+    end
+    path.branches[#path.branches+1]=stream
+  end
   riverPaths[r] = path
   return path
 end
@@ -1113,8 +1141,8 @@ end
 
 -- The samples whose centreline lies between two heights, widened by one on each
 -- side so the segments crossing either height are included.
-function City:riverSpan(y0, y1)
-  local p = self:riverPath()
+function City:riverSpan(y0, y1, path)
+  local p = path or self:riverPath()
   if not p then return nil end
   return math.max(1, firstSampleFrom(p, y0) - 1), math.min(p.n, firstSampleFrom(p, y1) + 1)
 end
@@ -1124,9 +1152,12 @@ end
 function City:riverEdge(x, y)
   local p = self:riverPath()
   if not p or y < 0 then return nil end
+  local best,bestHw
+  local paths={p}
+  for _,branch in ipairs(p.branches or {}) do paths[#paths+1]=branch end
+  for _,p in ipairs(paths) do
   local window = p.maxHalf + City.riverWellReach
-  local first, last = self:riverSpan(y - window, y + window)
-  local best, bestHw
+  local first, last = self:riverSpan(y - window, y + window,p)
   for i = first, last - 1 do
     local ax, ay = p.x[i], p.y[i]
     local dx, dy = p.x[i + 1] - ax, p.y[i + 1] - ay
@@ -1134,6 +1165,7 @@ function City:riverEdge(x, y)
     local hw = p.hw[i] + (p.hw[i + 1] - p.hw[i]) * t
     local edge = math.sqrt((x - ax - dx * t) ^ 2 + (y - ay - dy * t) ^ 2) - hw
     if not best or edge < best then best, bestHw = edge, hw end
+  end
   end
   return best, bestHw
 end
@@ -1762,10 +1794,10 @@ end
 City.PLANTS = {
   nuclear = { name = "NUCLEAR PLANT", base = 3600, growth = 1.35, output = 45,
               upkeep = 52, fuel = 0.55, ground = "land",
-              blurb = "Huge output, huge cheque, and fuel so cheap the next customer is nearly free." },
+              blurb = "High build cost. Produces electricity." },
   wind    = { name = "WIND PARK",     base = 1800, growth = 1.28, output = 12,
               upkeep = 14, fuel = 0,   ground = "island",
-              blurb = "Burns nothing and owes nobody. Only the islands have the wind for it." },
+              blurb = "Requires an island. Produces electricity. No fuel needed." },
 }
 City.PLANT_ORDER = { "nuclear", "wind" }
 
@@ -3420,20 +3452,35 @@ function City:endDay()
     end
   end
 
-  -- 5. Word gets around.
-  local chance = City.rules.arriveBase + self.reputation / 500
-                 + ((self.adDaysLeft > 0) and City.rules.adBoost or 0)
-  if #self:clientList(true) < 4 and (self:random() < chance or self.day % 3 == 0) then
-    local c = self:addClient(nil, true)
-    if c then
-      report.arrived = { name = City.CLIENTS[c.clientType].name, x = c.x, y = c.y }
-      self:note("%s requested a connection", City.CLIENTS[c.clientType].name)
+  -- Expired requests hurt more than a clear refusal.
+  report.ignored=0
+  for _,c in ipairs(self:clientList(true)) do
+    if c.expires<=self.day then
+      self:retireClient(c)
+      report.ignored=report.ignored+1
+      self.reputation=math.max(0,self.reputation-City.rules.repIgnored)
     end
   end
-  if self.adDaysLeft > 0 then self.adDaysLeft = self.adDaysLeft - 1 end
-  for _, c in ipairs(self:clientList(true)) do
-    if c.expires <= self.day then self:retireClient(c) end
+  local limit=self:requestLimit()
+  local chance=City.rules.arriveBase+self.reputation/500
+    + (self.adDaysLeft>0 and City.rules.adBoost or 0)
+  local count=0
+  if limit>1 then
+    count=self.reputation>=100 and 10 or self:rand(math.max(1,math.ceil(limit*0.6)),limit)
+  elseif self:random()<chance or self.day%3==0 then count=1 end
+  if self.adDaysLeft>0 and limit>1 then count=math.min(10,count+2) end
+  report.arrivals={}
+  local room=math.max(0,math.max(4,limit*6)-#self:clientList(true))
+  for _=1,math.min(count,room) do
+    local c=self:addClient(nil,true)
+    if not c then break end
+    local request={name=City.CLIENTS[c.clientType].name,x=c.x,y=c.y,id=c.id}
+    report.arrivals[#report.arrivals+1]=request
+    report.arrived=report.arrived or request
   end
+  if #report.arrivals>0 then self:note("%d new requests",#report.arrivals) end
+  if report.ignored>0 then self:note("%d requests expired. Reputation -%d.",report.ignored,report.ignored*City.rules.repIgnored) end
+  if self.adDaysLeft>0 then self.adDaysLeft=self.adDaysLeft-1 end
 
   -- 5b. Whatever the market decided to do this week.
   self:refresh()
@@ -3777,10 +3824,17 @@ function City:retireClient(c)
   end
 end
 
+function City:requestLimit()
+  local growth=math.max(0,math.min(1,(self.reputation-50)/50))
+  return math.floor(1+9*growth*growth)
+end
+
 function City:declineClient(id)
   local c = self.g.nodes[id]
   if not (c and c.alive and c.prospect) then return nil, "no open offer" end
   self:retireClient(c)
+  self.reputation=math.max(0,self.reputation-City.rules.repDecline)
+  self:note("Request declined. Reputation -%d.",City.rules.repDecline)
   self:refresh()
   return true
 end
@@ -3833,13 +3887,13 @@ end
 function City:unlockHint(key)
   local spec = City.UNLOCKS[key]
   if not spec or self:unlocked(key) then return nil end
-  if spec.haven then return "Opens once you have a haven" end
-  if spec.population then return "Opens once a district has people enough to travel" end
-  if spec.road then return "Opens once people live here and a road is built" end
-  if spec.passengers then return "Opens once a passenger route carries somebody" end
-  if spec.reactor then return "Opens once a reactor is running" end
+  if spec.haven then return "Requires a port or road terminal" end
+  if spec.population then return "Requires a populated district" end
+  if spec.road then return "Requires people and a road" end
+  if spec.passengers then return "Requires a used passenger route" end
+  if spec.reactor then return "Requires a working reactor" end
   if spec.licences and self:licenceCount() < spec.licences then
-    return "Opens once you hold a second trade licence"
+    return "Requires 2 trade licences"
   end
   return "Opens at " .. spec.clients .. " customers"
 end
@@ -3873,24 +3927,18 @@ end
 --------------------------------------------------------------------------------
 City.TUTORIAL = {
   {
-    key = "well", title = "Sink your first well",
-    body = "The survey marked water on your ground: it is the ring with a droplet in it. " ..
-           "Press \"Sink a water well\" on the left, then click the mark. Water can only be " ..
-           "taken where it was found.",
+    key = "well", title = "Build your first well",
+    body = "Choose Water well. Click a blue water mark.",
     done = function(c) return #c.g:nodesOfKind("source") > 0 end,
   },
   {
     key = "junction", title = "Build a junction",
-    body = "A well answers to a trunk main and a house only ever takes the smallest one there " ..
-           "is, so nothing connects them directly. Press \"Junction\" on the left and click a " ..
-           "spot between the well and the house: that is where the main steps down.",
+    body = "Choose Junction. Place it between the well and the house.",
     done = function(c) return #c.g:nodesOfKind("junction") > 0 end,
   },
   {
-    key = "main", title = "Run the mains",
-    body = "Drag a " .. City.PIPE_SIZES[3].key .. " main from the well to the junction, then a " ..
-           City.PIPE_SIZES[1].key .. " main from the junction to the house. Nothing widens a " ..
-           "main once it is in the ground.",
+    key = "main", title = "Connect the pipes",
+    body = "Drag from the well to the junction. Then drag from the junction to the house. Pipe sizes are chosen for you.",
     done = function(c)
       for _, n in ipairs(c.g.nodes) do
         if n.alive and n.kind == "client" and c.g:degree(n.id) > 0 then return true end
@@ -3900,14 +3948,12 @@ City.TUTORIAL = {
   },
   {
     key = "sign", title = "Sign the contract",
-    body = "The household is an offer until you sign it. Click it and press Sign contract. " ..
-           "From then on they pay for every unit that reaches them, every day.",
+    body = "Click the house. Choose Sign contract. Supplied clients pay you each day.",
     done = function(c) return #c:clientList() > 0 end,
   },
   {
-    key = "close", title = "Close the day",
-    body = "Income is collected at the close, and so are the bills. Press Close day when you " ..
-           "are ready: there will be a grant waiting for a company that supplies everyone.",
+    key = "close", title = "End the day",
+    body = "Choose End day to collect income and pay bills. Your first supplied client earns a bonus.",
     done = function(c) return c.day > 1 end,
   },
 }
@@ -3934,22 +3980,17 @@ end
 City.LESSONS = {
   {
     key = "trade", title = "A new trade",
-    body = "A trade needs three things and no more: the licence, one building, and water piped to it. " ..
-           "The turbine hall makes electricity out of water alone. A brewery makes beer out of water alone. " ..
-           "Malt, wheat and power make them bigger later, and none of that is needed to start.",
+    body = "Buy a licence in Company. Build a source or factory. Connect the supplies it needs.",
     when = function(c) return c:licenceCount() > 1 end,
   },
   {
-    key = "hub", title = "Stop drawing a main to every house",
-    body = "A hub serves everyone within 700m who pays at least the rate you set, with no main drawn to any of them. " ..
-           "One wide main into the hub is cheaper than nine separate ones out of the well, and everybody who moves in " ..
-           "afterwards costs you nothing to connect.",
+    key = "hub", title = "Hubs",
+    body = "A hub serves nearby clients without separate pipes. Connect supply to it. Range: 700m.",
     when = function(c) return c:unlocked("hub") end,
   },
   {
-    key = "cap", title = "The ground runs out",
-    body = "A deposit gives what it gives, however deep the well is sunk. Ground further from the old city gives more, " ..
-           "which is why the map keeps going. When a well reads its limit, the next unit of supply is a district away.",
+    key = "cap", title = "Source limit",
+    body = "This well has reached its limit. Build another well to get more supply.",
     when = function(c)
       for _, n in ipairs(c.g:nodesOfKind("source")) do
         if n.cap and (n.output or 0) >= n.cap and not n.plant then return true end
@@ -3958,54 +3999,43 @@ City.LESSONS = {
     end,
   },
   {
-    key = "haven", title = "The door to everything else",
-    body = "A harbour lands every trade but power, in any quantity, and charges by the unit as it moves. " ..
-           "It stands on the coast, at the top of the map, which is why ground up there is the cheapest on it. " ..
-           "Freight leaves a haven by bulk line, never by main.",
+    key = "haven", title = "Ports",
+    body = "A port imports goods for a fee. Build it on the coast. Connect it to a freight yard. Electricity cannot be imported.",
     when = function(c) return c:unlocked("haven") end,
   },
   {
-    key = "yard", title = "Bulk freight",
-    body = "A depot yard is the only thing inland a railway, a highway or a ship can reach. " ..
-           "Beer, oil and water need three different mains and share one train, each in its own wagon. " ..
-           "Materials are taken in at the yards, and everything big you build is paid for out of them.",
+    key = "yard", title = "Freight",
+    body = "Freight yards receive trains and trucks. Connect local pipes and roads to move goods from the yard.",
     when = function(c) return c:unlocked("yard") end,
   },
   {
     key = "massive", title = "Massive mains",
-    body = "A massive main carries a hundred. One of them from a strong source into a hub replaces a whole " ..
-           "bundle of large ones, and it is on the size row of the Build tab from now on.",
+    body = "You can now build pipes that carry 100 units. Open Pipe options in Build.",
     when = function(c) return c:unlocked("massive") end,
   },
   {
-    key = "orders", title = "Somebody else can do this",
-    body = "Departments do the clerical half of the job for a wage: signing offers, widening mains that keep running full, " ..
-           "buying ground, reporting on what is under it. They are on the Company tab, and none of them does anything " ..
-           "you could not do by hand.",
+    key = "orders", title = "Staff",
+    body = "Hire staff in Company. They can accept requests, replace full pipes or buy land for you. Each team has a daily cost.",
     when = function(c) return c:unlocked("orders") end,
   },
   {
-    key = "people", title = "People want to go places",
-    body = "A district with enough supplied customers fills with people, and people travel. Build a stop in two towns, " ..
-           "pick up Road in Build tools and drag between them: every driver on it pays your toll.",
+    key = "people", title = "Roads",
+    body = "Build a stop in each town. Choose Road and drag between the stops. Drivers pay to use it.",
     when = function(c) return c:unlocked("roads") end,
   },
   {
-    key = "routes", title = "Seats for the people without a car",
-    body = "With a road built, a bus route runs seats along it, a ferry calls at the coast and the river, and an airline " ..
-           "flies between air freight aprons. Petrol works, filling stations and the car works are open too.",
+    key = "routes", title = "Bus, ferry and plane routes",
+    body = "Connect stops with bus routes. Ferries use water. Planes fly between airports.",
     when = function(c) return c:unlocked("routes") end,
   },
   {
-    key = "resort", title = "Somewhere worth going",
-    body = "A resort on the coast, an island or the riverbank pulls day trips from every town in reach and takes their " ..
-           "money when they arrive. Build it up and it reaches further.",
+    key = "resort", title = "Resorts",
+    body = "Build a resort by the sea or river. Visitors pay you. Upgrades attract more visitors.",
     when = function(c) return c:unlocked("resort") end,
   },
   {
-    key = "internet", title = "The fifth trade",
-    body = "With a reactor running, the internet licence is on the Company tab. A data centre turns water and power into " ..
-           "internet, and subscribers take it by fibre, the way a workshop takes power.",
+    key = "internet", title = "Internet",
+    body = "Buy the internet licence in Company. Data centres need water and electricity. Connect clients with fibre.",
     when = function(c) return c:unlocked("internet") end,
   },
 }
@@ -4038,13 +4068,13 @@ end
 --------------------------------------------------------------------------------
 City.ORDERS = {
   surveyors   = { name = "Surveyors",   hire = 420,  wage = 20, clients = 6,
-                  blurb = "The survey reports on ground you have not bought yet, so deposits show up before you pay for the district." },
+                  blurb = "Shows deposits on land you do not own." },
   dispatchers = { name = "Dispatchers", hire = 900,  wage = 30, clients = 12,
-                  blurb = "Signs any offer paying at least the rate you set, the day it arrives." },
+                  blurb = "Accepts requests that meet your minimum price." },
   engineers   = { name = "Engineers",   hire = 1600, wage = 45, clients = 20,
-                  blurb = "Widens any main that has run full for three days running, at the usual price." },
+                  blurb = "Replaces pipes after 3 full days. You pay the build cost." },
   estates     = { name = "Estates",     hire = 2600, wage = 60, clients = 32,
-                  blurb = "Buys the cheapest ground next door whenever cash is over the reserve you set." },
+                  blurb = "Buys nearby land. Keeps the cash reserve you set." },
 }
 City.ORDER_LIST = { "surveyors", "dispatchers", "engineers", "estates" }
 

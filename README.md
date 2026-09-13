@@ -3,7 +3,7 @@
 A turn-based utility-company game about networks, cash, and promises.
 
 You start with a marked spring, one household asking to be connected, one
-district and $460. Sink the well, run a main to the house, sign the contract,
+district and $750. Sink the well, connect it through a junction to the house, sign the contract,
 and close the day. After that: sign new customers, keep the mains sound, buy the
 ground you want to grow into, and decide how much of today's cash you can
 afford to put into tomorrow's company. The map and company persist between
@@ -58,49 +58,63 @@ side by side: switch between them, start another, or delete one. The company you
 are leaving is always saved first, so switching can never cost you a day's work.
 Test modes use isolated companies and never read or overwrite your saves.
 
+## Menus
+
+- **Build:** pipes, sources and buildings. Pipe options and More buildings open extra tools.
+- **Company:** licences, staff, loans, upgrades and land permits.
+- **Clients:** accept or decline requests. Check supply problems.
+- **Stats:** day, clients, value, reputation, costs, goals and history.
+
+Click land on the map to view it or buy it. Use the wheel to zoom and drag to pan.
+**Show all** centres the view and zooms to show your buildings.
+
+Declining a request costs 1 reputation. Letting it expire costs 2.
+Requests grow with reputation: up to 10 per day at 100%, if there is room for them.
+The opening still brings at most one per day. Requests expire after five days.
+
 ## Controls
 
 | Action | Control |
 | --- | --- |
 | Lay a pipe or cable | Drag from one structure to another |
 | Choose the trade | Water / Power / Beer / Oil in Build |
-| Choose the size of main | SMALL / MEDIUM / LARGE in Build before laying |
-| Choose the lining | Bare / Lined / Armoured / Sealed, up to what the company can lay |
+| Choose the size of main | Pipe options in Build; connections fit their endpoints automatically |
+| Choose the lining | Pipe options → Bare / Lined / Armoured / Sealed, up to what the company can lay |
 | Replace a main | Select it, then a size under "Dig it out and replace it with" |
 | Choose how it is carried | MAIN / RAIL / HWY / SEA / AIR under the capacity row, or T |
 | Inspect | Click a structure, a customer, a main, or empty ground |
 | Build a structure | Toolbar or keys 1-9, then place |
 | Sink a well or rig | Choose water or oil, select the supply button, then place it on a marked deposit |
 | Build a power station | Choose Power, then Reactor on your ground or Wind park on an island |
-| Build a works | More equipment, then any of the nine works, then place |
+| Build a works | More buildings, then any of the nine works, then place |
 | Fit a wagon to a bulk line | Select the line, then the commodity under "Fit another wagon" |
 | Set what a hub will serve | Select the hub, then the rate floor minus / plus |
 | Hire a department | Company tab, under the maintenance crews |
 | Pan | Drag empty ground, or right / middle drag |
 | Zoom / scroll sidebar | Mouse wheel |
-| Fit the network | F, or the fit button |
-| See the whole city | Open the Map tab |
+| Show all buildings | F, or Show all |
+| See the whole city | Scroll out on the map |
 | Widen a selected main | U |
 | Put a bigger main in place of a selected one, or deepen a selected well | E |
 | Repair a selected main, or all of them | R |
 | Jump to the worst leaking main | L |
 | Demolish selection | Delete, or the inspector button |
 | Undo a decision | Z, or the undo button |
-| Close the day | Enter, or Close day |
+| Close the day | Enter, or End day |
 | Switch or start a company | Companies, in the bottom bar |
 | Cancel a tool or selection | Escape |
 | Mute | M, or the sound button |
 | Filter the map by trade | All trades / Water / Power / Beer / Oil above the map |
 | Show full or damaged mains and a selected customer's route | Supply overlay above the map |
 | Return to construction from any panel | Build tools above the map |
-| Choose a long-term ambition | Goals tab |
+| Choose a long-term ambition | Stats → Goals |
 | Rename your company | Company → Rename; type, then Enter or Save name |
 
 ## A City Worth Growing
 
 The opening guide walks through connecting the two houses and collecting the
 first municipal grant. Everyday build tools stay near the top of Build;
-**More equipment** reveals treatment, valves, storage and freight. The guide can
+**More buildings** reveals treatment, valves, storage and freight and stays collapsed until you open it. **Pipe options** reveals manual size and lining choices; automatic endpoint fitting keeps the opening straightforward. The guide can
 be dismissed, and existing companies continue with their original saves.
 
 Trees, rock formations and water give the map a sense of place, and two of them
@@ -123,6 +137,8 @@ can be sorted by urgency or potential daily income; Company includes a recent
 operating-profit chart. The supply overlay marks full or damaged mains in amber
 and traces a route from a selected customer to supply in blue. A full main is
 not necessarily a service problem, and alternative routes may exist.
+
+Goals also shows the next three equipment unlocks. Two later ambitions reward fully supplying four trades at once, or earning $250 net per day with at least twenty customers and no shortfalls.
 
 Choose an optional ambition in Goals: hold twelve districts, maintain seven
 consecutive closes of full service, or fully supply fifty customers. The selected ambition is evaluated at each day close and pays
@@ -163,8 +179,8 @@ closing a day is final.
   the cheapest freight there is and only calls at the coast; air costs more than
   most freight is worth and flies one aircraft type per route. Beer, oil and
   water need three different mains and share one train, each in its own wagon.
-- **Mains come in three sizes and nothing widens them.** Small carries 5, medium
-  10, large 20. If the small main you laid last year is too small now, it comes
+- **Mains have fixed sizes and nothing widens them.** Small carries 7, medium
+  15, large 25; massive mains carry 100 once unlocked. If the small main you laid last year is too small now, it comes
   out of the ground and a bigger one goes in, and the old pipe is worth about a
   third of what it cost as scrap. One large main costs less than the four small
   ones it replaces, which is why a trunk into a hub beats a stub to every house.

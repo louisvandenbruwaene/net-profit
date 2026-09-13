@@ -1,11 +1,11 @@
 -- palette.lua -- one place for every colour, so the game reads as a system.
 local P = {}
 
-P.bg          = { 0.055, 0.062, 0.085 }
+P.bg          = { 0.045, 0.065, 0.080 }
 P.grid        = { 0.105, 0.115, 0.150 }
 P.gridMajor   = { 0.140, 0.155, 0.200 }
-P.panel       = { 0.082, 0.090, 0.120 }
-P.panelEdge   = { 0.170, 0.185, 0.235 }
+P.panel       = { 0.068, 0.092, 0.115 }
+P.panelEdge   = { 0.155, 0.210, 0.245 }
 
 P.text        = { 0.880, 0.905, 0.960 }
 P.textDim     = { 0.650, 0.700, 0.770 }
