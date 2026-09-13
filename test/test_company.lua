@@ -54,9 +54,31 @@ local function well(c,x,y,commodity)
      cap=City.depositCap(commodity or "water",0)}
   return c:buySource(commodity or "water",x,y)
 end
+-- The structure already carrying src's trunk main, if there is one.
+local function distributionPoint(c,src)
+  for _,ei in ipairs(c.g.adj[src.id] or {}) do
+    local e=c.g.edges[ei]
+    if e.alive and e.commodity=="water" then
+      local other=(e.a==src.id) and e.b or e.a
+      local n=c.g.nodes[other]
+      if n and n.alive and not City.SIZE_LIMIT[n.kind] then return n end
+    end
+  end
+  return nil
+end
+-- A well answers to a trunk only, so every customer's stub comes off a
+-- manifold beside it, built once and reused, rather than off the well itself.
 local function supply(c)
+  local src=c.firstSource
+  local hub=distributionPoint(c,src)
+  if not hub then
+    hub=assert(c:build(src.x+90,src.y-90,"manifold"))
+    assert(c:layPipe(src.id,hub.id,"water","large"))
+  end
   for _,n in ipairs(c:clientList()) do
-    assert(c:layPipe(c.firstSource.id,n.id,"water",n.demand))
+    if not c:pipeBetween(hub.id,n.id,"water") then
+      assert(c:layPipe(hub.id,n.id,"water",n.demand))
+    end
   end
 end
 
@@ -80,10 +102,13 @@ do
   local c=fresh()
   c.money=5000
   local a,b=c:clientList()[1],c:clientList()[2]
-  a.demand,b.demand=10,10
-  c.firstSource.output,c.firstSource.cap=14,14
+  -- A house takes only the smallest main there is, so demand is capped at
+  -- what one carries; the well's own output is set lower still; so the two
+  -- together ask for more than the well gives, which is the point of the test.
+  a.demand,b.demand=7,7
+  c.firstSource.output,c.firstSource.cap=10,10
   supply(c)
-  check(c.flowBy.water==14,"one source cannot supply more than its finite output")
+  check(c.flowBy.water==10,"one source cannot supply more than its finite output")
   local offer=assert(c:addClient("house",true))
   local grace=offer.grace
   c:endDay()
@@ -103,7 +128,9 @@ do
   first.x,first.y=home.x-150,home.y+120
   second.x,second.y=home.x-50,home.y+120
   first.demand,second.demand=3,4
-  local main=assert(c:layPipe(c.firstSource.id,first.id,"water",7))
+  local hub=assert(c:build(home.x-75,home.y+60,"junction"))
+  assert(c:layPipe(c.firstSource.id,hub.id,"water","large"))
+  local main=assert(c:layPipe(hub.id,first.id,"water",7))
   local downstream=assert(c:layPipe(first.id,second.id,"water",7))
   check(c.served[first.id]==3 and c.served[second.id]==4,"seven units serve the first house and pass four onward")
   check(c.detail.edge[main.id]==7 and c.detail.edge[downstream.id]==4,"mains carry delivery plus onward flow")
@@ -191,7 +218,9 @@ do
   local rig=assert(c:buySource("oil",seam.x,seam.y))
   local works=assert(c:addClient("factory"))
   works.x,works.y=rig.x,rig.y+200
-  assert(c:layPipe(rig.id,works.id,"oil",works.demand))
+  local rigHub=assert(c:build(rig.x,rig.y+100,"junction"))
+  assert(c:layPipe(rig.id,rigHub.id,"oil","large"))
+  assert(c:layPipe(rigHub.id,works.id,"oil",works.demand))
   check(c.served[works.id]==works.demand,"a rig on the deposit supplies the works")
 
   -- Beer is landed, hauled inland by track, and only then piped.
@@ -231,7 +260,7 @@ for seed=1,20 do
     end
     for _,offer in ipairs(c:clientList(true)) do
       if signed<4 and c.flowBy.water+offer.demand<=14 then
-        local source=c.firstSource
+        local source=assert(distributionPoint(c,c.firstSource))
         if not c:pipeError(source.id,offer.id,"water") and c.money>=c:pipeCost(source.id,offer.id,"water",offer.demand)+40 then
           assert(c:layPipe(source.id,offer.id,"water",offer.demand))
           assert(c:acceptClient(offer.id))
@@ -270,8 +299,13 @@ do
   check(c:pipeCost(src.id,far.id,"water","large")>c:pipeCost(src.id,far.id,"water","small"),
     "a bigger main costs more")
   -- Replacing is priced off the route, so replacing a long run costs more.
-  local e1=assert(c:layPipe(src.id,near.id,"water","small"))
-  local e2=assert(c:layPipe(src.id,far.id,"water","small"))
+  -- Off an ordinary junction rather than the well itself: a well's own main
+  -- already answers to the top size short of massive, and there would be
+  -- nothing left to bore it up to.
+  local trunk=assert(c:build(src.x+20,src.y+60,"junction"))
+  assert(c:layPipe(src.id,trunk.id,"water","large"))
+  local e1=assert(c:layPipe(trunk.id,near.id,"water","small"))
+  local e2=assert(c:layPipe(trunk.id,far.id,"water","small"))
   check(c:boreCost(e2,1)>c:boreCost(e1,1),"replacing a long main costs more than replacing a stub")
   check(c:repairCost(e2)>c:repairCost(e1),"repairing a long main costs more")
   check(c:pipeUpkeep(e2)>c:pipeUpkeep(e1),"and it costs more to run every day")
@@ -283,7 +317,7 @@ do
   c.money=99999
   local src=c.firstSource
   local far=assert(c:build(src.x+280,src.y,"junction"))
-  local e=assert(c:layPipe(src.id,far.id,"water","medium"))
+  local e=assert(c:layPipe(src.id,far.id,"water","large"))
   local bareRisk,bareRepair=c:leakChance(e),c:repairCost(e)
   check(c.lining==1,"a new company can only lay bare pipe")
   check(c:layPipe(src.id,far.id,"power","medium",false,3)==nil or true,
@@ -500,7 +534,7 @@ do
   check(made[2].hub==nil,"and it is the right one")
 
   -- Feed it and everyone behind it is supplied, through one main.
-  assert(c:layPipe(src.id,hub.id,"water",9))
+  assert(c:layPipe(src.id,hub.id,"water","large"))
   check(c.served[made[1].id]==3 and c.served[made[3].id]==3,
     "one main into the hub supplies every customer behind it")
   check(c.detail.hub[hub.id].water==6,"and the hub is what the network actually delivered to")
@@ -513,7 +547,18 @@ do
   check(c.served[made[3].id]==3 and c.served[made[1].id]==0,
     "when a hub is short the better payer is served first")
 
-  -- And the feed looks after itself, at the usual price.
+  -- And the feed looks after itself, at the usual price. The trunk into a
+  -- hub is never smaller than large, so boring it up a size needs massive
+  -- unlocked, same as it would for a real company this size.
+  for i=1,12 do
+    -- Inside the hub's own radius and paying above its floor, an offer signs
+    -- itself.
+    local extra=assert(c:addClient("house",true))
+    extra.x,extra.y=hub.x+90*math.cos(i),hub.y+90*math.sin(i)
+    extra.rate=9
+    c:refresh()
+  end
+  check(c:unlocked("massive"),"enough customers to bore the trunk past large")
   hub.autoWiden=true
   local cash=c.money
   local report=c:endDay()
@@ -550,8 +595,8 @@ do
   check(brew.wants.malt==recipe.inputs.malt*recipe.rate,"and for the malt to go with it")
 
   -- Wheat and power reach the maltings, but nothing else does yet.
-  assert(c:layPipe(field.id,mill.id,"wheat",10))
-  assert(c:layPipe(plant.id,mill.id,"power",10))
+  assert(c:layPipe(field.id,mill.id,"wheat","large"))
+  assert(c:layPipe(plant.id,mill.id,"power","large"))
   c:refresh()
   check(mill.ready==0,"a maltings with no water makes nothing at all")
 
@@ -574,8 +619,8 @@ do
   c:refresh()
   check(mill.ready>0,"with water it starts making malt")
 
-  assert(c:layPipe(mill.id,brew.id,"malt",10))
-  assert(c:layPipe(plant.id,brew.id,"power",10))
+  assert(c:layPipe(mill.id,brew.id,"malt","large"))
+  assert(c:layPipe(plant.id,brew.id,"power","large"))
   assert(c:layPipe(mill.id,brew.id,"water",20))
   c:refresh()
   check(brew.ready>0,"and the brewery downstream starts making beer")
@@ -588,7 +633,7 @@ do
 
   -- And it reaches a customer.
   local hub=assert(c:build(brew.x+240,brew.y,"exchange"))
-  assert(c:layPipe(brew.id,hub.id,"beer",8))
+  assert(c:layPipe(brew.id,hub.id,"beer","large"))
   local pub=assert(c:addClient("pub"))
   pub.x,pub.y=hub.x+180,hub.y+140
   pub.demand=2
@@ -643,7 +688,10 @@ do
   -- A very patient customer: this check is about the engineers noticing a full
   -- main, not about how long somebody waits before walking away.
   cl.grace=99
-  local main=assert(c:layPipe(c.firstSource.id,cl.id,"water",1))
+  local src2=c.firstSource
+  local hub2=assert(c:build(src2.x+90,src2.y-90,"junction"))
+  assert(c:layPipe(src2.id,hub2.id,"water","large"))
+  local main=assert(c:layPipe(hub2.id,cl.id,"water",1))
   c.firstSource.output,c.firstSource.cap=40,40
   c:refresh()
   local width=main.capMax
@@ -656,14 +704,19 @@ do
   local c=fresh()
   c.money=9999
   local src=c.firstSource
+  -- A house takes only the smallest main there is, forever, so the main that
+  -- is short here has to be the trunk feeding both houses rather than either
+  -- house's own stub: a stub can never be the thing a bigger main replaces.
+  local trunk=assert(c:build(src.x+90,src.y-90,"junction"))
+  assert(c:layPipe(src.id,trunk.id,"water","large"))
+  local relay=assert(c:build(src.x+180,src.y+30,"junction"))
   local a,b=c:clientList()[1],c:clientList()[2]
   a.demand,b.demand=City.sizeOf("small").cap,2
-  a.x,a.y=src.x+200,src.y
-  b.x,b.y=src.x+400,src.y
-  -- Chain the second house through the first on a small main, which carries
-  -- exactly what the first house drinks and nothing more.
-  local narrow=assert(c:layPipe(src.id,a.id,"water","small"))
-  assert(c:layPipe(a.id,b.id,"water","small"))
+  a.x,a.y=src.x+260,src.y+90
+  b.x,b.y=src.x+400,src.y+30
+  local narrow=assert(c:layPipe(trunk.id,relay.id,"water","small"))
+  assert(c:layPipe(relay.id,a.id,"water","small"))
+  assert(c:layPipe(relay.id,b.id,"water","small"))
   check((c.served[b.id] or 0)==0,"a downstream customer starves behind a small main")
   local why,eid=c:constraintFor(b.id)
   check(why=="main" and eid==narrow.id,"the game names the main that is holding them back")
@@ -694,10 +747,14 @@ end
 print("a company that fixes what the game points at grows and stays solvent")
 for _,seed in ipairs({4,17,31,52}) do
   local c=openCompany(City.new({seed=seed}))
+  -- A well answers to a trunk only, so the company's very first move -- same
+  -- as a real player's -- is a junction to step it down.
+  local trunk=assert(c:build(c.firstSource.x+90,c.firstSource.y-90,"junction"))
+  assert(c:layPipe(c.firstSource.id,trunk.id,"water","large"))
   for _,n in ipairs(c:clientList()) do
-    if not c:pipeBetween(c.firstSource.id,n.id,"water")
-       and not c:pipeError(c.firstSource.id,n.id,"water") then
-      assert(c:layPipe(c.firstSource.id,n.id,"water",n.demand))
+    if not c:pipeBetween(trunk.id,n.id,"water")
+       and not c:pipeError(trunk.id,n.id,"water") then
+      assert(c:layPipe(trunk.id,n.id,"water",n.demand))
     end
   end
   for _=1,120 do
@@ -774,11 +831,15 @@ do
   local c=fresh()
   c.money=9999
   local src=c.firstSource
-  local a,b=c:clientList()[1],c:clientList()[2]
-  assert(c:layPipe(src.id,a.id,"water",a.demand))
-  assert(c:layPipe(src.id,b.id,"water",b.demand))
+  -- A well answers only to trunks, so what is tied into it here is three
+  -- junctions rather than two houses and a junction; the chamber it leaves
+  -- behind does not care what it used to feed, only how many mains.
+  local j1=assert(c:build(src.x+90,src.y-90,"junction"))
+  local j2=assert(c:build(src.x-90,src.y-90,"junction"))
   local far=assert(c:build(src.x,src.y+200,"junction"))
-  assert(c:layPipe(src.id,far.id,"water",4))
+  assert(c:layPipe(src.id,j1.id,"water","large"))
+  assert(c:layPipe(src.id,j2.id,"water","large"))
+  assert(c:layPipe(src.id,far.id,"water","large"))
   check(c.g:degree(src.id)==3,"three mains are tied into the well")
 
   local money=c.money
@@ -829,7 +890,9 @@ do
   c.money=9999
   local src=c.firstSource
   local second=assert(well(c,src.x+320,src.y+120))
-  assert(c:layPipe(src.id,c:clientList()[1].id,"water",3))
+  local hub=assert(c:build(src.x+90,src.y-90,"junction"))
+  assert(c:layPipe(src.id,hub.id,"water","large"))
+  assert(c:layPipe(hub.id,c:clientList()[1].id,"water",3))
   assert(c:demolishNode(src.id))
   check(c.firstSource~=src,"the origin moves off a capped well")
   check(c.firstSource.kind=="source","onto one that is still producing")
@@ -849,7 +912,7 @@ do
   c.money=9999
   local src=c.firstSource
   local j=assert(c:build(src.x,src.y+200,"junction"))
-  assert(c:layPipe(src.id,j.id,"water",4))
+  assert(c:layPipe(src.id,j.id,"water","large"))
   check(c:convertError(j.id,"junction")=="it is already that","a junction is already a junction")
   check(c:convertError(src.id,"junction")=="a well must be capped, not replaced",
     "a well is capped rather than replaced")

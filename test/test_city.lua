@@ -38,6 +38,15 @@ local function opened(opts)
   return c
 end
 
+-- A well answers to a trunk main only; most of these checks are about what a
+-- main itself does, not about that rule, so they route through a junction
+-- built beside the well rather than test the rule over and over.
+local function trunk(c, src)
+  local hub = assert(c:build(src.x + 90, src.y - 90, "manifold"))
+  assert(c:layPipe(src.id, hub.id, "water", "large"))
+  return hub
+end
+
 math.randomseed(7)
 
 --------------------------------------------------------------------------------
@@ -67,12 +76,13 @@ print("supplying a customer earns money")
 do
   local c = opened()
   local src = c.firstSource
+  local hub = trunk(c, src)
   local cust = c:clientList()[1]
   -- Put the customer within one pipe of the well so the test is about money.
   cust.x, cust.y = src.x + 200, src.y
   cust.demand = 3
 
-  local e = c:layPipe(src.id, cust.id, "water", "small")
+  local e = c:layPipe(hub.id, cust.id, "water", "small")
   ok("pipe laid", e ~= nil)
   check("a small main carries seven", e.cap, 7)
   check("the customer takes what they asked for", c.served[cust.id], 3)
@@ -89,17 +99,20 @@ print("commodities do not mix")
 do
   local c = opened()
   c.licences.beer = true
+  c.money = c.money + 1000
   local src = c.firstSource
+  local hub = trunk(c, src)
+  assert(c:layPipe(src.id, hub.id, "beer", "large"))
   local cust = c:clientList()[1]
   cust.x, cust.y = src.x + 200, src.y
   cust.demand = 2
 
   -- A beer main between the same two points carries no water.
-  local beer = c:layPipe(src.id, cust.id, "beer")
+  local beer = c:layPipe(hub.id, cust.id, "beer")
   ok("a beer main can share the route", beer ~= nil)
   check("but the water customer gets nothing", c.served[cust.id] or 0, 0)
 
-  local water = c:layPipe(src.id, cust.id, "water")
+  local water = c:layPipe(hub.id, cust.id, "water")
   ok("a water main is a separate pipe", water ~= nil and water.id ~= beer.id)
   check("now water arrives", c.served[cust.id], 2)
 end
@@ -109,9 +122,12 @@ print("pipes rot and can be repaired")
 do
   local c = opened()
   local src = c.firstSource
-  local cust = c:clientList()[1]
-  cust.x, cust.y = src.x + 200, src.y
-  local e = c:layPipe(src.id, cust.id, "water", "medium")
+  local hub = trunk(c, src)
+  -- A house only ever takes the smallest main there is, and this test is
+  -- about what a main does as it wears and grows, not about serving a
+  -- customer, so it runs the check on an ordinary junction instead.
+  local far = assert(c:build(src.x + 260, src.y + 120, "junction"))
+  local e = c:layPipe(hub.id, far.id, "water", "medium")
   check("built as a medium main", e.cap, 15)
   check("and remembers it", e.capMax, 15)
 
