@@ -451,9 +451,15 @@ function love.mousereleased(x,y,button)
   if state.pan and state.pan.deselect and not state.pan.moved and button~=1 then
     state.node,state.edge,state.link,state.district=nil,nil,nil,nil
   end
-  if state.pan and state.pan.district and not state.pan.moved and button==1 then
-    state.district=state.pan.district
-    reveal("district")
+  if state.pan and not state.pan.moved and button==1 then
+    if state.pan.district then
+      state.district=state.pan.district
+      reveal("district")
+    else
+      -- Ground you already own, or nothing at all: there is nothing to show
+      -- for it, so a plain click just goes back to building.
+      reveal()
+    end
   end
   state.drag,state.pan,state.deselect=nil,nil,nil
 end
