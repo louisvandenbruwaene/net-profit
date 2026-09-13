@@ -30,6 +30,10 @@ macOS never asks for permission to open your Documents folder, and it keeps
 working if `love.app` is moved or removed. Re-run `make mac-install` after
 changing the source, or use `make run` to play the checkout directly.
 
+`make hooks` (once, per checkout) wires a git hook that reruns `make mac-install`
+after every commit, so the app in `~/Applications` never drifts behind the
+source without you noticing.
+
 Your company is found either way. LÖVE gives a fused app a different save
 directory from a game run out of a source folder, so the game looks in both and
 mirrors each save into the other. Playing the app and running the checkout are
