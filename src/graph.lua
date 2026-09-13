@@ -46,7 +46,7 @@ Graph.KINDS = {
   -- The key is "exchange" and the name on screen is HUB, because the archived
   -- contract game above already owns "hub" in this table and a duplicate key in
   -- a Lua constructor silently wins. Do not rename either one.
-  exchange = { name = "HUB",      ports = 8,  throughput = 999, cost = 1400, color = {0.45, 0.86, 0.72} },
+  exchange = { name = "HUB",      ports = 8,  throughput = 999, cost = 700,  color = {0.45, 0.86, 0.72} },
   -- A works takes things off the network and puts something else back on: a
   -- customer and a well in one building. What it makes and what it wants are
   -- written on the node by the city, so the solver never has to know a recipe.
@@ -54,7 +54,7 @@ Graph.KINDS = {
   -- A distribution centre is where bulk meets local: the only thing inland that
   -- a railway, a highway or a ship can terminate at, and an ordinary structure
   -- in every other way, so mains and roads run out of it to the city.
-  dc       = { name = "DEPOT YARD", ports = 10, throughput = 999, cost = 3000, color = {0.98, 0.84, 0.52} },
+  dc       = { name = "DEPOT YARD", ports = 10, throughput = 999, cost = 1500, color = {0.98, 0.84, 0.52} },
   -- A depot buffers a commodity overnight: surplus production goes in at the
   -- close, and the next day it feeds the network like a small second well.
   depot    = { name = "DEPOT",    ports = 3,  throughput = 999, cost = 190, color = {0.62, 0.56, 0.98} },

@@ -380,27 +380,50 @@ local function inspectWorks(n,y)
   local recipe=City.RECIPES[n.recipe or ""]
   if not recipe then return y+40 end
   local got=(city.detail.works or {})[n.id] or {}
-  row("Makes",recipe.rate.." "..recipe.makes.." a day when fed",y,Graph.COMMODITIES[recipe.makes].color)
-  row("Making now",(n.ready or 0).." "..recipe.makes,y+26,
-    (n.ready or 0)>=recipe.rate and P.good or (n.ready or 0)>0 and P.warn or P.bad,
-    "Whichever input ran shortest decides this. A works with no power makes nothing at all.")
-  text("What it needs",M,y+58,"small",P.textDim)
-  local ly=y+80
+  local ceiling=City.worksCeiling(recipe)
+  row("Makes",(n.ready or 0).." of a possible "..ceiling.." "..recipe.makes,y,
+    Graph.COMMODITIES[recipe.makes].color,
+    "On water alone this works makes "..recipe.rate..". Everything above that is "..
+    "what the boosts add when they are supplied.")
+  lg.setColor(P.panelEdge); lg.rectangle("fill",M,y+24,CW,5,2)
+  lg.setColor(Graph.COMMODITIES[recipe.makes].color)
+  lg.rectangle("fill",M,y+24,CW*math.min(1,(n.ready or 0)/math.max(1,ceiling)),5,2)
+  text("What it runs on",M,y+44,"small",P.textDim)
+  local ly=y+66
   local short
   for _,name in ipairs(Graph.ALL) do
-    local per=recipe.inputs[name]
+    local per=recipe.base[name]
     if per then
-      local want=per*recipe.rate
+      local want=per*ceiling
       local have=got[name] or 0
       if have<want and not short then short=name end
       row(string.upper(name),have.." / "..want,ly,have>=want and P.good or P.warn,
-        per.." "..name.." for every "..recipe.makes..". At the rated "..recipe.rate..
-        " a day that is "..want.." "..name..".")
+        per.." "..name.." for every unit it makes. Without it the works makes nothing at all.")
       lg.setColor(P.panelEdge); lg.rectangle("fill",M,ly+21,CW,4,2)
       lg.setColor(have>=want and P.good or P.warn)
       lg.rectangle("fill",M,ly+21,CW*math.min(1,want>0 and have/want or 0),4,2)
       ly=ly+38
     end
+  end
+  local hasBoost=false
+  for _ in pairs(recipe.boosts or {}) do hasBoost=true end
+  if hasBoost then
+    text("What would make it bigger",M,ly+4,"small",P.textDim)
+    ly=ly+26
+    for _,name in ipairs(Graph.ALL) do
+      local boost=(recipe.boosts or {})[name]
+      if boost then
+        local want=boost.per*boost.rate
+        local have=got[name] or 0
+        local adding=math.min(boost.rate,math.floor(have/boost.per))
+        row(string.upper(name),"+"..adding.." of "..boost.rate,ly,
+          adding>=boost.rate and P.good or adding>0 and P.warn or P.textFaint,
+          boost.per.." "..name.." buys one more "..recipe.makes..", up to "..boost.rate..
+          " more a day. "..want.." "..name.." a day gets all of it.")
+        ly=ly+26
+      end
+    end
+    ly=ly+8
   end
   if short then
     text(string.upper(short).." is what is holding this works back. Widen its line, or make more of it.",
@@ -598,15 +621,18 @@ function UI.goodsInPlay()
       local recipe=City.RECIPES[n.recipe or ""]
       if recipe then
         add(recipe.makes)
-        for input in pairs(recipe.inputs) do add(input) end
+        for input in pairs(recipe.base) do add(input) end
+        for input in pairs(recipe.boosts or {}) do add(input) end
       end
     elseif n.kind=="source" and n.commodity then add(n.commodity)
-    elseif n.kind=="terminal" then
-      for _,name in ipairs(Graph.ALL) do
-        if Graph.COMMODITIES[name].landed~=false and Graph.COMMODITIES[name].role~="utility" then
-          add(name)
-        end
-      end
+    end
+  end
+  -- A haven can land almost anything, but listing almost anything is how a
+  -- sidebar becomes a catalogue. Only what the company already moves appears.
+  for _,e in ipairs(city.g.edges) do
+    if e.alive then
+      for name in pairs(e.wagons or {}) do add(name) end
+      if e.commodity then add(e.commodity) end
     end
   end
   table.sort(list,function(a,b) return Graph.COMMODITIES[a].order<Graph.COMMODITIES[b].order end)
@@ -617,14 +643,26 @@ local function buildPanel()
   local y=TOP-state.scroll
   heading("BUILD YOUR NETWORK",y); y=y+26
   text("Drag between buildings to connect them.",M,y,"small",P.textDim); y=y+30
-  for i,name in ipairs(Graph.TRADES) do
-    local spec=Graph.COMMODITIES[name]
-    local bx=M+(i-1)*76
-    button(name,string.upper(name),bx,y,72,36,function() state.commodity=name end,
-      city.licences[name],city.licences[name] and ("Build "..name.." lines")
-      or ("Acquire the "..name.." licence in Company"),state.commodity==name,spec.color)
+  -- The trades the company holds, and the one it could take on next. Nothing
+  -- further out than that: a price you cannot pay for a trade you have not
+  -- reached is not information, it is wallpaper.
+  local trades={}
+  for _,name in ipairs(Graph.TRADES) do
+    if city.licences[name] then trades[#trades+1]=name end
   end
-  y=y+42
+  local nextTrade=city:nextLicence()
+  if nextTrade then trades[#trades+1]=nextTrade end
+  for i,name in ipairs(trades) do
+    local spec=Graph.COMMODITIES[name]
+    local bx=M+((i-1)%4)*76
+    local by=y+math.floor((i-1)/4)*40
+    button(name,string.upper(name),bx,by,72,36,function() state.commodity=name end,
+      city.licences[name],city.licences[name] and ("Build "..name.." lines")
+      or ("The next trade to take on. Buy the "..name.." licence in Company: $"..
+          City.price[name.."Licence"]..", and then one building."),
+      state.commodity==name,spec.color)
+  end
+  y=y+math.ceil(#trades/4)*40+2
   -- Everything else the company moves. A commodity appears here once there is
   -- somewhere for it to come from, so the panel is four buttons on day one and
   -- fills up as the empire does.
@@ -662,17 +700,21 @@ local function buildPanel()
   -- going down it; the four bulk modes are a decision the player makes.
   local haveBulk=#city.g:nodesOfKind("terminal")+#city.g:nodesOfKind("dc")>0
   local localName=({liquid="MAIN",energy="CABLE",solid="ROAD"})[Graph.formOf(state.commodity)]
-  button("mode-local",localName,M,y,60,28,function() state.rail=nil end,true,
-    "The city's own network: "..string.lower(localName).." laid between structures, priced by the metre.",
-    not bulk,Graph.COMMODITIES[state.commodity].color)
-  for i,key in ipairs(City.MODE_ORDER) do
-    local spec=City.MODES[key]
-    button("mode-"..key,({rail="RAIL",highway="HWY",sea="SEA",air="AIR"})[key],
-      M+62+(i-1)*61,y,57,28,function() state.rail=key end,haveBulk,
-      spec.name..": "..spec.blurb.."  Each wagon carries "..spec.wagonCap..
-      ", and it runs between havens and depot yards only.",bulk==key,spec.colour)
+  if haveBulk then
+    button("mode-local",localName,M,y,60,28,function() state.rail=nil end,true,
+      "The city's own network: "..string.lower(localName).." laid between structures, priced by the metre.",
+      not bulk,Graph.COMMODITIES[state.commodity].color)
+    for i,key in ipairs(City.MODE_ORDER) do
+      local spec=City.MODES[key]
+      button("mode-"..key,({rail="RAIL",highway="HWY",sea="SEA",air="AIR"})[key],
+        M+62+(i-1)*61,y,57,28,function() state.rail=key end,true,
+        spec.name..": "..spec.blurb.."  Each wagon carries "..spec.wagonCap..
+        ", and it runs between havens and depot yards only.",bulk==key,spec.colour)
+    end
+    y=y+40
+  else
+    state.rail=nil
   end
-  y=y+40
   -- One supply button, and it says what the selected trade actually allows:
   -- a well or a rig on a marked deposit, a reactor on any ground, and for beer
   -- nothing at all, because beer is landed rather than made.
@@ -709,9 +751,15 @@ local function buildPanel()
   y=y+52
   heading("EVERYDAY STRUCTURES",y); y=y+24
   local advanced=state.advanced==true or (state.advanced==nil and city.day>3)
+  -- Which tools exist yet. The first three are always there; the rest arrive
+  -- when the company is the size where they are the obvious next move.
+  local gate={tower="everyday",gate="everyday",depot="everyday",
+              exchange="hub",terminal="haven",dc="yard"}
+  local shown=0
   for i,name in ipairs(TOOLS) do
-    if i<=3 or advanced then
-      local col,rw=(i-1)%3,math.floor((i-1)/3)
+    if (i<=3 or advanced) and (not gate[name] or city:unlocked(gate[name])) then
+      local col,rw=shown%3,math.floor(shown/3)
+      shown=shown+1
       local bx,by=M+col*102,y+rw*58
       local afford=city.money>=City.price[name]
       button("tool-"..name,"",bx,by,96,50,function() state.tool=state.tool==name and nil or name end,
@@ -723,16 +771,31 @@ local function buildPanel()
       text("$"..City.price[name],bx+32,by+28,"small",P.textDim)
     end
   end
-  y=y+(advanced and 290 or 58)+8
+  y=y+(advanced and (math.ceil(math.max(shown,1)/3)*58+2) or 58)+8
+  -- What is not here yet, and what brings it.
+  if advanced then
+    for _,key in ipairs({"hub","haven","yard"}) do
+      local hint=city:unlockHint(key)
+      if hint then
+        text(City.UNLOCKS[key].name..": "..string.lower(hint),M,y,"small",P.textFaint,CW)
+        y=y+18
+      end
+    end
+    y=y+6
+  end
   -- The works. Nine buildings that turn one thing into another, listed with
   -- what they eat, because that is the only thing worth knowing about them.
-  if advanced then
+  if advanced and city:unlocked("works") then
     heading("WORKS",y); y=y+24
     for _,key in ipairs(City.RECIPE_ORDER) do
       local r=City.RECIPES[key]
       local parts={}
       for _,name in ipairs(Graph.ALL) do
-        if r.inputs[name] then parts[#parts+1]=r.inputs[name].." "..name end
+        if r.base[name] then parts[#parts+1]=r.base[name].." "..name end
+      end
+      local extra={}
+      for _,name in ipairs(Graph.ALL) do
+        if (r.boosts or {})[name] then extra[#extra+1]="+"..(r.boosts[name].rate).." on "..name end
       end
       local can=city:licensed(r.makes)
       button("works-"..key,r.name.."   $"..r.cost,M,y,CW,30,
@@ -741,8 +804,9 @@ local function buildPanel()
           else state.tool,state.recipe="works",key end
         end,
         can and city.money>=r.cost,
-        table.concat(parts," + ").."  makes  1 "..r.makes..".  Rated "..r.rate.." "..r.makes..
-        " a day when it is fed, $"..r.upkeep.." a day standing."..
+        table.concat(parts," + ").." makes "..r.rate.." "..r.makes.." a day"..
+        (#extra>0 and (", and "..table.concat(extra,", ")..".") or ".").."  $"..r.upkeep..
+        " a day standing.  "..(r.blurb or "")..
         (can and "" or "  Needs the "..r.makes.." licence."),
         state.tool=="works" and state.recipe==key,Graph.COMMODITIES[r.makes].color)
       y=y+34
@@ -988,13 +1052,26 @@ local function company()
     oy=oy+34
   end
   gy=oy-124
-  for i,name in ipairs({"power","beer","oil","food"}) do
+  -- One trade at a time. The next licence is the only one offered, so the
+  -- player is choosing when rather than which, and the panel is never a wall of
+  -- prices they cannot pay.
+  local offer={}
+  for _,name in ipairs(City.LICENCE_ORDER) do
+    if city.licences[name] then offer[#offer+1]=name end
+  end
+  local nextUp=city:nextLicence()
+  if nextUp then offer[#offer+1]=nextUp end
+  for i,name in ipairs(offer) do
     local cost=City.price[name.."Licence"]
     local held=city.licences[name]
     local by2=gy+123+(i-1)*40
     button("licence-"..name,held and (string.upper(name).." licence held") or (string.upper(name).." licence   $"..cost),
       M,by2,CW,34,function() act("buyLicence",name) end,not held and city.money>=cost,
-      "Opens the "..name.." trade: the works or wells that make it, the lines that carry it, and the customers who buy it",false,
+      (held and ("The "..name.." trade is open.") or
+        ("Opens the "..name.." trade. "..(City.RECIPES[City.MADE_BY[name] or ""] and
+         ("Then one building, the "..string.lower((City.RECIPES[City.MADE_BY[name]] or {}).name or "works")..
+          " at $"..((City.RECIPES[City.MADE_BY[name]] or {}).cost or 0)..", and water piped to it.")
+         or "Then a well or a rig on a marked deposit."))),false,
       Graph.COMMODITIES[name].color)
     drop(name,M+16,by2+17,8)
   end
@@ -1560,13 +1637,19 @@ function UI.draw(c,s,action)
   end
 
   -- Map tools stay available while an inspector or a long list is open.
-  for i,name in ipairs({"all","water","power","beer","oil"}) do
+  -- Only the trades the company actually runs get a filter. A button for a
+  -- trade nobody has a licence for filters nothing.
+  local filters={"all"}
+  for _,name in ipairs(Graph.TRADES) do
+    if city.licences[name] then filters[#filters+1]=name end
+  end
+  for i,name in ipairs(filters) do
     button("filter-"..name,name=="all" and "All trades" or name:sub(1,1):upper()..name:sub(2),
       UI.width+16+(i-1)*77,138,72,28,function() state.filter=name~="all" and name or nil end,
       true,"Filter visible utility lines and customers",(state.filter or "all")==name,
       name=="all" and P.flow or Graph.COMMODITIES[name].color)
   end
-  button("bottlenecks","Supply overlay",UI.width+409,138,130,28,function() state.bottlenecks=not state.bottlenecks end,
+  button("bottlenecks","Supply overlay",UI.width+24+#filters*77,138,130,28,function() state.bottlenecks=not state.bottlenecks end,
     true,"Amber: damaged or full mains. Blue: a route from the selected customer to supply; alternate routes may exist.",state.bottlenecks,P.warn)
   button("quick-build","Build tools",W-151,138,130,28,function()
     state.node,state.edge,state.tool=nil,nil,nil; state.tab="network"; state.scroll=0
@@ -1588,6 +1671,24 @@ function UI.draw(c,s,action)
       or "Close the day to collect income and your first municipal grant."
     text(hint,gx+16,gy+43,"body",P.text,gw-92)
     button("dismiss-guide","Got it",gx+gw-72,gy+62,60,26,function() act("dismissGuide") end,true,"Dismiss this introduction")
+  end
+
+  -- One short panel the first time something new is worth explaining, and never
+  -- again. It sits where the opening guide sits, and only when the player is
+  -- not in the middle of something.
+  local lesson=not state.modal and city:pendingLesson()
+  if lesson and (city.day>2 or city.guideDismissed) then
+    local gx,gw=UI.width+20,math.min(620,W-UI.width-40)
+    local font=R.fonts.body
+    local _,lines=font:getWrap(lesson.body,gw-32)
+    local gh=58+#lines*20
+    local gy=H-72-gh
+    lg.setColor(P.panel); lg.rectangle("fill",gx,gy,gw,gh,8)
+    lg.setColor(P.with(P.energy,0.6)); lg.rectangle("line",gx,gy,gw,gh,8)
+    text(lesson.title,gx+16,gy+12,"mid",P.energy)
+    text(lesson.body,gx+16,gy+38,"body",P.text,gw-32)
+    button("lesson-ok","Got it",gx+gw-78,gy+gh-34,66,26,
+      function() act("teach",lesson.key) end,true,"Understood: do not show this again")
   end
 
   lg.setColor(P.panel); lg.rectangle("fill",0,H-58,W,58)

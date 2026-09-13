@@ -129,6 +129,10 @@ closing a day is final.
 
 ## The Second Half of the Game
 
+- **Ground is cheapest towards the sea.** Every row further from the coast costs
+  more, because the coast is where a harbour goes and a harbour is the door to
+  everything the city cannot make for itself. The frontier costs more again, and
+  gives more.
 - **Ground has no edge.** Buy outward in any direction. Every district past the
   authored twelve is generated from the company seed and its own coordinates, so
   it is the same ground whoever surveys it first, and it is richer and dearer the
@@ -150,11 +154,21 @@ closing a day is final.
   the cheapest freight there is and only calls at the coast; air costs more than
   most freight is worth and flies one aircraft type per route. Beer, oil and
   water need three different mains and share one train, each in its own wagon.
-- **Works.** Nine of them, one output each: maltings, brewery, foodworks,
-  refinery, sawmill, steelworks, glassworks, cement works, concrete plant. Every
-  one needs electricity, which is what makes a power station the spine of the
-  map. A works makes whatever its shortest input allows, and its inspector names
-  that input.
+- **Trades arrive one at a time.** The sidebar offers the trade you hold and the
+  one you could take on next, and nothing further out. A trade needs three
+  things and no more: the licence, one building, and water piped to it. A
+  turbine hall makes electricity out of water alone, a brewery makes beer out of
+  water alone, a foodworks makes food out of water alone. Everything else in the
+  chain makes them bigger later and none of it is needed to start.
+- **Works.** Ten of them, one output each. The three above are the doors into a
+  trade; maltings, refinery, sawmill, steelworks, glassworks, cement works and
+  concrete plant are what a company builds once it has one. A works makes what
+  its base inputs allow, up to a ceiling its boosts raise, and its inspector
+  names whichever one is holding it back.
+- **Design is rewarded.** A main twice as wide is nothing like twice as dear to
+  lay, so one big trunk into a hub with short spurs out of it beats a separate
+  main to every house from about nine customers on, and beats it on upkeep from
+  about seven. Below that, connecting directly is still the right answer.
 - **Materials.** A hub is twenty steel, a works is forty steel and twenty
   concrete, a railway is twelve steel a kilometre. Materials are imported or made,
   taken in at the yards, and spent from there. A highway needs none, which is

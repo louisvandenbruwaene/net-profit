@@ -26,6 +26,7 @@ test:
 	@$(LUA) test/test_contract.lua
 	@$(LUA) test/test_city.lua
 	@$(LUA) test/test_generation.lua
+	@$(LUA) test/test_balance.lua
 	@$(LUA) test/test_company.lua
 	@$(LUA) test/test_experience.lua
 	@$(LUA) test/test_save_location.lua

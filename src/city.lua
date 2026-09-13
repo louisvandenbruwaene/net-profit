@@ -14,7 +14,7 @@ City.__index = City
 -- their price does not depend on what flows through them.
 City.price = {
   junction = 22, manifold = 46, pump = 38, tower = 92, gate = 30, depot = 190,
-  exchange = 1400, dc = 3000,
+  exchange = 700, dc = 1500,
   terminal = 2200,
   powerLicence = 340, beerLicence = 600, oilLicence = 1500, foodLicence = 900,
   qualityBase = 140,
@@ -139,7 +139,7 @@ City.FORMS = {
 -- ever building a factory.
 --------------------------------------------------------------------------------
 City.MATERIALS = {
-  exchange = { steel = 20 },
+  exchange = { steel = 10 },
   works    = { steel = 40, concrete = 20 },
   nuclear  = { steel = 120, concrete = 200 },
   wind     = { steel = 60, concrete = 40 },
@@ -170,8 +170,13 @@ end
 
 -- The bill of materials for a thing, and whether it can be paid.
 function City:materialsFor(kind, key)
-  if kind == "source" then return City.MATERIALS[key or ""] or {} end
-  if kind == "bulk" then return City.MATERIALS[key or ""] or {} end
+  if kind == "source" or kind == "bulk" then return City.MATERIALS[key or ""] or {} end
+  -- Each works carries its own bill, because the three that let a company into
+  -- a new trade must cost nothing but cash and the rest are worth a real one.
+  if kind == "works" then
+    local recipe = City.RECIPES[key or ""]
+    return recipe and recipe.materials or City.MATERIALS.works
+  end
   return City.MATERIALS[kind] or {}
 end
 
@@ -198,6 +203,7 @@ function City:spendMaterials(bill, scale)
   scale = scale or 1
   self.stock = self.stock or {}
   self.orders = self.orders or {}
+  self.taught = self.taught or {}
   self.dispatchRate = self.dispatchRate or 0
   self.estateReserve = self.estateReserve or 4000
   for material, amount in pairs(bill or {}) do
@@ -350,6 +356,10 @@ City.rules = {
   adDays = 5,
   adBoost = 0.25,
   arriveBase = 0.14,
+  -- How much of the per metre bore charge survives the square root. Tuned so a
+  -- capacity three stub costs about what it always did and a capacity thirty
+  -- trunk costs a third of what it used to.
+  boreScale = 2.7,
   investDays = 7,
   investMean = 0.10,
   investSd = 0.05,
@@ -432,6 +442,7 @@ function City.new(opts)
   self.crews = 0
   self.stock = {}
   self.orders = {}
+  self.taught = {}
   self.dispatchRate = 0
   self.estateReserve = 4000
   self.tenders = {}
@@ -807,11 +818,19 @@ end
 -- Ground gets dearer the more of it you hold and the further out it is. The
 -- second term is what stops a company sprinting for the frontier: the richest
 -- deposits are out there, and so is the biggest cheque.
+-- Ground gets dearer the more of it you hold and the further out it is, and
+-- cheaper the nearer it is to the coast. That last term is the map telling the
+-- player which way to go: a harbour is the door to every trade the city cannot
+-- make for itself, so the row the harbour stands on is the cheapest ground on
+-- the map and every row south of it costs a little more.
 function City:districtCost(d)
   local ring = (d and d.ring) or 0
+  local row = (d and d.row) or 1
+  local inland = math.min(1.45, 0.72 + 0.11 * math.max(0, row - 1))
   return math.ceil(City.districtPrice.base
     * (City.districtPrice.growth ^ self.districtsBought)
     * (1 + 0.55 * ring)
+    * inland
     * ((d and d.island) and 1.9 or 1))
 end
 
@@ -1149,9 +1168,18 @@ function City:pipeQuote(a, b, commodity, capacity, rail)
   local tiein = self:tieinCost(a, commodity) + self:tieinCost(b, commodity)
   local trench = metres * trade.trench * mult
   local extra = math.max(0, capacity - 1)
-  -- Wider pipe costs more per metre and more at the fittings, so the price of
-  -- capacity is a question of how far you are carrying it.
-  local bore = extra * (trade.bore + metres * trade.borePerM * mult)
+  -- Fittings are charged per unit of capacity at both ends, because a valve is
+  -- a valve. The pipe in the ground is not: a main twice as wide is nothing
+  -- like twice as dear to lay, so the per metre charge follows the square root
+  -- of capacity rather than capacity itself.
+  --
+  -- This is the number that decides how the game is played. Under a linear
+  -- charge a fat trunk was the most expensive thing on the map and running a
+  -- separate stub to every house was the cheap answer, which is backwards: one
+  -- big main into a hub and short spurs out of it is the design that should
+  -- win, and past half a dozen customers it now does.
+  local bore = extra * trade.bore
+    + metres * trade.borePerM * mult * (math.sqrt(capacity) - 1) * City.rules.boreScale
   local q = {
     metres = metres, ground = mult, capacity = capacity, commodity = commodity,
     tiein = math.ceil(tiein), trench = math.ceil(trench), bore = math.ceil(bore),
@@ -1176,7 +1204,13 @@ function City:boreCost(e, units)
   local na, nb = self.g.nodes[e.a], self.g.nodes[e.b]
   local metres = self:pipeLength(e)
   local mult = self:crossingCost(na.x, na.y, nb.x, nb.y) or 1
-  return math.ceil(units * (trade.bore + metres * trade.borePerM * mult))
+  -- Widening is quoted as the difference between the two pipes, so the same
+  -- economies of scale apply: the tenth unit of bore costs less in the ground
+  -- than the second did.
+  local from, to = e.capMax or e.cap, (e.capMax or e.cap) + units
+  local along = metres * trade.borePerM * mult * City.rules.boreScale
+    * (math.sqrt(to) - math.sqrt(from))
+  return math.ceil(units * trade.bore + along)
 end
 
 function City:gradeOf(e) return City.GRADES[e.grade or 1] or City.GRADES[1] end
@@ -1240,24 +1274,59 @@ end
 -- would thank anyone for.
 --------------------------------------------------------------------------------
 City.RECIPES = {
-  maltings   = { name = "MALTINGS",       makes = "malt",     rate = 10, cost = 1600, upkeep = 16,
-                 inputs = { wheat = 1, water = 1, power = 1 } },
-  brewery    = { name = "BREWERY",        makes = "beer",     rate = 8,  cost = 2400, upkeep = 26,
-                 inputs = { malt = 1, water = 2, power = 1 } },
-  foodworks  = { name = "FOODWORKS",      makes = "food",     rate = 10, cost = 2000, upkeep = 20,
-                 inputs = { wheat = 2, water = 1, power = 1 } },
-  refinery   = { name = "REFINERY",       makes = "diesel",   rate = 10, cost = 2600, upkeep = 24,
-                 inputs = { oil = 2, power = 1 } },
-  sawmill    = { name = "SAWMILL",        makes = "planks",   rate = 10, cost = 1800, upkeep = 18,
-                 inputs = { timber = 2, power = 1 } },
-  steelworks = { name = "STEELWORKS",     makes = "steel",    rate = 8,  cost = 4200, upkeep = 44,
-                 inputs = { ore = 2, coke = 1, power = 3 } },
-  glassworks = { name = "GLASSWORKS",     makes = "glass",    rate = 8,  cost = 2600, upkeep = 24,
-                 inputs = { sand = 2, power = 2 } },
-  cementworks= { name = "CEMENT WORKS",   makes = "cement",   rate = 10, cost = 2800, upkeep = 26,
-                 inputs = { rock = 2, power = 2 } },
-  concrete   = { name = "CONCRETE PLANT", makes = "concrete", rate = 12, cost = 2200, upkeep = 20,
-                 inputs = { cement = 1, sand = 2, water = 1 } },
+  -- The way into a trade. Water and one building, and nothing else: a company
+  -- that has just bought a licence can be selling the thing that afternoon.
+  turbine    = { name = "TURBINE HALL",   makes = "power",  rate = 8,  cost = 800,  upkeep = 14,
+                 base = { water = 2 }, boosts = {},
+                 materials = {},
+                 blurb = "Water in, electricity out. The cheap way into the power trade, and it needs nothing you do not already have." },
+  brewery    = { name = "BREWERY",        makes = "beer",   rate = 5,  cost = 1000, upkeep = 14,
+                 base = { water = 2 },
+                 boosts = { malt = { per = 1, rate = 7 }, power = { per = 1, rate = 6 } },
+                 materials = {},
+                 blurb = "Water alone makes a small beer. Malt and power make it a business." },
+  foodworks  = { name = "FOODWORKS",      makes = "food",   rate = 5,  cost = 950, upkeep = 12,
+                 base = { water = 1 },
+                 boosts = { wheat = { per = 2, rate = 7 }, power = { per = 1, rate = 5 } },
+                 materials = {},
+                 blurb = "Bread and water to begin with. Wheat and power to feed a city." },
+
+  -- Everything past the first building: more output for more of a chain.
+  maltings   = { name = "MALTINGS",       makes = "malt",   rate = 10, cost = 1400, upkeep = 14,
+                 base = { wheat = 1, water = 1 },
+                 boosts = { power = { per = 1, rate = 6 } },
+                 materials = { steel = 20 },
+                 blurb = "Turns a field of wheat into what a brewery actually wants." },
+  refinery   = { name = "REFINERY",       makes = "diesel", rate = 6,  cost = 2200, upkeep = 22,
+                 base = { oil = 2 },
+                 boosts = { power = { per = 1, rate = 6 } },
+                 materials = { steel = 30, concrete = 20 },
+                 blurb = "Your own crude becomes your own fuel, and the haulage bill drops." },
+  sawmill    = { name = "SAWMILL",        makes = "planks", rate = 6,  cost = 1600, upkeep = 16,
+                 base = { timber = 2 },
+                 boosts = { power = { per = 1, rate = 6 } },
+                 materials = { steel = 20 },
+                 blurb = "Parkland becomes timber becomes planks." },
+  steelworks = { name = "STEELWORKS",     makes = "steel",  rate = 4,  cost = 3600, upkeep = 38,
+                 base = { ore = 2, coke = 1 },
+                 boosts = { power = { per = 3, rate = 6 } },
+                 materials = { steel = 60, concrete = 40 },
+                 blurb = "Ore from the frontier and coke off a ship. Everything the company builds is made of this." },
+  glassworks = { name = "GLASSWORKS",     makes = "glass",  rate = 4,  cost = 2200, upkeep = 20,
+                 base = { sand = 2 },
+                 boosts = { power = { per = 2, rate = 6 } },
+                 materials = { steel = 30, concrete = 20 },
+                 blurb = "Coastal sand, and a furnace." },
+  cementworks= { name = "CEMENT WORKS",   makes = "cement", rate = 5,  cost = 2400, upkeep = 22,
+                 base = { rock = 2 },
+                 boosts = { power = { per = 2, rate = 6 } },
+                 materials = { steel = 30, concrete = 20 },
+                 blurb = "Bedrock stops being a wall and becomes the other half of concrete." },
+  concrete   = { name = "CONCRETE PLANT", makes = "concrete", rate = 6, cost = 1900, upkeep = 18,
+                 base = { cement = 1, sand = 2 },
+                 boosts = { water = { per = 1, rate = 6 } },
+                 materials = { steel = 20 },
+                 blurb = "Cement, sand and water. Half of every big building on the map." },
 }
 
 -- Stable order for every list of works in the interface.
@@ -1289,7 +1358,10 @@ local function solveOrder()
     local recipe = City.RECIPES[City.MADE_BY[key] or ""]
     local best = 0
     if recipe then
-      for input in pairs(recipe.inputs) do
+      for input in pairs(recipe.base) do
+        best = math.max(best, levelOf(input, seen) + 1)
+      end
+      for input in pairs(recipe.boosts or {}) do
         best = math.max(best, levelOf(input, seen) + 1)
       end
     end
@@ -1314,22 +1386,46 @@ City.SOLVE_ORDER, City.SOLVE_LEVEL = solveOrder()
 -- What a works can put out today: whichever input ran shortest decides, and
 -- nothing exceeds the rated output. A works with no power makes nothing at all,
 -- which is the whole reason a power station matters.
+-- The most a works could ever make: its base rate plus everything the boosts
+-- would add if all of them were fully supplied.
+function City.worksCeiling(recipe)
+  local ceiling = recipe.rate
+  for _, boost in pairs(recipe.boosts or {}) do ceiling = ceiling + boost.rate end
+  return ceiling
+end
+
+-- What a works can put out today.
+--
+-- The base inputs are consumed per unit of whatever it actually makes, and they
+-- are the hard limit: no water, no beer. The boosts do not gate anything, they
+-- raise the ceiling, each by as much of itself as turned up. A brewery with
+-- water alone is a small brewery and a brewery with water, malt and power is
+-- three times the business, which is the whole shape of the game: unlocking a
+-- trade needs one building, and the chain behind it is the reward rather than
+-- the entry fee.
 function City:worksOutput(n)
   local recipe = City.RECIPES[n.recipe or ""]
   if not recipe then return 0 end
   local got = (self.detail.works or {})[n.id] or {}
-  local best = recipe.rate
-  for key, per in pairs(recipe.inputs) do
-    best = math.min(best, math.floor((got[key] or 0) / per))
+  local ceiling = recipe.rate
+  for key, boost in pairs(recipe.boosts or {}) do
+    ceiling = ceiling + math.min(boost.rate, math.floor((got[key] or 0) / boost.per))
   end
-  return math.max(0, best)
+  local limit = ceiling
+  for key, per in pairs(recipe.base) do
+    limit = math.min(limit, math.floor((got[key] or 0) / per))
+  end
+  return math.max(0, limit)
 end
 
 function City:worksWants(n)
   local recipe = City.RECIPES[n.recipe or ""]
   if not recipe then return {} end
-  local wants = {}
-  for key, per in pairs(recipe.inputs) do wants[key] = per * recipe.rate end
+  local wants, ceiling = {}, City.worksCeiling(recipe)
+  for key, per in pairs(recipe.base) do wants[key] = per * ceiling end
+  for key, boost in pairs(recipe.boosts or {}) do
+    wants[key] = (wants[key] or 0) + boost.per * boost.rate
+  end
   return wants
 end
 
@@ -1478,11 +1574,15 @@ City.BUILDABLE = { junction = true, manifold = true, pump = true, tower = true,
 -- thousand edges.
 --------------------------------------------------------------------------------
 
+-- Priced so that the design the game wants is the design that pays. One trunk
+-- into a hub and short spurs out of it beats a separate main to every house
+-- from about nine customers on, and beats it on upkeep from about seven, and
+-- everybody who moves in afterwards is free.
 City.hub = {
   radius = 700,          -- how far the last mile reaches
-  connect = 26,          -- one off, per customer picked up
-  perClient = 0.7,       -- per customer per day, whatever they take
-  upkeep = 9,            -- the hub itself, per day
+  connect = 20,          -- one off, per customer picked up
+  perClient = 0.35,      -- per customer per day, whatever they take
+  upkeep = 6,            -- the hub itself, per day
   floorStep = 1,         -- the rate floor moves in whole dollars
 }
 
@@ -1698,7 +1798,7 @@ function City:build(x, y, kind, commodity)
     or (recipe and recipe.cost)
     or self:nodeCost(kind)
   if cost > self.money then return nil, "not enough cash" end
-  local bill = self:materialsFor(kind)
+  local bill = self:materialsFor(kind, kind == "works" and commodity or nil)
   local short = self:materialError(bill)
   if short then return nil, short end
   self:spend(cost)
@@ -2151,7 +2251,7 @@ end
 -- off a ship like everything else the city does not make for itself.
 function City:sourceError(commodity, x, y, plant)
   if not self:licensed(commodity) then return "no licence for that" end
-  local madeBy = City.RECIPES[City.MADE_BY[commodity] or ""]
+  local madeBy = commodity ~= "power" and City.RECIPES[City.MADE_BY[commodity] or ""]
   if madeBy then
     return string.lower(commodity) .. " is made in a " .. string.lower(madeBy.name)
   end
@@ -2178,7 +2278,7 @@ end
 
 function City:buySource(commodity, px, py, plant)
   if not self:licensed(commodity) then return nil, "no licence" end
-  local madeBy = City.RECIPES[City.MADE_BY[commodity] or ""]
+  local madeBy = commodity ~= "power" and City.RECIPES[City.MADE_BY[commodity] or ""]
   if madeBy then
     return nil, string.lower(commodity) .. " is made in a "
       .. string.lower(madeBy.name) .. ", not taken out of the ground"
@@ -3354,6 +3454,132 @@ function City:declineClient(id)
   if not (c and c.alive and c.prospect) then return nil, "no open offer" end
   self:retireClient(c)
   self:refresh()
+  return true
+end
+
+--------------------------------------------------------------------------------
+-- What the company has grown into
+--
+-- Everything arrives when there is a reason for it. A player on day two is
+-- looking at four buttons, not at nineteen commodities, four freight modes and
+-- nine works behind a wall of prices they cannot pay. Each of these opens when
+-- the company is the size where the thing it unlocks is the obvious next move.
+--------------------------------------------------------------------------------
+City.UNLOCKS = {
+  everyday = { clients = 3,  name = "Treatment, valves and storage" },
+  hub      = { clients = 6,  name = "Hubs" },
+  works    = { licences = 2, name = "Works" },
+  haven    = { clients = 9,  name = "Havens" },
+  yard     = { haven = true, name = "Depot yards and bulk freight" },
+  orders   = { clients = 6,  name = "Departments" },
+}
+
+function City:licenceCount()
+  local n = 0
+  for _, name in ipairs(Graph.TRADES) do if self.licences[name] then n = n + 1 end end
+  return n
+end
+
+function City:unlocked(key)
+  local spec = City.UNLOCKS[key]
+  if not spec then return true end
+  if spec.haven and #self.g:nodesOfKind("terminal") == 0 then return false end
+  if spec.licences and self:licenceCount() < spec.licences then return false end
+  if spec.clients and #self:clientList() < spec.clients then return false end
+  return true
+end
+
+-- Why a thing is not available yet, in one line.
+function City:unlockHint(key)
+  local spec = City.UNLOCKS[key]
+  if not spec or self:unlocked(key) then return nil end
+  if spec.haven then return "Opens once you have a haven" end
+  if spec.licences and self:licenceCount() < spec.licences then
+    return "Opens once you hold a second trade licence"
+  end
+  return "Opens at " .. spec.clients .. " customers"
+end
+
+-- Trades arrive one at a time, in the order a company would actually take them
+-- on: the cheap one that needs nothing but water, then the one that pays, then
+-- the two that need the map.
+City.LICENCE_ORDER = { "power", "beer", "food", "oil" }
+
+function City:nextLicence()
+  for _, name in ipairs(City.LICENCE_ORDER) do
+    if not self.licences[name] then return name end
+  end
+  return nil
+end
+
+--------------------------------------------------------------------------------
+-- Lessons
+--
+-- One short panel the first time something new is worth explaining, and never
+-- again. They are written to be read in five seconds and to say the thing the
+-- player cannot work out by looking: not what the button does, but why they
+-- would press it.
+--------------------------------------------------------------------------------
+City.LESSONS = {
+  {
+    key = "trade", title = "A new trade",
+    body = "A trade needs three things and no more: the licence, one building, and water piped to it. " ..
+           "The turbine hall makes electricity out of water alone. A brewery makes beer out of water alone. " ..
+           "Malt, wheat and power make them bigger later, and none of that is needed to start.",
+    when = function(c) return c:licenceCount() > 1 end,
+  },
+  {
+    key = "hub", title = "Stop drawing a main to every house",
+    body = "A hub serves everyone within 700m who pays at least the rate you set, with no main drawn to any of them. " ..
+           "One wide main into the hub is cheaper than nine separate ones out of the well, and everybody who moves in " ..
+           "afterwards costs you nothing to connect.",
+    when = function(c) return c:unlocked("hub") end,
+  },
+  {
+    key = "cap", title = "The ground runs out",
+    body = "A deposit gives what it gives, however deep the well is sunk. Ground further from the old city gives more, " ..
+           "which is why the map keeps going. When a well reads its limit, the next unit of supply is a district away.",
+    when = function(c)
+      for _, n in ipairs(c.g:nodesOfKind("source")) do
+        if n.cap and (n.output or 0) >= n.cap and not n.plant then return true end
+      end
+      return false
+    end,
+  },
+  {
+    key = "haven", title = "The door to everything else",
+    body = "A harbour lands every trade but power, in any quantity, and charges by the unit as it moves. " ..
+           "It stands on the coast, at the top of the map, which is why ground up there is the cheapest on it. " ..
+           "Freight leaves a haven by bulk line, never by main.",
+    when = function(c) return c:unlocked("haven") end,
+  },
+  {
+    key = "yard", title = "Bulk freight",
+    body = "A depot yard is the only thing inland a railway, a highway or a ship can reach. " ..
+           "Beer, oil and water need three different mains and share one train, each in its own wagon. " ..
+           "Materials are taken in at the yards, and everything big you build is paid for out of them.",
+    when = function(c) return c:unlocked("yard") end,
+  },
+  {
+    key = "orders", title = "Somebody else can do this",
+    body = "Departments do the clerical half of the job for a wage: signing offers, widening mains that keep running full, " ..
+           "buying ground, reporting on what is under it. They are on the Company tab, and none of them does anything " ..
+           "you could not do by hand.",
+    when = function(c) return c:unlocked("orders") end,
+  },
+}
+
+function City:pendingLesson()
+  self.taught = self.taught or {}
+  for _, lesson in ipairs(City.LESSONS) do
+    if not self.taught[lesson.key] and lesson.when(self) then return lesson end
+  end
+  return nil
+end
+
+function City:teach(key)
+  self.taught = self.taught or {}
+  self.taught[key] = true
   return true
 end
 
