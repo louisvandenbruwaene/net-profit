@@ -653,7 +653,7 @@ do
   c.money=9999
   local src=c.firstSource
   local a,b=c:clientList()[1],c:clientList()[2]
-  a.demand,b.demand=5,4
+  a.demand,b.demand=City.sizeOf("small").cap,2
   a.x,a.y=src.x+200,src.y
   b.x,b.y=src.x+400,src.y
   -- Chain the second house through the first on a small main, which carries
@@ -737,66 +737,32 @@ for _,seed in ipairs({4,17,31,52}) do
   check(c:valuation()>City.rules.startMoney*6,"and is worth materially more than it started with")
 end
 
-print("a tender is a contract with a bond, not free money")
+print("council tenders are gone, and a posted bond comes back")
 do
   local c=fresh()
-  c.money=9999
-  c.licences.water=true
-  c.flowBy={water=6}
-  local t=assert(c:rollTender())
-  c.nextTender=2
-  c.tenders[1]=t
-  check(t.status=="offered","a tender arrives as an offer")
-  check(t.bond>0 and t.bond<t.reward,"with a bond smaller than the reward")
-  check(t.units>6,"asking for more than the company currently delivers")
-
-  -- Ignoring one costs nothing.
   local money=c.money
-  c.day=t.offerExpires
-  c:tenderProgress()
-  check(#c.tenders==0 and c.money==money,"an unanswered offer is withdrawn for free")
+  c.tenders={{status="accepted",bond=40,units=9,commodity="water"},{status="offered",bond=25}}
+  c.tendersDone=3; c.ambition="tenders"
+  c:migrate()
+  check(c.tenders==nil and c.tendersDone==nil,"old tender state is dropped")
+  check(c.money==money+40,"only the bond actually posted is refunded")
+  check(c.ambition==nil,"and the tender ambition is cleared")
+end
 
-  -- Declining costs nothing either.
-  c.tenders[1]=assert(c:rollTender()); c.tenders[1].id=7
-  money=c.money
-  assert(c:declineTender(7))
-  check(#c.tenders==0 and c.money==money,"declining costs nothing")
-
-  -- Accepting stakes the bond.
-  local t2=assert(c:rollTender()); t2.id=9; t2.units=4; t2.days=2
-  c.tenders[1]=t2
-  money=c.money
-  assert(c:acceptTender(9))
-  check(c.money==money-t2.bond,"accepting posts the bond out of the till")
-  check(t2.status=="accepted" and t2.expires>c.day,"and starts the delivery clock")
-  check(not c:acceptTender(9),"a signed tender cannot be signed twice")
-  check(not c:declineTender(9),"nor declined after signing")
-
-  -- Delivering returns the bond with the reward.
-  c.flowBy={water=t2.units}
-  c.day=c.day+1
-  local paid=c:tenderProgress()
-  check(paid==0 and t2.met==1,"one close met is not yet delivery")
-  c.day=c.day+1
-  paid=c:tenderProgress()
-  check(paid==t2.reward+t2.bond,"delivering pays the reward and returns the bond")
-  check(#c.tenders==0 and c.tendersDone==1,"and closes the contract")
-
-  -- Failing forfeits it.
-  local t3=assert(c:rollTender()); t3.id=11; t3.units=99; t3.days=2
-  c.tenders[1]=t3
-  assert(c:acceptTender(11))
-  local rep=c.reputation
-  c.flowBy={water=0}
-  c.day=t3.expires
-  local _,lost=c:tenderProgress()
-  check(lost==t3.bond,"missing the deadline forfeits the bond")
-  check(c.reputation<rep,"and costs reputation")
-  check(#c.tenders==0,"and closes the contract")
-
-  check(c:tenderShortfall({commodity="water",units=10})==10,"shortfall is what is still missing")
-  c.flowBy={water=7}
-  check(c:tenderShortfall({commodity="water",units=10})==3,"and shrinks as supply grows")
+print("mains carry 7, 15 and 25, and a massive 100 opens later")
+do
+  local c=fresh()
+  c.money=99999
+  check(City.sizeOf("small").cap==7 and City.sizeOf("medium").cap==15
+    and City.sizeOf("large").cap==25 and City.sizeOf("massive").cap==100,"the four sizes")
+  check(not c:unlocked("massive"),"a new company cannot lay a massive main")
+  check(c:biggerSize({size="large"})==nil,"so nothing offers to widen past large")
+  -- An old main laid as small 5 and leaking 2 of it carries 7 less the same 2.
+  local id=#c.g.edges+1
+  c.g.edges[id]={id=id,a=1,b=1,alive=false,size="small",cap=3,capMax=5,commodity="water"}
+  c:migrate()
+  check(c.g.edges[id].capMax==7 and c.g.edges[id].cap==5,"an old main grows to its new size and keeps its leak")
+  c.g.edges[id]=nil
 end
 
 print("a well can be closed without taking the network with it")

@@ -4,7 +4,6 @@ local Save = require("company_save")
 E.ambitions = {
   {id="districts", name="A city connected", target=12, description="Hold twelve districts at once.", reward=1200},
   {id="service", name="A company people trust", target=7, description="Supply every signed customer for seven consecutive closes.", reward=350},
-  {id="tenders", name="Council favourite", target=10, description="Complete ten municipal tenders.", reward=800},
   {id="customers", name="The next metropolis", target=50, description="Fully supply fifty customers at a close.", reward=1500},
 }
 -- The authored twelve have a story each. Generated ground tells its own, out of
@@ -48,7 +47,6 @@ end
 function E.progress(c,a)
   if a.id=="districts" then return #c:ownedDistricts() end
   if a.id=="service" then return c.serviceStreak or 0 end
-  if a.id=="tenders" then return c.tendersDone or 0 end
   return #c:clientList()-c.unserved
 end
 function E.close(c,report)
@@ -64,6 +62,39 @@ function E.close(c,report)
     end
   end
 end
+-- Where the opening guide should point right now: a sidebar button by id, a
+-- spot on the map, or the drag from the well to the house. It walks the player
+-- back first when they have wandered off to another tab or selection.
+function E.tutorialTarget(c,state)
+  local step=c:tutorialStep()
+  if not step then return nil end
+  local house,well
+  for _,n in ipairs(c.g:aliveNodes()) do
+    if n.kind=="client" and not house then house=n end
+    if n.kind=="source" and not well then well=n end
+  end
+  if step.key=="close" then return {button="end-day"} end
+  if state.tab~="network" then return {button="tab-network"} end
+  if step.key=="well" then
+    if state.node or state.edge then return {button="back-to-build"} end
+    if state.commodity~="water" then return {button="water"} end
+    if state.tool~="source" then return {button="source"} end
+    for _,d in ipairs(c.deposits or {}) do
+      if d.opening and not d.taken then return {x=d.x,y=d.y} end
+    end
+    return nil
+  end
+  if step.key=="main" and well and house then
+    if state.commodity~="water" and not (state.node or state.edge) then return {button="water"} end
+    return {from=well,to=house}
+  end
+  if step.key=="sign" and house then
+    if state.node==house.id then return {button="accept"} end
+    return {x=house.x,y=house.y}
+  end
+  return nil
+end
+
 local cache=setmetatable({}, {__mode="k"})
 local function memo(c,key,fn)
   local item=cache[c]

@@ -353,10 +353,18 @@ end
 -- perfectly working mains.
 --------------------------------------------------------------------------------
 City.PIPE_SIZES = {
-  { key = "small",  name = "SMALL",  cap = 5,  tiein = 1.0, trench = 1.0 },
-  { key = "medium", name = "MEDIUM", cap = 10, tiein = 1.6, trench = 1.7 },
-  { key = "large",  name = "LARGE",  cap = 20, tiein = 2.6, trench = 2.9 },
+  { key = "small",  name = "SMALL",  cap = 7,  tiein = 1.0, trench = 1.0 },
+  { key = "medium", name = "MEDIUM", cap = 15, tiein = 1.6, trench = 1.7 },
+  { key = "large",  name = "LARGE",  cap = 25, tiein = 2.6, trench = 2.9 },
+  -- A trunk for a company that already runs hubs and havens. Four large mains'
+  -- worth of flow for well under four large mains' worth of digging.
+  { key = "massive", name = "MASSIVE", cap = 100, tiein = 6.5, trench = 7.5, unlock = "massive" },
 }
+
+-- Whether this company may lay a size yet.
+function City:sizeAllowed(spec)
+  return not spec.unlock or self:unlocked(spec.unlock)
+end
 
 -- Callers may name a size or say how much they need carried. Saying how much
 -- gets the smallest main that does it, which is what a contractor would sell
@@ -494,9 +502,6 @@ function City.new(opts)
   self.taught = {}
   self.dispatchRate = 0
   self.estateReserve = 4000
-  self.tenders = {}
-  self.tendersDone = 0
-  self.nextTender = 1
   self.loan = 0
   self.event = nil
   self.districtsBought = 0
@@ -1864,6 +1869,9 @@ function City:layPipe(a, b, commodity, size, rail, grade)
   grade = math.max(1, math.min(self.lining or 1, grade or self.lining or 1))
   local err = self:pipeError(a, b, commodity, rail)
   if err then return nil, err end
+  if not mode and not self:sizeAllowed(City.asSize(size)) then
+    return nil, "massive mains open at " .. City.UNLOCKS.massive.clients .. " customers"
+  end
   local cost = self:pipeCost(a, b, commodity, wagons or size, rail, grade)
   if cost > self.money then return nil, "not enough cash" end
   -- A bulk line is built out of steel by the kilometre. Mains are not: a water
@@ -1939,6 +1947,9 @@ function City:replaceError(id, size, grade)
   if spec.key == (e.size or "") and grade == (e.grade or 1) then
     return "that is what is already in the ground"
   end
+  if not self:sizeAllowed(spec) then
+    return "massive mains open at " .. City.UNLOCKS.massive.clients .. " customers"
+  end
   local q = self:replaceQuote(id, size, grade)
   if q.net > self.money then return "not enough cash" end
   return nil
@@ -1966,7 +1977,7 @@ end
 function City:biggerSize(e)
   local _, index = City.sizeOf(e.size or City.sizeFor(e.capMax or e.cap).key)
   local nextSpec = City.PIPE_SIZES[index + 1]
-  return nextSpec and nextSpec.key or nil
+  return nextSpec and self:sizeAllowed(nextSpec) and nextSpec.key or nil
 end
 
 -- Wagons, holds and aircraft. A bulk line carries as many commodities as it has
@@ -2602,114 +2613,6 @@ function City:ratePremium(c)
 end
 
 --------------------------------------------------------------------------------
--- Municipal tenders: a reason to build ahead of demand
---------------------------------------------------------------------------------
-
--- A tender is the council asking the company to hold a delivery level it does
--- not yet have, for long enough that meeting it means building first and
--- earning later.
---
--- It is a contract, not a prize. Accepting posts a bid bond out of the till,
--- which comes back with the reward if the delivery is made and is forfeited if
--- it is not. That is what makes an ambitious tender a wager rather than free
--- money lying on the floor: the question is whether the network can be grown in
--- time, and being wrong costs something.
-City.tenderRate = { water = 4, power = 10, beer = 16, oil = 26 }
-City.tenderBond = 0.22         -- of the reward, posted on acceptance
-City.tenderDecide = 3          -- days to accept before the offer is withdrawn
-City.tenderSlack = 4           -- days beyond the required closes to deliver in
-
-function City:rollTender()
-  local pool = {}
-  for _, name in ipairs(Graph.TRADES) do
-    if self.licences[name] then pool[#pool + 1] = name end
-  end
-  if #pool == 0 then return nil end
-  local commodity = pool[self:random(#pool)]
-  local current = (self.flowBy or {})[commodity] or 0
-  local units = math.max(3, math.ceil(current * self:rand(1.15, 1.45)) + self:random(1, 3))
-  local days = self:random(4, 7)
-  local reward = math.ceil(units * days * City.tenderRate[commodity] * self:rand(0.55, 0.80))
-  return {
-    id = (self.nextTender or 1),
-    commodity = commodity, units = units, days = days, met = 0,
-    reward = reward, bond = math.ceil(reward * City.tenderBond),
-    status = "offered", offerExpires = self.day + City.tenderDecide,
-  }
-end
-
-function City:tenderById(id)
-  for _, t in ipairs(self.tenders) do
-    if t.id == id then return t end
-  end
-  return nil
-end
-
--- How far the network is from the level a tender asks for, right now.
-function City:tenderShortfall(t)
-  return math.max(0, t.units - ((self.flowBy or {})[t.commodity] or 0))
-end
-
-function City:acceptTender(id)
-  local t = self:tenderById(id)
-  if not t then return nil, "no such tender" end
-  if t.status ~= "offered" then return nil, "already accepted" end
-  if t.bond > self.money then return nil, "not enough cash for the bond" end
-  self:spend(t.bond)
-  t.status = "accepted"
-  t.accepted = self.day
-  t.expires = self.day + t.days + City.tenderSlack
-  self:note("Tender accepted: %d units of %s on %d closes by day %d, $%d bond posted",
-    t.units, t.commodity, t.days, t.expires, t.bond)
-  return t
-end
-
-function City:declineTender(id)
-  local t = self:tenderById(id)
-  if not t then return nil, "no such tender" end
-  if t.status ~= "offered" then return nil, "that tender is already signed" end
-  for i, other in ipairs(self.tenders) do
-    if other.id == id then table.remove(self.tenders, i); break end
-  end
-  self:note("Tender for %d units of %s declined", t.units, t.commodity)
-  return true
-end
-
-function City:tenderProgress()
-  local paid, lost = 0, 0
-  for i = #self.tenders, 1, -1 do
-    local t = self.tenders[i]
-    if t.status == "offered" then
-      -- An offer nobody answered is withdrawn. Nothing is lost by ignoring one.
-      if self.day >= (t.offerExpires or 0) then
-        self:note("Tender for %d units of %s was withdrawn unanswered", t.units, t.commodity)
-        table.remove(self.tenders, i)
-      end
-    else
-      if (self.flowBy[t.commodity] or 0) >= t.units then t.met = t.met + 1 end
-      if t.met >= t.days then
-        local payout = t.reward + (t.bond or 0)
-        self.money = self.money + payout
-        paid = paid + payout
-        self.tendersDone = (self.tendersDone or 0) + 1
-        self.reputation = math.min(100, self.reputation + 3)
-        self:note("Tender delivered: %d units of %s held for %d closes. $%d paid, $%d bond returned",
-          t.units, t.commodity, t.days, t.reward, t.bond or 0)
-        table.remove(self.tenders, i)
-      elseif self.day >= (t.expires or 0) then
-        -- The bond is forfeited. This is the half of the wager that stings.
-        lost = lost + (t.bond or 0)
-        self.reputation = math.max(0, self.reputation - 4)
-        self:note("Tender failed: %d of %d closes met. $%d bond forfeited",
-          t.met, t.days, t.bond or 0)
-        table.remove(self.tenders, i)
-      end
-    end
-  end
-  return paid, lost
-end
-
---------------------------------------------------------------------------------
 -- Flow
 --------------------------------------------------------------------------------
 
@@ -3195,9 +3098,8 @@ function City:endDay()
     if c.expires <= self.day then self:retireClient(c) end
   end
 
-  -- 5b. Tenders, and whatever the market decided to do this week.
+  -- 5b. Whatever the market decided to do this week.
   self:refresh()
-  report.tender, report.tenderLost = self:tenderProgress()
   if self.event then
     self.event.left = self.event.left - 1
     if self.event.left <= 0 then self.event = nil end
@@ -3209,16 +3111,6 @@ function City:endDay()
                      left = spec.days, head = spec.head }
       report.event = spec.head
       self:note("%s", spec.head)
-    end
-  end
-  if #self.tenders < 2 and self.day > 4 and (self:random() < 0.22 or (self.day % 9 == 0 and #self.tenders == 0)) then
-    local t = self:rollTender()
-    if t then
-      self.nextTender = (self.nextTender or 1) + 1
-      self.tenders[#self.tenders + 1] = t
-      report.tenderNew = t
-      self:note("Municipal tender posted: %d units of %s on %d closes for $%d",
-        t.units, t.commodity, t.days, t.reward)
     end
   end
 
@@ -3259,17 +3151,12 @@ end
 function City:migrate()
   self.permits = self.permits or { park = false, river = false, bedrock = false }
   self.deposits = self.deposits or {}
-  self.tenders = self.tenders or {}
-  self.tendersDone = self.tendersDone or 0
-  self.nextTender = self.nextTender or 1
-  for _, t in ipairs(self.tenders) do
-    -- Tenders that were already running when they were still automatic keep
-    -- their progress and owe no bond.
-    t.status = t.status or "accepted"
-    t.bond = t.bond or 0
-    t.id = t.id or self.nextTender
-    self.nextTender = math.max(self.nextTender, t.id + 1)
+  -- Council tenders are gone. A bond already posted on one comes back.
+  for _, t in ipairs(self.tenders or {}) do
+    if t.status == "accepted" and (t.bond or 0) > 0 then self.money = self.money + t.bond end
   end
+  self.tenders, self.tendersDone, self.nextTender = nil, nil, nil
+  if self.ambition == "tenders" then self.ambition = nil end
   self.crews = self.crews or 0
   self.stock = self.stock or {}
   self.premiumBought = self.premiumBought or {}
@@ -3372,6 +3259,17 @@ function City:migrate()
       e.size = spec.key
       e.capMax = math.max(e.capMax or e.cap or 1, spec.cap)
       e.cap = math.min(e.cap or e.capMax, e.capMax)
+    end
+    -- Sizes have since grown (small 5 -> 7, medium 10 -> 15, large 20 -> 25).
+    -- A main already in the ground carries what its size carries now, and a
+    -- leaking one keeps the capacity it has lost.
+    if not e.bulk and e.size then
+      local spec = City.sizeOf(e.size)
+      if (e.capMax or 0) < spec.cap then
+        local lost = (e.capMax or spec.cap) - (e.cap or e.capMax or spec.cap)
+        e.capMax = spec.cap
+        e.cap = math.max(0, spec.cap - math.max(0, lost))
+      end
     end
   end
 
@@ -3548,6 +3446,7 @@ City.UNLOCKS = {
   haven    = { clients = 9,  name = "Havens" },
   yard     = { haven = true, name = "Depot yards and bulk freight" },
   orders   = { clients = 6,  name = "Departments" },
+  massive  = { clients = 15, name = "Massive mains" },
 }
 
 function City:licenceCount()
@@ -3610,8 +3509,8 @@ City.TUTORIAL = {
   },
   {
     key = "main", title = "Run a main to the house",
-    body = "Drag from the well to the house. A small main carries five, which is plenty for " ..
-           "one household, and nothing widens a main once it is in the ground.",
+    body = "Drag from the well to the house. A small main carries " .. City.PIPE_SIZES[1].cap ..
+           ", which is plenty for one household, and nothing widens a main once it is in the ground.",
     done = function(c)
       for _, n in ipairs(c.g.nodes) do
         if n.alive and n.kind == "client" and c.g:degree(n.id) > 0 then return true end
@@ -3691,6 +3590,12 @@ City.LESSONS = {
            "Beer, oil and water need three different mains and share one train, each in its own wagon. " ..
            "Materials are taken in at the yards, and everything big you build is paid for out of them.",
     when = function(c) return c:unlocked("yard") end,
+  },
+  {
+    key = "massive", title = "Massive mains",
+    body = "A massive main carries a hundred. One of them from a strong source into a hub replaces a whole " ..
+           "bundle of large ones, and it is on the size row of the Build tab from now on.",
+    when = function(c) return c:unlocked("massive") end,
   },
   {
     key = "orders", title = "Somebody else can do this",

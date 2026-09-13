@@ -74,7 +74,7 @@ do
 
   local e = c:layPipe(src.id, cust.id, "water", "small")
   ok("pipe laid", e ~= nil)
-  check("a small main carries five", e.cap, 5)
+  check("a small main carries seven", e.cap, 7)
   check("the customer takes what they asked for", c.served[cust.id], 3)
 
   local before = c.money
@@ -112,19 +112,19 @@ do
   local cust = c:clientList()[1]
   cust.x, cust.y = src.x + 200, src.y
   local e = c:layPipe(src.id, cust.id, "water", "medium")
-  check("built as a medium main", e.cap, 10)
-  check("and remembers it", e.capMax, 10)
+  check("built as a medium main", e.cap, 15)
+  check("and remembers it", e.capMax, 15)
 
   e.leaking = true
   c:endDay()
-  check("a leak costs capacity every day", e.cap, 9)
+  check("a leak costs capacity every day", e.cap, 14)
   c:endDay()
-  check("and keeps costing", e.cap, 8)
+  check("and keeps costing", e.cap, 13)
 
   local before = c.money
   local cost = c:repairPipe(e.id)
   ok("repair charges", cost ~= nil and c.money == before - cost)
-  check("capacity restored", e.cap, 10)
+  check("capacity restored", e.cap, 15)
   check("leak stopped", e.leaking, false)
 
   -- Nothing widens a main. A bigger one goes in its place, and the old one is
@@ -132,7 +132,7 @@ do
   c.money = 10000
   local was = e.paid
   ok("a medium main can be replaced with a large one", c:replacePipe(e.id, "large") ~= nil)
-  check("which carries twice as much", e.cap, 20)
+  check("which carries twenty five", e.cap, 25)
   ok("and cost less than the whole job", e.paid > was)
 
   -- Lining is fixed when the main is laid, and only better lining lowers risk.

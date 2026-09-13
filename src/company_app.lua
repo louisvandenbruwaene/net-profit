@@ -253,7 +253,6 @@ local function action(name,...)
       toast(({repairPipe="Pipe repaired",replacePipe="Main replaced",buyAds="Advertising booked",
         invest="Investment placed",upgradeQuality="Treatment upgraded",buyLicence="Trade licence acquired",
         acceptClient="Customer signed",declineClient="Offer declined",upgradeSource="Well deepened",
-        acceptTender="Tender signed, bond posted",declineTender="Tender declined",
         hireCrew="Crew hired",dismissCrew="Crew stood down",buyPermit="Permit granted",
         borrow="Funds drawn",repay="Loan repaid",setGate="Gate set"})[name] or "Network updated")
     end
@@ -368,7 +367,13 @@ function love.mousepressed(x,y,button)
   if button==1 and UI.click(x,y) then return end
   if state.modal then return end
   if x<UI.width or y<130 or y>love.graphics.getHeight()-58 then return end
-  if button==2 or button==3 then state.tool=nil; state.pan={x=x,y=y,moved=false}; return end
+  -- Right-click puts down whatever is in hand. With nothing in hand, a right
+  -- click that does not turn into a pan clears the selection on release.
+  if button==2 or button==3 then
+    state.pan={x=x,y=y,moved=false,deselect=not state.tool}
+    state.tool=nil
+    return
+  end
   if button~=1 then return end
   if state.tool then
     local wx,wy=cam:toWorld(x,y)
@@ -380,6 +385,10 @@ function love.mousepressed(x,y,button)
   end
   local node,edge=hit(x,y)
   if node or edge then
+    -- Clicking what is already selected puts it down. A structure waits for the
+    -- release, because pressing on it is also how a main is dragged out of it.
+    if edge and not node and state.edge==edge then state.edge=nil; return end
+    state.deselect=node and state.node==node and node or nil
     state.node,state.edge,state.district=node,edge,nil
     reveal()
     if node then state.drag=node end
@@ -415,9 +424,14 @@ function love.mousereleased(x,y,button)
       action("layPipe",state.drag,target,state.commodity,
         state.rail and state.capacity or (state.size or "small"),state.rail,
         math.min(city.lining or 1,state.grade or 1))
+    elseif target==state.drag and state.deselect==state.drag then
+      state.node=nil
     end
   end
-  state.drag,state.pan=nil,nil
+  if state.pan and state.pan.deselect and not state.pan.moved and button~=1 then
+    state.node,state.edge,state.district=nil,nil,nil
+  end
+  state.drag,state.pan,state.deselect=nil,nil,nil
 end
 
 function love.wheelmoved(_,dy)
