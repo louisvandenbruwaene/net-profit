@@ -119,7 +119,7 @@ local toolTips = {
   tower="Treatment station: $92, $2 a day. Cuts leak risk by 55% for every main whose midpoint is within 220m. Stations do not stack.",
   gate="Gate: 2 ports, $30, $1 a day. A valve you set by hand -- throttle a branch to starve it on purpose and send scarce supply to the customers who pay more.",
   depot="Depot: 3 ports, $190, $3 a day. Takes in output you could not sell today, up to 18 units, and feeds it back into the network tomorrow.",
-  exchange="Hub: 8 ports, $1400, $9 a day plus $0.70 a customer. Stands in a neighbourhood and serves everyone inside 700m who pays at least the rate you set, with no main drawn to any of them. Offers in range sign themselves. Its feed widens itself when it runs short, at the usual price, until you switch that off.",
+  exchange="Hub: 10 ports, $1400, $9 a day plus $0.70 a customer. Stands in a neighbourhood and serves everyone inside 700m who pays at least the rate you set, with no main drawn to any of them. Offers in range sign themselves. Its feed widens itself when it runs short, at the usual price, until you switch that off.",
   dc="Depot yard: 10 ports, $3000, $12 a day. The only thing inland that a railway, a highway or a ship can terminate at. Bulk arrives here and the city's own mains and roads leave from it.",
   terminal="Haven: 4 ports, $2200, $26 a day. The city's door to the outside world: every trade but power lands here in unlimited quantity, billed per unit as it moves. It can only stand on the strip of ground along the estuary, the highway or the apron, one haven to each, and it ships by track only.",
 }

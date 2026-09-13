@@ -29,6 +29,10 @@ local function openCompany(c)
   second.x,second.y=c.firstSource.x+230,c.firstSource.y-90
   second.demand=3
   c.money=City.rules.startMoney
+  -- A well answers to four ports in the real game, which is a fan-out rule
+  -- about hubs, not about the routes these tests lay to compare prices, leaks
+  -- and billing. The fixture gives itself the room those tests use.
+  c.firstSource.ports=16
   return c
 end
 
