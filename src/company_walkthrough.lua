@@ -158,13 +158,21 @@ function Walk.start(app,mode)
   check(c:tutorialStep().key=="main","and the next step is the main")
   local target=E.tutorialTarget(c,app.state)
   check(target.from==well and target.to==junction,"then it traces the drag out of the well, into the junction")
-  app.state.size="large"
+  -- The size row still reads small, as it does on a new company: the drag
+  -- itself has to pick the trunk a well answers to.
+  app.state.size="small"; app.state.recentSizes={"small"}
   local wx,wy=cam:toScreen(well.x,well.y)
   local jx2,jy2=cam:toScreen(junction.x,junction.y)
   love.mousepressed(wx,wy,1)
+  check(app.state.size=="large","pressing on the well picks up a large main")
   love.mousemoved(jx2,jy2,jx2-wx,jy2-wy)
+  love.mouse.setPosition(jx2,jy2)
+  love.update(0)
+  check(app.state.size=="large","and it is still large over the junction")
+  love.draw()
   love.mousereleased(jx2,jy2,1)
   check(c.g:degree(well.id)>0,"a trunk main reaches the junction")
+  check(c.g.edges[#c.g.edges].size=="large","and it went in as a large main")
   target=E.tutorialTarget(c,app.state)
   check(target.from==junction and target.to==offerHouse,"and then out of the junction, to the house")
 

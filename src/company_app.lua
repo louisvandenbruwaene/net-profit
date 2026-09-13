@@ -370,6 +370,13 @@ end
 function love.update(dt)
   R.update(dt); cam:update(dt)
   state.hoverNode,state.hoverEdge,state.hoverLink=hit(love.mouse.getPosition())
+  -- Every frame, not only when the mouse moves: whatever is under the cursor
+  -- can change under a held drag, and the preview must never quote a size
+  -- either end would refuse.
+  if state.drag and not state.rail and not state.transit then
+    local target=state.hoverNode~=state.drag and state.hoverNode or nil
+    state.size=E.dragSize(city,state.drag,target,state)
+  end
   if state.toastTime then
     state.toastTime=state.toastTime-dt
     if state.toastTime<=0 then state.toast=nil; state.toastBad=nil end
@@ -439,10 +446,6 @@ end
 
 function love.mousemoved(x,y,dx,dy)
   state.hoverNode,state.hoverEdge,state.hoverLink=hit(x,y)
-  if state.drag and not state.rail and not state.transit then
-    local target=state.hoverNode~=state.drag and state.hoverNode or nil
-    state.size=E.dragSize(city,state.drag,target,state)
-  end
   if state.pan then
     local p=state.pan
     if p.moved then cam:pan(dx,dy)
