@@ -513,3 +513,224 @@ the same spirit, per unit landed at a sea port:
 
 Haulage, per unit per km: road 0.9, rail 0.12, ship 0.03, air 6.0. Those four
 numbers are the whole freight game, and they are the first thing to tune.
+
+---
+
+## 14. People, and the businesses that move them
+
+**Not built. This is a plan, not a report.** Everything above this line shipped
+and is played today. Everything below is one long answer to "what next", broken
+into phases the same way phases 1-7 were: each one ships something playable on
+its own, and the game is not broken if the next one never happens.
+
+The reason this needs its own section rather than three lines in phase 4: a
+person is not a commodity. Water flows through a pipe and is gone; a person
+takes a trip and comes back tomorrow. Reusing the max-flow network for people
+would be modelling the wrong thing. What follows is a second, smaller system
+built next to the first one, sharing roads and money with it and nothing else.
+
+### 14.0 The one new primitive: population and trips
+
+A **city** is not a building, it is a property of a district: a population
+count that grows on its own once a district has enough customers signed to
+count as settled, the same way today's game already tells suburb from
+frontier by what a district generates. Population is not solved by the flow
+graph. It is a number per district, updated once a day, the same cadence as
+rent and rot.
+
+```
+district.population        -- grows toward a ceiling the district's ring sets
+district.tripsPerCapita     -- how often someone here wants to go somewhere
+```
+
+Every day, each populated district rolls up a handful of **trip demands**:
+`{ from = district, to = another district or a resort, purpose = "work" |
+"leisure", willingness = $ }`. A trip is satisfied the same way a customer is
+served today: by whatever route across whatever mode gets them there, priced
+per km per mode exactly like freight is. An unsatisfied trip is exactly like
+an unsupplied customer — nobody starves, the company just does not get paid,
+and the report says so.
+
+This is the load-bearing decision in the whole plan: **trips are priced and
+routed like freight, not simulated like a person.** No car is drawn taking a
+particular road. The company owns capacity on routes, trips consume it, money
+changes hands. This is what keeps it a max-flow-and-money game instead of a
+different game.
+
+**Open question for you:** should population be a thing the *player* grows
+(build houses, a district's population is your customer count, full stop), or
+a thing that grows on its own once the utilities are there (closer to a city
+builder, and closer to what "create cities in later regions" sounds like you
+want)? The phases below assume the second — population arrives once a
+district is served well enough to be worth living in, which reuses the
+service-quality numbers the game already tracks — but this is a real fork and
+worth deciding before anything is built on it.
+
+### 14.1 Roads and tolls
+
+**What the player sees.** Highways stop being a bulk-freight-only mode between
+two depot yards. A road is now also something you can lay between any two
+owned districts and charge a toll on, and every trip crossing it pays that
+toll to whoever built it — you, almost always, since nobody else builds them.
+
+**How.** `City.MODES.highway` already exists and already prices per km; what
+is new is that a highway edge can exist without a `dc` at both ends, and it
+carries a `toll` field the player sets (a rate slider, exactly like a hub's
+floor). Freight still uses it as it does today. Trips use it and pay the toll
+into the same ledger a hub's `perClient` fee lands in.
+
+**Files.** `city.lua` (highway edges between districts, toll field, trip
+routing reuses `rangeBetween`/`crossingCost`), `company_ui.lua` (toll slider on
+a highway edge), `company_render.lua` (draw tolled roads distinctly from bulk
+freight lines, which are drawn heavier already).
+
+**Unlock.** Hidden until a district first reaches enough population to
+generate a trip at all — nothing to toll before then, so nothing is shown.
+
+### 14.2 A gasoline business, and cars
+
+**What the player sees.** Refined diesel already exists for your own trucks.
+Gasoline is diesel's twin for the population: a new commodity, sold at a
+filling station (a small structure on a road, cheap, unlicensed once
+population exists) rather than piped to a house. People who own cars buy it
+by the trip; people who do not use your buses instead.
+
+**How.** A new commodity `gasoline`, role `utility`, form `liquid` — but sold
+at a **station**, not by a main to a house, because nobody pipes fuel to a
+driveway. A station is a small structure (closer to a depot than a works)
+that a road passes through; it draws gasoline off the network like a client
+and sells it per trip that uses that road, at a margin you set. Refining
+gasoline from oil reuses `City.RECIPES` exactly (a second recipe off the
+refinery, or a new "petrol works" if you want the two kept apart for
+licensing reasons).
+
+**Car ownership** is not a fleet the player manages trip by trip. It is a
+population trait: some fraction of a district's population "owns a car",
+meaning their trips prefer roads and consume gasoline rather than a bus seat,
+and that fraction rises if you also build...
+
+**Car manufacturing**, a new works chain (steel + glass + rubber\* → cars),
+whose output is sold in bulk to a district (raising its car-owning fraction
+over time, priced the way a district's amenities already are) rather than
+tracked as individual vehicles. \*Rubber does not exist yet; simplest is to
+make it an import-only feedstock like coke, so the chain has a haven
+dependency the way food already does through salt.
+
+**Files.** `graph.lua` (gasoline commodity), `city.lua` (station structure,
+car-owning fraction per district, the manufacturing recipe), `company_ui.lua`
+(station inspector, margin slider).
+
+**Unlock.** Behind population (14.0) and a road network (14.1) both existing.
+
+### 14.3 Buses, boats and planes for people
+
+**What the player sees.** The same three bulk modes that already move freight
+— road, sea, air — now also run scheduled passenger routes, each its own
+small business: a bus company, a ferry company, an airline. You buy a route
+between two places, set a fare, and every trip that prefers it over driving
+pays you the fare instead of paying a filling station.
+
+**How.** This is the smallest phase in the plan, because it reuses `freight.lua`\-
+style bulk edges almost as they are: a passenger route is a bulk edge with
+`wagons = seats` instead of tonnes, a `fare` instead of nothing, and no
+material commodity riding it — the "cargo" is trip count. A trip picks
+whichever available route (drive, bus, boat, flight) is cheapest for its
+willingness-to-pay and gets there fastest, the same comparison `E.offerPreview`
+already runs for customers picking a water source.
+
+**Files.** `city.lua` (passenger routes as a bulk variant, route picking per
+trip), `company_ui.lua` (route builder, fare slider), `company_render.lua`
+(passenger routes drawn a third way, distinct from freight and toll roads).
+
+**Unlock.** Behind 14.1. Air and sea routes specifically wait on the existing
+haven/airfield/harbour unlocks, which already gate freight versions of the
+same thing.
+
+### 14.4 Destinations: growing cities and resorts
+
+**What the player sees.** Later regions are not just richer ground, they are
+new cities: districts that arrive already populated instead of empty, the way
+today's frontier already arrives already rich in deposits. A vacation resort
+is a structure you build (on the coast, on an island, or beside a lake if
+14.x adds one) that manufactures leisure trip demand toward itself from every
+populated district within its pull, the way a hub manufactures coverage.
+
+**How.** A city is a district whose `spec` sets a starting population instead
+of zero, generated the same deterministic way a frontier district already
+rolls its archetype. A resort is a structure (closest existing analogue: a
+haven — it has no throughput ceiling and mostly exists to be a destination)
+that adds `{ from = every district in range, to = here, purpose = "leisure",
+willingness = $$ }` trip demand each day, scaled by distance and by how good
+the resort is (a level, like a well's, bought with money and materials).
+
+**Files.** `city.lua` (city districts, resort structure and its trip
+generation), `company_ui.lua` (resort inspector, upgrade levels).
+
+**Unlock.** Deep. Resorts specifically should not appear in any list, hint, or
+unlock-hint string until a company already has a working passenger network —
+this is the clearest case in the whole plan for "hidden until almost
+reachable", because a resort with no way to reach it is not a destination.
+
+### 14.5 Data centres and the internet
+
+**What the player sees.** A data centre is the single most expensive thing you
+can build, drinks water and power by the tanker-load, and pays for itself
+slowly out of a income line with no visible customer behind it — "online
+business", the same way a haven's freight bill is real without a truck ever
+being drawn.
+
+**How.** Mechanically this is the *simplest* addition in the whole plan: it is
+another `works`-shaped structure, like a turbine hall, except its recipe has
+no material output at all — its "product" is a daily cash income proportional
+to how much water and power it actually got, the same `worksOutput` starvation
+logic already used for every other works (no power, no income; half the
+water it wants, half the income). No new commodity is required for this half.
+
+**Internet as a commodity**, if you want it sold to the population rather than
+only implied, is the one open design choice here. The clean version, given
+`role = utility` already means "sold to a client by the day": houses gain
+internet as a fifth utility, sold and piped (well, cabled) exactly like power,
+and a data centre's income scales with how many houses you actually serve
+rather than being a flat number — which turns internet from flavour text into
+a real reason to have wired a neighbourhood for it, and ties the whole phase
+back into the network the rest of the game is about. This is more build than
+the flat-income version and is the one I'd actually recommend, but it is your
+call: the flat-income version ships in an afternoon, the wired version is a
+proper new trade with its own licence, its own price curve, and its own place
+in the sidebar next to water, power, beer and oil.
+
+**Files.** `city.lua` (data centre recipe, income-only works), `graph.lua`
+(internet commodity, if wired), `company_ui.lua`.
+
+**Unlock.** The deepest in the plan. Nothing about data centres or internet
+should be visible — not a greyed button, not an unlock hint — until a company
+already has a mature electricity network (a reactor built, not just licensed),
+matching "almost reachable" as literally as the unlock system allows.
+
+### 14.6 Build order and what stands alone
+
+| Phase | Ships | Depends on |
+|-------|-------|------------|
+| 14.0 | Population and trip demand, no way to serve it yet | nothing new; reuses today's client/service-quality numbers |
+| 14.1 | Tolled roads | 14.0 |
+| 14.2 | Gasoline, filling stations, cars, car manufacturing | 14.0, 14.1 |
+| 14.3 | Bus, ferry and airline routes | 14.1 |
+| 14.4 | Cities in later regions, vacation resorts | 14.0, 14.3 |
+| 14.5 | Data centres, internet as a fifth utility | nothing above; only needs a mature power network |
+
+14.5 is deliberately independent of everything else in this section — it can
+ship first, on its own, if you would rather see one small, self-contained
+thing land before the bigger passenger system. Everything else builds in the
+order listed: there is no reasonable way to have a filling station, a bus
+route or a resort before there is anyone to use it.
+
+### 14.7 What is deliberately not in this plan
+
+- **Individual cars or people drawn on the map.** A moving dot is fine, a
+  simulated commute is a different, much larger game. Trips are numbers.
+- **A construction industry for houses.** Population grows itself; the player
+  is not asked to zone or build housing. If that turns out to be wrong for
+  the "create cities" feeling you want, it is a straightforward addition on
+  top of 14.4 rather than a rework of it.
+- **Insurance, loans against future toll revenue, or other financial products
+  for the passenger side.** The existing credit system already covers it.
