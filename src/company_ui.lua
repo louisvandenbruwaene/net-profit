@@ -68,6 +68,14 @@ local function row(label,value,y,color,tip)
   end
 end
 
+-- Wrapped small print across the sidebar. Returns the height it took, so the
+-- next line lands under the last wrapped line and not on top of it.
+local function paragraph(s,y,color)
+  text(s,M,y,"small",color or P.textDim,CW)
+  local _,lines=R.fonts.small:getWrap(s,CW)
+  return math.max(1,#lines)*R.fonts.small:getHeight()
+end
+
 local function heading(s,y)
   text(s,M,y,"small",P.textDim)
   local start=M+R.fonts.small:getWidth(s)+12
@@ -810,12 +818,27 @@ local function buildPanel()
   y=y+4
   if not state.people then
   if state.commodity=="power" then
-    heading("LINE VOLTAGE",y); y=y+22
+    heading("LINE VOLTAGE",y)
+    button("voltage-help","i",M+CW-22,y-4,22,22,function() state.voltageHelp=not state.voltageHelp end,true,
+      state.voltageHelp and "Hide how voltage works" or "How voltage works",state.voltageHelp,P.accent)
+    y=y+24
+    if state.voltageHelp then
+      local V=City.INFRA.voltages
+      y=y+paragraph("Reactors send power out at "..V.high.kv.." kV. Customers, works and hubs only take "..
+        V.low.kv.." kV, so power has to be stepped down on the way.",y)+6
+      for _,key in ipairs(City.INFRA.voltageOrder) do
+        local spec=V[key]
+        row(spec.kv.." kV  "..string.lower(spec.name),spec.range.." m, cost x"..City.INFRA.voltageCost[key],y,P.accent)
+        y=y+20
+      end
+      y=y+paragraph("A pylon carries one voltage. A transformer joins two voltages, and every line into it must be within "..
+        City.INFRA.transformerRange.." m. Auto picks whatever the ends already carry, so choose 110 kV yourself for a long run between two pylons.",y+2)+12
+    end
     for i,key in ipairs({"auto","low","medium","high"}) do
       local spec=City.INFRA.voltages[key]
       button("voltage-"..key,spec and (spec.kv.." kV") or "Auto",M+(i-1)*76,y,72,28,
         function() city.lineVoltage=key~="auto" and key or nil end,true,
-        spec and (spec.name..". Range "..spec.range.."m; transformer connections 90m.") or "Match the endpoints automatically. Different voltages need a transformer.",
+        spec and (spec.name..". Range "..spec.range.."m; transformer connections "..City.INFRA.transformerRange.."m.") or "Match the endpoints automatically. Different voltages need a transformer.",
         (city.lineVoltage or "auto")==key,P.accent)
     end
     y=y+40
@@ -957,6 +980,30 @@ local function buildPanel()
   end
   y=y+52
   end -- commodity supply
+  -- Supply and maintenance sit above the structures: how full each trade is and
+  -- whether anything needs mending is checked far more often than a new building.
+  if not state.people then
+    heading("SUPPLY & MAINTENANCE",y); y=y+28
+    for _,name in ipairs(Graph.TRADES) do
+      if city.licences[name] then
+        local drawn,capacity=city:supplyFor(name)
+        row(string.upper(name),drawn.." / "..capacity,y,Graph.COMMODITIES[name].color)
+        lg.setColor(P.panelEdge); lg.rectangle("fill",M,y+21,CW,4,2)
+        lg.setColor(Graph.COMMODITIES[name].color)
+        lg.rectangle("fill",M,y+21,CW*(capacity>0 and math.min(1,drawn/capacity) or 0),4,2)
+        y=y+38
+      end
+    end
+    local bill,count=city:repairAllCost()
+    if count>0 then
+      button("repair-all","Repair "..count..(count==1 and " main  $" or " mains  $")..bill,M,y,CW,36,function() act("repairAll") end,
+        city.money>=bill,"Repair every damaged main",false,P.bad,true)
+      y=y+44
+    else text("All mains sound",M,y,"body",P.good); y=y+28 end
+    row("Maintenance crews",(city.crews or 0).." / "..City.crewMax,y)
+    y=y+32
+    line(y); y=y+20
+  end
   heading(state.people and "PASSENGER BUILDINGS" or "EVERYDAY STRUCTURES",y); y=y+24
   local advanced=state.advanced==true
   -- Which tools exist yet. The first three are always there; the rest arrive
@@ -1010,8 +1057,7 @@ local function buildPanel()
     for _,key in ipairs({"hub","haven","yard"}) do
       local hint=city:unlockHint(key)
       if hint then
-        text(City.UNLOCKS[key].name..": "..string.lower(hint),M,y,"small",P.textFaint,CW)
-        y=y+18
+        y=y+paragraph(City.UNLOCKS[key].name..": "..string.lower(hint),y,P.textFaint)+4
       end
     end
     y=y+6
@@ -1067,27 +1113,7 @@ local function buildPanel()
     M,y,CW,32,function() state.advanced=not advanced end,true,"Show or hide specialist structures")
   y=y+48
   end
-  if state.people then UI.contentBottom=y+state.scroll; return end
-  line(y); y=y+20
-  heading("SUPPLY & MAINTENANCE",y); y=y+28
-  for _,name in ipairs(Graph.TRADES) do
-    if city.licences[name] then
-      local drawn,capacity=city:supplyFor(name)
-      row(string.upper(name),drawn.." / "..capacity,y,Graph.COMMODITIES[name].color)
-      lg.setColor(P.panelEdge); lg.rectangle("fill",M,y+21,CW,4,2)
-      lg.setColor(Graph.COMMODITIES[name].color)
-      lg.rectangle("fill",M,y+21,CW*(capacity>0 and math.min(1,drawn/capacity) or 0),4,2)
-      y=y+38
-    end
-  end
-  local bill,count=city:repairAllCost()
-  if count>0 then
-    button("repair-all","Repair "..count..(count==1 and " main  $" or " mains  $")..bill,M,y,CW,36,function() act("repairAll") end,
-      city.money>=bill,"Repair every damaged main",false,P.bad,true)
-    y=y+44
-  else text("All mains sound",M,y,"body",P.good); y=y+28 end
-  row("Maintenance crews",(city.crews or 0).." / "..City.crewMax,y)
-  UI.contentBottom=y+40+state.scroll
+  UI.contentBottom=y+state.scroll
 end
 local function inspectorPanel(n,e)
   local y=TOP-state.scroll

@@ -1196,7 +1196,7 @@ function Draw.world(city, cam, state)
     local target = state.hoverNode
     local err = target and city:pipeError(from.id,target,state.commodity,state.rail)
     lg.setColor(P.with(state.rail and P.accent or P.textDim,0.25)); lg.setLineWidth(1)
-    lg.circle("line",x,y,city:rangeBetween(from.id,from.id,state.rail)*cam.scale)
+    lg.circle("line",x,y,city:rangeBetween(from.id,from.id,state.rail,state.commodity)*cam.scale)
     lg.setColor(err and P.bad or P.good); lg.setLineWidth(2); lg.line(x,y,mx,my)
     if target and target~=from.id then
       if err then

@@ -210,7 +210,7 @@ return function(City)
     local q=base.pipeQuote(self,a,b,commodity,size,rail,grade)
     if commodity=='power' and not rail then
       q.voltage=self:lineVoltageFor(a,b)
-      local multiplier=({low=1,medium=1.3,high=2})[q.voltage]
+      local multiplier=D.voltageCost[q.voltage]
       q.tiein=math.ceil(q.tiein*multiplier); q.trench=math.ceil(q.trench*multiplier); q.bore=math.ceil(q.bore*multiplier)
       q.total=q.tiein+q.trench+q.bore
       q.capacity=self:powerRating({a=a,b=b,cap=1,capMax=1,size=City.asSize(size).key,voltage=q.voltage})
