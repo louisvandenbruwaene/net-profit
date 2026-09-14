@@ -95,7 +95,7 @@ local function capture(name,app,width,height,keepCamera)
     width,height=width or 1440,height or 880
     local canvas=love.graphics.newCanvas(width,height)
     R.viewportOverride={width,height}
-    if keepCamera then app.camera():setViewport(UI.width,50,width-UI.width,height-108) end
+    if keepCamera then app.camera():setViewport(UI.width,84,width-UI.width,height-142) end
     if not keepCamera then app.action(app.state.tab=="map" and "fitWorld" or "fit") end
     love.graphics.setCanvas(canvas)
     love.draw()
@@ -268,7 +268,7 @@ function Walk.start(app,mode)
     app.state.tab="ledger"; app.state.scroll=400
     local a,b=c.g.nodes[main.a],c.g.nodes[main.b]
     local sx,sy=clickWorld(app,(a.x+b.x)/2,(a.y+b.y)/2)
-    check(sx>UI.width and sy>50,"the main is inside the map viewport")
+    check(sx>UI.width and sy>84,"the main is inside the map viewport")
     check(app.state.edge==main.id,"clicking a main on the map selects it")
     check(app.state.tab=="network","selecting a main jumps to the Network tab")
     check(app.state.scroll==0,"the inspector needs no scrolling to reach")

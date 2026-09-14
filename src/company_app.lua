@@ -31,7 +31,7 @@ end
 
 local function layout()
   local w,h=R.dimensions()
-  cam:setViewport(UI.width,50,w-UI.width,h-108)
+  cam:setViewport(UI.width,84,w-UI.width,h-142)
 end
 
 -- Pull back far enough to see every district, bought or not.
@@ -277,7 +277,7 @@ local function pointDistance(x,y,ax,ay,bx,by)
 end
 
 local function hit(x,y)
-  if x<UI.width or y<50 or y>love.graphics.getHeight()-58 then return nil,nil end
+  if x<UI.width or y<84 or y>love.graphics.getHeight()-58 then return nil,nil end
   for _,n in ipairs(city.g:aliveNodes()) do
     local sx,sy=cam:toScreen(n.x,n.y)
     if (not state.filter or not n.commodity or n.commodity==state.filter) and
@@ -403,7 +403,7 @@ end
 function love.mousepressed(x,y,button)
   if button==1 and UI.click(x,y) then return end
   if state.modal then return end
-  if x<UI.width or y<50 or y>love.graphics.getHeight()-58 then return end
+  if x<UI.width or y<84 or y>love.graphics.getHeight()-58 then return end
   -- Right-click puts down whatever is in hand. With nothing in hand, a right
   -- click that does not turn into a pan clears the selection on release.
   if button==2 or button==3 then

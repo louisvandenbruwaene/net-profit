@@ -11,7 +11,7 @@ local state, city, act, scroll, H, W
 
 local M   = 22           -- sidebar margin
 local CW  = 300          -- sidebar content width
-local TOP = 140          -- first content line, before scrolling
+local TOP = 81         -- first content line, before scrolling
 local tooltipId,tooltipSince,tooltipX,tooltipY
 
 local function text(s,x,y,font,color,width,align)
@@ -34,7 +34,7 @@ end
 local function button(id,label,x,y,w,h,fn,enabled,tip,active,color,emphasis)
   enabled = enabled ~= false
   local mx,my = love.mouse.getPosition()
-  local inClip = not scroll or (y>=126 and y+h<=H-62)
+  local inClip = not scroll or (y>=67 and y+h<=H-62)
   local hover = enabled and inClip and mx>=x and mx<x+w and my>=y and my<y+h
   color = color or P.flow
   local pulse = emphasis and enabled and (0.5+0.5*math.sin(R.t*2)) or 0
@@ -1768,10 +1768,8 @@ function UI.draw(c,s,action)
   W,H=R.dimensions()
   UI.buttons={}; scroll=false
   lg.setColor(P.panel); lg.rectangle("fill",0,0,UI.width,H)
-  lg.rectangle("fill",UI.width,0,W-UI.width,46)
-  lg.setColor(P.panelEdge); lg.setLineWidth(1); lg.line(UI.width,0,UI.width,H); lg.line(0,46,W,46)
-  lg.setColor(P.good); lg.rectangle("fill",M,21,3,25,1)
-  text("NET PROFIT",M+13,18,"mid")
+  lg.rectangle("fill",UI.width,0,W-UI.width,80)
+  lg.setColor(P.panelEdge); lg.setLineWidth(1); lg.line(UI.width,0,UI.width,H); lg.line(UI.width,80,W,80)
 
   local net=city:dailyRevenue()-city:dailyExpenses()
   local clients=city:clientList()
@@ -1788,13 +1786,13 @@ function UI.draw(c,s,action)
     local x=UI.width+22+(i-1)*width
     local font=(i==3 and #clients==0) and "mid" or R.fonts.big:getWidth(tostring(m[2]))>width-14 and "mid" or "big"
     text(m[1],x,16,"tiny",P.textDim); single(m[2],x,34,font,m[3],width-16)
-    if i>1 then lg.setColor(P.panelEdge); lg.line(x-14,8,x-14,38) end
+    if i>1 then lg.setColor(P.panelEdge); lg.line(x-14,20,x-14,60) end
   end
 
   local tabX=8
   for i,t in ipairs(TABS) do
     local tabWidth=({74,90,74,70})[i]
-    button("tab-"..t[1],t[2],tabX,69,tabWidth,34,function()
+    button("tab-"..t[1],t[2],tabX,10,tabWidth,34,function()
       state.rename=nil
       state.tab=t[1]; state.scroll=0
       -- The Map tab is a map: opening it pulls the camera back to show the
@@ -1803,9 +1801,9 @@ function UI.draw(c,s,action)
     end,true,nil,state.tab==t[1] or (t[1]=="stats" and (state.tab=="ambitions" or state.tab=="ledger")))
     tabX=tabX+tabWidth+4
   end
-  lg.setColor(P.with(P.panelEdge,0.65)); lg.line(M,117,M+CW,117)
+  lg.setColor(P.with(P.panelEdge,0.65)); lg.line(M,58,M+CW,58)
 
-  lg.setScissor(0,126,UI.width-1,H-188); scroll=true
+  lg.setScissor(0,67,UI.width-1,H-129); scroll=true
   if state.tab=="network" then network()
   elseif state.tab=="finance" then company()
   elseif state.tab=="customers" then customers()
@@ -1817,11 +1815,11 @@ function UI.draw(c,s,action)
   UI.maxScroll=math.max(0,(UI.contentBottom or H)-(H-65))
   state.scroll=math.min(state.scroll,UI.maxScroll)
   if UI.maxScroll>0 then
-    local track=H-202
+    local track=H-143
     local thumb=math.max(30,track*track/(track+UI.maxScroll))
-    lg.setColor(P.panelEdge); lg.rectangle("fill",UI.width-9,131,3,track,1)
+    lg.setColor(P.panelEdge); lg.rectangle("fill",UI.width-9,72,3,track,1)
     lg.setColor(P.textFaint)
-    lg.rectangle("fill",UI.width-9,131+(track-thumb)*math.min(1,state.scroll/UI.maxScroll),3,thumb,1)
+    lg.rectangle("fill",UI.width-9,72+(track-thumb)*math.min(1,state.scroll/UI.maxScroll),3,thumb,1)
   end
 
   -- The first day, one step at a time. Everything the player will go on doing
