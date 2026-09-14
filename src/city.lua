@@ -2593,7 +2593,7 @@ end
 function City:pickClientType(district)
   local bias = district and City.DISTRICTS[district.id] and City.DISTRICTS[district.id].bias
   local pool = {}
-  for _, key in ipairs({"house", "estate", "workshop", "pub", "factory", "subscriber", "market"}) do
+  for _, key in ipairs({"house", "estate", "workshop", "pub", "factory", "subscriber", "market", "home"}) do
     local spec = City.CLIENTS[key]
     if self.licences[spec.commodity] then
       local leaning = bias and (bias[key] or (spec.follows and math.floor((bias[spec.follows] or 0) / 2)))

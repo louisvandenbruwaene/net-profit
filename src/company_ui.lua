@@ -140,14 +140,20 @@ local toolTips = {
   stop="People board here. Connect stops with roads and routes.",
   station="Requires petrol and a road. Sells petrol to drivers. Costs $5/day.",
   filtration="2 connections. Connected filtration protects new water mains from calcification; existing mains need replacing.",
-  pylon="3 electrical connections at one voltage. Carries power across the map.",
-  transformer="6 electrical connections. Converts voltage without creating extra power. Connect within 90m.",
   binder="Short attachment range. Allows two identical parallel pipes; expensive upgrades allow up to five.",
   lab="Cleans soil and water in this district and its eight neighbours. Costs $24/day.",
   resort="Requires a coast or riverbank. Visitors pay you. Costs $40/day per level.",
 }
 
-local TOOLS = {"junction","manifold","pump","filtration","pylon","transformer","binder","lab","tower","gate","depot","exchange","terminal","dc","stop","station","resort"}
+local function towerTip(kind,rest)
+  local v=City.INFRA.voltages[City.INFRA.towers[kind]]
+  return v.name.." ("..v.kv.." kV) only. One every "..v.span.." m, a booster every "..v.boost.." m. "..rest
+end
+toolTips.hvtower=towerTip("hvtower","Carries generator output across the map. A transformer steps it down to standard towers and poles.")
+toolTips.pylon=towerTip("pylon","With a transformer it feeds workshops, works and facilities, or steps down to poles.")
+toolTips.pole=towerTip("pole","With a transformer it feeds homes.")
+
+local TOOLS = {"junction","manifold","pump","filtration","hvtower","pylon","pole","binder","lab","tower","gate","depot","exchange","terminal","dc","stop","station","resort"}
 
 -- Replacing a structure where it stands. The mains never come off, so this is
 -- the difference between buying three more ports and rebuilding a junction box
@@ -599,6 +605,10 @@ local function inspectEdge(e,y)
     row("Usable power",capacity.." x 100 kW",y+26,P.flow)
     row("Loss at rated load",string.format("%.1f%%",loss*100),y+52,P.textDim)
     y=y+88
+    if e.unboosted then
+      y=y+paragraph("More than "..City.INFRA.voltages[e.voltage].boost.." m from a booster: this cable carries nothing. "..
+        "Upgrade a tower closer to the supply to a booster.",y,P.bad)+10
+    end
   elseif e.commodity=="water" then
     text(e.filtered and "Filtered: reduced calcification" or "Untreated: standard calcification",M,y,"small",e.filtered and P.good or P.textDim,CW)
     y=y+28
@@ -818,30 +828,23 @@ local function buildPanel()
   y=y+4
   if not state.people then
   if state.commodity=="power" then
-    heading("LINE VOLTAGE",y)
+    heading("VOLTAGES",y)
     button("voltage-help","i",M+CW-22,y-4,22,22,function() state.voltageHelp=not state.voltageHelp end,true,
       state.voltageHelp and "Hide how voltage works" or "How voltage works",state.voltageHelp,P.accent)
     y=y+24
     if state.voltageHelp then
       local V=City.INFRA.voltages
-      y=y+paragraph("Reactors send power out at "..V.high.kv.." kV. Customers, works and hubs only take "..
-        V.low.kv.." kV, so power has to be stepped down on the way.",y)+6
-      for _,key in ipairs(City.INFRA.voltageOrder) do
-        local spec=V[key]
-        row(spec.kv.." kV  "..string.lower(spec.name),spec.range.." m, cost x"..City.INFRA.voltageCost[key],y,P.accent)
+      y=y+paragraph("Generators send out "..V.high.kv.." kV. A tower carries one voltage. A transformer on a tower "..
+        "steps it down to every lower voltage, and customers only connect to a tower with a transformer: "..
+        "homes to a low voltage pole, workshops, works and facilities to a standard tower.",y)+6
+      for i=#City.INFRA.voltageOrder,1,-1 do
+        local spec=V[City.INFRA.voltageOrder[i]]
+        row(spec.kv.." kV  "..({hvtower="HV tower",pylon="tower",pole="pole"})[spec.tower],
+          "every "..spec.span.." m, boost "..spec.boost.." m",y,P.accent)
         y=y+20
       end
-      y=y+paragraph("A pylon carries one voltage. A transformer joins two voltages, and every line into it must be within "..
-        City.INFRA.transformerRange.." m. Auto picks whatever the ends already carry, so choose 110 kV yourself for a long run between two pylons.",y+2)+12
+      y=y+paragraph("A booster, a transformer or a generator restarts the booster distance.",y+2)+12
     end
-    for i,key in ipairs({"auto","low","medium","high"}) do
-      local spec=City.INFRA.voltages[key]
-      button("voltage-"..key,spec and (spec.kv.." kV") or "Auto",M+(i-1)*76,y,72,28,
-        function() city.lineVoltage=key~="auto" and key or nil end,true,
-        spec and (spec.name..". Range "..spec.range.."m; transformer connections "..City.INFRA.transformerRange.."m.") or "Match the endpoints automatically. Different voltages need a transformer.",
-        (city.lineVoltage or "auto")==key,P.accent)
-    end
-    y=y+40
   end
   -- Bore for a main, wagons for a bulk line. They are different things bought
   -- in different units, so the label says which one you are buying.
@@ -1021,7 +1024,7 @@ local function buildPanel()
       relevant=passenger or shared
     elseif passenger then
       relevant=false
-    elseif name=="pylon" or name=="transformer" then
+    elseif City.INFRA.towers[name] then
       relevant=state.commodity=="power"
     elseif name=="filtration" or name=="tower" then
       relevant=state.commodity=="water"
@@ -1034,7 +1037,7 @@ local function buildPanel()
     else
       relevant=true
     end
-    if relevant and (i<=4 or name=="pylon" or name=="transformer" or state.people or advanced)
+    if relevant and (i<=4 or City.INFRA.towers[name] or state.people or advanced)
       and (not City.BUILD_UNLOCK[name] or city:unlocked(City.BUILD_UNLOCK[name]))
       and (not gate[name] or city:unlocked(gate[name])) then
       local col,rw=shown%3,math.floor(shown/3)
@@ -1045,7 +1048,7 @@ local function buildPanel()
         afford,toolTips[name],state.tool==name,Graph.KINDS[name].color)
       lg.setColor(afford and Graph.KINDS[name].color or P.textFaint)
       Draw.structureGlyph(name,bx+17,by+24)
-      text(({junction="T split",manifold="Pipe hub",pump="Pump",filtration="Filter",pylon="Pylon",transformer="Transf.",binder="Binder",lab="Env. lab",tower="Treat",gate="Valve",depot="Depot",exchange="Hub",terminal="Haven",dc="Yard",
+      text(({junction="T split",manifold="Pipe hub",pump="Pump",filtration="Filter",hvtower="HV tower",pylon="Tower",pole="LV pole",binder="Binder",lab="Env. lab",tower="Treat",gate="Valve",depot="Depot",exchange="Hub",terminal="Haven",dc="Yard",
              stop="Stop",station="Station",resort="Resort"})[name],
         bx+32,by+8,"tiny",P.text)
       text("$"..City.price[name],bx+32,by+28,"small",P.textDim)
@@ -1135,9 +1138,28 @@ local function inspectorPanel(n,e)
     y=y+36
     if City.INFRA.kinds[n.kind] then
       row("Connections",city:connectionPorts(n.id).." / "..n.ports,y)
-      text(toolTips[n.kind],M,y+30,"small",P.textDim,CW)
+      text(toolTips[n.kind] or "",M,y+30,"small",P.textDim,CW)
       tail=y+118
-      if n.kind=="binder" then
+      local carries=City.INFRA.towers[n.kind]
+      if carries then
+        local spec=City.INFRA.voltages[carries]
+        row("Voltage",spec.kv.." kV"..(n.upgrade=="transformer" and " and lower" or ""),tail,P.accent); tail=tail+26
+        row("Upgrade",n.upgrade and City.INFRA.upgrades[n.upgrade].name or "None",tail); tail=tail+26
+        local run=city:boostRuns(carries)[n.id]
+        row("Since last boost",run and (math.floor(run).." / "..spec.boost.." m") or "Not connected",tail,
+          run and run>spec.boost*0.8 and P.warn or P.textDim); tail=tail+34
+        if not n.upgrade then
+          for _,key in ipairs({"transformer","booster"}) do
+            local up=City.INFRA.upgrades[key]
+            local price=up.cost[n.kind]
+            button("upgrade-"..key,"Add "..string.lower(up.name).."  $"..price,M,tail,CW,34,
+              function() act("upgradeTower",n.id,key) end,city.money>=price,
+              key=="transformer" and "Lets this tower take cables at every lower voltage and connect customers of its own voltage. One upgrade per tower."
+                or "Restarts the booster distance on this tower's voltage. One upgrade per tower.")
+            tail=tail+42
+          end
+        end
+      elseif n.kind=="binder" then
         row("Parallel lanes",n.bundleLanes or 2,tail); tail=tail+30
         local lanes=n.bundleLanes or 2
         local price=City.INFRA.binderPrices[lanes-1]

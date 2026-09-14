@@ -12,15 +12,21 @@ Pipe binders connect nearby equipment within 95 metres and bundle two identical 
 
 ## Electricity
 
-Build a generator, run transmission cable to a transformer, and connect low-voltage customers from that transformer. Use pylons for intermediate routes. Water fittings cannot carry new electrical connections.
+Power travels on three kinds of tower, and each tower carries one voltage.
 
-Generators output 110 kV; customers and factories accept 0.4 kV. Transformers join different voltages. A pylon keeps a single voltage. The Auto control chooses voltage from the endpoints; manual choices are available. Cable options show current ratings in amperes. Inspect a cable for its voltage, capacity and loss allowance. Short transformer connections encourage local distribution; farms connect at their boundary.
+| Tower | Voltage | Tower spacing | Booster distance |
+| --- | --- | --- | --- |
+| High voltage tower | 110 kV | 300 m | 2,500 m |
+| Standard tower | 11 kV | 100 m | 500 m |
+| Low voltage pole | 0.4 kV | 50 m | 100 m |
 
-| Voltage | Maximum line length |
-| --- | --- |
-| 0.4 kV | 140 m |
-| 11 kV | 800 m |
-| 110 kV | 2,600 m |
+A cable can be no longer than the tower spacing of its voltage. Generators send out high voltage, so the first cable from a generator goes to a high voltage tower. Water fittings cannot carry electrical connections.
+
+A tower holds one upgrade. A transformer lets the tower take cables at its own voltage and at every lower voltage, so a high voltage tower with a transformer steps down onto standard towers or poles. A booster restarts the booster distance on the tower's own voltage, and generators and transformers restart it too. A cable is refused if it would put any structure further than the booster distance from its nearest generator, transformer or booster. If a booster is lost later, the cables past it show NO BOOSTER and carry nothing until a tower closer to the supply is upgraded.
+
+Customers connect only to a tower with a transformer that carries their own voltage. Homes take low voltage from a low voltage pole. Workshops, works, hubs and depot yards take medium voltage from a standard tower. A high voltage tower never feeds a customer directly. Farms connect at their field boundary. Cable options show current ratings in amperes. Inspect a cable for its voltage, capacity and loss allowance, and a tower for how far it is from the last boost.
+
+Loading an older company turns each pylon into a tower of the voltage it carried and each transformer into a tower with a transformer. Cables laid under the old rules keep working at their installed length.
 
 Reactors, river turbines, wind and solar generate electricity. River turbines require a river bank and do not consume piped utility water. Wind can be built on land or in the coastal sea beside owned mainland; offshore construction and upkeep cost more. Solar requires 12 imported panels: bring panels through the existing haven and storage system before construction.
 
@@ -41,6 +47,10 @@ Turns represent daily averages: no weather, night cycle, animal growth or season
 The design follows the physical distinctions described by the [EIA electricity delivery overview](https://www.eia.gov/energyexplained/electricity/delivery-to-consumers.php), [DOE hydropower explanation](https://www.energy.gov/cmei/water/how-hydropower-works), and [DOE pumping guide](https://www.energy.gov/sites/prod/files/2014/05/f16/pump.pdf). Numerical values are game balance choices, not engineering specifications.
 
 Change engineering values, farm recipes and environmental costs in `src/data/infrastructure.lua`. See [EDITING.md](EDITING.md) for the other balance files and how saved equipment responds to edits.
+
+## Grids on the map
+
+Selecting a trade in the build panel keeps its grid at full strength and fades every other grid, people included. Later goods share category grids, so selecting any one of them highlights the whole category: food (food, wheat, malt), metals (ore, coke, steel), stone (rock, sand, cement, concrete), wood (timber, planks), goods (salt, glass, rubber, solar panels, cars), and oil with diesel and gasoline. The categories live in `Graph.GRIDS` in `src/graph.lua`.
 
 ## Larger terrain outside the opening
 

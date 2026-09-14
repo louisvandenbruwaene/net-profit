@@ -291,9 +291,7 @@ do
   check(c:pipeCost(src.id,far.id,"water",1)>c:pipeCost(src.id,near.id,"water",1),
     "a longer trench costs more")
   local water=c:pipeCost(src.id,far.id,"water","small")
-  c.lineVoltage="low" -- Compare entry-level cable against entry-level mains.
   local power=c:pipeCost(src.id,far.id,"power","small")
-  c.lineVoltage=nil
   local beer=c:pipeCost(src.id,far.id,"beer","small")
   local oil=c:pipeCost(src.id,far.id,"oil","small")
   check(water<power and power<beer and beer<oil,

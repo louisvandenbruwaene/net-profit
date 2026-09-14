@@ -6,7 +6,7 @@ Most everyday balance changes now live in `src/data/`. These files contain value
 | --- | --- | --- |
 | Money and running costs | `src/data/economy.lua` | `rules.startMoney`, `price.junction`, `trade.water.sourceBase`, loan interest, crew wages |
 | Pipes and connections | `src/data/pipes.lua` | capacities, lining costs, leakage modifiers, endpoint size limits |
-| Engineering, farms and environment | `src/data/infrastructure.lua` | voltages, amperage, pump head, filtration, pollution, cleanup and farm recipes |
+| Engineering, farms and environment | `src/data/infrastructure.lua` | tower spacing, booster distances, upgrade prices, customer voltages, amperage, pump head, filtration, pollution, cleanup and farm recipes |
 | Terrain size and frequency | `src/data/terrain.lua` | park and mountain size ranges, massive obstacle chance and distance from the start |
 | Customers | `src/data/customers.lua` | daily rates, demand ranges, patience, spawn weights |
 | Factories and sources | `src/data/production.lua` | recipes, inputs, output, construction cost, extractors and power plants |

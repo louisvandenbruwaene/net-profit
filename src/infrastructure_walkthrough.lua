@@ -15,15 +15,21 @@ return function(app,capture,click,scrollTo,check)
   app.action('buySource','power',1200,900,'nuclear')
   local source=c.g.nodes[app.state.node]
   check(source and source.plant=='nuclear','reactor is commissioned through an application action')
-  app.action('build',1450,920,'pylon'); local pylon=c.g.nodes[app.state.node]
-  app.action('build',1510,950,'transformer'); local transformer=c.g.nodes[app.state.node]
-  local customer=assert(c:addClient('workshop',true)); customer.x,customer.y=1570,950; customer.demand=5
-  app.action('layPipe',source.id,pylon.id,'power','small')
-  app.action('layPipe',pylon.id,transformer.id,'power','small')
-  app.action('layPipe',transformer.id,customer.id,'power','medium')
+  app.action('build',1450,920,'hvtower'); local hv=c.g.nodes[app.state.node]
+  app.action('build',1530,950,'pylon'); local tower=c.g.nodes[app.state.node]
+  local customer=assert(c:addClient('workshop',true)); customer.x,customer.y=1610,950; customer.demand=5
+  app.action('layPipe',source.id,hv.id,'power','small')
+  app.action('focusNode',hv.id)
+  scrollTo(app,'upgrade-transformer')
+  capture('net-profit-27a-tower-upgrades',app,1100,700)
+  click('upgrade-transformer')
+  check(hv.upgrade=='transformer','the tower inspector fits a transformer')
+  app.action('layPipe',hv.id,tower.id,'power','small')
+  app.action('upgradeTower',tower.id,'transformer')
+  app.action('layPipe',tower.id,customer.id,'power','medium')
   app.action('acceptClient',customer.id)
-  check(c.served[customer.id]==5,'application actions deliver power through a pylon and transformer')
-  app.action('focusNode',transformer.id)
+  check(c.served[customer.id]==5,'application actions deliver power through towers with transformers')
+  app.action('focusNode',tower.id)
   capture('net-profit-27-transformer',app,1100,700)
   click('back-to-build')
   click('power')
@@ -32,10 +38,14 @@ return function(app,capture,click,scrollTo,check)
   capture('net-profit-28b-voltage-help',app,1100,700)
   click('voltage-help')
   check(not app.state.voltageHelp,'and collapses it again')
-  click('voltage-high')
-  check(c.lineVoltage=='high','voltage control selects high voltage')
-  click('voltage-auto')
-  check(c.lineVoltage==nil,'automatic voltage can be restored')
+  scrollTo(app,'tool-pole'); click('tool-pole')
+  check(app.state.tool=='pole','the low voltage pole is in the power toolbar')
+  app.state.tool=nil; app.state.scroll=0
+  local setColor=love.graphics.setColor
+  app.state.commodity='water'
+  capture('net-profit-34-grid-focus',app,1100,700)
+  check(love.graphics.setColor==setColor,'fading other grids never leaks into the sidebar')
+  app.state.commodity='power'
   scrollTo(app,'plant-solar'); click('plant-solar')
   check(app.state.plant=='solar','solar generator is selectable')
   scrollTo(app,'plant-hydro'); click('plant-hydro')
