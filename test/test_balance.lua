@@ -157,10 +157,19 @@ do
   assert(c:buyLicence("power"))
   local src = c.firstSource
   src.output, src.cap = 40, 40
-  local hall = assert(c:build(src.x + 240, src.y, "works", "turbine"))
-  assert(c:layPipe(src.id, hall.id, "water", "large"))
-  c:refresh()
-  ok("and it is making electricity out of water", (hall.ready or 0) > 0, tostring(hall.ready))
+  local hall
+  c.permits.river=true
+  for _,d in ipairs(c.districts) do
+    for x=d.x+50,d.x+d.w-50,70 do
+      for y=d.y+50,d.y+d.h-50,70 do
+        if not hall and not c:sourceError("power",x,y,"hydro") then
+          hall=assert(c:buySource("power",x,y,"hydro"))
+        end
+      end
+    end
+  end
+  ok("river generation can be built and has finite output",hall and hall.output==City.PLANTS.hydro.output)
+
 end
 
 --------------------------------------------------------------------------------

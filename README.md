@@ -2,6 +2,11 @@
 
 A turn-based utility-company game about networks, cash, and promises.
 
+The new [infrastructure guide](INFRASTRUCTURE.md) covers electricity, water, farming and pollution, including the simplified simulation rules. It supersedes older engineering descriptions below.
+
+For changing prices, production and progression, start with [EDITING.md](EDITING.md).
+The [engine assessment](ENGINE-MIGRATION.md) describes a Godot migration designed around Inspector-editable values and reusable scenes.
+
 You start with a marked spring, one household asking to be connected, one
 district and $750. Sink the well, connect it through a junction to the house, sign the contract,
 and close the day. After that: sign new customers, keep the mains sound, buy the
@@ -59,6 +64,12 @@ are leaving is always saved first, so switching can never cost you a day's work.
 Test modes use isolated companies and never read or overwrite your saves.
 
 ## Menus
+
+The header keeps the current day, available cash, estimated daily profit and
+fully supplied customer count visible. Customer cards show daily income and
+service or offer deadlines; click anywhere on a card to inspect it. Tooltips
+appear after a short pause, and the sidebar scrollbar indicates how much is
+still below the visible area.
 
 - **Build:** pipes, sources and buildings. Pipe options and More buildings open extra tools.
 - **Company:** licences, staff, loans, upgrades and land permits.
@@ -131,7 +142,8 @@ that a more involved route or more supply is needed. These are simulations of
 the current network, not promises about future leaks or market changes. Shared
 supply can reduce another customer's delivery; previews flag that risk.
 
-Day reports lead with operating profit and awards. Accounting expands on demand,
+End day starts the next day immediately. Stats shows the previous day’s results;
+open Full day results for accounting, awards and events. Accounting expands on demand,
 and enquiries and repair actions open the relevant inspector directly. Clients
 can be sorted by urgency or potential daily income; Company includes a recent
 operating-profit chart. The supply overlay marks full or damaged mains in amber

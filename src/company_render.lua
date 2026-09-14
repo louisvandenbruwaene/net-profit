@@ -6,10 +6,24 @@ local E = require("experience")
 local Draw = {}
 local lg = love.graphics
 
-local labels,occupied={},{}
+local labels,occupied,segments={},{},{}
 local labelPriority=0
 local function label(value,x,y,color,font)
   labels[#labels+1]={text=tostring(value),x=x,y=y,color=color or P.text,font=font or R.fonts.small,priority=labelPriority,order=#labels+1}
+end
+local function crossesBox(line,x,y,w,h)
+  local t0,t1=0,1
+  local dx,dy=line.bx-line.ax,line.by-line.ay
+  local pad=line.pad or 4
+  x,y,w,h=x-pad,y-pad,w+pad*2,h+pad*2
+  for _,v in ipairs({{-dx,line.ax-x},{dx,x+w-line.ax},{-dy,line.ay-y},{dy,y+h-line.ay}}) do
+    local p,q=v[1],v[2]
+    if p==0 then if q<0 then return false end
+    elseif p<0 then t0=math.max(t0,q/p)
+    else t1=math.min(t1,q/p) end
+    if t0>t1 then return false end
+  end
+  return true
 end
 local function drawLabels(cam)
   table.sort(labels,function(a,b) return a.priority>b.priority or (a.priority==b.priority and a.order<b.order) end)
@@ -20,6 +34,11 @@ local function drawLabels(cam)
     local clear=x>=cam.vx+4 and x+w<=cam.vx+cam.vw-4 and y>=cam.vy and y+h<=cam.vy+cam.vh
     for _,r in ipairs(occupied) do
       if x<r.x+r.w and x+w>r.x and y<r.y+r.h and y+h>r.y then clear=false; break end
+    end
+    if clear then
+      for _,line in ipairs(segments) do
+        if crossesBox(line,x,y,w,h) then clear=false; break end
+      end
     end
     if clear then
       occupied[#occupied+1]={x=x,y=y,w=w,h=h}
@@ -195,7 +214,23 @@ function Draw.structureGlyph(kind, x, y, s)
   lg.setColor(r, g, b, a)
   stroke(span, 0.1)
 
-  if kind == "pump" then
+  if kind=="filtration" then
+    lg.rectangle("line",-7*s,-10*s,14*s,20*s,3*s)
+    for i=-1,1 do lg.line(-5*s,i*5*s,5*s,i*5*s) end
+  elseif kind=="binder" then
+    for i=-1,1 do lg.line(-10*s,i*5*s,10*s,i*5*s) end
+    lg.rectangle("line",-4*s,-10*s,8*s,20*s,2*s)
+  elseif kind=="transformer" then
+    lg.rectangle("line",-10*s,-8*s,20*s,16*s,2*s)
+    for i=-1,1 do lg.circle("line",-3*s,i*4*s,3*s); lg.circle("line",3*s,i*4*s,3*s) end
+  elseif kind=="pylon" then
+    lg.line(-8*s,10*s,0,-10*s,8*s,10*s)
+    lg.line(-10*s,-4*s,10*s,-4*s); lg.line(-6*s,4*s,6*s,4*s)
+  elseif kind=="lab" then
+    lg.line(-4*s,-10*s,4*s,-10*s)
+    lg.polygon("line",-3*s,-10*s,-3*s,-2*s,-9*s,9*s,9*s,9*s,3*s,-2*s,3*s,-10*s)
+    lg.line(-6*s,4*s,6*s,4*s)
+  elseif kind == "pump" then
     -- A pump on a line: the round casing, the motor bolted on top.
     lg.rectangle("fill", -10 * s, -1.6 * s, 20 * s, 3.2 * s, 0.8 * s)
     lg.circle("fill", 0, 0, 6.4 * s)
@@ -330,6 +365,8 @@ end
 -- Every node on the map is a disc: a dark body tinted by its trade, and a rim
 -- in the trade colour. Flat, so the symbol on top of it is what the eye finds.
 function Draw.disc(x, y, r, color, tint)
+  lg.setColor(0,0,0,0.22)
+  lg.circle("fill", x, y+2, r+2)
   lg.setColor(P.bg)
   lg.circle("fill", x, y, r)
   lg.setColor(P.with(color, tint or 0.20))
@@ -339,22 +376,29 @@ function Draw.disc(x, y, r, color, tint)
   lg.circle("line", x, y, r)
 end
 
+local laneCache={}
 function Draw.edgePoints(cam, city, e)
-  local a, b = city.g.nodes[e.a], city.g.nodes[e.b]
-  local ax, ay = cam:toScreen(a.x, a.y)
-  local bx, by = cam:toScreen(b.x, b.y)
-  local length = math.max(1, math.sqrt((bx-ax)^2 + (by-ay)^2))
-  local offset = 0
-  for _, other in ipairs(city.g.edges) do
-    if other.alive and other.id ~= e.id and
-      ((other.a == e.a and other.b == e.b) or (other.b == e.a and other.a == e.b)) then
-      offset = ({water=-9, power=-3, beer=3, oil=9})[e.commodity] or 0
-      break
+  if laneCache.city~=city or laneCache.revision~=city.revision or laneCache.count~=#city.g.edges then
+    local groups,offsets={},{}
+    for _,edge in ipairs(city.g.edges) do
+      if edge.alive then
+        local key=math.min(edge.a,edge.b)..":"..math.max(edge.a,edge.b)
+        groups[key]=groups[key] or {}; table.insert(groups[key],edge.id)
+      end
     end
+    for _,ids in pairs(groups) do
+      for i,id in ipairs(ids) do offsets[id]=(i-(#ids+1)/2)*8 end
+    end
+    laneCache={city=city,revision=city.revision,count=#city.g.edges,offsets=offsets}
   end
-  local sign = e.a < e.b and 1 or -1
-  local ox, oy = -(by-ay)/length*offset*sign, (bx-ax)/length*offset*sign
-  return ax+ox, ay+oy, bx+ox, by+oy
+  local a,b=city.g.nodes[e.a],city.g.nodes[e.b]
+  local ax,ay=cam:toScreen(a.x,a.y)
+  local bx,by=cam:toScreen(b.x,b.y)
+  local length=math.max(1,math.sqrt((bx-ax)^2+(by-ay)^2))
+  local offset=laneCache.offsets[e.id] or 0
+  local sign=e.a<e.b and 1 or -1
+  local ox,oy=-(by-ay)/length*offset*sign,(bx-ax)/length*offset*sign
+  return ax+ox,ay+oy,bx+ox,by+oy
 end
 
 -- A road and the bus that runs on it join the same two places, so each mode
@@ -398,9 +442,20 @@ local function drawDistrictGround(city, cam)
         lg.setLineWidth(2)
         lg.ellipse("line",cx,cy,w/2,h/2)
       else
-        lg.setColor(d.owned and {0.075,0.12,0.13,0.8} or {0.09,0.11,0.14,0.5})
+        lg.setColor(d.owned and P.with(P.land,0.9) or {0.10,0.13,0.15,0.55})
         lg.rectangle("fill",x+4,y+4,w-8,h-8,8)
-
+        -- Survey dots give open ground scale without competing with pipes.
+        if d.owned and cam.scale>0.35 then
+          local spacing=120*cam.scale
+          local firstX=x+math.max(1,math.ceil((cam.vx-x)/spacing))*spacing
+          local firstY=y+math.max(1,math.ceil((cam.vy-y)/spacing))*spacing
+          lg.setColor(P.with(P.textDim,0.12))
+          for gx=firstX,math.min(x+w-8,cam.vx+cam.vw),spacing do
+            for gy=firstY,math.min(y+h-8,cam.vy+cam.vh),spacing do
+              lg.rectangle("fill",math.floor(gx),math.floor(gy),1,1)
+            end
+          end
+        end
       end
     end
   end
@@ -420,25 +475,25 @@ local function drawDistrictChrome(city, cam, state)
     else
       -- Ground you do not own is visibly not yours, but still legible enough
       -- to plan towards.
-      lg.setColor(P.with(P.bg, 0.62))
+      lg.setColor(P.with(P.bg, 0.38))
       if d.island then lg.ellipse("fill", cx, cy, w / 2, h / 2)
       else lg.rectangle("fill", x, y, w, h) end
       local hot = state.district == d.id
       local buyable = not city:districtError(d.id)
-      lg.setColor(P.with(hot and P.energy or buyable and P.good or P.textFaint, hot and 0.9 or 0.45))
+      lg.setColor(P.with(hot and P.energy or buyable and P.good or P.textFaint, hot and 0.9 or 0.25))
       lg.setLineWidth(hot and 2 or 1)
       if d.island then lg.ellipse("line", cx, cy, w / 2 - 2, h / 2 - 2)
       else lg.rectangle("line", x + 2, y + 2, w - 4, h - 4) end
       if cam.scale > 0.19 then
-        label(string.upper(d.name), cx, cy - 20, buyable and P.text or P.textDim, R.fonts.body)
+        label(d.name, cx, cy - 20, buyable and P.text or P.textDim, R.fonts.body)
         if (d.population or 0) > 0 then
           label("POP " .. d.population, cx, cy - 44, P.textDim, R.fonts.tiny)
         end
         label("$" .. city:districtCost(d), cx, cy + 4,
           buyable and P.energy or P.textFaint, R.fonts.small)
-        if not buyable and city:districtAdjacent(d) then
+        if hot and not buyable and city:districtAdjacent(d) then
           label("needs more cash", cx, cy + 26, P.textFaint, R.fonts.tiny)
-        elseif not city:districtAdjacent(d) then
+        elseif hot and not city:districtAdjacent(d) then
           label("not adjacent", cx, cy + 26, P.textFaint, R.fonts.tiny)
         end
       end
@@ -460,7 +515,16 @@ end
 local function scenery(o, x, y, r)
   local spec = City.OBSTACLES[o.kind] or {}
   local c = spec.color or { 0.3, 0.3, 0.3 }
+  if o.massive then
+    -- A forest or mountain range, rather than one oversized map symbol.
+    local patch={kind=o.kind}
+    for _,pos in ipairs({{-0.40,-0.26},{0,-0.40},{0.40,-0.23},{-0.48,0.16},{-0.08,0.05},{0.36,0.23},{-0.12,0.43}}) do
+      scenery(patch,x+pos[1]*r,y+pos[2]*r,r*0.38)
+    end
+    return
+  end
   local s = r * 0.58
+  occupied[#occupied+1]={x=x-s,y=y-s,w=s*2,h=s*2}
   if o.kind == "park" then
     -- A tree: brown trunk, green crown.
     lg.setColor(0.34, 0.24, 0.15, 0.95)
@@ -646,8 +710,10 @@ local function drawSeams(city, cam, state)
         lg.setColor(P.with(spec.color, 0.09 * dim)); lg.circle("fill", x, y, r)
         lg.setColor(P.with(spec.color, 0.45 * dim)); lg.setLineWidth(1)
         lg.circle("line", x, y, r)
-        Draw.mark(s.commodity, x, y - 2, math.max(2.5, R.sym(9, cam.scale)))
-        if cam.scale > 0.45 then
+        local mr=math.max(2.5,R.sym(9,cam.scale))
+        occupied[#occupied+1]={x=x-mr-3,y=y-mr-5,w=mr*2+6,h=mr*2+6}
+        Draw.mark(s.commodity, x, y - 2, mr)
+        if focused and cam.scale > 0.45 then
           label(string.upper(s.commodity) .. "  x" .. string.format("%.1f", s.yield),
             x, y + (focused and r or 20) + 4, P.with(spec.color,focused and 1 or 0.7), R.fonts.tiny)
         end
@@ -679,6 +745,7 @@ local function drawLinks(city, cam, state)
       local hot = state.link == l.id or state.hoverLink == l.id
       local trips = (byLink[l.id] or {}).trips or 0
       local w = math.max(2, 5 * cam.scale)
+      if l.mode~="air" then segments[#segments+1]={ax=ax,ay=ay,bx=bx,by=by,pad=w+3} end
       if hot then
         lg.setColor(P.with(P.text, 0.6)); lg.setLineWidth(w + 6)
         lg.line(ax, ay, bx, by)
@@ -709,12 +776,13 @@ local function drawLinks(city, cam, state)
             local t = i / 20
             local qx = (1 - t) ^ 2 * ax + 2 * (1 - t) * t * cx + t * t * bx
             local qy = (1 - t) ^ 2 * ay + 2 * (1 - t) * t * cy + t * t * by
+            segments[#segments+1]={ax=px,ay=py,bx=qx,by=qy,pad=4}
             if i % 2 == 1 then lg.line(px, py, qx, qy) end
             px, py = qx, qy
           end
         end
       end
-      if cam.scale > 0.5 or hot then
+      if hot then
         local price = l.mode == "road" and l.toll or l.fare
         label(string.format("$%d  /  %d trips", price or 0, trips), (ax + bx) / 2, (ay + by) / 2 - 20,
           trips > 0 and P.textDim or P.textFaint, R.fonts.tiny)
@@ -724,13 +792,36 @@ local function drawLinks(city, cam, state)
 end
 
 function Draw.world(city, cam, state)
-  labels,occupied={},{}; labelPriority=0
+  labels,occupied,segments={},{},{}; labelPriority=0
   local _,height = R.dimensions()
   lg.setScissor(cam.vx, cam.vy, cam.vw, cam.vh)
   R.drawGrid(cam, city.bounds.w, city.bounds.h)
   drawSea(city, cam, state)
   drawDistrictGround(city, cam)
   drawRiver(city, cam)
+  for _,d in ipairs(city.districts) do
+    if (d.pollution or 0)>1 and cam:seesBox(d.x,d.y,d.x+d.w,d.y+d.h) then
+      local x,y=cam:toScreen(d.x,d.y)
+      lg.setColor(0.52,0.29,0.10,math.min(0.28,d.pollution/200))
+      lg.rectangle("fill",x+4,y+4,d.w*cam.scale-8,d.h*cam.scale-8,6)
+      if cam.scale>0.3 then label(string.format("POLLUTION %.0f%%",d.pollution),x+d.w*cam.scale/2,y+44,P.warn,R.fonts.small) end
+    end
+  end
+  for _,n in ipairs(city.g:aliveNodes()) do
+    local recipe=City.RECIPES[n.recipe or ""]
+    if recipe and recipe.farm and cam:sees(n.x,n.y,City.INFRA.farmRadius*cam.scale+20) then
+      local x,y=cam:toScreen(n.x,n.y)
+      local r=City.INFRA.farmRadius*cam.scale
+      lg.setColor(P.with(P.good,0.09)); lg.rectangle("fill",x-r,y-r,r*2,r*2,5)
+      lg.setColor(P.with(P.good,0.3)); lg.setLineWidth(1); lg.rectangle("line",x-r,y-r,r*2,r*2,5)
+      for i=-2,2 do lg.line(x-r+6,y+i*r/3,x+r-6,y+i*r/3) end
+    elseif n.kind=="lab" and (state.node==n.id or state.hoverNode==n.id) then
+      for _,d in ipairs(city.districts) do if city:labCovers(n,d) then
+        local x,y=cam:toScreen(d.x,d.y)
+        lg.setColor(P.with(P.good,0.09)); lg.rectangle("fill",x,y,d.w*cam.scale,d.h*cam.scale)
+      end end
+    end
+  end
 
   for _, o in ipairs(city.obstacles) do
     if cam:sees(o.x, o.y, o.r * cam.scale + 60) then
@@ -745,8 +836,8 @@ function Draw.world(city, cam, state)
     lg.circle("line", x, y, r)
     scenery(o,x,y,r)
     if cam.scale > 0.48 then
-      local cross = city:groundCross(o.kind)
-      local tag = spec.name .. (cross and (cross > 1 and string.format("  x%.1f", cross) or "  OPEN") or "  CLOSED")
+      local cross = city:groundCross(o.kind, o)
+      local tag = (o.massive and (o.kind=="park" and "PROTECTED PARK" or "MOUNTAIN RANGE") or spec.name) .. (cross and (cross > 1 and string.format("  x%.1f", cross) or "  OPEN") or "  CLOSED")
       label(tag, x, y+r+3, freed and P.good or P.textDim, R.fonts.tiny)
     end
     end
@@ -796,8 +887,9 @@ function Draw.world(city, cam, state)
       local spec = Graph.COMMODITIES[e.commodity] or Graph.COMMODITIES.water
       local c = spec.color
       local width = math.min(10,2+e.capMax*0.6)*cam.scale+1
-      if state.bottlenecks and (route[e.id] or e.leaking or math.abs(city.detail.edge[e.id] or 0)>=e.cap) then
-        lg.setColor(P.with((e.leaking or math.abs(city.detail.edge[e.id] or 0)>=e.cap) and P.warn or P.flow,0.3))
+      segments[#segments+1]={ax=ax,ay=ay,bx=bx,by=by,pad=width/2+4}
+      if state.bottlenecks and (route[e.id] or e.leaking or math.abs(city.detail.edge[e.id] or 0)>=(e.effectiveCap or e.cap)) then
+        lg.setColor(P.with((e.leaking or math.abs(city.detail.edge[e.id] or 0)>=(e.effectiveCap or e.cap)) and P.warn or P.flow,0.3))
         lg.setLineWidth(width+10); lg.line(ax,ay,bx,by)
       end
       if state.edge == e.id or state.hoverEdge == e.id then
@@ -882,8 +974,8 @@ function Draw.world(city, cam, state)
         lg.setColor(P.with(P.bad,0.6+0.3*math.sin(R.t*5)))
         lg.setLineWidth(2); lg.circle("line",x,y,10+2*math.sin(R.t*4))
       end
-      if cam.scale > 0.8 or e.leaking or state.edge == e.id then
-        label(string.format("%d/%d",math.abs(flow),e.cap),(ax+bx)/2,(ay+by)/2-22,e.leaking and P.bad or P.textDim,R.fonts.tiny)
+      if e.leaking or state.edge == e.id or state.hoverEdge == e.id or state.bottlenecks then
+        label(string.format("%.1f/%d",math.abs(flow),e.effectiveCap or e.cap)..(e.voltage and ("  "..City.INFRA.voltages[e.voltage].kv.." kV") or ""),(ax+bx)/2,(ay+by)/2-22,e.leaking and P.bad or P.textDim,R.fonts.tiny)
       end
     end
   end
@@ -901,9 +993,10 @@ function Draw.world(city, cam, state)
     local r = math.max(3, R.sym(n.kind == "source" and 23 or 17, cam.scale))
     -- Two thresholds, in pixels of disc radius. A label wider than the thing
     -- it names is worse than no label, and a pip under a pixel is grit.
-    local named, fine = r >= 7.5, r >= 10
+    local focused=state.node==n.id or state.hoverNode==n.id
+    local named, fine = r >= 7.5 and focused, r >= 10 and focused
     labelPriority=(state.node==n.id or state.hoverNode==n.id) and 3 or 1
-    occupied[#occupied+1]={x=x-r-3,y=y-r-3,w=r*2+6,h=r*2+6}
+    occupied[#occupied+1]={x=x-r*1.5-3,y=y-r*1.5-3,w=r*3+6,h=r*3+6}
     local spec = n.commodity and Graph.COMMODITIES[n.commodity]
       or (n.makes and Graph.COMMODITIES[n.makes])
     local color = spec and spec.color or Graph.KINDS[n.kind].color
@@ -928,15 +1021,15 @@ function Draw.world(city, cam, state)
     if n.kind == "client" then
       lg.setColor(color)
       Draw.clientGlyph(n.clientType, x, y + r * 0.06, r / 15)
-      if named then
+      if r>=7.5 and (focused or (not n.prospect and (n.supplyClosed or served<n.demand))) then
         local title = n.prospect and "OFFER" or n.supplyClosed and "SHUT"
           or string.format("%d/%d",served,n.demand)
-        label(title,x,y+r+6,n.prospect and P.energy or (served>=n.demand and P.good or P.warn))
+        label(title,x,y+r*1.5+8,n.prospect and P.energy or (served>=n.demand and P.good or P.warn))
       end
-      if cam.scale > 1.1 or state.node==n.id or state.hoverNode==n.id then
+      if focused then
         local premium = city:ratePremium(n)
         local tag = E.clientName(city,n) .. "  $" .. n.rate
-        label(tag, x, y-r-21,
+        label(tag, x, y-r*1.5-24,
           premium > 0.10 and P.good or premium < -0.10 and P.bad or P.textDim, R.fonts.tiny)
       end
     elseif n.kind == "source" then
@@ -946,6 +1039,13 @@ function Draw.world(city, cam, state)
       elseif n.plant == "nuclear" then
         lg.setColor(color)
         Draw.reactor(x, y - r * 0.04, r * 0.86)
+      elseif n.plant=="solar" then
+        lg.setColor(color); lg.setLineWidth(1.5)
+        lg.rectangle("line",x-r*0.65,y-r*0.45,r*1.3,r*0.9)
+        lg.line(x,y-r*0.45,x,y+r*0.45); lg.line(x-r*0.65,y,x+r*0.65,y)
+      elseif n.plant=="hydro" then
+        Draw.mark('water',x-r*0.25,y,r*0.45)
+        Draw.mark('power',x+r*0.28,y,r*0.45)
       else
         Draw.mark(n.commodity, x, y - r * 0.04, r * 0.58)
       end
@@ -955,21 +1055,22 @@ function Draw.world(city, cam, state)
       -- that has to be visible without opening anything.
       local drawn = (city.produced or {})[n.id] or 0
       local maxed = drawn >= (n.output or 0) and (n.output or 0) > 0
-      if named then
+      if named or (r>=7.5 and maxed) then
         label((n.plant and string.upper((City.PLANTS[n.plant] or {}).name or "PLANT")
           or string.upper(n.commodity))
           .. "  " .. drawn .. "/" .. (n.output or 0),
-          x, y+r+8, maxed and P.warn or color)
+          x, y+r*1.5+8, maxed and P.warn or color)
       end
       -- A capacity bar across the bottom of the well, so the ratio reads at a
       -- glance from any zoom the labels survive.
-      if cam.scale > 0.5 and (n.output or 0) > 0 then
+      if focused and cam.scale > 0.5 and (n.output or 0) > 0 then
         local bw = r * 1.5
+        occupied[#occupied+1]={x=x-bw/2-2,y=y+r*1.5+26,w=bw+4,h=7}
         local frac = math.min(1, drawn / n.output)
         lg.setColor(P.with(P.textFaint, 0.7))
-        lg.rectangle("fill", x - bw/2, y + r + 24, bw, 3, 1.5)
+        lg.rectangle("fill", x - bw/2, y + r*1.5 + 28, bw, 3, 1.5)
         lg.setColor(maxed and P.warn or color)
-        lg.rectangle("fill", x - bw/2, y + r + 24, bw * frac, 3, 1.5)
+        lg.rectangle("fill", x - bw/2, y + r*1.5 + 28, bw * frac, 3, 1.5)
       end
       if fine then
         -- Level pips: how far the well has been deepened.
@@ -981,48 +1082,57 @@ function Draw.world(city, cam, state)
           lg.circle(i <= level and "fill" or "line",
             x - (pips - 1) * gap / 2 + (i - 1) * gap, y - r - pr * 3, pr)
         end
+        -- Port ring: one pip per output pipe, filled as pipes are taken up.
+        -- Drawn as a ring around the well (not above it) so it never reads
+        -- as more depth pips.
+        local ppr = math.max(1, R.sym(1.9, cam.scale))
+        for i=1,n.ports do
+          local a = i/n.ports*math.pi*2
+          lg.setColor(i<=city.g:degree(n.id) and color or P.textFaint)
+          lg.circle("fill",x+math.cos(a)*(r+ppr*1.6),y+math.sin(a)*(r+ppr*1.6),ppr)
+        end
       end
-      if n.seam then label("SEAM", x, y-r-24, P.energy, R.fonts.tiny) end
+
     else
       lg.setColor(color)
       Draw.structureGlyph(n.kind, x, y, r / 15)
       if n.kind == "gate" then
         if named then
-          label(tostring(n.throughput or 0), x, y+r+6,
+          label(tostring(n.throughput or 0), x, y+r*1.5+8,
             (n.throughput or 0) == 0 and P.bad or P.warn)
         end
       elseif n.kind == "terminal" then
         if named then
-          label((City.HAVENS[n.haven or "port"] or {}).name or "HAVEN", x, y+r+6, color)
+          label((City.HAVENS[n.haven or "port"] or {}).name or "HAVEN", x, y+r*1.5+8, color)
         end
-        if cam.scale > 0.6 then
+        if focused then
           local landed = (city.produced or {})[n.id] or 0
           local _, bill = city:importBill()
           label(landed > 0 and (landed .. " landed  -$" .. math.floor((bill[n.id] or 0) + 0.5))
-            or "no freight moving", x, y-r-21, landed > 0 and P.textDim or P.warn, R.fonts.tiny)
+            or "no freight moving", x, y-r*1.5-24, landed > 0 and P.textDim or P.warn, R.fonts.tiny)
         end
       elseif n.kind == "works" then
         local recipe = City.RECIPES[n.recipe or ""]
-        if named and recipe then
-          label((n.ready or 0) .. "/" .. recipe.rate .. " " .. recipe.makes, x, y+r+6,
+        if recipe and r>=7.5 and (focused or (n.ready or 0)<recipe.rate) then
+          label((n.ready or 0) .. "/" .. recipe.rate .. " " .. recipe.makes, x, y+r*1.5+8,
             (n.ready or 0) >= recipe.rate and P.good or (n.ready or 0) > 0 and P.warn or P.bad)
         end
-        if cam.scale > 0.6 and recipe then
-          label(recipe.name, x, y-r-21, P.textDim, R.fonts.tiny)
+        if focused and recipe then
+          label(recipe.name, x, y-r*1.5-24, P.textDim, R.fonts.tiny)
         end
       elseif n.kind == "station" then
         if named then
           local tank = city.served[n.id] or 0
-          label(tank .. " in the tank", x, y+r+6, tank > 0 and P.good or P.warn)
+          label(tank .. " in the tank", x, y+r*1.5+8, tank > 0 and P.good or P.warn)
         end
       elseif n.kind == "resort" then
-        if named then label("LEVEL " .. (n.level or 1), x, y+r+6, color) end
+        if named then label("LEVEL " .. (n.level or 1), x, y+r*1.5+8, color) end
       elseif n.kind == "stop" then
         local rec = (((city.transit or {}).byNode) or {})[n.id]
-        if named and rec and rec.boarded then label(rec.boarded .. " boarded", x, y+r+6, P.textDim) end
+        if named and rec and rec.boarded then label(rec.boarded .. " boarded", x, y+r*1.5+8, P.textDim) end
       elseif n.kind == "depot" then
         if named then
-          label((n.stored or 0) .. "/" .. (n.capacityStore or City.depotCapacity), x, y+r+6,
+          label((n.stored or 0) .. "/" .. (n.capacityStore or City.depotCapacity), x, y+r*1.5+8,
             (n.stored or 0) > 0 and P.good or P.textDim)
         end
       end
@@ -1101,32 +1211,38 @@ function Draw.world(city, cam, state)
           local unsigned=city.g.nodes[target].prospect
           local note=unsigned and "Unsigned offer: sign before earning income."
             or p.displaced>0 and (p.displaced.." other customers would receive less.")
-          local qw,qh=math.min(350,cam.vw-32),note and 136 or 114
+          local qw=math.min(350,cam.vw-32)
+          local rows={
+            {"Build for $"..q.total,R.fonts.mid,P.energy},
+            {string.format("%d m  /  Capacity %s",math.floor(q.metres),q.capacity),R.fonts.small,P.textDim},
+            {(p.demand and (p.delivery.."/"..p.demand.." supplied  /  ") or "")..
+              string.format("Profit $%+d/day",p.net),R.fonts.body,P.good},
+            {p.cash<0 and ("Need $"..(-p.cash).." more") or ("Cash remaining: $"..p.cash),R.fonts.body,p.cash<0 and P.bad or P.text},
+          }
+          if note then rows[#rows+1]={note,R.fonts.small,P.warn} end
+          local qh=20
+          for _,row in ipairs(rows) do
+            local _,lines=row[2]:getWrap(row[1],qw-28)
+            row.height=#lines*row[2]:getHeight()*row[2]:getLineHeight()
+            qh=qh+row.height+8
+          end
           local qx=math.max(cam.vx+16,math.min(cam.vx+cam.vw-qw-16,mx+20))
-          local qy=math.max(202,math.min(height-74-qh,my-qh-22))
+          local qy=math.max(cam.vy+12,math.min(height-74-qh,my-qh-22))
+          occupied[#occupied+1]={x=qx-4,y=qy-4,w=qw+8,h=qh+8}
           lg.setColor(P.panel); lg.rectangle("fill",qx,qy,qw,qh,7)
           lg.setColor(p.cash<0 and P.bad or P.flow); lg.setLineWidth(1)
           lg.rectangle("line",qx,qy,qw,qh,7)
-          lg.setFont(R.fonts.mid); lg.setColor(P.energy)
-          lg.print("Build for $"..q.total,qx+14,qy+10)
-          lg.setFont(R.fonts.small); lg.setColor(P.textDim)
-          lg.print(string.format("%dm  /  %s  /  %s $%d  /  %s $%d  /  lining $%d",math.floor(q.metres),
-            state.rail and (q.capacity.." wagons") or
-              (string.lower(City.sizeOf(q.size).name).." main, carries "..q.capacity),
-            state.rail and "yards" or "tie-in",q.tiein,
-            state.rail and "track" or "trench",q.trench,q.bore),qx+14,qy+38)
-          local detail=string.format("Net change $%+d/day",p.net)
-          if p.demand then detail=p.delivery.."/"..p.demand.." supplied  /  "..detail end
-          lg.setFont(R.fonts.body); lg.setColor(P.good); lg.print(detail,qx+14,qy+61)
-          lg.setColor(p.cash<0 and P.bad or P.text)
-          lg.print(p.cash<0 and ("Need $"..(-p.cash).." more cash") or ("Cash after building: $"..p.cash),qx+14,qy+84)
-          if note then lg.setFont(R.fonts.small); lg.setColor(P.warn); lg.print(note,qx+14,qy+111) end
+          local yy=qy+12
+          for _,row in ipairs(rows) do
+            lg.setFont(row[2]); lg.setColor(row[3]); lg.printf(row[1],qx+14,yy,qw-28)
+            yy=yy+row.height+8
+          end
         else
           label(p.error,(x+mx)/2,(y+my)/2-24,P.bad)
         end
       end
     end
-  elseif state.tool and mx>cam.vx and my>84 and my<height-58 then
+  elseif state.tool and mx>cam.vx and my>50 and my<height-58 then
     local wx,wy = cam:toWorld(mx,my)
     local err, cost, seam
     if state.tool=="source" then
@@ -1147,6 +1263,7 @@ function Draw.world(city, cam, state)
         if not err then err = select(2, city:havenSite(wx,wy,kind)) end
       elseif state.tool=="works" then
         cost = (City.RECIPES[state.recipe or ""] or {}).cost or cost
+        if not err and (City.RECIPES[state.recipe or ""] or {}).farm then err=city:farmSiteError(wx,wy) end
       end
       -- The bill of materials, before the click rather than after it.
       if not err then
@@ -1157,11 +1274,21 @@ function Draw.world(city, cam, state)
     end
     local color = (err or cost>city.money) and P.bad or P.good
     lg.setColor(P.with(color,0.3)); lg.setLineWidth(1)
-    local range = state.tool=="pump" and 520 or state.tool=="tower" and 220 or 300
+    local range = state.tool=="pump" and City.INFRA.pumpRange or state.tool=="transformer" and City.INFRA.transformerRange
+      or state.tool=="binder" and City.INFRA.binderRange or state.tool=="tower" and 220 or 300
     lg.circle("line",mx,my,range*cam.scale)
+    if state.tool=='works' and (City.RECIPES[state.recipe or ''] or {}).farm then
+      local r=City.INFRA.farmRadius*cam.scale
+      lg.rectangle('line',mx-r,my-r,2*r,2*r)
+    elseif state.tool=='lab' then
+      for _,d in ipairs(city.districts) do if city:labCovers({x=wx,y=wy},d) then
+        local x,y=cam:toScreen(d.x,d.y)
+        lg.setColor(P.with(color,0.1)); lg.rectangle('fill',x,y,d.w*cam.scale,d.h*cam.scale)
+      end end
+    end
     lg.setColor(color); lg.circle("line",mx,my,18*cam.scale)
     label(err or ("$"..cost),mx,my+30,color)
-    if seam and not err then label("SEAM: x"..string.format("%.1f",seam.yield).." output",mx,my+48,P.energy,R.fonts.tiny) end
+
   end
   drawLabels(cam)
   lg.setScissor()

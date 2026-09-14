@@ -8,6 +8,13 @@ local function check(condition,message)
   Walk.checks=Walk.checks+1
   print("  ok  "..message)
 end
+-- A pre-voltage cable fixture verifies that migrated companies still render.
+local function legacyCable(c,a,b)
+  local e={id=#c.g.edges+1,a=a,b=b,alive=true,commodity="power",cap=25,capMax=25,size="large",grade=1,paid=100}
+  c.g.edges[e.id]=e
+  table.insert(c.g.adj[a],e.id); table.insert(c.g.adj[b],e.id)
+  return e
+end
 local function click(id)
   love.draw()
   for _,b in ipairs(UI.buttons) do
@@ -88,7 +95,7 @@ local function capture(name,app,width,height,keepCamera)
     width,height=width or 1440,height or 880
     local canvas=love.graphics.newCanvas(width,height)
     R.viewportOverride={width,height}
-    if keepCamera then app.camera():setViewport(UI.width,84,width-UI.width,height-142) end
+    if keepCamera then app.camera():setViewport(UI.width,50,width-UI.width,height-108) end
     if not keepCamera then app.action(app.state.tab=="map" and "fitWorld" or "fit") end
     love.graphics.setCanvas(canvas)
     love.draw()
@@ -228,13 +235,14 @@ function Walk.start(app,mode)
   local snap=assert(Save.unpack(Save.pack(c)))
   check(snap.money==c.money and snap:investedTotal()==100,"save round trip preserves company")
   click("end-day")
-  check(c.day==2 and app.state.modal=="report","closing day opens financial statement")
+  check(c.day==2 and not app.state.modal,"one click starts the next day without a popup")
   check(c.lastReport.bonus==60,"the first supply grant pays once")
+  click("tab-stats")
+  click("previous-results")
+  check(app.state.modal=="report" and c.lastReport.day==1,"previous day results are available from Stats")
   local day=c.day
-  love.mousepressed(100,250,1)
-  check(c.day==day,"report prevents background actions")
   click("continue")
-  check(not app.state.modal,"report returns to operations")
+  check(not app.state.modal and c.day==day and app.state.tab=="stats","closing results returns to Stats without advancing time")
   click("tab-customers")
   local offer=c:addClient("house",true)
   check(offer and offer.prospect,"new prospect available")
@@ -247,7 +255,7 @@ function Walk.start(app,mode)
   c=app.city()
   check(not c.g.nodes[offer.id].supplyClosed,"undo restores the service valve")
   click("tab-stats")
-  click("tab-ledger")
+  scrollTo(app,"tab-ledger"); click("tab-ledger")
   love.draw()
 
   -- The navigation promise: clicking a burst main anywhere on the map must land
@@ -260,7 +268,7 @@ function Walk.start(app,mode)
     app.state.tab="ledger"; app.state.scroll=400
     local a,b=c.g.nodes[main.a],c.g.nodes[main.b]
     local sx,sy=clickWorld(app,(a.x+b.x)/2,(a.y+b.y)/2)
-    check(sx>UI.width and sy>84,"the main is inside the map viewport")
+    check(sx>UI.width and sy>50,"the main is inside the map viewport")
     check(app.state.edge==main.id,"clicking a main on the map selects it")
     check(app.state.tab=="network","selecting a main jumps to the Network tab")
     check(app.state.scroll==0,"the inspector needs no scrolling to reach")
@@ -568,7 +576,7 @@ function Walk.start(app,mode)
     love.keypressed("return")
     check(c.companyName=="Brightwater" and not app.state.rename,"text input saves a company name without closing the day")
     click("tab-stats")
-    click("tab-ambitions")
+    scrollTo(app,"tab-ambitions"); click("tab-ambitions")
     click("ambition-service")
     check(c.ambition=="service","goal selection is actionable")
     click("tab-network")
@@ -617,15 +625,18 @@ function Walk.start(app,mode)
       assert(c:layPipe(hub.id,n.id,"water","small"))
     end
     if not c:pipeBetween(well.id,hub.id,"power") then
-      assert(c:layPipe(well.id,hub.id,"power","large"))
+      legacyCable(c,well.id,hub.id)
     end
-    local power=assert(c:layPipe(hub.id,n.id,"power","small"))
+    local power=legacyCable(c,hub.id,n.id)
     local ax,ay,bx,by=Draw.edgePoints(app.camera(),c,power)
     check(ax==ax and ay==ay and bx==bx and by==by,"shared power lines have finite rendering coordinates")
     app.state.node=n.id
     love.draw()
     check(next(E.route(c,n.id))~=nil,"overlay traces a customer to supply")
     click("end-day")
+    check(not app.state.modal,"later days also advance in one click")
+    click("tab-stats")
+    click("previous-results")
     click("report-details")
     check(app.state.reportDetails,"accounting can be expanded")
     love.draw()
@@ -666,8 +677,18 @@ function Walk.start(app,mode)
       app.state.scroll=0
       return false
     end
+    click("water")
+    check(not anywhere("tool-stop"),"water hides passenger stops")
+    if c.licences.power then
+      click("power")
+      check(not anywhere("tool-stop") and not anywhere("transit-road"),"electricity hides passenger buildings and routes")
+    end
+    click("people")
+    check(app.state.people and app.state.transit=="road","People selects passenger construction")
+    check(not anywhere("line-options") and not anywhere("tool-junction"),"People hides pipes and fittings")
     check(anywhere("tool-stop"),"a stop is offered once people live here")
     check(not anywhere("tool-resort"),"a resort is not, before anybody rides a route")
+    capture("net-profit-32-people-tools",app,1100,700)
     local function spot(d)
       for i=0,60 do
         local x=d.x+d.w/2+((i*137)%500)-250
@@ -711,7 +732,9 @@ function Walk.start(app,mode)
     check(bus.vehicles==2,"a second bus is added from the route panel")
     love.keypressed("delete")
     check(not bus.alive,"delete lifts the selected route")
-    app.state.transit=nil; app.state.link=nil
+    app.state.link=nil; app.state.node=nil
+    click("water")
+    check(not app.state.people and not app.state.transit and not app.state.tool,"switching to water clears passenger tools")
   end
 
   -- Management decisions must participate in the same undo transaction as builds.
@@ -747,6 +770,7 @@ function Walk.start(app,mode)
   click("tab-network")
   click("tab-finance")
   capture("net-profit-test-compact",app,1100,700)
+  if mode=="--smoke" then require("infrastructure_walkthrough")(app,capture,click,scrollTo,check) end
 end
 
 function Walk.update(app,mode,frame)
@@ -777,9 +801,12 @@ function Walk.update(app,mode,frame)
       app.state.node=nil; app.state.edge=nil
       capture("net-profit-02-supplied",app)
     elseif frame==14 then
-      app.action("endDay"); capture("net-profit-03-report",app)
+      app.action("endDay"); app.state.tab="stats"; app.state.scroll=0; capture("net-profit-03-report",app)
     elseif frame==20 then
       app.state.modal=nil; app.state.tab="finance"; capture("net-profit-04-company",app)
+      app.state.tab="customers"; app.state.scroll=0
+      capture("net-profit-26-customers",app,1100,700)
+      app.state.tab="finance"; app.state.scroll=0
     elseif frame==19 then
       -- A capped wellhead: what a closed well leaves behind, and the strip
       -- that replaces it without taking the mains off.
@@ -866,7 +893,7 @@ function Walk.update(app,mode,frame)
       love.draw(); app.state.scroll=UI.maxScroll
       capture("net-profit-15-profit-history",app,1100,700)
     elseif frame==31 then
-      app.action("endDay"); app.state.reportDetails=true
+      app.action("endDay"); app.state.tab="stats"; app.state.modal="report"; app.state.reportDetails=true
       capture("net-profit-16-accounting",app,1100,700)
     elseif frame==32 then
       app.state.modal=nil; app.state.tab="network"; app.state.scroll=0
@@ -982,13 +1009,14 @@ function Walk.update(app,mode,frame)
       for _,d in ipairs(c.districts) do if d.spec and d.spec.key=="farm" then farm=d; break end end
       if farm then
         local bx,by=farm.x+300,farm.y+320
-        local field=assert(c:buySource("wheat",bx,by))
+        local field=c.g:addNode(bx,by,"source") -- Migrated farm fixture.
+        field.commodity="wheat"; field.output=30; field.cap=30; field.paid=1000
         local mill=assert(c:build(bx+250,by,"works","maltings"))
         local plant=assert(c:buySource("power",bx+370,by+210,"nuclear"))
         local brew=assert(c:build(bx+500,by,"works","brewery"))
         assert(c:layPipe(field.id,mill.id,"wheat","large"))
-        assert(c:layPipe(plant.id,mill.id,"power","large"))
-        assert(c:layPipe(plant.id,brew.id,"power","large"))
+        legacyCable(c,plant.id,mill.id)
+        legacyCable(c,plant.id,brew.id)
         assert(c:layPipe(mill.id,brew.id,"malt","large"))
         local dep
         for _,d in ipairs(c.deposits) do
@@ -1089,7 +1117,10 @@ function Walk.update(app,mode,frame)
       cam.scale,cam.targetScale=0.15,0.15
       cam.x,cam.y=c.river.x0+650,1250
       capture("net-profit-25-river",app,1440,880,true)
-    elseif frame==44 then print("screenshots complete"); love.event.quit() end
+    elseif frame==44 then
+      require("infrastructure_walkthrough")(app,capture,click,scrollTo,check)
+      print("Screenshots written to "..love.filesystem.getSaveDirectory()); love.event.quit()
+    end
     return
   end
   if mode=="--soak" and frame<70 then

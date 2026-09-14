@@ -12,19 +12,7 @@ City.__index = City
 
 -- Structures. These are shared ground: a manifold hosts water and oil alike, so
 -- their price does not depend on what flows through them.
-City.price = {
-  junction = 22, manifold = 46, pump = 38, tower = 92, gate = 30, depot = 190,
-  -- A hub is not a bigger junction: it is a whole neighbourhood's last mile,
-  -- bought outright and never drawn. It is priced like the business it
-  -- replaces, not like the pipe fitting it resembles.
-  exchange = 1400, dc = 1500,
-  terminal = 2200,
-  stop = 120, station = 260, resort = 4800,
-  powerLicence = 340, beerLicence = 600, oilLicence = 1500, foodLicence = 900,
-  internetLicence = 2400,
-  qualityBase = 140,
-  ads = 90,
-}
+City.price = require("data.economy").price
 
 -- Everything a pipe costs, per trade.
 --
@@ -40,56 +28,7 @@ City.price = {
 -- gentler pumps, more of everything. Oil is pressurised and hazardous, and its
 -- prices say so -- which is the reason a factory pays $26 a unit and a house
 -- pays $4.
-City.trade = {
-  water = {
-    tiein = 14, trench = 0.11, bore = 7, borePerM = 0.028,
-    repairBase = 14, repairPerLost = 6, repairPerM = 0.030,
-    liningRate = 0.40, armourRate = 0.72,
-    upkeep = 0.30, upkeepPerM = 0.0016,
-    sourceBase = 260, sourceGrowth = 1.55, sourceOutput = 14,
-    upgradeBase = 140, upgradeGrowth = 1.48, upgradeStep = 4,
-    wholesale = 12, wholesalePerUnit = 0.55, sourceUpkeep = 6,
-    importCost = 1.2,
-  },
-  -- Electricity sits between water and beer: cables are dearer than a water
-  -- trench and cheaper than a sanitary beer main, and a workshop pays more than
-  -- a household and less than a pub. It is the first trade worth expanding into.
-  -- Electricity is the one trade nobody can land at a haven: it has to be
-  -- generated inside the city. A reactor is priced the way a reactor is -- an
-  -- enormous cheque, a standing crew whether it runs or not, and fuel so cheap
-  -- per unit that the marginal cost of the next megawatt is nearly nothing.
-  power = {
-    tiein = 20, trench = 0.16, bore = 10, borePerM = 0.038,
-    repairBase = 22, repairPerLost = 9, repairPerM = 0.044,
-    liningRate = 0.40, armourRate = 0.72,
-    upkeep = 0.45, upkeepPerM = 0.0023,
-    sourceBase = 3600, sourceGrowth = 1.35, sourceOutput = 45,
-    upgradeBase = 1400, upgradeGrowth = 1.42, upgradeStep = 12,
-    wholesale = 18, wholesalePerUnit = 0.90, sourceUpkeep = 52,
-    fuelPerUnit = 0.55,
-    importCost = nil,
-  },
-  beer = {
-    tiein = 26, trench = 0.21, bore = 13, borePerM = 0.050,
-    repairBase = 30, repairPerLost = 13, repairPerM = 0.060,
-    liningRate = 0.40, armourRate = 0.72,
-    upkeep = 0.60, upkeepPerM = 0.0030,
-    sourceBase = 420, sourceGrowth = 1.38, sourceOutput = 10,
-    upgradeBase = 300, upgradeGrowth = 1.50, upgradeStep = 3,
-    wholesale = 26, wholesalePerUnit = 1.30, sourceUpkeep = 11,
-    importCost = 5.5,
-  },
-  oil = {
-    tiein = 44, trench = 0.34, bore = 21, borePerM = 0.085,
-    repairBase = 52, repairPerLost = 21, repairPerM = 0.105,
-    liningRate = 0.40, armourRate = 0.72,
-    upkeep = 1.00, upkeepPerM = 0.0050,
-    sourceBase = 900, sourceGrowth = 1.38, sourceOutput = 10,
-    upgradeBase = 620, upgradeGrowth = 1.50, upgradeStep = 3,
-    wholesale = 44, wholesalePerUnit = 2.20, sourceUpkeep = 17,
-    importCost = 9.0,
-  },
-}
+City.trade = require("data.economy").trade
 
 -- What a link costs, by what is going down it.
 --
@@ -102,35 +41,7 @@ City.trade = {
 -- A road does not corrode. That is the trade for its higher running cost: it
 -- never leaks, never bursts and never needs a crew, but every metre of it is
 -- dearer to keep than a metre of water main.
-City.FORMS = {
-  liquid = {
-    tiein = 26, trench = 0.21, bore = 13, borePerM = 0.050,
-    repairBase = 30, repairPerLost = 13, repairPerM = 0.060,
-    liningRate = 0.40, armourRate = 0.72,
-    upkeep = 0.60, upkeepPerM = 0.0030,
-  },
-  energy = {
-    tiein = 20, trench = 0.16, bore = 10, borePerM = 0.038,
-    repairBase = 22, repairPerLost = 9, repairPerM = 0.044,
-    liningRate = 0.40, armourRate = 0.72,
-    upkeep = 0.45, upkeepPerM = 0.0023,
-  },
-  -- Fibre is cable carrying a signal rather than a current: cheaper to dig in
-  -- than a power line, and it fouls just the same.
-  data = {
-    tiein = 18, trench = 0.13, bore = 9, borePerM = 0.034,
-    repairBase = 18, repairPerLost = 7, repairPerM = 0.036,
-    liningRate = 0.40, armourRate = 0.72,
-    upkeep = 0.40, upkeepPerM = 0.0020,
-  },
-  -- Solids go by road, which is cheap to lay and dear to run, and short: a
-  -- lorry route across three districts is a railway waiting to be built.
-  solid = {
-    tiein = 34, trench = 0.30, bore = 16, borePerM = 0.058,
-    repairBase = 0, repairPerLost = 0, repairPerM = 0,
-    upkeep = 0.95, upkeepPerM = 0.0042, noLeak = true, range = 300,
-  },
-}
+City.FORMS = require("data.pipes").FORMS
 
 -- Rail. A haven lands freight at the edge of the city and rail moves it inland,
 -- which is a different problem from plumbing: the yard at each end is the
@@ -151,23 +62,11 @@ City.FORMS = {
 -- and pipes, junctions and wells are cash because a utility can be run without
 -- ever building a factory.
 --------------------------------------------------------------------------------
-City.MATERIALS = {
-  exchange = { steel = 10 },
-  works    = { steel = 40, concrete = 20 },
-  nuclear  = { steel = 120, concrete = 200 },
-  wind     = { steel = 60, concrete = 40 },
-  -- Rail is steel by the kilometre. A highway is tarmac, and takes none at
-  -- all, which is what stops the whole thing deadlocking: the first steel a
-  -- company ever sees comes off a ship and goes inland by road, because there
-  -- is no railway yet and no way to build one.
-  rail     = { steel = 12 },      -- per kilometre of line
-  highway  = {},
-  resort   = { concrete = 40, glass = 20 },
-}
+City.MATERIALS = require("data.freight").MATERIALS
 
 -- How much room a yard has for materials, and how fast it takes delivery.
-City.yardStock = 400
-City.yardIntakeRate = 25
+City.yardStock = require("data.freight").yardStock
+City.yardIntakeRate = require("data.freight").yardIntakeRate
 
 function City:materialStock(key)
   return math.floor((self.stock or {})[key] or 0)
@@ -241,24 +140,7 @@ end
 -- coast. Air costs more than the freight is usually worth and goes anywhere,
 -- immediately, which is exactly what you want for something small and dear.
 --------------------------------------------------------------------------------
-City.MODES = {
-  rail    = { name = "RAILWAY",  order = 1, tiein = 240, perM = 0.52, perWagon = 120,
-              haulPerUnit = 0.10, haulPerM = 0.00035, wagonCap = 40, range = 4000,
-              needs = "land", colour = {0.72, 0.74, 0.80},
-              blurb = "High build cost. Low daily cost. Good for long routes." },
-  highway = { name = "HIGHWAY",  order = 2, tiein = 140, perM = 0.30, perWagon = 50,
-              haulPerUnit = 0.55, haulPerM = 0.0022, wagonCap = 18, range = 2000,
-              needs = "land", diesel = true, colour = {0.92, 0.80, 0.42},
-              blurb = "Low build cost. High daily cost." },
-  sea     = { name = "SHIPPING", order = 3, tiein = 520, perM = 0.08, perWagon = 150,
-              haulPerUnit = 0.08, haulPerM = 0.00012, wagonCap = 90, range = 1e9,
-              needs = "coast", diesel = true, colour = {0.40, 0.68, 0.92},
-              blurb = "Low daily cost. Requires water access." },
-  air     = { name = "AIR FREIGHT", order = 4, tiein = 680, perM = 0.10, perWagon = 90,
-              haulPerUnit = 3.20, haulPerM = 0.0040, wagonCap = 10, range = 1e9,
-              needs = "air", colour = {0.86, 0.62, 0.98},
-              blurb = "High daily cost. Requires airports. One plane type per route." },
-}
+City.MODES = require("data.freight").MODES
 City.MODE_ORDER = { "rail", "highway", "sea", "air" }
 
 -- Where freight can be handled at all: a haven, or a distribution centre.
@@ -291,44 +173,12 @@ end
 -- water is rarely worth importing across the whole city and oil almost always
 -- is -- the freight bill is the same for both, and one of them sells for six
 -- times the other.
-City.rail = {
-  tiein = 240, perM = 0.52, bore = 4, borePerM = 0.011,
-  upkeep = 1.4, upkeepPerM = 0.0038, range = 1400,
-  haulPerUnit = 0.18, haulPerM = 0.0016,
-}
+City.rail = require("data.freight").rail
 
 -- Everything the city moves that is not one of the four original trades is
 -- priced off its form, with its own landed price and its own wholesale value.
 -- Only the numbers that actually differ are written down.
-City.GOODS = {
-  food   = { importCost = 3.0,  wholesale = 22, wholesalePerUnit = 1.1, sourceUpkeep = 12 },
-  wheat  = { importCost = 0.9,  wholesale = 10, wholesalePerUnit = 0.35, sourceUpkeep = 7,
-             sourceBase = 620,  sourceGrowth = 1.30, sourceOutput = 14, upgradeBase = 240,
-             upgradeGrowth = 1.4, upgradeStep = 4 },
-  timber = { importCost = 1.1,  wholesale = 12, wholesalePerUnit = 0.4, sourceUpkeep = 8,
-             sourceBase = 700,  sourceGrowth = 1.30, sourceOutput = 12, upgradeBase = 260,
-             upgradeGrowth = 1.4, upgradeStep = 3 },
-  ore    = { importCost = 1.8,  wholesale = 16, wholesalePerUnit = 0.6, sourceUpkeep = 12,
-             sourceBase = 1100, sourceGrowth = 1.34, sourceOutput = 10, upgradeBase = 420,
-             upgradeGrowth = 1.45, upgradeStep = 3 },
-  rock   = { importCost = nil,  wholesale = 8,  wholesalePerUnit = 0.25, sourceUpkeep = 9,
-             sourceBase = 820,  sourceGrowth = 1.30, sourceOutput = 12, upgradeBase = 300,
-             upgradeGrowth = 1.4, upgradeStep = 3 },
-  sand   = { importCost = 0.6,  wholesale = 7,  wholesalePerUnit = 0.22, sourceUpkeep = 7,
-             sourceBase = 600,  sourceGrowth = 1.28, sourceOutput = 12, upgradeBase = 220,
-             upgradeGrowth = 1.4, upgradeStep = 3 },
-  salt   = { importCost = 1.3 },
-  coke   = { importCost = 2.4 },
-  malt   = { importCost = 2.2 },
-  cement = { importCost = 1.7 },
-  diesel = { importCost = 4.0 },
-  steel  = { importCost = 7.0 },
-  planks = { importCost = 3.2 },
-  glass  = { importCost = 5.5 },
-  concrete = { importCost = 2.8 },
-  gasoline = { importCost = 4.5, wholesale = 20, wholesalePerUnit = 1.0, sourceUpkeep = 10 },
-  rubber = { importCost = 2.6 },
-}
+City.GOODS = require("data.freight").GOODS
 
 -- Built once, at load: every commodity gets a full price list, made of its
 -- form's numbers with its own on top. The four original trades keep the numbers
@@ -364,14 +214,7 @@ end
 -- somebody digs them up. That is the whole reason to go back and replace
 -- perfectly working mains.
 --------------------------------------------------------------------------------
-City.PIPE_SIZES = {
-  { key = "small",  name = "SMALL",  cap = 7,  tiein = 1.0, trench = 1.0 },
-  { key = "medium", name = "MEDIUM", cap = 15, tiein = 1.6, trench = 1.7 },
-  { key = "large",  name = "LARGE",  cap = 25, tiein = 2.6, trench = 2.9 },
-  -- A trunk for a company that already runs hubs and havens. Four large mains'
-  -- worth of flow for well under four large mains' worth of digging.
-  { key = "massive", name = "MASSIVE", cap = 100, tiein = 6.5, trench = 7.5, unlock = "massive" },
-}
+City.PIPE_SIZES = require("data.pipes").PIPE_SIZES
 
 -- Whether this company may lay a size yet.
 function City:sizeAllowed(spec)
@@ -415,12 +258,7 @@ end
 -- here at all, because passing a trunk in and a stub out, at two different
 -- sizes, is the entire reason to build one.
 --------------------------------------------------------------------------------
-City.SIZE_LIMIT = {
-  client = { max = "small" },
-  sink   = { max = "small" },
-  source = { min = "large" },
-  works  = { min = "large" },
-}
+City.SIZE_LIMIT = require("data.pipes").SIZE_LIMIT
 
 -- The narrowest and widest size either end of a-b will accept, or nil if the
 -- two ends want incompatible things -- a well cannot be wired straight to a
@@ -443,58 +281,13 @@ end
 -- What the company knows how to lay. Each level is bought once and then costs
 -- more every time it is used, and the top one is a main that practically never
 -- fails and practically never pays for itself in money alone.
-City.GRADES = {
-  { name = "Bare",     risk = 1.00, repair = 1.00, decay = 1, cost = 1.00, price = 0 },
-  { name = "Lined",    risk = 0.45, repair = 0.70, decay = 1, cost = 1.35, price = 900 },
-  { name = "Armoured", risk = 0.12, repair = 0.45, decay = 2, cost = 1.95, price = 3200 },
-  -- Sealed pipe is the end of the maintenance game. It is priced as such: the
-  -- licence to lay it costs more than most of the network, and every metre of
-  -- it costs three times bare pipe.
-  { name = "Sealed",   risk = 0.02, repair = 0.30, decay = 3, cost = 3.20, price = 11000 },
-}
+City.GRADES = require("data.pipes").GRADES
 
-City.rules = {
-  linkRange = 300,
-  pumpRange = 520,
-  minSpacing = 46,
-  leakBase = 0.07,          -- per pipe per day, before quality and grade
-  qualityStep = 0.13,       -- each quality level removes this fraction
-  adDays = 5,
-  adBoost = 0.25,
-  arriveBase = 0.14,
-  -- How much of the per metre bore charge survives the square root. Tuned so a
-  -- capacity three stub costs about what it always did and a capacity thirty
-  -- trunk costs a third of what it used to.
-  boreScale = 2.7,
-  investDays = 7,
-  investMean = 0.10,
-  investSd = 0.05,
-  sourceIncome = 12,        -- wholesale, per well per day
-  repLoss = 8,
-  repDecline = 1,
-  repIgnored = 2,
-  -- A well answers to a trunk main now, so the opening is a well, a junction,
-  -- the trunk into it, a stub on to the first house, and still a little room:
-  -- four purchases where there used to be two, not two purchases stretched.
-  startMoney = 750,
-}
+City.rules = require("data.economy").rules
 
 -- Customers. Rich ones pay far more and forgive far less, which is the whole
 -- reason to lay a beer main instead of another row of houses.
-City.CLIENTS = {
-  house   = { name = "HOUSE",   commodity = "water", demand = {2, 4}, rate = 4,  patience = 3, weight = 10 },
-  estate  = { name = "ESTATE",  commodity = "water", demand = {5, 7}, rate = 6,  patience = 2, weight = 3 },
-  workshop= { name = "WORKSHOP",commodity = "power", demand = {3, 5}, rate = 10, patience = 2, weight = 7 },
-  pub     = { name = "PUB",     commodity = "beer",  demand = {2, 4}, rate = 16, patience = 2, weight = 6 },
-  factory = { name = "FACTORY", commodity = "oil",   demand = {4, 6}, rate = 26, patience = 1, weight = 5 },
-  -- A market is the shop end of the food chain: wheat becomes food becomes a
-  -- queue of people who will pay for it.
-  market  = { name = "MARKET",  commodity = "food",  demand = {3, 6}, rate = 9,  patience = 2, weight = 6 },
-  -- A household that wants a line as well as a tap. A district that leans to
-  -- houses leans to subscribers at half the rate.
-  subscriber = { name = "SUBSCRIBER", commodity = "internet", demand = {1, 3}, rate = 14, patience = 2,
-                 weight = 5, follows = "house" },
-}
+City.CLIENTS = require("data.customers").CLIENTS
 
 City.OBSTACLES = {
   bedrock = { name = "BEDROCK", cross = nil, color = {0.30, 0.28, 0.34} },
@@ -1008,11 +801,7 @@ end
 -- Each permit converts an obstacle from a wall into a toll. Parkland becomes
 -- ordinary ground, the river becomes a manageable crossing, and bedrock becomes
 -- expensive but passable -- which matters because the richest seams are under it.
-City.PERMITS = {
-  park    = { name = "Parkland easement",  cost = 760,  cross = 1.0, order = 1 },
-  river   = { name = "River works charter", cost = 1500, cross = 1.6, order = 2 },
-  bedrock = { name = "Blasting licence",    cost = 2900, cross = 4.0, order = 3 },
-}
+City.PERMITS = require("data.progression").PERMITS
 City.PERMIT_ORDER = { "park", "river", "bedrock" }
 
 --------------------------------------------------------------------------------
@@ -1224,6 +1013,8 @@ end
 -- other cells, because that would make a cell depend on which of its neighbours
 -- happened to be surveyed first. Everything an obstacle is checked against is
 -- placed by this same call, and everything placed stays inside the cell.
+City.TERRAIN = require("data.terrain")
+
 function City:scatterObstacles(n, district)
   -- The river is not one of these any more: it is one band running the length
   -- of the map, laid out once in layOutRiver rather than scattered per cell.
@@ -1231,11 +1022,26 @@ function City:scatterObstacles(n, district)
   local b = district or self.bounds
   local home = district and district.id == City.MAP.start
   local placed = {}
-  for _ = 1, n do
+  local cfg=City.TERRAIN
+  local homeCol=(City.MAP.start-1)%City.MAP.cols+1
+  local homeRow=math.floor((City.MAP.start-1)/City.MAP.cols)+1
+  local distance=district and math.max(math.abs(district.col-homeCol),math.abs(district.row-homeRow)) or 0
+  local varied=distance>=2
+  local massive=n>0 and distance>=cfg.massiveDistance and self:random()<cfg.massiveChance
+  for slot = 1, n do
+    local size
+    if varied then
+      local roll=self:random()
+      size=roll<0.45 and cfg.small or roll<0.82 and cfg.medium or cfg.large
+    end
+    -- Keep the chosen size for all placement attempts: resampling on failure
+    -- would silently bias crowded and river-side regions back to tiny features.
+    local giant=massive and slot==1
+    local chosen=varied and self:rand((giant and cfg.massive or size).min,(giant and cfg.massive or size).max)
     for _ = 1, 40 do
-      local r = self:rand(70, 140)
-      local x = self:rand(b.x + r + 30, b.x + b.w - r - 30)
-      local y = self:rand(b.y + r + 30, b.y + b.h - r - 30)
+      local r = chosen or self:rand(70, 140)
+      local x = self:rand(b.x + r + cfg.border, b.x + b.w - r - cfg.border)
+      local y = self:rand(b.y + r + cfg.border, b.y + b.h - r - cfg.border)
       local clear = true
       -- The home district keeps a wide clearing so the opening is never a maze.
       if home and (x - (b.x + b.w / 2)) ^ 2 + (y - (b.y + b.h / 2)) ^ 2 < (r + 340) ^ 2 then
@@ -1249,7 +1055,7 @@ function City:scatterObstacles(n, district)
         if (o.x - x) ^ 2 + (o.y - y) ^ 2 < (o.r + r + 40) ^ 2 then clear = false; break end
       end
       if clear then
-        local o = { x = x, y = y, r = r, kind = kinds[self:random(#kinds)] }
+        local o = { x = x, y = y, r = r, kind = kinds[self:random(#kinds)], massive=giant or nil }
         placed[#placed + 1] = o
         self.obstacles[#self.obstacles + 1] = o
         break
@@ -1301,7 +1107,7 @@ function City:scatterDeposits(district, spec)
   end
 end
 
-City.seamRange = 70
+City.seamRange = require("data.production").seamRange
 
 function City:seamAt(x, y)
   for _, s in ipairs(self.deposits or {}) do
@@ -1336,8 +1142,9 @@ function City:obstacleAt(x, y)
 end
 
 -- What one square of ground charges to be crossed, given the permits held.
-function City:groundCross(kind)
+function City:groundCross(kind, obstacle)
   if self.permits and self.permits[kind] then return City.PERMITS[kind].cross end
+  if obstacle and obstacle.massive then return nil end
   return City.OBSTACLES[kind].cross
 end
 
@@ -1346,7 +1153,7 @@ function City:crossingCost(ax, ay, bx, by)
   local mult = 1
   for _, o in ipairs(self.obstacles) do
     if segCircle(ax, ay, bx, by, o.x, o.y, o.r) then
-      local cross = self:groundCross(o.kind)
+      local cross = self:groundCross(o.kind, o)
       if not cross then return nil, o end
       mult = math.max(mult, cross)
     end
@@ -1476,10 +1283,7 @@ function City:nodeCost(kind) return City.price[kind] or 0 end
 
 -- What it costs to break into the network at a given structure. A wellhead is
 -- the awkward end of the job; a manifold is a set of ports waiting for you.
-City.TIEIN = {
-  source = 1.6, client = 1.0, junction = 0.7, manifold = 0.7,
-  pump = 1.1, tower = 1.0, gate = 0.8, depot = 1.2,
-}
+City.TIEIN = require("data.pipes").TIEIN
 
 function City:tieinCost(id, commodity)
   local n = self.g.nodes[id]
@@ -1589,66 +1393,8 @@ end
 -- One output each. Two would double the interface and buy nothing the player
 -- would thank anyone for.
 --------------------------------------------------------------------------------
-City.RECIPES = {
-  -- Electricity is the first thing a company can make for itself, and the only
-  -- one that needs nothing but water. Everything else on this list needs
-  -- electricity, which is why it comes first and why a turbine hall is cheap.
-  turbine    = { name = "TURBINE HALL",   makes = "power",  rate = 8,  cost = 800,  upkeep = 14,
-                 inputs = { water = 2 }, materials = {},
-                 blurb = "Water in, electricity out. The one works that needs nothing you do not already have." },
-
-  -- Everything else needs a chain, and the chain is the game. A works with an
-  -- input missing makes nothing at all: there is no half recipe and no way to
-  -- fake the thing it is short of.
-  maltings   = { name = "MALTINGS",       makes = "malt",   rate = 10, cost = 1400, upkeep = 14,
-                 inputs = { wheat = 1, water = 1, power = 1 }, materials = { steel = 20 },
-                 blurb = "Wheat, water and power become what a brewery actually wants." },
-  brewery    = { name = "BREWERY",        makes = "beer",   rate = 10, cost = 1800, upkeep = 20,
-                 inputs = { malt = 1, water = 2, power = 1 }, materials = { steel = 20 },
-                 blurb = "Malt, water and power. Beer is the end of the longest chain in the game and it pays like it." },
-  foodworks  = { name = "FOODWORKS",      makes = "food",   rate = 10, cost = 1300, upkeep = 16,
-                 inputs = { wheat = 1, salt = 1, water = 1, power = 1 }, materials = {},
-                 blurb = "Wheat, salt, water and power. Nobody mines salt here, so a haven is part of the recipe." },
-  refinery   = { name = "REFINERY",       makes = "diesel", rate = 6,  cost = 2200, upkeep = 22,
-                 inputs = { oil = 2, power = 1 }, materials = { steel = 30, concrete = 20 },
-                 blurb = "Your own crude becomes your own fuel, and the haulage bill drops." },
-  sawmill    = { name = "SAWMILL",        makes = "planks", rate = 6,  cost = 1600, upkeep = 16,
-                 inputs = { timber = 2, power = 1 }, materials = { steel = 20 },
-                 blurb = "Parkland becomes timber becomes planks." },
-  steelworks = { name = "STEELWORKS",     makes = "steel",  rate = 4,  cost = 3600, upkeep = 38,
-                 inputs = { ore = 2, coke = 1, power = 3 }, materials = { steel = 60, concrete = 40 },
-                 blurb = "Ore from the frontier and coke off a ship. Everything the company builds is made of this." },
-  glassworks = { name = "GLASSWORKS",     makes = "glass",  rate = 4,  cost = 2200, upkeep = 20,
-                 inputs = { sand = 2, power = 2 }, materials = { steel = 30, concrete = 20 },
-                 blurb = "Coastal sand, and a furnace." },
-  cementworks= { name = "CEMENT WORKS",   makes = "cement", rate = 5,  cost = 2400, upkeep = 22,
-                 inputs = { rock = 2, power = 2 }, materials = { steel = 30, concrete = 20 },
-                 blurb = "Bedrock stops being a wall and becomes the other half of concrete." },
-  concrete   = { name = "CONCRETE PLANT", makes = "concrete", rate = 6, cost = 1900, upkeep = 18,
-                 inputs = { cement = 1, sand = 2, water = 1 }, materials = { steel = 20 },
-                 blurb = "Cement, sand and water. Half of every big building on the map." },
-
-  -- Water's second source. It takes nothing off the network -- the sea is the
-  -- input, and the sea is not modelled as a commodity -- so it never competes
-  -- with a well for anything but the ground it stands on, which is why it
-  -- answers to no deposit and the map's one truly endless input.
-  purifier   = { name = "PURIFICATION CENTRE", makes = "water", rate = 16, cost = 2600, upkeep = 24,
-                 inputs = {}, materials = { steel = 20, concrete = 20 }, coastal = true,
-                 blurb = "No deposit, no well: turns the sea itself into supply. Stands only on the coast." },
-
-  -- The businesses a population opens. Each is hidden until there is somebody
-  -- to sell to: nobody refines petrol for a city with no roads.
-  petrolworks= { name = "PETROL WORKS",   makes = "gasoline", rate = 8, cost = 2400, upkeep = 22,
-                 inputs = { oil = 2, power = 1 }, materials = { steel = 30, concrete = 20 }, unlock = "fuel",
-                 blurb = "Crude becomes what every car in the city burns, sold at your filling stations." },
-  carworks   = { name = "CAR WORKS",      makes = "cars",   rate = 3,  cost = 5200, upkeep = 40,
-                 inputs = { steel = 2, glass = 1, rubber = 1, power = 3 }, materials = { steel = 60, concrete = 40 },
-                 unlock = "fuel",
-                 blurb = "Steel, glass, imported rubber and power. Cars reaching a yard are sold to the districts, and more drivers pay more tolls and buy more petrol." },
-  datacentre = { name = "DATA CENTRE",    makes = "internet", rate = 20, cost = 9000, upkeep = 70,
-                 inputs = { water = 2, power = 3 }, materials = { steel = 80, concrete = 60 }, unlock = "internet",
-                 blurb = "Drinks water and power by the tanker-load and puts out the internet, cabled to subscribers like power to a workshop." },
-}
+City.RECIPES = require("data.production").RECIPES
+for key,spec in pairs(require("data.infrastructure").farmRecipes) do City.RECIPES[key]=spec end
 
 -- Stable order for every list of works in the interface.
 City.RECIPE_ORDER = {}
@@ -1659,6 +1405,8 @@ end)
 
 City.MADE_BY = {}
 for key, recipe in pairs(City.RECIPES) do City.MADE_BY[recipe.makes] = key end
+City.MADE_BY.food="foodworks"
+City.MADE_BY.wheat="crops"
 
 -- The order the networks have to be solved in.
 --
@@ -1676,12 +1424,13 @@ local function solveOrder()
       error("recipes have a cycle at " .. key .. ": a commodity cannot need itself")
     end
     seen[key] = true
-    local recipe = City.RECIPES[City.MADE_BY[key] or ""]
     local best = 0
-    if recipe then
+    for _,recipe in pairs(City.RECIPES) do
+    if recipe.makes==key then
       for input in pairs(recipe.inputs) do
         best = math.max(best, levelOf(input, seen) + 1)
       end
+    end
     end
     seen[key] = nil
     level[key] = best
@@ -1714,7 +1463,7 @@ function City:worksOutput(n)
   local got = (self.detail.works or {})[n.id] or {}
   local best = recipe.rate
   for key, per in pairs(recipe.inputs) do
-    best = math.min(best, math.floor((got[key] or 0) / per))
+    best = math.min(best, math.floor((got[key] or 0) / per + 1e-9))
   end
   return math.max(0, best)
 end
@@ -1738,22 +1487,7 @@ end
 -- avoid into two things worth owning, and makes those permits an investment
 -- rather than a toll. Sand is dredged on the coast and on the islands.
 --------------------------------------------------------------------------------
-City.EXTRACTORS = {
-  well     = { out = "water",  name = "WELL",       on = "deposit",
-               tip = "Only on a marked water deposit." },
-  rig      = { out = "oil",    name = "RIG",        on = "deposit",
-               tip = "Only on a marked oil deposit." },
-  mine     = { out = "ore",    name = "MINE",       on = "deposit",
-               tip = "Only on a marked ore deposit, and the ore is out on the frontier." },
-  farm     = { out = "wheat",  name = "FARM",       on = "archetype", archetype = "farm",
-               tip = "Only on farmland. Buy ground out where the city thins out." },
-  forestry = { out = "timber", name = "FORESTRY",   on = "obstacle",  obstacle = "park",
-               tip = "Only on parkland, which needs the parkland easement first." },
-  quarry   = { out = "rock",   name = "QUARRY",     on = "obstacle",  obstacle = "bedrock",
-               tip = "Only on bedrock, which needs the blasting licence first." },
-  pit      = { out = "sand",   name = "SAND PIT",   on = "coast",
-               tip = "Only within 150m of the coast, or on an island." },
-}
+City.EXTRACTORS = require("data.production").EXTRACTORS
 
 City.EXTRACTOR_OF = {}
 for key, spec in pairs(City.EXTRACTORS) do City.EXTRACTOR_OF[spec.out] = key end
@@ -1794,14 +1528,7 @@ end
 -- imported uranium into more power than anything else on the map. A wind park
 -- is cheap, small, burns nothing at all, and can only stand where there is
 -- nobody to object and nothing to shelter it: out in the sea.
-City.PLANTS = {
-  nuclear = { name = "NUCLEAR PLANT", base = 3600, growth = 1.35, output = 45,
-              upkeep = 52, fuel = 0.55, ground = "land",
-              blurb = "High build cost. Produces electricity." },
-  wind    = { name = "WIND PARK",     base = 1800, growth = 1.28, output = 12,
-              upkeep = 14, fuel = 0,   ground = "island",
-              blurb = "Requires an island. Produces electricity. No fuel needed." },
-}
+City.PLANTS = require("data.production").PLANTS
 City.PLANT_ORDER = { "nuclear", "wind" }
 
 function City:plantCost(plant)
@@ -1810,10 +1537,10 @@ function City:plantCost(plant)
   return math.ceil(spec.base * (spec.growth ^ built))
 end
 
-City.sourceMaxLevel = 6
+City.sourceMaxLevel = require("data.production").sourceMaxLevel
 -- What a well, a rig or a plant answers to: enough to feed more than one
 -- route, never enough to fan out like a hub.
-City.sourcePorts = 4
+City.sourcePorts = require("data.production").sourcePorts
 
 function City:sourceUpgradeCost(n)
   local trade = City.trade[n.commodity] or City.trade.water
@@ -1886,13 +1613,7 @@ City.BUILDABLE = { junction = true, manifold = true, pump = true, tower = true,
 -- into a hub and short spurs out of it beats a separate main to every house
 -- from about nine customers on, and beats it on upkeep from about seven, and
 -- everybody who moves in afterwards is free.
-City.hub = {
-  radius = 700,          -- how far the last mile reaches
-  connect = 12,          -- one off, per customer picked up
-  perClient = 0.35,      -- per customer per day, whatever they take
-  upkeep = 6,            -- the hub itself, per day
-  floorStep = 1,         -- the rate floor moves in whole dollars
-}
+City.hub = require("data.freight").hub
 
 -- What a hub will pick up: everyone in range who pays at least the floor, is
 -- not already on a main of their own, and whose trade the company is licensed
@@ -2036,19 +1757,12 @@ end
 -- the long way round, road is dearer and goes where you put it, air is dearest
 -- of all and goes anywhere at once. That difference is the whole reason to hold
 -- more than one.
-City.HAVENS = {
-  port     = { name = "HARBOUR",      gate = "coast", import = 1.00, price = 2200,
-               blurb = "deep water berths on the coast" },
-  highway  = { name = "ROAD HEAD",    gate = "land",  import = 1.20, price = 1700,
-               blurb = "a trunk road interchange" },
-  airfield = { name = "AIR FREIGHT",  gate = "land",  import = 1.55, price = 3400,
-               blurb = "an air freight apron" },
-}
+City.HAVENS = require("data.freight").HAVENS
 
 City.GATEWAYS = { "port", "highway", "airfield" }
 
 -- How close to the water a harbour has to be.
-City.havenReach = 150
+City.havenReach = require("data.freight").havenReach
 
 -- Where the sea starts. Everything above it is water forever.
 function City.coastLine() return 0 end
@@ -2087,8 +1801,7 @@ function City:havenSite(x, y, key)
   return key
 end
 
-City.terminalUpkeep = 26
-City.terminalUpkeep = 26
+City.terminalUpkeep = require("data.freight").terminalUpkeep
 
 function City:build(x, y, kind, commodity)
   if not City.BUILDABLE[kind] then return nil, "choose a structure" end
@@ -2170,8 +1883,8 @@ function City:build(x, y, kind, commodity)
   return n
 end
 
-City.depotCapacity = 18
-City.depotFillRate = 8
+City.depotCapacity = require("data.freight").depotCapacity
+City.depotFillRate = require("data.freight").depotFillRate
 
 -- A gate is the only structure whose value is in closing it. Setting it below a
 -- branch's demand starves that branch on purpose, which is how scarce supply
@@ -2255,7 +1968,7 @@ end
 -- which is a fraction of what it cost, so laying the right main first time is
 -- worth real money and going back to fix an old mistake is a decision.
 --------------------------------------------------------------------------------
-City.salvage = 0.3
+City.salvage = require("data.economy").salvage
 
 function City:replaceQuote(id, size, grade)
   local e = self.g.edges[id]
@@ -2880,11 +2593,11 @@ end
 function City:pickClientType(district)
   local bias = district and City.DISTRICTS[district.id] and City.DISTRICTS[district.id].bias
   local pool = {}
-  for _, key in ipairs({"house", "estate", "workshop", "pub", "factory", "subscriber"}) do
+  for _, key in ipairs({"house", "estate", "workshop", "pub", "factory", "subscriber", "market"}) do
     local spec = City.CLIENTS[key]
     if self.licences[spec.commodity] then
       local leaning = bias and (bias[key] or (spec.follows and math.floor((bias[spec.follows] or 0) / 2)))
-      local weight = leaning or (bias and 0) or spec.weight
+      local weight = leaning or (key=="market" and spec.weight) or (bias and 0) or spec.weight
       for _ = 1, weight do pool[#pool + 1] = key end
     end
   end
@@ -2977,6 +2690,8 @@ function City:refresh()
   self.served = {}
   self.detail = { edge = {}, node = {}, hub = {}, works = {} }
   self.flowBy = {}
+  self.edgeFlowBy = {}
+  self.oilSpills = {}
   self.produced = {}
   -- A well makes one thing, so `produced` says all there is to say about it. A
   -- haven lands a dozen, each at its own price, so what it owes has to be kept
@@ -3042,6 +2757,7 @@ function City:refresh()
     end
   end
 
+  for _,e in ipairs(self.g.edges) do if e.alive and (e.spillWanted or 0)>0 then wants.oil=true end end
   -- One pass, in dependency order. By the time a commodity is solved, every
   -- works that makes it has already been told what turned up for it, so its
   -- output is a number rather than a guess.
@@ -3056,6 +2772,8 @@ function City:refresh()
     if feeds[name] and wants[name] then
     local flow, _, served, detail, produced = self.g:maxflow(false, name)
     self.flowBy[name] = flow
+    self.edgeFlowBy[name]=(detail or {}).edge or {}
+    if name=='oil' then self.oilSpills=(detail or {}).spill or {} end
     for id, v in pairs(served or {}) do
       local n = self.g.nodes[id]
       if n and n.kind == "exchange" then
@@ -3100,8 +2818,8 @@ function City:refresh()
   for _, n in ipairs(self.g:aliveNodes()) do
     local key = n.commodity
     if key and n.kind == "source" then
-      wells[key] = (wells[key] or 0) + (n.output or 0)
-      headroom[key] = (headroom[key] or 0) + (n.output or 0)
+      wells[key] = (wells[key] or 0) + (n.effectiveOutput or n.output or 0)
+      headroom[key] = (headroom[key] or 0) + (n.effectiveOutput or n.output or 0)
     elseif key and n.kind == "depot" then
       headroom[key] = (headroom[key] or 0) + (n.stored or 0)
     elseif n.kind == "works" and n.makes then
@@ -3724,8 +3442,8 @@ end
 -- and knowable: unlike the investment fund, a loan has no variance at all. It
 -- is the instrument for buying a district today and paying for it out of the
 -- customers that district brings.
-City.loanRate = 0.10          -- per week, on the outstanding balance
-City.loanRatio = 0.50         -- of collateral
+City.loanRate = require("data.economy").loanRate
+City.loanRatio = require("data.economy").loanRatio
 
 -- Everything the company owns except its cash: plant, ground and locked deposits.
 function City:collateral()
@@ -3850,22 +3568,7 @@ end
 -- nine works behind a wall of prices they cannot pay. Each of these opens when
 -- the company is the size where the thing it unlocks is the obvious next move.
 --------------------------------------------------------------------------------
-City.UNLOCKS = {
-  everyday = { clients = 3,  name = "Treatment, valves and storage" },
-  hub      = { clients = 6,  name = "Hubs" },
-  works    = { licences = 2, name = "Works" },
-  haven    = { clients = 9,  name = "Havens" },
-  yard     = { haven = true, name = "Depot yards and bulk freight" },
-  orders   = { clients = 6,  name = "Departments" },
-  massive  = { clients = 15, name = "Massive mains" },
-  -- The people network opens as there are people to move, and not before:
-  -- nothing to toll, fuel or fly until somebody lives somewhere.
-  roads    = { population = true, name = "Roads and stops" },
-  routes   = { road = true, name = "Passenger routes" },
-  fuel     = { road = true, name = "Filling stations and cars" },
-  resort   = { passengers = true, name = "Resorts" },
-  internet = { reactor = true, name = "Data centres and the internet" },
-}
+City.UNLOCKS = require("data.progression").UNLOCKS
 
 function City:licenceCount()
   local n = 0
@@ -3935,8 +3638,8 @@ City.TUTORIAL = {
     done = function(c) return #c.g:nodesOfKind("source") > 0 end,
   },
   {
-    key = "junction", title = "Build a junction",
-    body = "Choose Junction. Place it between the well and the house.",
+    key = "junction", title = "Build a T split",
+    body = "Choose T split. Place it between the well and the house.",
     done = function(c) return #c.g:nodesOfKind("junction") > 0 end,
   },
   {
@@ -4069,16 +3772,7 @@ end
 -- test every one of them had to pass: automation buys back attention, never
 -- money.
 --------------------------------------------------------------------------------
-City.ORDERS = {
-  surveyors   = { name = "Surveyors",   hire = 420,  wage = 20, clients = 6,
-                  blurb = "Shows deposits on land you do not own." },
-  dispatchers = { name = "Dispatchers", hire = 900,  wage = 30, clients = 12,
-                  blurb = "Accepts requests that meet your minimum price." },
-  engineers   = { name = "Engineers",   hire = 1600, wage = 45, clients = 20,
-                  blurb = "Replaces pipes after 3 full days. You pay the build cost." },
-  estates     = { name = "Estates",     hire = 2600, wage = 60, clients = 32,
-                  blurb = "Buys nearby land. Keeps the cash reserve you set." },
-}
+City.ORDERS = require("data.progression").ORDERS
 City.ORDER_LIST = { "surveyors", "dispatchers", "engineers", "estates" }
 
 function City:orderAvailable(key)
@@ -4177,9 +3871,9 @@ function City:runOrders(report)
   end
 end
 
-City.crewWage = 14
-City.crewHire = 340
-City.crewMax = 4
+City.crewWage = require("data.economy").crewWage
+City.crewHire = require("data.economy").crewHire
+City.crewMax = require("data.economy").crewMax
 
 -- The itemised running cost. Pipes are no longer a flat half-dollar each: a
 -- pressurised oil trunk across two districts is a standing liability, and the
@@ -4295,12 +3989,7 @@ function City:dismissCrew()
   return true
 end
 
-City.MILESTONES = {
-  {name = "First supply", target = 1, reward = 60},
-  {name = "Neighbourhood utility", target = 5, reward = 150},
-  {name = "City supplier", target = 10, reward = 350},
-  {name = "Utility empire", target = 20, reward = 800},
-}
+City.MILESTONES = require("data.progression").MILESTONES
 
 function City:awardMilestones()
   local count, total = 0, 0
@@ -4319,5 +4008,6 @@ function City:awardMilestones()
 end
 
 require("people")(City)
+require("infrastructure")(City)
 
 return City

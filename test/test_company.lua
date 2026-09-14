@@ -291,7 +291,9 @@ do
   check(c:pipeCost(src.id,far.id,"water",1)>c:pipeCost(src.id,near.id,"water",1),
     "a longer trench costs more")
   local water=c:pipeCost(src.id,far.id,"water","small")
+  c.lineVoltage="low" -- Compare entry-level cable against entry-level mains.
   local power=c:pipeCost(src.id,far.id,"power","small")
+  c.lineVoltage=nil
   local beer=c:pipeCost(src.id,far.id,"beer","small")
   local oil=c:pipeCost(src.id,far.id,"oil","small")
   check(water<power and power<beer and beer<oil,
@@ -580,11 +582,13 @@ do
   local farm
   for _,d in ipairs(c.districts) do if d.spec and d.spec.key=="farm" then farm=d; break end end
   check(farm~=nil,"the survey found farmland out there")
-  check(select(2,c:buySource("wheat",c.firstSource.x+300,c.firstSource.y))=="a farm belongs on farmland",
-    "and a farm will not stand anywhere else")
+  check(select(2,c:buySource("wheat",c.firstSource.x+300,c.firstSource.y)):find("Crop farm"),
+    "new farms must be built with utility inputs")
 
   local bx,by=farm.x+300,farm.y+300
-  local field=assert(c:buySource("wheat",bx,by))
+  -- Existing saved extractors remain usable; new farm rules have their own suite.
+  local field=c.g:addNode(bx,by,"source")
+  field.commodity="wheat"; field.output=30; field.cap=30; field.paid=1000
   local mill=assert(c:build(bx+240,by,"works","maltings"))
   local plant=assert(c:buySource("power",bx+360,by+200,"nuclear"))
   local brew=assert(c:build(bx+480,by,"works","brewery"))
@@ -596,7 +600,8 @@ do
 
   -- Wheat and power reach the maltings, but nothing else does yet.
   assert(c:layPipe(field.id,mill.id,"wheat","large"))
-  assert(c:layPipe(plant.id,mill.id,"power","large"))
+  local cable=c.g:addEdge(plant.id,mill.id,25) -- Pre-voltage saved cable.
+  cable.commodity="power"; cable.capMax=25; cable.size="large"; cable.grade=1
   c:refresh()
   check(mill.ready==0,"a maltings with no water makes nothing at all")
 
@@ -620,7 +625,8 @@ do
   check(mill.ready>0,"with water it starts making malt")
 
   assert(c:layPipe(mill.id,brew.id,"malt","large"))
-  assert(c:layPipe(plant.id,brew.id,"power","large"))
+  local cable=c.g:addEdge(plant.id,brew.id,25) -- Pre-voltage saved cable.
+  cable.commodity="power"; cable.capMax=25; cable.size="large"; cable.grade=1
   assert(c:layPipe(mill.id,brew.id,"water",20))
   c:refresh()
   check(brew.ready>0,"and the brewery downstream starts making beer")

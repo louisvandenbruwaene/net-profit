@@ -12,20 +12,26 @@ local city,cam
 local state={commodity="water",havenKind="port",plant="nuclear",recipe="turbine",size="small",recentSizes={"small"},grade=1,capacity=1,invest=100,borrow=500,tab="network",scroll=0,undo={}}
 local testMode, frames = nil,0
 local walkthroughRunning=false
+local saveBlocked=false
 
 local function toast(message,bad)
   state.toast,state.toastBad,state.toastTime=tostring(message),bad,5
 end
 
 local function save()
-  if testMode then return end
+  if testMode then return true end
+  if saveBlocked then
+    toast("Saved company is damaged. Choose another company slot; the original file is protected.",true)
+    return nil
+  end
   local ok,err=Save.write(city)
   if not ok then toast("Save failed: "..tostring(err),true) end
+  return ok
 end
 
 local function layout()
   local w,h=R.dimensions()
-  cam:setViewport(UI.width,84,w-UI.width,h-142)
+  cam:setViewport(UI.width,50,w-UI.width,h-108)
 end
 
 -- Pull back far enough to see every district, bought or not.
@@ -68,7 +74,7 @@ local function resetSession()
   state.modal,state.slotConfirm=nil,nil
   state.scroll=0
   state.tab="network"
-  state.commodity="water"
+  state.commodity="water"; state.people=nil
   state.capacity=1; state.size="small"; state.recentSizes={"small"}
   state.borrow=500
   state.invest=100
@@ -155,20 +161,30 @@ local function action(name,...)
     local slot=...
     if slot==(city.slot or 1) then state.modal=nil; return end
     if testMode then state.modal=nil; return end
-    save()
+    if not saveBlocked and not save() then return end
     local loaded,err=Save.read(slot)
     if not loaded then toast(err or "That company could not be opened",true); return end
     city=loaded
+    saveBlocked=false
     resetSession(); Save.writeCurrent(slot)
     fit(); toast("Company "..slot.." opened")
     return
   end
   if name=="newSlot" then
     local slot=...
-    save()
-    city=City.new(); city.slot=slot
+    if not Save.validSlot(slot) then toast("No such company slot",true); return end
+    if not saveBlocked and not save() then return end
+    if not testMode then
+      local info=Save.summarize(slot)
+      if info.error then toast("This slot contains a damaged save. Choose an empty slot.",true); return end
+    end
+    local fresh=City.new(); fresh.slot=slot
+    if not testMode then
+      local ok,err=Save.writeSlot(fresh,slot)
+      if not ok then toast("Save failed: "..tostring(err),true); return end
+    end
+    city=fresh; saveBlocked=false
     resetSession()
-    if not testMode then Save.writeSlot(city,slot) end
     fit(); toast("New company in slot "..slot)
     return
   end
@@ -187,11 +203,8 @@ local function action(name,...)
     return
   end
   if name=="restart" then
-    local slot=city.slot or 1
-    city=City.new(); city.slot=slot
-    resetSession()
-    if not testMode then Save.writeSlot(city,slot) end
-    fit(); return
+    if saveBlocked then save(); return end
+    return action("newSlot",city.slot or 1)
   end
   if name=="undo" then
     local snap=table.remove(state.undo)
@@ -215,7 +228,8 @@ local function action(name,...)
   else result,err=city[name](city,...) end
   if not result then toast(err or "Action unavailable",true); A.play("denied"); return nil end
   if name=="endDay" then
-    state.undo={}; clear(); state.rename=nil; state.modal="report"; state.reportDetails=false
+    state.undo={}; clear(); state.rename=nil; state.modal=city.bankrupt and "report" or nil; state.reportDetails=false
+    toast("Day "..city.day.." started. Results in Stats.")
     for _,leak in ipairs(result.leaks) do R.ring(leak.x,leak.y,P.bad) end
     if result.arrived then R.ring(result.arrived.x,result.arrived.y,P.energy) end
     A.play(city.bankrupt and "collapse" or "held")
@@ -263,7 +277,7 @@ local function pointDistance(x,y,ax,ay,bx,by)
 end
 
 local function hit(x,y)
-  if x<UI.width or y<84 or y>love.graphics.getHeight()-58 then return nil,nil end
+  if x<UI.width or y<50 or y>love.graphics.getHeight()-58 then return nil,nil end
   for _,n in ipairs(city.g:aliveNodes()) do
     local sx,sy=cam:toScreen(n.x,n.y)
     if (not state.filter or not n.commodity or n.commodity==state.filter) and
@@ -328,7 +342,11 @@ function love.load(args)
   city=city or City.new(testMode and {seed=24,obstacles=4} or nil)
   city.slot=city.slot or (testMode and 1 or Save.readCurrent())
   cam=Camera.new(city.bounds.w,city.bounds.h); cam:follow(city.bounds); fit()
-  if err then toast("Could not load saved company: "..err,true) end
+  if err then
+    saveBlocked=true
+    toast("Saved company is damaged and protected. Open Companies to choose another slot.",true)
+    state.modal="slots"; state.slots=slotSummaries()
+  end
   if city.bankrupt then state.modal="report" end
   if testMode=="--audio" then
     local report=A.report()
@@ -344,6 +362,10 @@ function love.load(args)
   App.state,App.action,App.hit=state,action,hit
   App.city=function() return city end
   App.camera=function() return cam end
+  App.setTestCity=function(value)
+    assert(testMode,"test cities are only available in isolated test runs")
+    city=value; resetSession(); fit()
+  end
 end
 
 function love.update(dt)
@@ -381,7 +403,7 @@ end
 function love.mousepressed(x,y,button)
   if button==1 and UI.click(x,y) then return end
   if state.modal then return end
-  if x<UI.width or y<84 or y>love.graphics.getHeight()-58 then return end
+  if x<UI.width or y<50 or y>love.graphics.getHeight()-58 then return end
   -- Right-click puts down whatever is in hand. With nothing in hand, a right
   -- click that does not turn into a pan clears the selection on release.
   if button==2 or button==3 then
@@ -408,6 +430,7 @@ function love.mousepressed(x,y,button)
     state.node,state.edge,state.link,state.district=node,edge,link,nil
     reveal()
     if node then
+      if state.people then state.transit=state.transit or "road"; state.rail=nil end
       state.drag=node
       if not state.rail and not state.transit then state.size=E.dragSize(city,node,nil,state) end
     end
@@ -436,7 +459,7 @@ function love.mousereleased(x,y,button)
     local target=hit(x,y)
     if target and target~=state.drag and state.transit then
       action("layLink",state.drag,target,state.transit)
-    elseif target and target~=state.drag then
+    elseif target and target~=state.drag and not state.people then
       local size=not state.rail and E.dragSize(city,state.drag,target,state) or nil
       if size then state.size=size end
       if action("layPipe",state.drag,target,state.commodity,
@@ -524,6 +547,9 @@ function love.textinput(value)
 end
 
 function love.resize() fit() end
-function love.quit() save() end
+function love.quit()
+  if saveBlocked then return end
+  if not save() then return true end
+end
 
 return App

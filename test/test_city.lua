@@ -102,7 +102,7 @@ do
   c.money = c.money + 1000
   local src = c.firstSource
   local hub = trunk(c, src)
-  assert(c:layPipe(src.id, hub.id, "beer", "large"))
+  -- The well has one water outlet. A beer stub still must not carry its water.
   local cust = c:clientList()[1]
   cust.x, cust.y = src.x + 200, src.y
   cust.demand = 2

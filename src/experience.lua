@@ -177,7 +177,7 @@ local function displaced(before,after,except)
   return count
 end
 function E.pipePreview(c,a,b,trade,capacity,rail,grade)
-  return memo(c,table.concat({"pipe",a,b,trade,tostring(capacity),tostring(rail),tostring(grade),c.money},":"),function()
+  return memo(c,table.concat({"pipe",a,b,trade,tostring(capacity),tostring(rail),tostring(grade),c.money,tostring(c.lineVoltage)},":"),function()
     local err=c:pipeError(a,b,trade,rail)
     if err then return {error=err} end
     local q=c:pipeQuote(a,b,trade,capacity,rail,grade)
@@ -196,7 +196,7 @@ function E.pipePreview(c,a,b,trade,capacity,rail,grade)
   end)
 end
 function E.offerPreview(c,id)
-  return memo(c,"offer:"..id..":"..c.money,function()
+  return memo(c,"offer:"..id..":"..c.money..":"..tostring(c.lineVoltage),function()
     local copy=assert(Save.unpack(Save.pack(c)))
     local n=assert(copy:acceptClient(id))
     local net=copy:dailyRevenue()-copy:dailyExpenses()-(c:dailyRevenue()-c:dailyExpenses())

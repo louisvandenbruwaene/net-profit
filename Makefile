@@ -38,6 +38,8 @@ test:
 	@$(LUA) test/test_comfort.lua
 	@$(LUA) test/test_people.lua
 	@$(LUA) test/test_save_location.lua
+	@$(LUA) test/test_save_failures.lua
+	@$(LUA) test/test_infrastructure.lua
 
 # What an endless map costs to solve. Kept out of `test` because it is a timing
 # measurement and a loaded machine is not a regression, but watched in CI.
@@ -61,7 +63,7 @@ audio:
 	@$(TESTENV) timeout -k 5 120 $(LOVE) . --audio
 
 shots:
-	@$(TESTENV) timeout -k 5 120 $(LOVE) . --shot && echo "written to $$HOME/.local/share/love/net-profit/"
+	@$(TESTENV) timeout -k 5 120 $(LOVE) . --shot
 
 dist:
 	@mkdir -p dist
