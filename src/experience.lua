@@ -81,6 +81,7 @@ function E.clientName(c,n)
     estate={"Garden Court","Riverside Flats","Orchard Court"},
     pub={"The Copper Tap","The Fox & Fir","The Little Barrel"},
     workshop={"Finch & Sons","Atlas Repairs","Cooper Works"},
+    home={"Hazel Cottage","Birch House","Linden Terrace","Ash Cottage"},
     factory={"Northstar Mills","Union Foundry","Beacon Works"},
     subscriber={"Home Office","Corner Studio","Attic Flat"}}
   local list=names[n.clientType] or names.house
@@ -177,7 +178,7 @@ local function displaced(before,after,except)
   return count
 end
 function E.pipePreview(c,a,b,trade,capacity,rail,grade)
-  return memo(c,table.concat({"pipe",a,b,trade,tostring(capacity),tostring(rail),tostring(grade),c.money,tostring(c.lineVoltage)},":"),function()
+  return memo(c,table.concat({"pipe",a,b,trade,tostring(capacity),tostring(rail),tostring(grade),c.money},":"),function()
     local err=c:pipeError(a,b,trade,rail)
     if err then return {error=err} end
     local q=c:pipeQuote(a,b,trade,capacity,rail,grade)
@@ -196,7 +197,7 @@ function E.pipePreview(c,a,b,trade,capacity,rail,grade)
   end)
 end
 function E.offerPreview(c,id)
-  return memo(c,"offer:"..id..":"..c.money..":"..tostring(c.lineVoltage),function()
+  return memo(c,"offer:"..id..":"..c.money,function()
     local copy=assert(Save.unpack(Save.pack(c)))
     local n=assert(copy:acceptClient(id))
     local net=copy:dailyRevenue()-copy:dailyExpenses()-(c:dailyRevenue()-c:dailyExpenses())

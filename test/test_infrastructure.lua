@@ -73,46 +73,118 @@ do
   local copied=assert(Save.unpack(Save.pack(c)))
   check(copied.g.nodes[a.id].bundleLanes==3,'binder upgrade persists')
 end
--- Electricity must use a voltage transition, and current limits are meaningful.
+-- The three towers are built like any structure; bare transformers are not.
 do
   local c=city()
-  local source=node(c,'source',1250,1050,'power',45); source.voltage='high'
-  local transformer=assert(c:build(1320,1050,'transformer'))
-  local customer=node(c,'client',1390,1050,'power'); customer.demand=5; customer.rate=10; customer.grace=3; customer.clientType='workshop'
-  check(c:pipeError(source.id,customer.id,'power'):find('voltage'),'generation cannot connect directly to a low-voltage consumer')
-  local trunk=assert(c:layPipe(source.id,transformer.id,'power','small'))
-  local cable=assert(c:layPipe(transformer.id,customer.id,'power','medium'))
-  check(trunk.voltage=='high' and cable.voltage=='low','auto voltage selects both sides of the transformer')
-  check(c.served[customer.id]==5,'transformed electricity serves the customer')
-  local cap,amps,kv,loss=c:powerRating(cable)
-  check(amps==1250 and kv==0.4 and cap>=5 and loss>0,'current rating, voltage and resistive losses constrain carrying capacity')
-  cable.leaking=true; cable.cap=math.floor(cable.capMax/4); c:refresh()
-  check(c.served[customer.id]<5,'degraded electrical lines can cause a real shortfall')
-  assert(c:repairPipe(cable.id)); check(c.served[customer.id]==5,'repair restores electrical supply')
-  local pylon=assert(c:build(1550,1050,'pylon'))
-  c.lineVoltage='high'; local high=assert(c:layPipe(source.id,pylon.id,'power','small'))
-  c.lineVoltage='low'
-  check(c:pipeError(pylon.id,customer.id,'power'):find('voltage'),'a pylon cannot silently change voltage')
-  c.lineVoltage=nil
-  local split=node(c,'junction',1500,1200)
-  check(c:pipeError(source.id,split.id,'power'):find('water fittings'),'water fittings cannot carry new power lines')
-  local saved=assert(Save.unpack(Save.pack(c)))
-  check(saved.g.edges[high.id].voltage=='high' and saved.served[customer.id]==5,'voltage and delivery persist')
+  check(c:build(1320,1050,'hvtower') and c:build(1550,1050,'pylon') and c:build(1700,1050,'pole'),'all three power towers can be built')
+  check(not c:build(1450,1200,'transformer'),'a transformer is a tower upgrade, not a building')
 end
--- Higher voltage carries a line further, as on a real grid.
+-- Power steps down through towers, and customers hang off transformer towers.
+do
+  local c=city()
+  local plant=node(c,'source',1250,1050,'power',45); plant.voltage='high'
+  local hv=node(c,'hvtower',1450,1050)
+  local std=node(c,'pylon',1540,1050)
+  local workshop=node(c,'client',1640,1050,'power'); workshop.demand=5; workshop.rate=10; workshop.grace=3; workshop.clientType='workshop'
+  local home=node(c,'client',1540,1140,'power'); home.demand=2; home.rate=6; home.grace=3; home.clientType='home'
+  check(City.CLIENTS.home.commodity=='power' and City.INFRA.customerVoltage.home=='low','homes are low voltage power customers')
+  check(c:pipeError(plant.id,std.id,'power'):find('high voltage'),'a generator only feeds a high voltage tower')
+  check(c:pipeError(plant.id,workshop.id,'power'):find('towers'),'generation never connects straight to a customer')
+  local trunk=assert(c:layPipe(plant.id,hv.id,'power','small'))
+  check(trunk.voltage=='high','the generator cable is high voltage')
+  check(c:pipeError(hv.id,std.id,'power'):find('transformer'),'a bare tower cannot change voltage')
+  assert(c:upgradeTower(hv.id,'transformer'))
+  local feeder=assert(c:layPipe(hv.id,std.id,'power','medium'))
+  check(feeder.voltage=='medium','a transformer steps high voltage down onto a standard tower')
+  check(c:pipeError(std.id,workshop.id,'power'):find('transformer'),'customers need a transformer on their tower')
+  check(c:pipeError(hv.id,workshop.id,'power')~=nil,'a high voltage tower never feeds a customer directly')
+  assert(c:upgradeTower(std.id,'transformer'))
+  check(not c:upgradeTower(std.id,'booster'),'a tower holds one upgrade')
+  local drop=assert(c:layPipe(std.id,workshop.id,'power','medium'))
+  check(drop.voltage=='medium' and c.served[workshop.id]==5,'a standard tower with a transformer serves a workshop at medium voltage')
+  check(c:pipeError(std.id,home.id,'power'):find('low voltage pole'),'homes take low voltage from a pole')
+  local pole=node(c,'pole',1540,1100)
+  local low=assert(c:layPipe(std.id,pole.id,'power','small'))
+  check(low.voltage=='low','a standard transformer also steps down to low voltage')
+  assert(c:upgradeTower(pole.id,'transformer'))
+  assert(c:layPipe(pole.id,home.id,'power','small'))
+  check(c.served[home.id]==2,'a pole with a transformer serves a home')
+  local cap,amps,kv,loss=c:powerRating(drop)
+  check(amps==1250 and kv==11 and cap>=5 and loss>0,'current rating, voltage and resistive losses constrain carrying capacity')
+  drop.leaking=true; drop.cap=0; c:refresh()
+  check((c.served[workshop.id] or 0)<5,'a failed cable causes a real shortfall')
+  assert(c:repairPipe(drop.id)); check(c.served[workshop.id]==5,'repair restores electrical supply')
+  local split=node(c,'junction',1500,1200)
+  check(c:pipeError(hv.id,split.id,'power'):find('water fittings'),'water fittings cannot carry power')
+  local saved=assert(Save.unpack(Save.pack(c)))
+  check(saved.g.nodes[std.id].upgrade=='transformer' and saved.g.edges[low.id].voltage=='low' and saved.served[home.id]==2,
+    'towers, upgrades, voltages and delivery survive saving')
+end
+-- Each voltage has a tower spacing and a booster distance.
 do
   local c=city()
   local V=City.INFRA.voltages
-  check(V.low.range<V.medium.range and V.medium.range<V.high.range,'each step up in voltage reaches further')
-  local a=node(c,'pylon',1250,1050); a.ports=3
-  local b=node(c,'pylon',1250+5000,1050); b.ports=3
-  c.lineVoltage='medium'
-  check(c:pipeError(a.id,b.id,'power'):find('too long'),'a 5 km run is beyond an 11 kV feeder')
-  c.lineVoltage='high'
-  check(c:pipeError(a.id,b.id,'power')==nil,'a 5 km run is within reach of 110 kV transmission')
-  local line=assert(c:layPipe(a.id,b.id,'power','large'))
-  local _,_,_,loss=c:powerRating(line)
-  check(loss<0.05,'a long transmission line loses only a few percent')
+  check(V.high.span==300 and V.medium.span==100 and V.low.span==50,'a tower every 300, 100 and 50 m')
+  check(V.high.boost==2500 and V.medium.boost==500 and V.low.boost==100,'a booster every 2500, 500 and 100 m')
+  for kind,voltage in pairs({hvtower='high',pylon='medium',pole='low'}) do
+    local a=node(c,kind,1250,1050)
+    local b=node(c,kind,1250+V[voltage].span+1,1050)
+    check(c:pipeError(a.id,b.id,'power'):find('too long'),kind..' cables stop at '..V[voltage].span..' m')
+    b.x=1250+V[voltage].span
+    check(c:pipeError(a.id,b.id,'power')==nil,kind..' cables reach exactly '..V[voltage].span..' m')
+  end
+  local function chain(kind,root,y,count,step)
+    local prev,list=root,{}
+    for i=1,count do
+      local t=node(c,kind,root.x+i*step,y)
+      assert(c:layPipe(prev.id,t.id,'power','large'))
+      list[i]=t; prev=t
+    end
+    return list,node(c,kind,root.x+(count+1)*step,y)
+  end
+  local gen=node(c,'source',1250,1190,'power',40); gen.voltage='high'
+  local hvs,ninth=chain('hvtower',gen,1190,8,300)
+  check(c:pipeError(hvs[8].id,ninth.id,'power'):find('booster'),'high voltage runs 2500 m from its generator, then needs a booster')
+  local root=node(c,'hvtower',1250,1120); root.upgrade='transformer'; root.ports=6
+  local towers,sixth=chain('pylon',root,1120,5,100)
+  check(c:pipeError(towers[5].id,sixth.id,'power'):find('booster'),'medium voltage needs a booster after 500 m')
+  assert(c:upgradeTower(towers[3].id,'booster'))
+  check(c:pipeError(towers[5].id,sixth.id,'power')==nil,'a booster restarts the booster distance')
+  local last=assert(c:layPipe(towers[5].id,sixth.id,'power','large'))
+  towers[3].upgrade=nil; c:refresh()
+  check(last.unboosted and last.effectiveCap==0,'without its booster the cable beyond 500 m carries nothing')
+  local poleRoot=node(c,'pole',1250,1260); poleRoot.upgrade='transformer'; poleRoot.ports=6
+  local poles,third=chain('pole',poleRoot,1260,2,50)
+  check(c:pipeError(poles[2].id,third.id,'power'):find('booster'),'low voltage needs a booster after 100 m')
+  local far=node(c,'hvtower',1250+2500,1330)
+  local _,_,_,loss=c:powerRating({a=gen.id,b=far.id,cap=25,capMax=25,size='large',voltage='high'})
+  check(loss<0.05,'a 2.5 km transmission line loses only a few percent')
+end
+-- Companies saved before tower upgrades convert and keep their supply.
+do
+  local c=city()
+  local plant=node(c,'source',1250,1050,'power',45); plant.voltage='high'
+  local oldPylon=node(c,'pylon',1900,1050)
+  local oldTransformer=node(c,'transformer',1960,1050)
+  local shop=node(c,'client',2020,1050,'power'); shop.demand=4; shop.rate=10; shop.grace=3; shop.clientType='workshop'
+  local function cable(a,b,voltage)
+    local e=c.g:addEdge(a.id,b.id,25); e.commodity='power'; e.capMax=25; e.size='large'; e.grade=1; e.voltage=voltage
+    return e
+  end
+  local long=cable(plant,oldPylon,'high'); cable(oldPylon,oldTransformer,'high'); cable(oldTransformer,shop,'low')
+  c.infrastructureVersion=2
+  local loaded=assert(Save.unpack(Save.pack(c)))
+  local p,t=loaded.g.nodes[oldPylon.id],loaded.g.nodes[oldTransformer.id]
+  check(p.kind=='hvtower' and not p.upgrade,'an old high voltage pylon becomes a high voltage tower')
+  check(t.kind=='hvtower' and t.upgrade=='transformer' and t.ports>=6,'an old transformer becomes a tower with a transformer')
+  check(loaded.g.edges[long.id].legacySpan and not loaded.g.edges[long.id].unboosted,'a 650 m cable laid under the old rules keeps working')
+  check(loaded.served[shop.id]==4 and loaded.infrastructureVersion==3,'a converted company keeps supplying its customers')
+end
+-- Every commodity belongs to a grid, and late goods share category grids.
+do
+  for _,name in ipairs(Graph.ALL) do check(Graph.GRIDS[name],'every commodity has a grid: '..name) end
+  check(Graph.gridOf('steel')=='metals' and Graph.gridOf('concrete')=='stone' and Graph.gridOf('wheat')=='food'
+    and Graph.gridOf('gasoline')=='oil' and Graph.gridOf('water')=='water','late goods are grouped into food, metals, stone and more')
 end
 -- Pollution is deterministic and only actual oil supply can leak.
 do
@@ -196,12 +268,14 @@ do
   local w2=node(c,'source',x-210,y+180,'water',30)
   local oil=node(c,'source',x,y+220,'oil',3)
   local power=node(c,'source',x+250,y,'power',20); power.voltage='high'
-  local transformer=assert(c:build(x+180,y,'transformer'))
+  local hv=node(c,'hvtower',x+200,y); hv.upgrade='transformer'; hv.ports=6
+  local std=node(c,'pylon',x+110,y); std.upgrade='transformer'; std.ports=6
   assert(c:layPipe(w1.id,farm.id,'water','large'))
   assert(c:layPipe(w2.id,farm.id,'water','large'))
   assert(c:layPipe(oil.id,farm.id,'oil','large'))
-  assert(c:layPipe(power.id,transformer.id,'power','small'))
-  assert(c:layPipe(transformer.id,farm.id,'power','medium'))
+  assert(c:layPipe(power.id,hv.id,'power','small'))
+  assert(c:layPipe(hv.id,std.id,'power','medium'))
+  assert(c:layPipe(std.id,farm.id,'power','medium'))
   local fitting=node(c,'junction',x,y-190)
   assert(c:layPipe(farm.id,fitting.id,'wheat','large'))
   for i=1,2 do

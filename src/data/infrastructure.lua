@@ -3,26 +3,41 @@ return {
   kinds = {
     filtration={name="FILTRATION",ports=2,throughput=999,cost=180,color={0.42,0.85,0.83}},
     binder={name="PIPE BINDER",ports=6,throughput=9999,cost=650,color={0.72,0.76,0.84}},
-    transformer={name="TRANSFORMER",ports=6,throughput=9999,cost=260,color={0.82,0.67,0.98}},
-    pylon={name="POWER PYLON",ports=3,throughput=9999,cost=65,color={0.80,0.65,0.96}},
+    hvtower={name="HIGH VOLTAGE TOWER",ports=4,throughput=9999,cost=160,color={0.88,0.62,1.00}},
+    pylon={name="STANDARD TOWER",ports=4,throughput=9999,cost=65,color={0.80,0.65,0.96}},
+    pole={name="LOW VOLTAGE POLE",ports=4,throughput=9999,cost=25,color={0.70,0.66,0.90}},
+    -- Only found in saves from before tower upgrades; loading turns each one
+    -- into a tower fitted with a transformer.
+    transformer={name="TRANSFORMER",ports=6,throughput=9999,cost=260,color={0.82,0.67,0.98},legacy=true},
     lab={name="ENVIRONMENT LAB",ports=2,throughput=999,cost=2200,color={0.54,0.85,0.53}},
   },
-  -- Range grows with voltage the way it does on a real grid: the same power at
-  -- ten times the voltage needs a tenth of the current, so the resistive loss
-  -- that limits a run falls a hundredfold. A street cable stops at a few
-  -- hundred metres, a distribution feeder crosses a district, a transmission
-  -- line crosses the map.
+  -- The voltage each tower carries.
+  towers={hvtower="high",pylon="medium",pole="low"},
+  -- span: the longest cable between two structures at this voltage.
+  -- boost: the most cable after a generator, transformer or booster before the
+  -- next one is needed. Higher voltage carries the same power on less current,
+  -- so it loses less and runs further, as on a real grid.
   voltages={
-    low={name="Low voltage",kv=0.4,range=140},
-    medium={name="Distribution",kv=11,range=1600},
-    high={name="Transmission",kv=110,range=8000},
+    low={name="Low voltage",kv=0.4,span=50,boost=100,tower="pole"},
+    medium={name="Medium voltage",kv=11,span=100,boost=500,tower="pylon"},
+    high={name="High voltage",kv=110,span=300,boost=2500,tower="hvtower"},
   },
   voltageOrder={"low","medium","high"},
+  -- What each power customer takes. Every customer not listed, and every
+  -- works, hub and depot yard, takes medium voltage.
+  customerVoltage={home="low"},
+  -- A tower holds one upgrade. A transformer lets it take cables at its own
+  -- voltage and every lower one, and it is the only way to connect customers.
+  -- A booster restarts the booster distance on its own voltage.
+  upgrades={
+    transformer={name="Transformer",ports=6,cost={hvtower=900,pylon=260,pole=90}},
+    booster={name="Booster",cost={hvtower=600,pylon=150,pole=45}},
+  },
   voltageCost={low=1,medium=1.3,high=2}, -- multiplier on tie-ins, trench and bore
   -- Three-phase AC, unity power factor. One simulation unit is 100 kW.
   amps={small=500,medium=1250,large=2500,massive=5000},
   resistance={small=0.12,medium=0.06,large=0.03,massive=0.015}, -- ohm/km
-  transformerRange=90, binderRange=95, pumpRange=950,
+  binderRange=95, pumpRange=950,
   water={diameter={small=0.05,medium=0.08,large=0.12,massive=0.24},head=30,pumpHead=95,friction=0.025},
   filterRisk=0.25,
   binderPrices={1800,5000,12000}, binderClients={12,20,30},

@@ -8,8 +8,29 @@ local lg = love.graphics
 
 local labels,occupied,segments={},{},{}
 local labelPriority=0
+
+-- Grids other than the selected one are drawn faded, so the grid being built
+-- stands out. While fading, every colour set is scaled, and the colour a glyph
+-- reads back is unscaled so it is not faded twice.
+local UNFOCUSED_ALPHA=0.4
+local fade=1
+local setColor,getColor=lg.setColor,lg.getColor
+local function fadedSetColor(r,g,b,a)
+  if type(r)=="table" then r,g,b,a=r[1],r[2],r[3],r[4] end
+  setColor(r,g,b,(a or 1)*fade)
+end
+local function fadedGetColor()
+  local r,g,b,a=getColor()
+  return r,g,b,(a or 1)/fade
+end
+local function fading(on)
+  fade=on and UNFOCUSED_ALPHA or 1
+  lg.setColor=on and fadedSetColor or setColor
+  lg.getColor=on and fadedGetColor or getColor
+end
+
 local function label(value,x,y,color,font)
-  labels[#labels+1]={text=tostring(value),x=x,y=y,color=color or P.text,font=font or R.fonts.small,priority=labelPriority,order=#labels+1}
+  labels[#labels+1]={text=tostring(value),x=x,y=y,color=color or P.text,font=font or R.fonts.small,priority=labelPriority,order=#labels+1,fade=fade}
 end
 local function crossesBox(line,x,y,w,h)
   local t0,t1=0,1
@@ -42,8 +63,9 @@ local function drawLabels(cam)
     end
     if clear then
       occupied[#occupied+1]={x=x,y=y,w=w,h=h}
-      lg.setColor(P.with(P.bg,0.94)); lg.rectangle("fill",x,y,w,h,3)
-      lg.setFont(f); lg.setColor(item.color); lg.print(item.text,x+4,y+2)
+      local c=item.color
+      lg.setColor(P.with(P.bg,0.94*item.fade)); lg.rectangle("fill",x,y,w,h,3)
+      lg.setFont(f); lg.setColor(c[1],c[2],c[3],(c[4] or 1)*item.fade); lg.print(item.text,x+4,y+2)
     end
   end
 end
@@ -226,6 +248,13 @@ function Draw.structureGlyph(kind, x, y, s)
   elseif kind=="pylon" then
     lg.line(-8*s,10*s,0,-10*s,8*s,10*s)
     lg.line(-10*s,-4*s,10*s,-4*s); lg.line(-6*s,4*s,6*s,4*s)
+  elseif kind=="hvtower" then
+    -- A lattice mast: two cross-arms and a braced waist.
+    lg.line(-7*s,10*s,-2*s,-10*s,2*s,-10*s,7*s,10*s)
+    lg.line(-10*s,-6*s,10*s,-6*s); lg.line(-8*s,0,8*s,0)
+    lg.line(-5*s,5*s,4*s,-1*s); lg.line(-4*s,-1*s,5*s,5*s)
+  elseif kind=="pole" then
+    lg.line(0,10*s,0,-10*s); lg.line(-7*s,-6*s,7*s,-6*s)
   elseif kind=="lab" then
     lg.line(-4*s,-10*s,4*s,-10*s)
     lg.polygon("line",-3*s,-10*s,-3*s,-2*s,-9*s,9*s,9*s,9*s,3*s,-2*s,3*s,-10*s)
@@ -722,6 +751,32 @@ local function drawSeams(city, cam, state)
   end
 end
 
+function Draw.focusGrid(state)
+  return state.people and "people" or Graph.gridOf(state.commodity or "water")
+end
+
+local function edgeInGrid(e,grid)
+  if Graph.gridOf(e.commodity)==grid then return true end
+  for name in pairs(e.wagons or {}) do if Graph.gridOf(name)==grid then return true end end
+  return false
+end
+
+local PASSENGER={stop=true,station=true,resort=true}
+local function nodeInGrid(city,n,grid)
+  if n.commodity then return Graph.gridOf(n.commodity)==grid end
+  if n.makes and Graph.gridOf(n.makes)==grid then return true end
+  for name in pairs(n.wants or {}) do if Graph.gridOf(name)==grid then return true end end
+  if City.INFRA.towers[n.kind] then return grid=="power" end
+  if PASSENGER[n.kind] then return grid=="people" end
+  for _,e in ipairs(city.g:edgesAt(n.id)) do if edgeInGrid(e,grid) then return true end end
+  if grid=="people" then
+    for _,l in ipairs(city.links or {}) do if l.alive and (l.a==n.id or l.b==n.id) then return true end end
+    return false
+  end
+  -- An unconnected fitting belongs to whichever pipe or road grid is selected.
+  return city.g:degree(n.id)==0 and grid~="power" and grid~="internet"
+end
+
 local function dashes(ax, ay, bx, by, on, off)
   local dx, dy = bx - ax, by - ay
   local len = math.max(1, math.sqrt(dx * dx + dy * dy))
@@ -741,6 +796,7 @@ local function drawLinks(city, cam, state)
     local na, nb = city.g.nodes[l.a], city.g.nodes[l.b]
     if l.alive and not state.filter and cam:seesBox(math.min(na.x, nb.x), math.min(na.y, nb.y),
         math.max(na.x, nb.x), math.max(na.y, nb.y)) then
+      fading(not state.people and state.link ~= l.id and state.hoverLink ~= l.id)
       local ax, ay, bx, by = Draw.linkPoints(cam, city, l)
       local hot = state.link == l.id or state.hoverLink == l.id
       local trips = (byLink[l.id] or {}).trips or 0
@@ -787,6 +843,7 @@ local function drawLinks(city, cam, state)
         label(string.format("$%d  /  %d trips", price or 0, trips), (ax + bx) / 2, (ay + by) / 2 - 20,
           trips > 0 and P.textDim or P.textFaint, R.fonts.tiny)
       end
+      fading(false)
     end
   end
 end
@@ -878,11 +935,13 @@ function Draw.world(city, cam, state)
   end
 
   local route=state.bottlenecks and E.route(city,state.node) or {}
+  local grid=Draw.focusGrid(state)
   for _, e in ipairs(city.g.edges) do
     local ea, eb = city.g.nodes[e.a], city.g.nodes[e.b]
     if e.alive and (not state.filter or e.commodity==state.filter)
        and cam:seesBox(math.min(ea.x,eb.x), math.min(ea.y,eb.y),
                        math.max(ea.x,eb.x), math.max(ea.y,eb.y)) then
+      fading(state.edge ~= e.id and state.hoverEdge ~= e.id and not edgeInGrid(e,grid))
       local ax, ay, bx, by = Draw.edgePoints(cam,city,e)
       local spec = Graph.COMMODITIES[e.commodity] or Graph.COMMODITIES.water
       local c = spec.color
@@ -944,7 +1003,7 @@ function Draw.world(city, cam, state)
         lg.setLineWidth(width + 2); lg.line(ax,ay,bx,by)
       end
       if not e.rail then
-        lg.setColor(P.with(e.leaking and P.bad or (e.commodity == "oil" and spec.fill or c),
+        lg.setColor(P.with((e.leaking or e.unboosted) and P.bad or (e.commodity == "oil" and spec.fill or c),
           e.cap == 0 and 0.35 or (e.commodity == "oil" and 0.95 or 0.65)))
         lg.setLineWidth(width); lg.line(ax,ay,bx,by)
       end
@@ -974,9 +1033,12 @@ function Draw.world(city, cam, state)
         lg.setColor(P.with(P.bad,0.6+0.3*math.sin(R.t*5)))
         lg.setLineWidth(2); lg.circle("line",x,y,10+2*math.sin(R.t*4))
       end
-      if e.leaking or state.edge == e.id or state.hoverEdge == e.id or state.bottlenecks then
+      if e.unboosted then
+        label("NO BOOSTER",(ax+bx)/2,(ay+by)/2-22,P.bad,R.fonts.tiny)
+      elseif e.leaking or state.edge == e.id or state.hoverEdge == e.id or state.bottlenecks then
         label(string.format("%.1f/%d",math.abs(flow),e.effectiveCap or e.cap)..(e.voltage and ("  "..City.INFRA.voltages[e.voltage].kv.." kV") or ""),(ax+bx)/2,(ay+by)/2-22,e.leaking and P.bad or P.textDim,R.fonts.tiny)
       end
+      fading(false)
     end
   end
 
@@ -985,6 +1047,7 @@ function Draw.world(city, cam, state)
   for _, n in ipairs(city.g:aliveNodes()) do
     if (not state.filter or not n.commodity or n.commodity==state.filter)
        and cam:sees(n.x, n.y, 90) then
+    fading(state.node ~= n.id and state.hoverNode ~= n.id and not nodeInGrid(city,n,grid))
     local x,y = cam:toScreen(n.x,n.y)
     -- Sized through R.sym, so pulling the camera back always makes a node
     -- smaller. The symbol inside is drawn at every zoom: one flat shape reads
@@ -1096,6 +1159,19 @@ function Draw.world(city, cam, state)
     else
       lg.setColor(color)
       Draw.structureGlyph(n.kind, x, y, r / 15)
+      -- A tower's upgrade as a corner badge: the two-coil transformer symbol,
+      -- or an upward chevron for a booster.
+      if n.upgrade and r >= 5 then
+        local bx, by, br = x + r * 0.72, y - r * 0.72, math.max(2.5, r * 0.34)
+        lg.setColor(P.bg); lg.circle("fill", bx, by, br + 1)
+        lg.setColor(n.upgrade == "booster" and P.energy or P.good)
+        lg.setLineWidth(math.max(1, br * 0.28))
+        if n.upgrade == "booster" then
+          lg.line(bx - br * 0.6, by + br * 0.35, bx, by - br * 0.35, bx + br * 0.6, by + br * 0.35)
+        else
+          lg.circle("line", bx - br * 0.3, by, br * 0.45); lg.circle("line", bx + br * 0.3, by, br * 0.45)
+        end
+      end
       if n.kind == "gate" then
         if named then
           label(tostring(n.throughput or 0), x, y+r*1.5+8,
@@ -1146,6 +1222,7 @@ function Draw.world(city, cam, state)
         end
       end
     end
+    fading(false)
     end
   end
 
@@ -1274,7 +1351,8 @@ function Draw.world(city, cam, state)
     end
     local color = (err or cost>city.money) and P.bad or P.good
     lg.setColor(P.with(color,0.3)); lg.setLineWidth(1)
-    local range = state.tool=="pump" and City.INFRA.pumpRange or state.tool=="transformer" and City.INFRA.transformerRange
+    local carries = City.INFRA.towers[state.tool]
+    local range = state.tool=="pump" and City.INFRA.pumpRange or carries and City.INFRA.voltages[carries].span
       or state.tool=="binder" and City.INFRA.binderRange or state.tool=="tower" and 220 or 300
     lg.circle("line",mx,my,range*cam.scale)
     if state.tool=='works' and (City.RECIPES[state.recipe or ''] or {}).farm then
@@ -1290,6 +1368,7 @@ function Draw.world(city, cam, state)
     label(err or ("$"..cost),mx,my+30,color)
 
   end
+  fading(false)
   drawLabels(cam)
   lg.setScissor()
 end

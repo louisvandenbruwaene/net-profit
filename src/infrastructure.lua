@@ -3,7 +3,7 @@ local Graph=require('graph')
 local D=require('data.infrastructure')
 return function(City)
   City.INFRA=D
-  for key,spec in pairs(D.kinds) do City.price[key]=spec.cost; City.BUILDABLE[key]=true end
+  for key,spec in pairs(D.kinds) do City.price[key]=spec.cost; City.BUILDABLE[key]=(not spec.legacy) or nil end
   City.PLANTS.wind.ground='any'
   City.PLANTS.wind.blurb='Wind generation on owned land or an island.'
   City.PLANTS.hydro={name='RIVER TURBINE',base=850,growth=1.3,output=8,upkeep=14,fuel=0,ground='river',blurb='Uses river flow. Must stand beside a river.'}
@@ -17,10 +17,12 @@ return function(City)
   local base={}
   for _,k in ipairs({'new','migrate','build','buySource','sourceCost','sourceError','placementError','pipeError','rangeBetween','sizeRange','pipeQuote','layPipe','replaceQuote','replacePipe','refresh','worksOutput','leakChance','endDay','sourceIncome','expenseBreakdown','convertError'}) do base[k]=City[k] end
 
+  local RANK={low=1,medium=2,high=3}
   local function dist(a,b) return math.sqrt((a.x-b.x)^2+(a.y-b.y)^2) end
+  local function generator(n) return n.kind=='source' and n.commodity=='power' end
+  local function farm(n) return (City.RECIPES[n.recipe or ''] or {}).farm end
   local function electrical(n)
-    return n.kind=='transformer' or n.kind=='pylon' or n.commodity=='power'
-      or n.kind=='works' or n.kind=='exchange' or n.kind=='dc'
+    return D.towers[n.kind] or n.commodity=='power' or n.kind=='works' or n.kind=='exchange' or n.kind=='dc'
   end
   function City:pollutionAt(x,y)
     local d=self:districtAt(x,y)
@@ -38,7 +40,7 @@ return function(City)
     if self:pollutionAt(x,y)>=D.pollution.stopAt then return 'soil polluted: build an environment lab nearby' end
     if (self:riverEdge(x,y) or math.huge)<r then return 'farm fields would overlap the river' end
     for _,n in ipairs(self.g:aliveNodes()) do
-      local radius=(City.RECIPES[n.recipe or ''] or {}).farm and r*2 or r
+      local radius=farm(n) and r*2 or r
       if math.abs(n.x-x)<radius and math.abs(n.y-y)<radius then return 'farm fields need more open space' end
     end
     for _,o in ipairs(self.obstacles) do
@@ -49,7 +51,7 @@ return function(City)
     local err=base.placementError(self,x,y)
     if err then return err end
     for _,n in ipairs(self.g:aliveNodes()) do
-      if (City.RECIPES[n.recipe or ''] or {}).farm and math.abs(n.x-x)<D.farmRadius and math.abs(n.y-y)<D.farmRadius then return 'that land is used by a farm' end
+      if farm(n) and math.abs(n.x-x)<D.farmRadius and math.abs(n.y-y)<D.farmRadius then return 'that land is used by a farm' end
     end
   end
   function City:sourceError(commodity,x,y,plant)
@@ -109,17 +111,104 @@ return function(City)
     self:spend(cost); n.paid=(n.paid or 0)+cost; n.bundleLanes=level+1; n.ports=2*(level+1)+2
     self:refresh(); return n
   end
-  function City:voltageAt(id)
+
+  -- Electricity. Every tower carries one voltage. A transformer on a tower lets
+  -- it also take cables at every lower voltage, and customers only connect to a
+  -- tower with a transformer that carries their own voltage.
+  function City:customerVoltage(n)
+    if n.kind=='client' then return n.commodity=='power' and (D.customerVoltage[n.clientType] or 'medium') or nil end
+    if n.kind=='works' or n.kind=='exchange' or n.kind=='dc' then return 'medium' end
+  end
+  function City:voltagesAt(n)
+    local home=D.towers[n.kind]
+    if home then
+      if n.upgrade~='transformer' then return {[home]=true} end
+      local set={}
+      for key,rank in pairs(RANK) do if rank<=RANK[home] then set[key]=true end end
+      return set
+    end
+    if generator(n) then return {high=true} end
+    local want=self:customerVoltage(n)
+    return want and {[want]=true} or {}
+  end
+  function City:cableVoltage(a,b)
+    local na,nb=self.g.nodes[a],self.g.nodes[b]
+    local ca,cb=self:customerVoltage(na),self:customerVoltage(nb)
+    if (ca or generator(na)) and (cb or generator(nb)) then return nil,'power runs through towers: build one between them' end
+    if ca or cb then
+      local want,tower=ca or cb,ca and nb or na
+      local label=string.lower(Graph.KINDS[D.voltages[want].tower].name)
+      if D.towers[tower.kind]~=want then
+        return nil,(want=='low' and 'homes take ' or 'this customer takes ')..D.voltages[want].kv..' kV: connect a '..label..' with a transformer'
+      end
+      if tower.upgrade~='transformer' then return nil,'add a transformer to this '..label..' to connect customers' end
+      return want
+    end
+    local sa,sb=self:voltagesAt(na),self:voltagesAt(nb)
+    for i=#D.voltageOrder,1,-1 do
+      local key=D.voltageOrder[i]
+      if sa[key] and sb[key] then return key end
+    end
+    if generator(na) or generator(nb) then return nil,'generators send out high voltage: connect a high voltage tower' end
+    return nil,'voltage mismatch: add a transformer to step between voltages'
+  end
+  -- Cables laid before tower upgrades keep working at their installed length.
+  local function cableLength(self,e) return e.legacySpan and 0 or dist(self.g.nodes[e.a],self.g.nodes[e.b]) end
+  -- Metres of cable from the nearest generator, transformer or booster, for every
+  -- structure on this voltage. Customers take power but do not pass it on.
+  function City:boostRuns(voltage,extra)
+    local runs,queue,links={},{},{}
+    local function link(a,b,w)
+      links[a]=links[a] or {}; links[a][#links[a]+1]={b,w}
+      links[b]=links[b] or {}; links[b][#links[b]+1]={a,w}
+    end
+    for _,n in ipairs(self.g:aliveNodes()) do
+      local boost=(voltage=='high' and generator(n))
+        or (D.towers[n.kind] and n.upgrade and self:voltagesAt(n)[voltage])
+      if boost then runs[n.id]=0; queue[#queue+1]=n.id end
+    end
+    for _,e in ipairs(self.g.edges) do
+      if e.alive and e.commodity=='power' and e.voltage==voltage and not e.rail then link(e.a,e.b,cableLength(self,e)) end
+    end
+    if extra then link(extra.a,extra.b,extra.length) end
+    local head=1
+    while head<=#queue do
+      local id=queue[head]; head=head+1
+      if runs[id]==0 or not self:customerVoltage(self.g.nodes[id]) then
+        for _,l in ipairs(links[id] or {}) do
+          local far=runs[id]+l[2]
+          if far<(runs[l[1]] or math.huge) then runs[l[1]]=far; queue[#queue+1]=l[1] end
+        end
+      end
+    end
+    return runs
+  end
+  -- A new cable may not bring any structure onto the grid further than the
+  -- booster distance from its nearest generator, transformer or booster.
+  function City:boostError(a,b,voltage)
+    local limit=D.voltages[voltage].boost
+    local before=self:boostRuns(voltage)
+    local after=self:boostRuns(voltage,{a=a,b=b,length=dist(self.g.nodes[a],self.g.nodes[b])})
+    for id,run in pairs(after) do
+      if run>limit and not before[id] then
+        return 'needs a booster every '..limit..' m at '..D.voltages[voltage].kv..' kV: upgrade a tower on this line'
+      end
+    end
+  end
+  function City:upgradeTower(id,upgrade)
     local n=self.g.nodes[id]
-    if n.kind=='transformer' then return nil end
-    if n.kind=='source' and n.commodity=='power' then return n.voltage or 'high' end
-    if n.kind=='client' or n.kind=='works' or n.kind=='exchange' then return 'low' end
-    for _,e in ipairs(self.g:edgesAt(id)) do if e.commodity=='power' and e.voltage then return e.voltage end end
-    return n.voltage
+    if not n or not n.alive or not D.towers[n.kind] then return nil,'select a power tower' end
+    local spec=D.upgrades[upgrade]
+    if not spec then return nil,'choose a transformer or a booster' end
+    if n.upgrade then return nil,'a tower holds one upgrade: demolish and rebuild to change it' end
+    local cost=spec.cost[n.kind]
+    if self.money<cost then return nil,'not enough cash' end
+    self:spend(cost); n.paid=(n.paid or 0)+cost; n.upgrade=upgrade
+    if spec.ports then n.ports=math.max(n.ports,spec.ports) end
+    self:note('%s %d fitted with a %s for $%d',Graph.KINDS[n.kind].name,id,string.lower(spec.name),cost)
+    self:refresh(); return n
   end
-  function City:lineVoltageFor(a,b)
-    return self.lineVoltage or self:voltageAt(a) or self:voltageAt(b) or 'medium'
-  end
+
   function City:connectionPorts(id)
     local used,groups=0,{}
     for _,e in ipairs(self.g:edgesAt(id)) do
@@ -140,19 +229,20 @@ return function(City)
   end
   function City:sizeRange(a,b)
     local na,nb=self.g.nodes[a],self.g.nodes[b]
-    if na and nb and (na.kind=='transformer' or nb.kind=='transformer' or na.kind=='pylon' or nb.kind=='pylon') then return 1,#City.PIPE_SIZES end
+    if na and nb and (D.towers[na.kind] or D.towers[nb.kind]) then return 1,#City.PIPE_SIZES end
     return base.sizeRange(self,a,b)
   end
   function City:rangeBetween(a,b,rail,commodity)
     if rail then return base.rangeBetween(self,a,b,rail) end
     local na,nb=self.g.nodes[a],self.g.nodes[b]
     if commodity=='power' then
-      if na.kind=='transformer' or nb.kind=='transformer' then
-        -- Farms connect at the field boundary, not at the central map badge.
-        local farm=(City.RECIPES[na.recipe or ''] or {}).farm or (City.RECIPES[nb.recipe or ''] or {}).farm
-        return D.transformerRange+(farm and D.farmRadius or 0)
+      local voltage=a~=b and self:cableVoltage(a,b)
+      if not voltage then
+        local set=self:voltagesAt(na)
+        for i=#D.voltageOrder,1,-1 do if set[D.voltageOrder[i]] then voltage=D.voltageOrder[i]; break end end
       end
-      return D.voltages[self:lineVoltageFor(a,b)].range
+      -- Farms connect at the field boundary, not at the central map badge.
+      return D.voltages[voltage or 'low'].span+((farm(na) or farm(nb)) and D.farmRadius or 0)
     end
     if (na.kind=='binder')~=(nb.kind=='binder') then return D.binderRange end
     if na.kind=='pump' or nb.kind=='pump' then return D.pumpRange end
@@ -164,13 +254,13 @@ return function(City)
     if not na or not nb or not na.alive or not nb.alive or a==b then return 'choose two different live buildings' end
     if not self:licensed(commodity) then return 'no licence for that' end
     if na.kind=='terminal' or nb.kind=='terminal' then return 'a haven ships by bulk line only' end
+    local voltage
     if commodity=='power' then
-      if not electrical(na) or not electrical(nb) then return 'electricity needs pylons and transformers, not water fittings' end
-      local voltage=self:lineVoltageFor(a,b)
-      if not D.voltages[voltage] then return 'choose a valid voltage' end
-      local va,vb=self:voltageAt(a),self:voltageAt(b)
-      if (va and va~=voltage) or (vb and vb~=voltage) then return 'voltage mismatch: use a transformer' end
-    elseif na.kind=='transformer' or nb.kind=='transformer' or na.kind=='pylon' or nb.kind=='pylon' then return 'power equipment carries electricity only'
+      if not electrical(na) or not electrical(nb) then return 'electricity needs power towers, not water fittings' end
+      local why
+      voltage,why=self:cableVoltage(a,b)
+      if not voltage then return why end
+    elseif D.towers[na.kind] or D.towers[nb.kind] then return 'power towers carry electricity only'
     elseif (na.kind=='filtration' or nb.kind=='filtration') and commodity~='water' then return 'filtration treats water only' end
     local count=0
     for _,e in ipairs(self.g:edgesAt(a)) do
@@ -180,12 +270,14 @@ return function(City)
     for _,id in ipairs({a,b}) do
       if count==0 and self:connectionPorts(id)>=self.g.nodes[id].ports then return 'no free connections there' end
     end
-    if dist(na,nb)>self:rangeBetween(a,b,nil,commodity) then
-      return commodity=='power' and 'line too long: use higher voltage or place a pylon closer' or 'too far: use a pump; binder attachments must be short'
+    local reach=self:rangeBetween(a,b,nil,commodity)
+    if dist(na,nb)>reach then
+      return voltage and ('too long at '..D.voltages[voltage].kv..' kV: a tower every '..reach..' m') or 'too far: use a pump; binder attachments must be short'
     end
     local mult,blocker=self:crossingCost(na.x,na.y,nb.x,nb.y)
     if not mult then return 'cannot cross '..string.lower(City.OBSTACLES[blocker.kind].name) end
     if not self:sizeRange(a,b) then return 'needs a structure between them to change pipe size' end
+    if voltage then return self:boostError(a,b,voltage) end
   end
   function City:powerRating(e)
     local voltage=D.voltages[e.voltage or 'medium']
@@ -209,7 +301,7 @@ return function(City)
   function City:pipeQuote(a,b,commodity,size,rail,grade)
     local q=base.pipeQuote(self,a,b,commodity,size,rail,grade)
     if commodity=='power' and not rail then
-      q.voltage=self:lineVoltageFor(a,b)
+      q.voltage=self.quoteVoltage or self:cableVoltage(a,b) or 'low'
       local multiplier=D.voltageCost[q.voltage]
       q.tiein=math.ceil(q.tiein*multiplier); q.trench=math.ceil(q.trench*multiplier); q.bore=math.ceil(q.bore*multiplier)
       q.total=q.tiein+q.trench+q.bore
@@ -239,9 +331,10 @@ return function(City)
       local existing=self.g.edges[self:pipeBetween(a,b,commodity)]
       if existing.size~=City.asSize(size).key or existing.grade~=(grade or self.lining or 1) then return nil,'parallel mains must use identical size and lining' end
     end
+    local voltage=commodity=='power' and not rail and self:cableVoltage(a,b) or nil
     local e,err=base.layPipe(self,a,b,commodity,size,rail,grade)
     if e then
-      if commodity=='power' and not rail then e.voltage=self:lineVoltageFor(a,b) end
+      if voltage then e.voltage=voltage end
       if commodity=='water' then e.hydraulic=true; e.filtered=self:treatedWater(a) or self:treatedWater(b) end
       self:refresh()
     end
@@ -257,15 +350,15 @@ return function(City)
   end
   function City:replaceQuote(id,size,grade)
     local e=self.g.edges[id]
-    local selected=self.lineVoltage
-    if e and e.voltage then self.lineVoltage=e.voltage end
+    local held=self.quoteVoltage
+    self.quoteVoltage=e and e.voltage or nil
     local q=base.replaceQuote(self,id,size,grade)
-    self.lineVoltage=selected
+    self.quoteVoltage=held
     return q
   end
   function City:convertError(id,kind)
     local n=self.g.nodes[id]
-    if n and (n.kind=='binder' or n.kind=='transformer') then return 'demolish and rebuild specialist equipment' end
+    if n and (n.kind=='binder' or D.towers[n.kind]) then return 'demolish and rebuild specialist equipment' end
     return base.convertError(self,id,kind)
   end
   function City:refresh()
@@ -273,16 +366,24 @@ return function(City)
       n.effectiveOutput=nil
       if n.kind=='source' and (n.commodity=='water' or n.commodity=='wheat') and self:pollutionAt(n.x,n.y)>=D.pollution.stopAt then n.effectiveOutput=0 end
     end
+    local runs={}
+    for _,key in ipairs(D.voltageOrder) do runs[key]=self:boostRuns(key) end
     for _,e in ipairs(self.g.edges) do
-      e.effectiveCap=nil
+      e.effectiveCap=nil; e.unboosted=nil
       e.spillWanted=e.alive and ((e.bulk=='sea' and e.shipSpill) or (e.commodity=='oil' and not e.bulk and e.leaking and math.max(0,(e.capMax or e.cap)-e.cap))) or nil
-      if e.alive and e.commodity=='power' and e.voltage then e.effectiveCap=self:powerRating(e) end
+      if e.alive and e.commodity=='power' and e.voltage and not e.rail then
+        e.effectiveCap=self:powerRating(e)
+        local r=runs[e.voltage]
+        local near=math.min(r[e.a] or math.huge,r[e.b] or math.huge)
+        -- A booster that has been demolished leaves the cable beyond it dead.
+        if near<math.huge and near+cableLength(self,e)>D.voltages[e.voltage].boost then e.unboosted=true; e.effectiveCap=0 end
+      end
       if e.alive and e.commodity=='water' and e.hydraulic then e.effectiveCap=self:waterRating(e) end
     end
     return base.refresh(self)
   end
   function City:worksOutput(n)
-    if (City.RECIPES[n.recipe or ''] or {}).farm and self:pollutionAt(n.x,n.y)>=D.pollution.stopAt then return 0 end
+    if farm(n) and self:pollutionAt(n.x,n.y)>=D.pollution.stopAt then return 0 end
     return base.worksOutput(self,n)
   end
   function City:sourceIncome(n)
@@ -368,9 +469,29 @@ return function(City)
     end
     -- Existing infrastructure keeps its installed ports, siting and cable capacity.
     -- New construction uses engineering rules; importing never strands old clients.
-    self.infrastructureVersion=2
+    if (self.infrastructureVersion or 0)<3 then
+      -- Pylons and transformers become towers of the highest voltage they carry,
+      -- and a transformer becomes that tower's upgrade. Their cables keep working
+      -- at whatever length they were laid.
+      for _,n in ipairs(self.g.nodes) do
+        if n.kind=='pylon' or n.kind=='transformer' then
+          local top
+          for _,e in ipairs(self.g:edgesAt(n.id)) do
+            if e.voltage and (not top or RANK[e.voltage]>RANK[top]) then top=e.voltage end
+          end
+          if n.kind=='transformer' then n.upgrade='transformer' end
+          n.kind=D.voltages[top or 'medium'].tower
+          n.ports=math.max(n.ports or 0,Graph.KINDS[n.kind].ports)
+        end
+      end
+      for _,e in ipairs(self.g.edges) do
+        if e.commodity=='power' and e.voltage then e.legacySpan=true end
+      end
+      self.lineVoltage=nil
+    end
+    self.infrastructureVersion=3
   end
   function City.new(opts)
-    local c=base.new(opts); c.infrastructureVersion=2; return c
+    local c=base.new(opts); c.infrastructureVersion=3; return c
   end
 end

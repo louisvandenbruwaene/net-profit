@@ -263,7 +263,7 @@ local function action(name,...)
         layLink=(name=="layLink" and result.mode=="road") and "Road laid" or "Route opened",
         setLinkPrice="Price set",setEdgeToll="Toll set",setStationPrice="Pump price set",
         addVehicle="Vehicle added",removeVehicle="Vehicle sold",demolishLink="Line lifted",
-        upgradeResort="Resort built up"})[name] or "Network updated")
+        upgradeResort="Resort built up",upgradeTower="Tower upgraded"})[name] or "Network updated")
     end
   end
   save()

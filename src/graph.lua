@@ -162,6 +162,19 @@ Graph.KINDS.manifold.name="PIPE HUB"
 Graph.COMMODITIES.panels={name="SOLAR PANELS",order=34,mark="box",conduit="ROAD",form="solid",role="material",
   color={0.46,0.65,0.92},fill={0.22,0.36,0.62}}
 
+-- The grid each commodity is drawn with. Selecting any commodity keeps its
+-- whole grid at full strength on the map and fades every other grid.
+Graph.GRIDS = {
+  water="water", power="power", beer="beer", internet="internet",
+  oil="oil", diesel="oil", gasoline="oil",
+  food="food", wheat="food", malt="food",
+  ore="metals", coke="metals", steel="metals",
+  rock="stone", sand="stone", cement="stone", concrete="stone",
+  timber="wood", planks="wood",
+  salt="goods", glass="goods", rubber="goods", panels="goods", cars="goods",
+}
+function Graph.gridOf(commodity) return Graph.GRIDS[commodity] or commodity end
+
 -- Everything, in a stable order, for the places that really do mean everything.
 Graph.ALL = {}
 for key in pairs(Graph.COMMODITIES) do Graph.ALL[#Graph.ALL + 1] = key end
