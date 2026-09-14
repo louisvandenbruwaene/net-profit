@@ -156,6 +156,11 @@ Graph.COMMODITIES = {
 -- sidebar's trade row is these, and nothing else: a player picking a main to lay
 -- is choosing a business, not shopping through nineteen tables.
 Graph.TRADES = { "water", "power", "beer", "oil", "internet" }
+for key,spec in pairs(require("data.infrastructure").kinds) do Graph.KINDS[key]=spec end
+Graph.KINDS.junction.name="T SPLIT"
+Graph.KINDS.manifold.name="PIPE HUB"
+Graph.COMMODITIES.panels={name="SOLAR PANELS",order=34,mark="box",conduit="ROAD",form="solid",role="material",
+  color={0.46,0.65,0.92},fill={0.22,0.36,0.62}}
 
 -- Everything, in a stable order, for the places that really do mean everything.
 Graph.ALL = {}
@@ -378,6 +383,11 @@ end
 -- ground, so a manifold can host water and beer without the two ever mixing.
 function Graph:buildNetwork(uncapped, commodity)
   local n = #self.nodes
+  local spillCount=0
+  if commodity=='oil' then
+    for _,e in ipairs(self.edges) do if e.alive and (e.spillWanted or 0)>0 then spillCount=spillCount+1 end end
+  end
+  n=n+spillCount
   local net = netNew(2 * n + 2)
   local SS, TT = 2 * n + 1, 2 * n + 2
   net.adj[SS] = {}; net.adj[TT] = {}
@@ -397,7 +407,7 @@ function Graph:buildNetwork(uncapped, commodity)
       net:arc(vin, vout, node.throughput, { kind = "node", id = node.id })
       if node.kind == "source" and (not commodity or node.commodity == commodity) then
         -- A well produces a finite amount per day.
-        net:arc(SS, vin, node.output or INF)
+        net:arc(SS, vin, node.effectiveOutput or node.output or INF)
         node._feedArc = #net.arcs - 1
       elseif node.kind == "terminal" and commodity
              and (Graph.COMMODITIES[commodity] or {}).landed ~= false
@@ -449,19 +459,31 @@ function Graph:buildNetwork(uncapped, commodity)
     end
   end
 
+  local spillIndex=#self.nodes
   for _, e in ipairs(self.edges) do
+    e._spillArc=nil
     e._arcAB, e._arcBA = nil, nil
     -- A main carries one thing. A bulk line carries whatever it has wagons for,
     -- each wagon with its own capacity, which is why beer and water can share a
     -- train and never a pipe.
     local cap
-    if e.wagons then cap = commodity and e.wagons[commodity] or nil
-    elseif not commodity or e.commodity == commodity then cap = e.cap end
+    if e.wagons then
+      cap = commodity and e.wagons[commodity] or nil
+      if cap and commodity=='oil' then cap=math.max(0,cap-(e.shipSpill or 0)) end
+    elseif not commodity or e.commodity == commodity then cap = e.effectiveCap or e.cap end
     if e.alive and cap and self.nodes[e.a].alive and self.nodes[e.b].alive then
       net:arc(2 * e.a, 2 * e.b - 1, cap, { kind = "edge", id = e.id })
       e._arcAB = #net.arcs - 1
       net:arc(2 * e.b, 2 * e.a - 1, cap, { kind = "edge", id = e.id })
       e._arcBA = #net.arcs - 1
+      if commodity=='oil' and (e.spillWanted or 0)>0 then
+        spillIndex=spillIndex+1
+        local spillVertex=2*spillIndex
+        net:arc(2*e.a,spillVertex,INF)
+        net:arc(2*e.b,spillVertex,INF)
+        net:arc(spillVertex,TT,e.spillWanted)
+        e._spillArc=#net.arcs-1
+      end
     end
   end
 
@@ -492,8 +514,13 @@ function Graph:maxflow(uncapped, commodity)
 
   -- Signed flow per edge (positive means a -> b) and load per node, for the
   -- renderer: this is what makes the network visibly move.
-  local detail = { edge = {}, node = {} }
+  local detail = { edge = {}, node = {}, spill = {} }
   for _, e in ipairs(self.edges) do
+    if e._spillArc then
+      local arc=net.arcs[e._spillArc]
+      detail.spill[e.id]=arc.cap0-arc.cap
+      e._spillArc=nil
+    end
     if e._arcAB and e._arcBA then
       local ab = net.arcs[e._arcAB]
       local ba = net.arcs[e._arcBA]

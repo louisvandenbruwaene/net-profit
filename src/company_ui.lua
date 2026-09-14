@@ -11,7 +11,8 @@ local state, city, act, scroll, H, W
 
 local M   = 22           -- sidebar margin
 local CW  = 300          -- sidebar content width
-local TOP = 174          -- first content line, before scrolling
+local TOP = 140          -- first content line, before scrolling
+local tooltipId,tooltipSince,tooltipX,tooltipY
 
 local function text(s,x,y,font,color,width,align)
   lg.setFont(R.fonts[font or "body"])
@@ -33,15 +34,15 @@ end
 local function button(id,label,x,y,w,h,fn,enabled,tip,active,color,emphasis)
   enabled = enabled ~= false
   local mx,my = love.mouse.getPosition()
-  local hover = enabled and mx>=x and mx<x+w and my>=y and my<y+h
-  local inClip = not scroll or (y>=160 and y+h<=H-62)
+  local inClip = not scroll or (y>=126 and y+h<=H-62)
+  local hover = enabled and inClip and mx>=x and mx<x+w and my>=y and my<y+h
   color = color or P.flow
-  local pulse = emphasis and enabled and (0.5+0.5*math.sin(R.t*4)) or 0
-  lg.setColor(active and P.with(color,0.22) or emphasis and enabled and P.with(color,0.10+0.14*pulse)
-    or hover and P.gridMajor or P.panel)
+  local pulse = emphasis and enabled and (0.5+0.5*math.sin(R.t*2)) or 0
+  lg.setColor(active and P.with(color,0.18) or emphasis and enabled and P.with(color,0.14+0.04*pulse)
+    or hover and P.hover or enabled and P.surface or P.panel)
   lg.rectangle("fill",x,y,w,h,6)
-  lg.setColor(active and color or emphasis and enabled and P.with(color,0.55+0.45*pulse) or P.panelEdge)
-  lg.setLineWidth(emphasis and enabled and 2 or 1)
+  lg.setColor(active and P.with(color,0.8) or emphasis and enabled and P.with(color,0.7) or hover and P.textFaint or P.with(P.panelEdge,enabled and 0.8 or 0.35))
+  lg.setLineWidth(1)
   lg.rectangle("line",x,y,w,h,6)
   local font = R.fonts.body
   if font:getWidth(label)>w-14 then font=R.fonts.small end
@@ -67,7 +68,14 @@ local function row(label,value,y,color,tip)
   end
 end
 
-local function heading(s,y) text(s,M,y,"small",P.textDim) end
+local function heading(s,y)
+  text(s,M,y,"small",P.textDim)
+  local start=M+R.fonts.small:getWidth(s)+12
+  if start<M+CW-20 then
+    lg.setColor(P.with(P.panelEdge,0.65)); lg.setLineWidth(1)
+    lg.line(start,y+7,M+CW,y+7)
+  end
+end
 
 -- Working out who loses supply if a structure came out means running the flow
 -- solver twice, so the answer is kept until the network actually changes.
@@ -112,9 +120,9 @@ end
 --------------------------------------------------------------------------------
 
 local toolTips = {
-  junction="3 pipe ports. Splits a pipe into two. Costs $1/day.",
-  manifold="6 pipe ports. Carries several goods. Costs $1/day.",
-  pump="2 pipe ports. Reaches 520m. Costs $1/day.",
+  junction="3 connections. Changes pipe size. Splits a pipe into two. Costs $1/day.",
+  manifold="6 connections. Changes pipe size. Carries several goods. Costs $1/day.",
+  pump="2 pipe ports. Boosts pressure; reaches 950m. Costs $1/day.",
   tower="Reduces nearby leaks by 55%. Range: 220m. Costs $2/day.",
   gate="2 pipe ports. Sets how much supply passes through. Costs $1/day.",
   depot="Stores spare supply. Releases it when needed. Costs $3/day.",
@@ -123,10 +131,15 @@ local toolTips = {
   terminal="Imports goods for a fee. Requires a freight route. Cannot import electricity.",
   stop="People board here. Connect stops with roads and routes.",
   station="Requires petrol and a road. Sells petrol to drivers. Costs $5/day.",
+  filtration="2 connections. Connected filtration protects new water mains from calcification; existing mains need replacing.",
+  pylon="3 electrical connections at one voltage. Carries power across the map.",
+  transformer="6 electrical connections. Converts voltage without creating extra power. Connect within 90m.",
+  binder="Short attachment range. Allows two identical parallel pipes; expensive upgrades allow up to five.",
+  lab="Cleans soil and water in this district and its eight neighbours. Costs $24/day.",
   resort="Requires a coast or riverbank. Visitors pay you. Costs $40/day per level.",
 }
 
-local TOOLS = {"junction","manifold","pump","tower","gate","depot","exchange","terminal","dc","stop","station","resort"}
+local TOOLS = {"junction","manifold","pump","filtration","pylon","transformer","binder","lab","tower","gate","depot","exchange","terminal","dc","stop","station","resort"}
 
 -- Replacing a structure where it stands. The mains never come off, so this is
 -- the difference between buying three more ports and rebuilding a junction box
@@ -263,7 +276,13 @@ end
 
 local function inspectSource(n,y)
   local level,trade=n.level or 1,City.trade[n.commodity]
-  local capacity=n.output or 0
+  if n.effectiveOutput==0 then
+    text("Production stopped: water or soil polluted",M,y,"small",P.bad,CW)
+    text("Build an environment lab nearby.",M,y+22,"small",P.textDim,CW); y=y+52
+  elseif n.commodity=="power" then
+    text("Generator output: 110 kV / 100 kW per unit",M,y,"small",P.accent,CW); y=y+28
+  end
+  local capacity=n.effectiveOutput or n.output or 0
   local drawn=(city.produced or {})[n.id] or 0
   local spare=math.max(0,capacity-drawn)
   local maxed=spare<=0 and capacity>0
@@ -298,7 +317,7 @@ local function inspectSource(n,y)
   end
   row("Wholesale income","+$"..city:sourceIncome(n).." / day",y+168,P.good)
   row("Upkeep","-$"..((n.upkeep or trade.sourceUpkeep)+(level-1)*2).." / day",y+194,P.warn)
-  row("Ports",city.g:degree(n.id).." / "..n.ports,y+220)
+  row("Connections",city:connectionPorts(n.id).." / "..n.ports,y+220)
   if not n.plant and level<City.sourceMaxLevel and capacity<ceiling then
     local cost=city:sourceUpgradeCost(n)
     button("upgrade-source","Deepen well   +"..trade.upgradeStep.." output   $"..cost,
@@ -309,12 +328,12 @@ local function inspectSource(n,y)
          " plus the route to reach it.",M,y+304,"small",P.textDim,CW)
     y=y+336
   else
-    text(n.plant and ((City.PLANTS[n.plant] or {}).blurb or "")
-      or capacity>=ceiling
-      and ("Limit: "..ceiling.." per day. Build another source for more.")
-      or "Fully upgraded. Build another well for more supply.",
-      M,y+262,"body",P.textDim,CW)
-    y=y+300
+    local description=n.plant and ((City.PLANTS[n.plant] or {}).blurb or "")
+      or capacity>=ceiling and ("Limit: "..ceiling.." per day. Build another source for more.")
+      or "Fully upgraded. Build another well for more supply."
+    local _,lines=R.fonts.body:getWrap(description,CW)
+    text(description,M,y+262,"body",P.textDim,CW)
+    y=y+262+#lines*R.fonts.body:getHeight()*R.fonts.body:getLineHeight()+14
   end
   if n.seam then
     text("Rich deposit. Gives extra supply.",M,y,"small",P.energy,CW)
@@ -384,6 +403,13 @@ end
 local function inspectWorks(n,y)
   local recipe=City.RECIPES[n.recipe or ""]
   if not recipe then return y+40 end
+  if recipe.farm then
+    text((recipe.product or "Crops").." / reserves "..(City.INFRA.farmRadius*2).."m of land",M,y,"small",P.good,CW)
+    y=y+26
+    if city:pollutionAt(n.x,n.y)>=City.INFRA.pollution.stopAt then
+      text("Production stopped: soil is polluted",M,y,"small",P.bad,CW); y=y+28
+    end
+  end
   local got=(city.detail.works or {})[n.id] or {}
   row("Makes",(n.ready or 0).." of "..recipe.rate.." "..recipe.makes.." a day",y,
     Graph.COMMODITIES[recipe.makes].color,
@@ -559,6 +585,21 @@ local function inspectResort(n,y)
 end
 
 local function inspectEdge(e,y)
+  if e.voltage then
+    local capacity,amps,kv,loss=city:powerRating(e)
+    row("Voltage / rating",kv.." kV / "..amps.." A",y,P.accent)
+    row("Usable power",capacity.." x 100 kW",y+26,P.flow)
+    row("Loss at rated load",string.format("%.1f%%",loss*100),y+52,P.textDim)
+    y=y+88
+  elseif e.commodity=="water" then
+    text(e.filtered and "Filtered: reduced calcification" or "Untreated: standard calcification",M,y,"small",e.filtered and P.good or P.textDim,CW)
+    y=y+28
+    if e.hydraulic then
+      local capacity,bar=city:waterRating(e)
+      row("Design pressure",string.format("%.1f bar",bar),y,P.flow)
+      row("Usable flow",capacity.." m3/h",y+26,P.flow); y=y+56
+    end
+  end
   local broken=e.leaking or e.cap<(e.capMax or e.cap)
   local grade=city:gradeOf(e)
   if e.rail then
@@ -572,6 +613,10 @@ local function inspectEdge(e,y)
       string.format("%.5f",spec.haulPerM).." a unit a metre. This is what distance costs.")
     row("Standing upkeep",string.format("-$%.2f",city:pipeUpkeep(e)),y+104,P.warn)
     row("Leak risk","none: freight lines do not corrode",y+130,P.good)
+    if e.bulk=="sea" and (e.wagons or {}).oil then
+      row("Oil lost today",string.format("%.1f units",(city.oilSpills or {})[e.id] or 0),y+154,P.warn)
+      y=y+28
+    end
     -- The wagons. This is what a bulk line is: not a wider pipe but a train
     -- with things loaded onto it.
     text("Loaded with",M,y+162,"small",P.textDim)
@@ -620,21 +665,21 @@ local function inspectEdge(e,y)
     "Stops the leak. Restores full pipe capacity.",
     false,P.bad,broken)
   y=y+52
-  row("Condition",e.leaking and (e.cap==0 and "OUT OF SERVICE" or "LEAKING") or "Sound",y,
+  row("Condition",e.leaking and (e.cap==0 and "OUT OF SERVICE" or e.voltage and "DEGRADED" or "LEAKING") or "Sound",y,
     e.leaking and P.bad or P.good)
-  row("Flow / capacity",math.abs(city.detail.edge[e.id] or 0).." / "..e.cap,y+26)
+  row("Flow / capacity",math.abs(city.detail.edge[e.id] or 0).." / "..(e.effectiveCap or e.cap),y+26)
   local size=City.sizeOf(e.size or City.sizeFor(e.capMax or e.cap).key)
   row("What is in the ground",size.name.." "..string.lower(grade.name),y+52,
     (e.grade or 1)>1 and P.good or P.textDim,
     "Replace this pipe to change its size or leak protection.")
   row("Length",math.floor(city:pipeLength(e)).."m",y+78)
-  row("Daily leak risk",string.format("%.2f%%",city:leakChance(e)*100),y+104,
+  row(e.voltage and "Daily fault risk" or "Daily leak risk",string.format("%.2f%%",city:leakChance(e)*100),y+104,
     (e.grade or 1)>=#City.GRADES and P.good or P.textDim)
   row("Daily upkeep",string.format("-$%.2f",city:pipeUpkeep(e)),y+130,P.warn)
 
   -- Replacing it. Any size, any lining the company knows how to lay, priced as
   -- the new main less scrap on the old one.
-  text("Replace pipe",M,y+162,"small",P.textDim)
+  text(e.voltage and "Replace cable" or "Replace pipe",M,y+162,"small",P.textDim)
   local ry=y+184
   for i,spec in ipairs(City.PIPE_SIZES) do
     local target=math.min(city.lining or 1,math.max(e.grade or 1,state.grade or 1))
@@ -699,8 +744,18 @@ function UI.goodsInPlay()
       if e.commodity then add(e.commodity) end
     end
   end
+  if #city.g:nodesOfKind("terminal")>0 then add("panels") end
   table.sort(list,function(a,b) return Graph.COMMODITIES[a].order<Graph.COMMODITIES[b].order end)
   return list
+end
+
+local function selectService(name)
+  state.people=name=="people"
+  if not state.people then state.commodity=name end
+  state.transit=state.people and "road" or nil
+  state.rail=nil
+  state.tool=nil; state.drag=nil; state.recipe=nil; state.plant=nil
+  state.lineOptions=nil; state.scroll=0
 end
 
 local function buildPanel()
@@ -720,13 +775,17 @@ local function buildPanel()
     local spec=Graph.COMMODITIES[name]
     local bx=M+((i-1)%4)*76
     local by=y+math.floor((i-1)/4)*40
-    button(name,string.upper(name),bx,by,72,36,function() state.commodity=name end,
+    button(name,string.upper(name),bx,by,72,36,function() selectService(name) end,
       city.licences[name],city.licences[name] and ("Build "..name.." lines")
       or ("The next trade to take on. Buy the "..name.." licence in Company: $"..
           City.price[name.."Licence"]..", and then one building."),
-      state.commodity==name,spec.color)
+      not state.people and state.commodity==name,spec.color)
   end
-  y=y+math.ceil(#trades/4)*40+2
+  local pi=#trades
+  button("people","PEOPLE",M+(pi%4)*76,y+math.floor(pi/4)*40,72,36,
+    function() selectService("people") end,city:unlocked("roads"),
+    "Passenger roads and routes. Available once people settle here.",state.people,P.energy)
+  y=y+math.ceil((#trades+1)/4)*40+2
   -- Everything else the company moves. A commodity appears here once there is
   -- somewhere for it to come from, so the panel is four buttons on day one and
   -- fills up as the empire does.
@@ -738,17 +797,29 @@ local function buildPanel()
       local bx=M+(col%5)*61
       local by=y+math.floor(col/5)*30
       button("good-"..name,string.upper(name):sub(1,5),bx,by,57,26,
-        function() state.commodity=name end,true,
+        function() selectService(name) end,true,
         spec.name..": "..({utility="sold to customers by the day",
           feed="feedstock for a works",material="spent on building",
           fuel="sold to drivers at a filling station",vehicle="taken in at a yard and sold to the districts"})[spec.role]..
         ", carried by "..({liquid="main",solid="road or rail",energy="cable",data="fibre"})[spec.form]..".",
-        state.commodity==name,spec.color)
+        not state.people and state.commodity==name,spec.color)
       col=col+1
     end
     y=y+math.ceil(#goods/5)*30+6
   end
   y=y+4
+  if not state.people then
+  if state.commodity=="power" then
+    heading("LINE VOLTAGE",y); y=y+22
+    for i,key in ipairs({"auto","low","medium","high"}) do
+      local spec=City.INFRA.voltages[key]
+      button("voltage-"..key,spec and (spec.kv.." kV") or "Auto",M+(i-1)*76,y,72,28,
+        function() city.lineVoltage=key~="auto" and key or nil end,true,
+        spec and (spec.name..". Range "..spec.range.."m; transformer connections 90m.") or "Match the endpoints automatically. Different voltages need a transformer.",
+        (city.lineVoltage or "auto")==key,P.accent)
+    end
+    y=y+40
+  end
   -- Bore for a main, wagons for a bulk line. They are different things bought
   -- in different units, so the label says which one you are buying.
   local bulk=City.modeOf(state.rail)
@@ -764,20 +835,20 @@ local function buildPanel()
   elseif state.lineOptions then
     -- Three sizes of main and nothing in between, because that is how pipe is
     -- sold. Too small later means digging it out.
-    text("MAIN",M,y,"small",P.textDim)
+    text(state.commodity=="power" and "CABLE CURRENT RATING" or "MAIN",M,y,"small",P.textDim)
     y=y+18
     for i,spec in ipairs(City.PIPE_SIZES) do
       local bx=M+(i-1)*76
       local open=city:sizeAllowed(spec)
       if not open and state.size==spec.key then state.size="large" end
-      button("size-"..spec.key,spec.name.." "..spec.cap,bx,y,72,30,function() state.size=spec.key; E.useSize(state,spec.key) end,open,
-        open and ("Carries "..spec.cap..". Replace it if you need more capacity.")
+      button("size-"..spec.key,(state.commodity=="power" and (City.INFRA.amps[spec.key].." A") or (spec.name.." "..spec.cap)),bx,y,72,30,function() state.size=spec.key; E.useSize(state,spec.key) end,open,
+        open and (state.commodity=="power" and "Capacity depends on voltage, current rating and cable length." or ("Carries "..spec.cap..". Replace it if you need more capacity."))
           or ("Carries "..spec.cap..". "..city:unlockHint(spec.unlock).."."),
         (state.size or "small")==spec.key,Graph.COMMODITIES[state.commodity].color)
     end
     y=y+36
     -- And the lining, which is fixed on the day it is laid.
-    text("LINING",M,y,"small",P.textDim)
+    text(state.commodity=="power" and "INSULATION" or "LINING",M,y,"small",P.textDim)
     y=y+18
     local have=city.lining or 1
     for g=1,#City.GRADES do
@@ -792,14 +863,14 @@ local function buildPanel()
     y=y+38
   end
   if not bulk then
-    button("line-options",state.lineOptions and "Hide pipe options" or "Pipe options",M,y,CW,28,
+    button("line-options",state.lineOptions and "Hide line options" or (state.commodity=="power" and "Cable options" or "Pipe options"),M,y,CW,28,
       function() state.lineOptions=not state.lineOptions end,true,
       "Pipe sizes fit each building. Choose size and leak protection here.")
     y=y+38
   end
   -- How this line is built. A main, a cable or a road is decided by what is
   -- going down it; the four bulk modes are a decision the player makes.
-  local haveBulk=#city.g:nodesOfKind("terminal")+#city.g:nodesOfKind("dc")>0
+  local haveBulk=Graph.formOf(state.commodity)~="energy" and Graph.formOf(state.commodity)~="data" and (#city.g:nodesOfKind("terminal")+#city.g:nodesOfKind("dc")>0)
   local localName=({liquid="MAIN",energy="CABLE",solid="ROAD",data="FIBRE"})[Graph.formOf(state.commodity)]
   if haveBulk then
     button("mode-local",localName,M,y,60,28,function() state.rail=nil; state.transit=nil end,true,
@@ -816,10 +887,11 @@ local function buildPanel()
   else
     state.rail=nil
   end
+  end -- commodity line controls
   -- The people network, once there are people: roads first, then the three
   -- passenger routes once a road exists. A drag with one of these picked up
   -- lays it instead of a main.
-  if city:unlocked("roads") then
+  if state.people and city:unlocked("roads") then
     local modes={"road"}
     if city:unlocked("routes") then
       for _,key in ipairs(City.ROUTE_ORDER) do modes[#modes+1]=key end
@@ -830,7 +902,7 @@ local function buildPanel()
       local spec=City.ROUTES[key]
       button("transit-"..key,({road="ROAD",bus="BUS",ferry="FERRY",air="AIR"})[key],M+(i-1)*76,y,72,28,
         function()
-          state.transit=state.transit~=key and key or nil
+          state.transit=key
           if state.transit then state.rail=nil end
         end,true,
         key=="road" and ("Road: $"..City.PEOPLE.roadTiein*2 .." plus $"..string.format("%.2f",City.PEOPLE.roadPerM)..
@@ -845,6 +917,7 @@ local function buildPanel()
   -- One supply button, and it says what the selected trade actually allows:
   -- a well or a rig on a marked deposit, a reactor on any ground, and for beer
   -- nothing at all, because beer is landed rather than made.
+  if not state.people then
   if state.commodity=="beer" then
     button("source","Beer is landed at a haven",M,y,CW,36,function() end,false,
       "Import beer, or build a brewery. A brewery needs malt, water and electricity.",
@@ -855,8 +928,8 @@ local function buildPanel()
       local spec=City.PLANTS[key]
       local cost=city:plantCost(key)
       local bw=(CW-8)/2
-      button("plant-"..key,({nuclear="Reactor",wind="Wind park"})[key].."  $"..cost,
-        M+(i-1)*(bw+8),y,bw,36,
+      button("plant-"..key,({nuclear="Reactor",wind="Wind",hydro="River turbine",solar="Solar"})[key].."  $"..cost,
+        M+((i-1)%2)*(bw+8),y+math.floor((i-1)/2)*44,bw,36,
         function()
           if state.tool=="source" and state.plant==key then state.tool=nil
           else state.tool,state.plant="source",key end
@@ -864,19 +937,27 @@ local function buildPanel()
         city.money>=cost,spec.blurb.." Output "..spec.output.." a day, upkeep $"..spec.upkeep..".",
         state.tool=="source" and state.plant==key,P.good)
     end
-    y=y+8
-  else
+    y=y+8+44*(math.ceil(#City.PLANT_ORDER/2)-1)
+  elseif City.EXTRACTOR_OF[state.commodity] and state.commodity~="wheat" then
     local scost=city:sourceCost(state.commodity)
-    local title=({water="Water well",oil="Oil well",power="Build a nuclear plant"})[state.commodity]
+    local title=City.EXTRACTORS[City.EXTRACTOR_OF[state.commodity]].name
     button("source",title.."  $"..scost,M,y,CW,36,
       function() state.tool=state.tool=="source" and nil or "source" end,city.money>=scost,
       state.commodity=="power"
         and "Requires land you own. Produces electricity."
         or ("Requires a marked "..state.commodity.." deposit. The buried ones yield more and need the matching permit first."),
       state.tool=="source",P.good)
+  else
+    local recipe=City.MADE_BY[state.commodity]
+    local spec=City.RECIPES[recipe or ""]
+    button("source",spec and (spec.name.."  $"..spec.cost) or "Import through a haven",M,y,CW,36,
+      function() if spec then state.tool="works"; state.recipe=recipe end end,
+      spec~=nil and city.money>=spec.cost,
+      spec and spec.blurb or "Choose a freight mode and connect a haven to a depot yard.",false,P.good)
   end
   y=y+52
-  heading("EVERYDAY STRUCTURES",y); y=y+24
+  end -- commodity supply
+  heading(state.people and "PASSENGER BUILDINGS" or "EVERYDAY STRUCTURES",y); y=y+24
   local advanced=state.advanced==true
   -- Which tools exist yet. The first three are always there; the rest arrive
   -- when the company is the size where they are the obvious next move.
@@ -885,7 +966,30 @@ local function buildPanel()
               stop=City.BUILD_UNLOCK.stop,station=City.BUILD_UNLOCK.station,resort=City.BUILD_UNLOCK.resort}
   local shown=0
   for i,name in ipairs(TOOLS) do
-    if (i<=3 or advanced) and (not gate[name] or city:unlocked(gate[name])) then
+    local form=Graph.formOf(state.commodity)
+    local passenger=name=="stop" or name=="station" or name=="resort"
+    local shared=name=="terminal" or name=="dc"
+    local relevant
+    if state.people then
+      relevant=passenger or shared
+    elseif passenger then
+      relevant=false
+    elseif name=="pylon" or name=="transformer" then
+      relevant=state.commodity=="power"
+    elseif name=="filtration" or name=="tower" then
+      relevant=state.commodity=="water"
+    elseif name=="lab" then
+      relevant=state.commodity=="water" or state.commodity=="oil" or state.commodity=="wheat" or state.commodity=="food"
+    elseif name=="junction" or name=="manifold" or name=="pump" or name=="binder" or name=="gate" then
+      relevant=form=="liquid"
+    elseif name=="depot" or shared then
+      relevant=form=="liquid" or form=="solid"
+    else
+      relevant=true
+    end
+    if relevant and (i<=4 or name=="pylon" or name=="transformer" or state.people or advanced)
+      and (not City.BUILD_UNLOCK[name] or city:unlocked(City.BUILD_UNLOCK[name]))
+      and (not gate[name] or city:unlocked(gate[name])) then
       local col,rw=shown%3,math.floor(shown/3)
       shown=shown+1
       local bx,by=M+col*102,y+rw*58
@@ -894,15 +998,15 @@ local function buildPanel()
         afford,toolTips[name],state.tool==name,Graph.KINDS[name].color)
       lg.setColor(afford and Graph.KINDS[name].color or P.textFaint)
       Draw.structureGlyph(name,bx+17,by+24)
-      text(({junction="Junction",manifold="Manifold",pump="Pump",tower="Treat",gate="Valve",depot="Depot",exchange="Hub",terminal="Haven",dc="Yard",
+      text(({junction="T split",manifold="Pipe hub",pump="Pump",filtration="Filter",pylon="Pylon",transformer="Transf.",binder="Binder",lab="Env. lab",tower="Treat",gate="Valve",depot="Depot",exchange="Hub",terminal="Haven",dc="Yard",
              stop="Stop",station="Station",resort="Resort"})[name],
         bx+32,by+8,"tiny",P.text)
       text("$"..City.price[name],bx+32,by+28,"small",P.textDim)
     end
   end
-  y=y+(advanced and (math.ceil(math.max(shown,1)/3)*58+2) or 58)+8
+  y=y+math.ceil(math.max(shown,1)/3)*58+10
   -- What is not here yet, and what brings it.
-  if advanced then
+  if advanced and not state.people then
     for _,key in ipairs({"hub","haven","yard"}) do
       local hint=city:unlockHint(key)
       if hint then
@@ -914,13 +1018,13 @@ local function buildPanel()
   end
   -- The works. Nine buildings that turn one thing into another, listed with
   -- what they eat, because that is the only thing worth knowing about them.
-  if advanced and city:unlocked("works") then
+  if not state.people and advanced and city:unlocked("works") then
     heading("WORKS",y); y=y+24
     -- A works behind an unlock is not listed at all until it opens.
     local open={}
     for _,key in ipairs(City.RECIPE_ORDER) do
       local unlock=City.RECIPES[key].unlock
-      if not unlock or city:unlocked(unlock) then open[#open+1]=key end
+      if key~="turbine" and City.RECIPES[key].makes==state.commodity and (not unlock or city:unlocked(unlock)) then open[#open+1]=key end
     end
     for _,key in ipairs(open) do
       local r=City.RECIPES[key]
@@ -958,9 +1062,12 @@ local function buildPanel()
     end
     y=y+56
   end
+  if not state.people then
   button("advanced",advanced and "Fewer buildings" or "More buildings",
     M,y,CW,32,function() state.advanced=not advanced end,true,"Show or hide specialist structures")
   y=y+48
+  end
+  if state.people then UI.contentBottom=y+state.scroll; return end
   line(y); y=y+20
   heading("SUPPLY & MAINTENANCE",y); y=y+28
   for _,name in ipairs(Graph.TRADES) do
@@ -975,7 +1082,7 @@ local function buildPanel()
   end
   local bill,count=city:repairAllCost()
   if count>0 then
-    button("repair-all","Repair "..count.." mains  $"..bill,M,y,CW,36,function() act("repairAll") end,
+    button("repair-all","Repair "..count..(count==1 and " main  $" or " mains  $")..bill,M,y,CW,36,function() act("repairAll") end,
       city.money>=bill,"Repair every damaged main",false,P.bad,true)
     y=y+44
   else text("All mains sound",M,y,"body",P.good); y=y+28 end
@@ -1000,7 +1107,24 @@ local function inspectorPanel(n,e)
     if n.commodity then drop(n.commodity,M+9,y+10,10); single(title,M+24,y,"mid",P.text,CW-24)
     else single(title,M,y,"mid",P.text,CW) end
     y=y+36
-    if n.kind=="client" then inspectClient(n,y); tail=y+400
+    if City.INFRA.kinds[n.kind] then
+      row("Connections",city:connectionPorts(n.id).." / "..n.ports,y)
+      text(toolTips[n.kind],M,y+30,"small",P.textDim,CW)
+      tail=y+118
+      if n.kind=="binder" then
+        row("Parallel lanes",n.bundleLanes or 2,tail); tail=tail+30
+        local lanes=n.bundleLanes or 2
+        local price=City.INFRA.binderPrices[lanes-1]
+        button("upgrade-binder",price and ("Upgrade to "..(lanes+1).." lanes  $"..price) or "Maximum lanes",M,tail,CW,36,
+          function() act("upgradeBinder",n.id) end,price~=nil and city.money>=price,
+          price and ("Needs "..City.INFRA.binderClients[lanes-1].." clients.") or "Fully upgraded")
+        tail=tail+48
+      elseif n.kind=="lab" then
+        row("Local pollution",string.format("%.1f / 100",city:pollutionAt(n.x,n.y)),tail,P.warn)
+        tail=tail+32
+      end
+      tail=demolishBlock(n,tail)
+    elseif n.kind=="client" then inspectClient(n,y); tail=y+400
     elseif n.kind=="source" then tail=inspectSource(n,y)
     elseif n.kind=="gate" then tail=inspectGate(n,y)
     elseif n.kind=="depot" then tail=inspectDepot(n,y)
@@ -1286,21 +1410,22 @@ local function customers()
       local premium=city:ratePremium(c)
       local status=prospect and "Offer" or met and "Supplied"
         or (c.supplyClosed and "Valve shut / " or "")..c.grace.." days left"
-      button("client-"..c.id,"",M,y,CW,34,function() act("focusNode",c.id) end,true,
+      button("client-"..c.id,"",M,y,CW,80,function() act("focusNode",c.id) end,true,
         "Locate and inspect this customer",state.node==c.id,Graph.COMMODITIES[c.commodity].color)
       drop(c.commodity,M+16,y+17,8)
-      single(E.clientName(city,c),M+30,y+9,"small",P.text,150)
+      single(E.clientName(city,c),M+30,y+9,"body",P.text,150)
       lg.setFont(R.fonts.body); lg.setColor(P.energy)
       lg.printf("$"..c.rate*c.demand.."/day",M+CW-110,y+9,100,"right")
       -- A badge the player can read at a glance once the spread opens up.
       local tag = premium>0.12 and string.format("PREMIUM %+.0f%%",premium*100)
         or premium<-0.12 and string.format("LOWBALL %+.0f%%",premium*100)
         or string.format("$%d/unit",c.rate)
-      single(c.demand.." "..c.commodity.." / "..status,M+8,y+40,"small",
+      if prospect then status="Expires in "..math.max(0,c.expires-city.day+1).." days" end
+      single(c.demand.." "..c.commodity.." / "..status,M+12,y+35,"small",
         prospect and P.energy or met and P.good or P.warn,CW-16)
       lg.setFont(R.fonts.small)
       lg.setColor(premium>0.12 and P.good or premium<-0.12 and P.bad or P.textDim)
-      lg.printf(tag,M+8,y+60,CW-16,"left")
+      lg.printf(tag,M+12,y+57,CW-24,"left")
       y=y+92
     end
     y=y+18
@@ -1317,6 +1442,8 @@ local function mapTab()
     if d then
       single(d.name,M,y,"mid",P.energy,CW)
       y=y+36
+      row("Pollution",string.format("%.1f / 100",d.pollution or 0),y,(d.pollution or 0)>=City.INFRA.pollution.stopAt and P.bad or P.good)
+      y=y+30
       if (d.population or 0)>0 then
         row("People",d.population,y,P.text,
           "Good supply brings more people. Poor supply makes people leave.")
@@ -1410,6 +1537,9 @@ local function slotsPanel(x,y,w,h)
         end,true,nil,false,P.bad)
       button("slot-no-"..i,"Cancel",x+w-116,ry+16,80,32,
         function() state.slotConfirm=nil end,true)
+    elseif info.error then
+      text("Company could not be loaded",x+72,ry+14,"body",P.bad)
+      text("Save kept intact. Choose another slot or restore a backup.",x+72,ry+36,"small",P.textDim,w-110)
     elseif info.empty then
       text("Empty",x+72,ry+14,"body",P.textFaint)
       text("Start a new company here",x+72,ry+36,"small",P.textFaint)
@@ -1469,8 +1599,8 @@ local function report()
   text(city.bankrupt and "Company insolvent" or "Day "..r.day.." complete",x+32,y+24,"big")
   text("OPERATING PROFIT",x+32,y+74,"small",P.textDim)
   single(string.format("$%+d",profit),x+32,y+96,"big",profit>=0 and P.good or P.bad,246)
-  text("CASH AVAILABLE",x+310,y+74,"small",P.textDim)
-  single("$"..city.money,x+310,y+96,"big",P.energy,w-342)
+  text("CLOSING CASH",x+310,y+74,"small",P.textDim)
+  single("$"..(r.money or city.money),x+310,y+96,"big",P.energy,w-342)
   text(string.format("%d supply shortfalls  /  %d customers lost",r.unhappy,#r.left),
     x+32,y+144,"body",r.unhappy>0 and P.warn or P.good)
   local reward=r.bonus or 0
@@ -1526,7 +1656,7 @@ local function report()
     button("new-company","Companies",x+32,y+h-66,w-64,38,function() act("openSlots") end,
       true,"Start again here, or open one of your other companies")
   else
-    button("continue","Open day "..city.day,x+32,y+h-66,w-64,38,function() state.modal=nil end,true,"Return to the network")
+    button("continue","Back to stats",x+32,y+h-66,w-64,38,function() state.modal=nil; state.tab="stats"; state.scroll=0 end,true,"Close these results",true,P.good)
   end
 end
 
@@ -1574,16 +1704,28 @@ end
 
 local function stats()
   local y=TOP-state.scroll
+  local previous=city.lastReport
+  if previous then
+    heading("DAY "..previous.day.." RESULTS",y); y=y+28
+    local profit=previous.revenue-previous.expenses-(previous.crewCost or 0)
+    row("Operating profit",string.format("$%+d",profit),y,profit>=0 and P.good or P.bad); y=y+28
+    row("Supply shortfalls",previous.unhappy or 0,y,(previous.unhappy or 0)>0 and P.warn or P.good); y=y+28
+    row("Customers lost",#(previous.left or {}),y); y=y+32
+    button("previous-results","Full day results",M,y,CW,30,function()
+      state.modal="report"; state.reportDetails=false
+    end,true,"Revenue, costs, grants and events from the previous day")
+    y=y+46
+  end
+  button("tab-ambitions","Goals",M,y,CW,36,function() state.tab="ambitions"; state.scroll=0 end,true,"Choose a goal. Earn a cash reward.")
+  y=y+46
+  button("tab-ledger","History",M,y,CW,32,function() state.tab="ledger"; state.scroll=0 end,true,"Past events and payments.")
+  y=y+48
   heading("STATS",y); y=y+30
   for _,v in ipairs({{"Day",city.day},{"Clients",#city:clientList()},{"Open requests",#city:clientList(true)},
     {"Company value","$"..city:valuation()},{"Reputation",city.reputation.."%"},
     {"Requests per day","Up to "..city:requestLimit()},{"Land owned",#city:ownedDistricts()},
     {"Debt","$"..(city.loan or 0)}}) do row(v[1],v[2],y); y=y+30 end
   y=y+16
-  button("tab-ambitions","Goals",M,y,CW,36,function() state.tab="ambitions"; state.scroll=0 end,true,"Choose a goal. Earn a cash reward.")
-  y=y+46
-  button("tab-ledger","History",M,y,CW,32,function() state.tab="ledger"; state.scroll=0 end,true,"Past events and payments.")
-  y=y+48
   text("Decline a request: -1 reputation.\nLet it expire: -2 reputation.\nBetter reputation brings more requests.",M,y,"small",P.textDim,CW)
   y=y+80
   heading("RECENT PROFIT",y); y=y+28
@@ -1626,27 +1768,33 @@ function UI.draw(c,s,action)
   W,H=R.dimensions()
   UI.buttons={}; scroll=false
   lg.setColor(P.panel); lg.rectangle("fill",0,0,UI.width,H)
-  lg.rectangle("fill",UI.width,0,W-UI.width,80)
-  lg.setColor(P.panelEdge); lg.line(UI.width,0,UI.width,H); lg.line(0,80,W,80)
-  lg.setColor(P.flow); lg.rectangle("fill",0,0,4,80)
-  text("NET PROFIT",M,17,"big")
-  single(E.companyName(city),M+1,55,"small",P.textDim,CW)
+  lg.rectangle("fill",UI.width,0,W-UI.width,46)
+  lg.setColor(P.panelEdge); lg.setLineWidth(1); lg.line(UI.width,0,UI.width,H); lg.line(0,46,W,46)
+  lg.setColor(P.good); lg.rectangle("fill",M,21,3,25,1)
+  text("NET PROFIT",M+13,18,"mid")
 
   local net=city:dailyRevenue()-city:dailyExpenses()
-  local metrics={{"CASH","$"..city.money,P.energy},
-    {"PROFIT / DAY",string.format("$%+d",net),net>=0 and P.good or P.bad}}
+  local clients=city:clientList()
+  local supplied=0
+  for _,client in ipairs(clients) do
+    if (city.served[client.id] or 0)>=client.demand then supplied=supplied+1 end
+  end
+  local metrics={{"AVAILABLE CASH","$"..city.money,P.energy},
+    {"EST. PROFIT / DAY",string.format("$%+d",net),net>=0 and P.good or P.bad},
+    {"CUSTOMERS SUPPLIED",#clients==0 and "No contracts" or supplied.." / "..#clients,
+      #clients==0 and P.textDim or supplied==#clients and P.good or P.warn}}
   local width=(W-UI.width-34)/#metrics
   for i,m in ipairs(metrics) do
     local x=UI.width+22+(i-1)*width
-    local font=R.fonts.big:getWidth(tostring(m[2]))>width-14 and "mid" or "big"
-    lg.setColor(P.with(m[3],0.055)); lg.rectangle("fill",x-8,9,width-10,62,6)
-    text(m[1],x,15,"tiny",P.textDim); single(m[2],x,35,font,m[3],width-16)
+    local font=(i==3 and #clients==0) and "mid" or R.fonts.big:getWidth(tostring(m[2]))>width-14 and "mid" or "big"
+    text(m[1],x,16,"tiny",P.textDim); single(m[2],x,34,font,m[3],width-16)
+    if i>1 then lg.setColor(P.panelEdge); lg.line(x-14,8,x-14,38) end
   end
 
   local tabX=8
   for i,t in ipairs(TABS) do
     local tabWidth=({74,90,74,70})[i]
-    button("tab-"..t[1],t[2],tabX,103,tabWidth,34,function()
+    button("tab-"..t[1],t[2],tabX,69,tabWidth,34,function()
       state.rename=nil
       state.tab=t[1]; state.scroll=0
       -- The Map tab is a map: opening it pulls the camera back to show the
@@ -1655,8 +1803,9 @@ function UI.draw(c,s,action)
     end,true,nil,state.tab==t[1] or (t[1]=="stats" and (state.tab=="ambitions" or state.tab=="ledger")))
     tabX=tabX+tabWidth+4
   end
+  lg.setColor(P.with(P.panelEdge,0.65)); lg.line(M,117,M+CW,117)
 
-  lg.setScissor(0,160,UI.width-1,H-222); scroll=true
+  lg.setScissor(0,126,UI.width-1,H-188); scroll=true
   if state.tab=="network" then network()
   elseif state.tab=="finance" then company()
   elseif state.tab=="customers" then customers()
@@ -1668,9 +1817,11 @@ function UI.draw(c,s,action)
   UI.maxScroll=math.max(0,(UI.contentBottom or H)-(H-65))
   state.scroll=math.min(state.scroll,UI.maxScroll)
   if UI.maxScroll>0 then
-    lg.setColor(P.panelEdge); lg.rectangle("fill",UI.width-9,165,3,H-236)
-    lg.setColor(P.textDim)
-    lg.rectangle("fill",UI.width-9,165+(H-266)*math.min(1,state.scroll/UI.maxScroll),3,30)
+    local track=H-202
+    local thumb=math.max(30,track*track/(track+UI.maxScroll))
+    lg.setColor(P.panelEdge); lg.rectangle("fill",UI.width-9,131,3,track,1)
+    lg.setColor(P.textFaint)
+    lg.rectangle("fill",UI.width-9,131+(track-thumb)*math.min(1,state.scroll/UI.maxScroll),3,thumb,1)
   end
 
   -- The first day, one step at a time. Everything the player will go on doing
@@ -1694,7 +1845,7 @@ function UI.draw(c,s,action)
   -- One short panel the first time something new is worth explaining, and never
   -- again. It sits where the opening guide sits, and only when the player is
   -- not in the middle of something.
-  local lesson=not state.modal and city:pendingLesson()
+  local lesson=not state.modal and not (step and state.tab=="network") and city:pendingLesson()
   if lesson and (city.day>2 or city.guideDismissed) then
     local gx,gw=UI.width+20,math.min(620,W-UI.width-40)
     local font=R.fonts.body
@@ -1720,7 +1871,7 @@ function UI.draw(c,s,action)
   local message=state.toast or (state.tool and (string.upper(state.tool).." selected: click the map to place, right-click or Esc to put it down")
     or (state.node or state.edge) and "Click it again, right-click or press Esc to deselect" or "Drag to connect  /  Right-drag to pan  /  Scroll to zoom")
   single(message,UI.width+20,H-34,"small",state.toastBad and P.bad or P.textDim,math.max(100,W-UI.width-250))
-  button("end-day","End day",W-193,H-46,173,36,function() act("endDay") end,
+  button("end-day","End day "..city.day.."   >",W-193,H-46,173,36,function() act("endDay") end,
     not city.bankrupt,"Settle revenue, expenses, investments and pipe wear (Enter)",true,P.good)
 
   -- The opening guide does not only say what to press: it points at it. A
@@ -1730,15 +1881,15 @@ function UI.draw(c,s,action)
   if target and target.button then
     for _,b in ipairs(UI.buttons) do
       if b.id==target.button then
-        local pulse=0.5+0.5*math.sin(R.t*5)
-        local bob=6*math.sin(R.t*6)
-        lg.setColor(P.with(P.good,0.55+0.45*pulse)); lg.setLineWidth(3)
+        local pulse=0.5+0.5*math.sin(R.t*2)
+        local bob=3*math.sin(R.t*2)
+        lg.setColor(P.with(P.good,0.45+0.25*pulse)); lg.setLineWidth(2)
         lg.rectangle("line",b.x-4,b.y-4,b.w+8,b.h+8,6)
         if b.x>W/2 or b.y>H-70 then
           local ax,ay=b.x+b.w/2,b.y-14+bob
           lg.polygon("fill",ax,ay,ax-11,ay-16,ax+11,ay-16)
           lg.rectangle("fill",ax-4,ay-34,8,19)
-        else
+        elseif not b.id:match("^tab%-") then
           local ax,ay=b.x+b.w+14+bob,b.y+b.h/2
           lg.polygon("fill",ax,ay,ax+16,ay-11,ax+16,ay+11)
           lg.rectangle("fill",ax+15,ay-4,19,8)
@@ -1751,19 +1902,32 @@ function UI.draw(c,s,action)
   if state.modal then UI.buttons={}; report() end
 
   local mx,my=love.mouse.getPosition()
+  local hovered
   for _,b in ipairs(UI.buttons) do
     if b.tip and mx>=b.x and mx<=b.x+b.w and my>=b.y and my<=b.y+b.h then
+      hovered=b.id..":"..b.tip
+      if tooltipId~=hovered or math.abs(mx-(tooltipX or mx))>4 or math.abs(my-(tooltipY or my))>4 then
+        tooltipId,tooltipSince,tooltipX,tooltipY=hovered,R.t,mx,my
+      end
+      if R.t-(tooltipSince or R.t)<0.45 then break end
       local tw=math.min(340,W-24)
       local _,lines=R.fonts.small:getWrap(b.tip,tw-20)
-      local th=#lines*R.fonts.small:getHeight()+20
-      local tx=math.min(W-tw-12,math.max(12,mx+12))
-      local ty=math.max(10,math.min(H-th-12,my-th-12))
+      local th=#lines*R.fonts.small:getHeight()*R.fonts.small:getLineHeight()+20
+      local tx,ty
+      if b.x+b.w+12+tw<=W-12 then
+        tx=b.x+b.w+12; ty=math.max(10,math.min(H-th-12,b.y))
+      elseif b.y-th-12>=10 then
+        tx=math.max(12,math.min(W-tw-12,b.x)); ty=b.y-th-12
+      else
+        tx=math.max(12,math.min(W-tw-12,b.x)); ty=math.min(H-th-12,b.y+b.h+12)
+      end
       lg.setColor(P.bg); lg.rectangle("fill",tx,ty,tw,th,4)
       lg.setColor(P.panelEdge); lg.rectangle("line",tx,ty,tw,th,4)
       text(b.tip,tx+10,ty+10,"small",P.text,tw-20)
       break
     end
   end
+  if not hovered then tooltipId=nil end
 end
 
 -- Scroll straight to the inspector. Called whenever a selection is made, so a

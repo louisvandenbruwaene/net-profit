@@ -27,7 +27,8 @@ function Save.pack(city)
     if k ~= "g" and k ~= "firstSource" and k ~= "served" and k ~= "detail"
        and k ~= "flowBy" and k ~= "produced" and k ~= "producedBy" and k ~= "spare"
        and k ~= "wellSpare" and k ~= "capacityBy" and k ~= "unserved"
-       and k ~= "adoptedFrom" and k ~= "cellIndex" and k ~= "cellRng" and k ~= "transit" then
+       and k ~= "adoptedFrom" and k ~= "cellIndex" and k ~= "cellRng" and k ~= "transit"
+       and k ~= "edgeFlowBy" and k ~= "oilSpills" then
       data[k] = v
     end
   end
@@ -266,7 +267,8 @@ end
 -- Enough of a company to choose between six of them, without the caller having
 -- to know that reading a summary means loading the whole thing.
 function Save.summarize(slot)
-  local city = Save.readSlot(slot)
+  local city, err = Save.readSlot(slot)
+  if err then return { slot = slot, empty = false, error = err } end
   if not city then return { slot = slot, empty = true } end
   local clients = 0
   for _, n in ipairs(city.g.nodes) do
@@ -292,7 +294,8 @@ end
 
 function Save.firstEmptySlot()
   for slot = 1, Save.SLOTS do
-    if not Save.readSlot(slot) then return slot end
+    local city, err = Save.readSlot(slot)
+    if not city and not err then return slot end
   end
   return nil
 end

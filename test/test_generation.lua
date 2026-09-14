@@ -148,9 +148,8 @@ do
       :find("yards hold") ~= nil)
   c.stock.steel, c.stock.concrete = 200, 200
 
-  check("a wind park cannot stand on the mainland",
-    select(2, c:buySource("power", coast.x + 400, coast.y + 300, "wind")),
-    "a wind park stands on an island")
+  ok("a wind park can stand on owned mainland",
+    c:buySource("power", coast.x + 400, coast.y + 300, "wind") ~= nil)
   local park = c:buySource("power", island.x + island.w / 2, island.y + island.h / 2, "wind")
   ok("but it can stand out here", park ~= nil and park.plant == "wind")
   check("and it burns nothing at all", c:fuelBill(), 0)
@@ -246,6 +245,54 @@ do
   local old = assert(Save.unpack(Save.pack(c)))
   ok("a straight river from an older save is re-laid with bends",
     old.river.meander ~= nil and old:riverPath() ~= nil)
+end
+
+print("distant terrain varies in size and leaves room for detours")
+do
+  local c=City.new({seed=4242})
+  local rng=c.rng
+  for col=6,18 do
+    for row=2,10 do c:dressCell(c:surveyCell(col,row)) end
+  end
+  local giants,kinds,small,large=0,{},0,0
+  local bounded,dry,opening=true,true,true
+  local giant
+  for _,o in ipairs(c.obstacles) do
+    local d=c:districtAt(o.x,o.y)
+    bounded=bounded and o.x-o.r>=d.x+29.99 and o.x+o.r<=d.x+d.w-29.99
+      and o.y-o.r>=d.y+29.99 and o.y+o.r<=d.y+d.h-29.99
+    local edge=c:riverEdge(o.x,o.y)
+    dry=dry and (not edge or edge>=o.r+30)
+    local distance=math.max(math.abs(d.col-2),math.abs(d.row-2))
+    if distance<2 then opening=opening and o.r<=140 and not o.massive end
+    if o.r<70 then small=small+1 end
+    if o.r>200 then large=large+1 end
+    if o.massive then
+      giants=giants+1; kinds[o.kind]=true; giant=o
+      local area=math.pi*o.r*o.r/(d.w*d.h)
+      ok("massive feature occupies roughly half a region",area>=0.40 and area<=0.47 and distance>=3)
+    end
+  end
+  ok("both massive parks and mountains occur",giants>4 and kinds.park and kinds.bedrock)
+  ok("small and large ordinary terrain also occurs",small>5 and large>5)
+  ok("opening and immediate neighbours retain manageable sizes",opening)
+  ok("all terrain leaves a clear strip inside its region",bounded)
+  ok("large terrain stays out of the river",dry)
+  check("surveying terrain leaves the simulation random stream untouched",c.rng,rng)
+  if giant then
+    local permitted=c.permits[giant.kind]
+    c.permits[giant.kind]=false
+    local cost,blocked=c:crossingCost(giant.x-giant.r-1,giant.y,giant.x+giant.r+1,giant.y)
+    ok("a direct route through massive terrain is blocked",cost==nil and blocked==giant)
+    c.permits[giant.kind]=true
+    ok("the matching permit unlocks the crossing",c:groundCross(giant.kind,giant)~=nil)
+    c.permits[giant.kind]=permitted
+    local Save=require("company_save")
+    local restored=assert(Save.unpack(Save.pack(c)))
+    local loaded=restored:obstacleAt(giant.x,giant.y)
+    ok("massive size and crossing rules survive a save",loaded and loaded.massive and math.abs(loaded.r-giant.r)<1e-8
+      and restored:groundCross(loaded.kind,loaded)==nil)
+  end
 end
 
 print(string.format("\n%d passed, %d failed", pass, fail))
