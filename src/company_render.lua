@@ -1242,7 +1242,7 @@ function Draw.world(city, cam, state)
         end
       end
     end
-  elseif state.tool and mx>cam.vx and my>50 and my<height-58 then
+  elseif state.tool and mx>cam.vx and my>84 and my<height-58 then
     local wx,wy = cam:toWorld(mx,my)
     local err, cost, seam
     if state.tool=="source" then
