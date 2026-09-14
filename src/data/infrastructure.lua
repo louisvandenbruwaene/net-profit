@@ -7,12 +7,18 @@ return {
     pylon={name="POWER PYLON",ports=3,throughput=9999,cost=65,color={0.80,0.65,0.96}},
     lab={name="ENVIRONMENT LAB",ports=2,throughput=999,cost=2200,color={0.54,0.85,0.53}},
   },
+  -- Range grows with voltage the way it does on a real grid: the same power at
+  -- ten times the voltage needs a tenth of the current, so the resistive loss
+  -- that limits a run falls a hundredfold. A street cable stops at a few
+  -- hundred metres, a distribution feeder crosses a district, a transmission
+  -- line crosses the map.
   voltages={
     low={name="Low voltage",kv=0.4,range=140},
-    medium={name="Distribution",kv=11,range=800},
-    high={name="Transmission",kv=110,range=2600},
+    medium={name="Distribution",kv=11,range=1600},
+    high={name="Transmission",kv=110,range=8000},
   },
   voltageOrder={"low","medium","high"},
+  voltageCost={low=1,medium=1.3,high=2}, -- multiplier on tie-ins, trench and bore
   -- Three-phase AC, unity power factor. One simulation unit is 100 kW.
   amps={small=500,medium=1250,large=2500,massive=5000},
   resistance={small=0.12,medium=0.06,large=0.03,massive=0.015}, -- ohm/km

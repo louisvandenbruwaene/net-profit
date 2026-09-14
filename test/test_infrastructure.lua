@@ -99,6 +99,21 @@ do
   local saved=assert(Save.unpack(Save.pack(c)))
   check(saved.g.edges[high.id].voltage=='high' and saved.served[customer.id]==5,'voltage and delivery persist')
 end
+-- Higher voltage carries a line further, as on a real grid.
+do
+  local c=city()
+  local V=City.INFRA.voltages
+  check(V.low.range<V.medium.range and V.medium.range<V.high.range,'each step up in voltage reaches further')
+  local a=node(c,'pylon',1250,1050); a.ports=3
+  local b=node(c,'pylon',1250+5000,1050); b.ports=3
+  c.lineVoltage='medium'
+  check(c:pipeError(a.id,b.id,'power'):find('too long'),'a 5 km run is beyond an 11 kV feeder')
+  c.lineVoltage='high'
+  check(c:pipeError(a.id,b.id,'power')==nil,'a 5 km run is within reach of 110 kV transmission')
+  local line=assert(c:layPipe(a.id,b.id,'power','large'))
+  local _,_,_,loss=c:powerRating(line)
+  check(loss<0.05,'a long transmission line loses only a few percent')
+end
 -- Pollution is deterministic and only actual oil supply can leak.
 do
   local c=city()
