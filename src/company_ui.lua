@@ -6,6 +6,7 @@ local Draw = require("company_render")
 local Save = require("company_save")
 local E = require("experience")
 local S=require("symbols")
+local SF=require("symbol_font")
 local UI = {width=344, buttons={}}
 local lg = love.graphics
 local state, city, act, scroll, H, W
@@ -24,7 +25,7 @@ end
 local function single(s,x,y,font,color,width)
   s=tostring(s)
   local f=R.fonts[font or "body"]
-  local scale=math.min(1,width/math.max(1,f:getWidth(s)))
+  local scale=math.min(1,width/math.max(1,SF.width(s,f)))
   lg.setFont(f); lg.setColor(color or P.text)
   lg.print(s,x,y,0,scale,scale)
 end
@@ -46,11 +47,12 @@ local function button(id,label,x,y,w,h,fn,enabled,tip,active,color,emphasis)
   lg.setLineWidth(1)
   lg.rectangle("line",x,y,w,h,6)
   local font = R.fonts.body
-  if font:getWidth(label)>w-14 then font=R.fonts.small end
-  if font:getWidth(label)>w-6 then font=R.fonts.tiny end
+  if SF.width(label,font)>w-14 then font=R.fonts.small end
+  if SF.width(label,font)>w-6 then font=R.fonts.tiny end
   lg.setFont(font); lg.setColor(enabled and ((active or emphasis) and color or P.text) or P.textFaint)
-  local scale=math.min(1,(w-10)/math.max(1,font:getWidth(label)))
-  lg.print(label,x+(w-font:getWidth(label)*scale)/2,y+(h-font:getHeight()*scale)/2,0,scale,scale)
+  local labelWidth=SF.width(label,font)
+  local scale=math.min(1,(w-10)/math.max(1,labelWidth))
+  lg.print(label,x+(w-labelWidth*scale)/2,y+(h-font:getHeight()*scale)/2,0,scale,scale)
   if inClip then UI.buttons[#UI.buttons+1]={id=id,x=x,y=y,w=w,h=h,fn=fn,enabled=enabled,tip=tip} end
 end
 
@@ -79,7 +81,7 @@ end
 
 local function heading(s,y)
   text(s,M,y,"small",P.textDim)
-  local start=M+R.fonts.small:getWidth(s)+12
+  local start=M+SF.width(s,R.fonts.small)+12
   if start<M+CW-20 then
     lg.setColor(P.with(P.panelEdge,0.65)); lg.setLineWidth(1)
     lg.line(start,y+7,M+CW,y+7)
@@ -1880,7 +1882,7 @@ function UI.headerFont(value,room,controls)
   local headroom=controls and (UI.HEAD_ROW-UI.HEAD_VALUE) or math.huge
   for _,key in ipairs({"big","mid","small"}) do
     local f=R.fonts[key]
-    if f:getWidth(tostring(value))<=room and f:getHeight()<=headroom then return key end
+    if SF.width(value,f)<=room and f:getHeight()<=headroom then return key end
   end
   return "small"
 end

@@ -31,18 +31,19 @@ function R.init()
   end
   R.fonts = {}
   for key, size in pairs(R.SIZES) do R.fonts[key] = loadFont(size) end
-  -- The symbols are drawn, not typed, so the fonts are rebuilt around them.
-  -- loadFont goes along because that rebuild needs the same typeface at the
-  -- screen's own pixel density, not just at the size the layout asks for.
-  require("symbol_font").install(R.fonts, R.SIZES, loadFont)
+  -- A font is rasterised for the density of the screen it was made on, so the
+  -- density it was made at is worth remembering.
+  R.density = lg.getDPIScale and lg.getDPIScale() or 1
+  -- Teaches love.graphics.print to draw the commodity symbols that travel
+  -- inside ordinary strings. The letters stay this typeface.
+  require("symbol_font").install()
 end
 
 -- Dragging the window onto a screen of a different density leaves the letters
--- cut for the old one, so they are cut again. Nothing else is touched, and on
--- one screen this never fires.
+-- rasterised for the old one, so they are made again. On one screen this never
+-- fires.
 function R.retune()
-  local SF = require("symbol_font")
-  if SF.density ~= SF.wanted() then R.init() end
+  if math.abs((lg.getDPIScale and lg.getDPIScale() or 1)-(R.density or 1))>0.01 then R.init() end
 end
 
 --------------------------------------------------------------------------------
