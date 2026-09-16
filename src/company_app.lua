@@ -393,7 +393,7 @@ function love.update(dt)
     state.autoRemaining=state.autoRemaining-dt
     state.autoTick=(state.autoTick or 0)+dt
     if state.autoRemaining<=0 then state.autoRemaining=nil; save(); toast("Autoplay finished")
-    elseif state.autoTick>=.6 then
+    elseif state.autoTick>=.3 then
       state.autoTick=0
       local nextCity,message,stop=require("autoplay").step(city)
       city=nextCity; state.undo={}; toast(message); save()
