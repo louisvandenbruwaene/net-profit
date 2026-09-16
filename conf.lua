@@ -19,6 +19,12 @@ function love.conf(t)
   t.window.minwidth = 1100
   t.window.minheight = 700
   t.window.resizable = true
+  -- Without this the window is drawn at one device pixel per point and the
+  -- display stretches it, which on a Retina screen is what makes text look
+  -- soft. With it, love.graphics keeps reporting 1440x880 and every coordinate
+  -- in the game means what it always meant, while the buffer behind it holds
+  -- 2880x1760 real pixels.
+  t.window.highdpi = true
   t.window.msaa = 4
   t.window.vsync = 1
   t.modules.physics = false

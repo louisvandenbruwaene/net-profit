@@ -110,6 +110,8 @@ Players may buy nonadjacent regions. Islands still require a harbor. Estates sta
 
 The top bar now has five windows: cash, estimated daily profit, supplied customers, client request, and fix all pipes. The request window shows one request, ranked by percentage above its base selling price. Accepting or rejecting it immediately exposes the next. Its info button opens the inspector. Fix All repairs the damaged lines for the displayed total.
 
+A window that carries controls prints its figure at a size that clears the control row, so the damaged count and its price stay legible above the Repair button instead of running through it. Headings and figures are both measured against the width of their window, which matters at the 1100-point minimum.
+
 Buying the power license gives existing water houses an electricity request without silently changing an already signed water contract. Accepting adds electricity demand and its own agreed rate. Declining leaves water service intact. Eligible existing houses make follow-up electricity requests at three times the ordinary request probability, capped at 100%, with a seven-day delay after a rejection.
 
 The build instructions sit behind the inline info button. Supply and maintenance totals use a compact expandable row. Commodity quantities use shared pictograms across the map and panels. Pipe choices favor numerical capacity over size names. Resource shortage messages use the same resource symbols.
@@ -150,7 +152,7 @@ Save files retain company money, inventory, loans, investments, staff tenure, mi
 - `src/infrastructure.lua`: water and electrical design limits, transformer support, environment and farms.
 - `src/city.lua` and `src/graph.lua`: production dependencies, both purification products, daily wear and settlement.
 - `src/company_ui.lua` and `src/company_render.lua`: controls, symbols, map status and river strokes.
-- `src/symbols.lua` and `src/symbol_font.lua`: consistent portable pictograms, independent of installed emoji fonts.
+- `src/symbols.lua` and `src/symbol_font.lua`: consistent portable pictograms, independent of installed emoji fonts. Carrying drawn symbols inside ordinary text requires an image font, because LÖVE refuses fallbacks between font types, so the glyph sheets are cut at the density of the screen in use and handed to `love.font.newImageRasterizer`. Metrics stay in points and no panel moves; the pixels behind them match the display. The window declares `highdpi`, and the sheets are cut again if the window moves to a screen of a different density.
 - `src/autoplay.lua`: temporary gameplay assistant.
 - `test/test_ideas.lua` and `src/ideas_walkthrough.lua`: new simulation and real-input regression coverage.
 

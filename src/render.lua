@@ -19,6 +19,8 @@ function R.dimensions()
   return lg.getDimensions()
 end
 
+R.SIZES = { tiny = 11, small = 12, body = 14, mid = 18, big = 30, huge = 54 }
+
 function R.init()
   local fontFile = "assets/DejaVuSans-Bold.ttf"
   local function loadFont(size)
@@ -27,15 +29,20 @@ function R.init()
     end
     return lg.newFont(size)
   end
-  R.fonts = {
-    tiny  = loadFont(11),
-    small = loadFont(12),
-    body  = loadFont(14),
-    mid   = loadFont(18),
-    big   = loadFont(30),
-    huge  = loadFont(54),
-  }
-  require("symbol_font").install(R.fonts)
+  R.fonts = {}
+  for key, size in pairs(R.SIZES) do R.fonts[key] = loadFont(size) end
+  -- The symbols are drawn, not typed, so the fonts are rebuilt around them.
+  -- loadFont goes along because that rebuild needs the same typeface at the
+  -- screen's own pixel density, not just at the size the layout asks for.
+  require("symbol_font").install(R.fonts, R.SIZES, loadFont)
+end
+
+-- Dragging the window onto a screen of a different density leaves the letters
+-- cut for the old one, so they are cut again. Nothing else is touched, and on
+-- one screen this never fires.
+function R.retune()
+  local SF = require("symbol_font")
+  if SF.density ~= SF.wanted() then R.init() end
 end
 
 --------------------------------------------------------------------------------

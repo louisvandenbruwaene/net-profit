@@ -564,7 +564,7 @@ function love.textinput(value)
   end
 end
 
-function love.resize() fit() end
+function love.resize() R.retune(); fit() end
 function love.quit()
   if saveBlocked then return end
   if not save() then return true end

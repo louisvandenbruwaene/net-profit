@@ -54,4 +54,23 @@ return function(app,capture,click,scrollTo,check)
  for _,font in pairs(R.fonts) do
   for _,key in ipairs(S.keys) do check(font:hasGlyphs(S.get(key)),'icon glyph available: '..key) end
  end
+ -- Text is baked into a bitmap so the drawn symbols can live in it. Two things
+ -- have to stay true of that bitmap: it measures like the typeface it came
+ -- from, so no panel moves, and it holds as many pixels as the display does,
+ -- so nothing is stretched.
+ local lg=love.graphics; local SF=require('symbol_font')
+ check(SF.density>=1 and SF.density==SF.wanted(),'sheets are cut at the density of the screen in use')
+ for key,size in pairs(R.SIZES) do
+  local plain=lg.newFont('assets/DejaVuSans-Bold.ttf',size,'normal',SF.density)
+  check(R.fonts[key]:getHeight()==plain:getHeight(),'font measures like its typeface: '..key)
+  check(R.fonts[key]:getDPIScale()==SF.density,'font is drawn at display density: '..key)
+ end
+ -- A header window with controls prints its figure clear of them.
+ local UIm=require('company_ui')
+ for _,value in ipairs({'3  $240','18  $12480','+140%','All sound'}) do
+  local font=R.fonts[UIm.headerFont(value,198,true)]
+  check(UIm.HEAD_VALUE+font:getHeight()<=UIm.HEAD_ROW,'header figure clears its controls: '..value)
+  check(font:getWidth(value)<=198,'header figure is not cut off: '..value)
+ end
+ check(UIm.headerFont('$1200',198,false)=='big','a window without controls keeps the large figure')
 end

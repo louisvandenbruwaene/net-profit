@@ -1868,6 +1868,23 @@ local function stats()
 end
 local TABS={{"network","Build"},{"finance","Company"},{"customers","Clients"},{"stats","Stats"}}
 
+-- The header windows: the figure is printed from HEAD_VALUE, and the windows
+-- that carry controls put them on HEAD_ROW.
+UI.HEAD_VALUE,UI.HEAD_ROW=34,58
+
+-- The largest size the figure fits in, and one that leaves the control row
+-- alone. Counting the price of a repair in 30pt and then drawing the Repair
+-- button under it printed the two through each other; a window with controls
+-- is 24 points shorter than one without, and has to be measured that way.
+function UI.headerFont(value,room,controls)
+  local headroom=controls and (UI.HEAD_ROW-UI.HEAD_VALUE) or math.huge
+  for _,key in ipairs({"big","mid","small"}) do
+    local f=R.fonts[key]
+    if f:getWidth(tostring(value))<=room and f:getHeight()<=headroom then return key end
+  end
+  return "small"
+end
+
 function UI.draw(c,s,action)
   city,state,act=c,s,action
   W,H=R.dimensions()
@@ -1893,13 +1910,16 @@ function UI.draw(c,s,action)
   local width=(W-UI.width-34)/#metrics
   for i,m in ipairs(metrics) do
     local x=UI.width+22+(i-1)*width
-    local font=(i==3 and #clients==0) and "mid" or R.fonts.big:getWidth(tostring(m[2]))>width-14 and "mid" or "big"
-    text(m[1],x,16,"tiny",P.textDim); single(m[2],x,34,font,m[3],width-16)
+    local controls=(i==4 and request) or (i==5 and broken>0)
+    local font=(i==3 and #clients==0) and "mid" or UI.headerFont(m[2],width-14,controls)
+    -- The heading is measured too: at the narrowest window CUSTOMERS SUPPLIED
+    -- is wider than the window it names and ran into CLIENT REQUEST.
+    single(m[1],x,16,"tiny",P.textDim,width-16); single(m[2],x,UI.HEAD_VALUE,font,m[3],width-16)
     if i==4 and request then
-      button("quick-accept","+",x,58,32,20,function() act("acceptClient",request.id) end,true,"Accept highest premium request"..(request.powerRequest and " for electricity" or ""))
-      button("quick-decline","-",x+36,58,32,20,function() act("declineClient",request.id) end,true,"Reject and show next request")
-      button("quick-inspect","i",x+72,58,26,20,function() act("focusNode",request.id) end,true,"Inspect request")
-    elseif i==5 and broken>0 then button("repair-all","Repair",x,58,math.min(96,width-16),20,function() act("repairAll") end,city.money>=bill,"Repair every damaged line") end
+      button("quick-accept","+",x,UI.HEAD_ROW,32,20,function() act("acceptClient",request.id) end,true,"Accept highest premium request"..(request.powerRequest and " for electricity" or ""))
+      button("quick-decline","-",x+36,UI.HEAD_ROW,32,20,function() act("declineClient",request.id) end,true,"Reject and show next request")
+      button("quick-inspect","i",x+72,UI.HEAD_ROW,26,20,function() act("focusNode",request.id) end,true,"Inspect request")
+    elseif i==5 and broken>0 then button("repair-all","Repair",x,UI.HEAD_ROW,math.min(96,width-16),20,function() act("repairAll") end,city.money>=bill,"Repair every damaged line") end
     if i>1 then lg.setColor(P.panelEdge); lg.line(x-14,20,x-14,60) end
   end
 
