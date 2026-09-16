@@ -49,21 +49,24 @@ return function(app,capture,click,scrollTo,check)
  check(app.state.autoRemaining==300,'autoplay uses the requested minutes')
  capture('net-profit-ideas-autoplay',app,1100,700)
  click('autoplay'); check(not app.state.autoRemaining,'autoplay stops immediately')
- -- All private-use symbols have an actual renderer glyph in every font size.
+ -- Every symbol has a drawing behind it, and takes room in a line of text.
  local S=require('symbols'); local R=require('render')
- for _,font in pairs(R.fonts) do
-  for _,key in ipairs(S.keys) do check(font:hasGlyphs(S.get(key)),'icon glyph available: '..key) end
- end
- -- Text is baked into a bitmap so the drawn symbols can live in it. Two things
- -- have to stay true of that bitmap: it measures like the typeface it came
- -- from, so no panel moves, and it holds as many pixels as the display does,
- -- so nothing is stretched.
  local lg=love.graphics; local SF=require('symbol_font')
- check(SF.density>=1 and SF.density==SF.wanted(),'sheets are cut at the density of the screen in use')
+ for _,key in ipairs(S.keys) do check(SF.has(key),'symbol can be drawn: '..key) end
+ for _,font in pairs(R.fonts) do
+  for _,key in ipairs(S.keys) do
+   check(SF.width('3 '..S.get(key),font)>font:getWidth('3 '),'symbol takes room in a line: '..key)
+  end
+ end
+ -- The letters are the typeface itself, rasterised for the screen in use.
+ -- Baking them into a bitmap so they could carry the symbols cost them their
+ -- kerning, which is what made the text look loose.
  for key,size in pairs(R.SIZES) do
-  local plain=lg.newFont('assets/DejaVuSans-Bold.ttf',size,'normal',SF.density)
-  check(R.fonts[key]:getHeight()==plain:getHeight(),'font measures like its typeface: '..key)
-  check(R.fonts[key]:getDPIScale()==SF.density,'font is drawn at display density: '..key)
+  local plain=lg.newFont('assets/DejaVuSans-Bold.ttf',size)
+  check(R.fonts[key]:getHeight()==plain:getHeight(),'font is the typeface itself: '..key)
+  check(R.fonts[key]:getDPIScale()==R.density,'font is rasterised for this screen: '..key)
+  check(R.fonts[key]:getWidth('AVAILABLE CASH')==plain:getWidth('AVAILABLE CASH'),
+    'letters are spaced by the typeface: '..key)
  end
  -- A header window with controls prints its figure clear of them.
  local UIm=require('company_ui')

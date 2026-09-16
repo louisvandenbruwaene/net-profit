@@ -50,7 +50,7 @@ local function drawLabels(cam)
   table.sort(labels,function(a,b) return a.priority>b.priority or (a.priority==b.priority and a.order<b.order) end)
   for _,item in ipairs(labels) do
     local f=item.font
-    local w,h=f:getWidth(item.text)+8,f:getHeight()+4
+    local w,h=require("symbol_font").width(item.text,f)+8,f:getHeight()+4
     local x,y=item.x-w/2,item.y-2
     local clear=x>=cam.vx+4 and x+w<=cam.vx+cam.vw-4 and y>=cam.vy and y+h<=cam.vy+cam.vh
     for _,r in ipairs(occupied) do
