@@ -54,7 +54,8 @@ local function button(id,label,x,y,w,h,fn,enabled,tip,active,color,emphasis)
   local labelWidth=SF.width(label,font)
   local scale=math.min(1,(w-10)/math.max(1,labelWidth))
   lg.print(label,x+(w-labelWidth*scale)/2,y+(h-font:getHeight()*scale)/2,0,scale,scale)
-  if inClip then UI.buttons[#UI.buttons+1]={id=id,x=x,y=y,w=w,h=h,fn=fn,enabled=enabled,tip=tip} end
+  if inClip then UI.buttons[#UI.buttons+1]={id=id,x=x,y=y,w=w,h=h,fn=fn,enabled=enabled,tip=tip,
+    active=active or false,color=(active or emphasis) and color or nil} end
 end
 
 local function line(y)
@@ -1895,21 +1896,24 @@ local function stats()
 end
 local TABS={{"network","Build"},{"finance","Company"},{"customers","Clients"},{"stats","Stats"}}
 
--- The header windows: the figure is printed from HEAD_VALUE, and the windows
--- that carry controls put them on HEAD_ROW.
-UI.HEAD_VALUE,UI.HEAD_ROW=34,58
+-- The header windows: whatever the window says, it starts at HEAD_VALUE, and
+-- the bar it says it in is HEAD_BAR deep.
+UI.HEAD_VALUE,UI.HEAD_BAR=34,80
 
--- The largest size the figure fits in, and one that leaves the control row
--- alone. Counting the price of a repair in 30pt and then drawing the Repair
--- button under it printed the two through each other; a window with controls
--- is 24 points shorter than one without, and has to be measured that way.
-function UI.headerFont(value,room,controls)
-  local headroom=controls and (UI.HEAD_ROW-UI.HEAD_VALUE) or math.huge
+-- The largest size the figure fits the window in.
+function UI.headerFont(value,room)
   for _,key in ipairs({"big","mid","small"}) do
-    local f=R.fonts[key]
-    if SF.width(value,f)<=room and f:getHeight()<=headroom then return key end
+    if SF.width(value,R.fonts[key])<=room then return key end
   end
   return "small"
+end
+
+-- The two windows that hold a decision rather than a figure hold the same
+-- control: one size, centred between the lines that bound the window, with
+-- the whole of the decision on its face.
+function UI.headerButton(width)
+  local w=math.max(60,width-30)
+  return (width-w)/2-14,w,36
 end
 
 function UI.draw(c,s,action)
@@ -1934,32 +1938,34 @@ function UI.draw(c,s,action)
   local bill,broken=city:repairAllCost()
   local premium=request and city:requestPremium(request) or 0
   metrics[4]={"CLIENT REQUEST","None",P.energy}
-  metrics[5]={"FIX ALL PIPES",broken>0 and (broken.." damaged") or "All sound",broken>0 and P.warn or P.good}
+  metrics[5]={"FIX ALL PIPES","All sound",P.good}
   local width=(W-UI.width-34)/#metrics
   for i,m in ipairs(metrics) do
     local x=UI.width+22+(i-1)*width
     local room=width-16
-    -- The heading is measured too: at the narrowest window CUSTOMERS SUPPLIED
-    -- is wider than the window it names and ran into CLIENT REQUEST.
-    single(m[1],x,16,"tiny",P.textDim,room)
+    local decision=(i==4 and request) or (i==5 and broken>0)
+    -- A window of figures reads from its left edge with the rest of the panel.
+    -- A window of decisions is its control, so the heading sits over it.
+    local dx,bw,bh=UI.headerButton(width)
+    single(m[1],decision and x+dx or x,16,"tiny",P.textDim,decision and bw or room,decision and "center" or nil)
     if i==4 and request then
-      -- One control, carrying the only number that ranks an offer: how far
-      -- above or below the going rate it is. Pressing it opens the contract.
-      button("request-open",string.format("%+.0f%%",premium*100),x,UI.HEAD_VALUE,room,36,
+      -- The only number that ranks an offer: how far above or below the going
+      -- rate it is. Above is worth taking and below is not, so it is coloured
+      -- that way, and an offer at the going rate stays plain.
+      local tint=premium>0 and P.good or premium<0 and P.bad or nil
+      button("request-open",string.format("%+.0f%%",premium*100),x+dx,UI.HEAD_VALUE,bw,bh,
         function() act("focusRequest",request.id) end,true,
         "Open this contract"..(request.powerRequest and " for electricity" or "")..
         ": the best offer on the table, "..string.format("%+.0f%%",premium*100)..
-        " against the going rate.",false,premium>=0 and P.good or P.warn)
+        " against the going rate.",tint~=nil,tint)
+    elseif i==5 and broken>0 then
+      -- The price is the whole of the decision, and a burst main is not good
+      -- news, so the button carries the one and is coloured for the other.
+      button("repair-all","$"..bill,x+dx,UI.HEAD_VALUE,bw,bh,function() act("repairAll") end,
+        city.money>=bill,broken.." damaged "..(broken==1 and "line" or "lines")..". Repair every one of them.",
+        true,P.bad)
     else
-      local controls=i==5 and broken>0
-      local font=(i==3 and #clients==0) and "mid" or UI.headerFont(m[2],width-14,controls)
-      single(m[2],x,UI.HEAD_VALUE,font,m[3],room)
-      -- The price is the whole of the decision, so the price is the whole of
-      -- the button, and it fills the window rather than hugging its left edge.
-      if controls then
-        button("repair-all","$"..bill,x,UI.HEAD_ROW,room,20,function() act("repairAll") end,
-          city.money>=bill,"Repair every damaged line")
-      end
+      single(m[2],x,UI.HEAD_VALUE,UI.headerFont(m[2],width-14),m[3],room)
     end
     if i>1 then lg.setColor(P.panelEdge); lg.line(x-14,20,x-14,60) end
   end
