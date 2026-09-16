@@ -2,7 +2,7 @@
 \cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
 {\colortbl;\red255\green255\blue255;}
 {\*\expandedcolortbl;;}
-\paperw11900\paperh16840\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\paperw11900\paperh16840\margl1440\margr1440\vieww25400\viewh14700\viewkind0
 \pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
 
 \f0\fs24 \cf0 water well: pumps water up, has 1 output connection \
@@ -22,4 +22,39 @@ use power versions of the water distribution, i dont know much about it but you 
 Oil: when pipes leak, they pollute the region, with quantity of the leak determining the extremity : big cargo ship leaks a lot: very bad, small oil pipe: a bit bad.\
 environmental science lab: is needed to keep the rivers, and natural water sources clean (if dirty, no water is produced), should be placed near the oil rig (digging site) to keep a massive area (like 9 regions, so this one and all adjacent ones) clean for water and soil (for farming)\
 \
-farm: uses a large amount of land to grow crops, and keep livestock animals (for food: eggs, milk, pork, chicken, beef etc), requires a lot of water and some oil and electricity}
+farm: uses a large amount of land to grow crops, and keep livestock animals (for food: eggs, milk, pork, chicken, beef etc), requires a lot of water and some oil and electricity\
+\
+water buildings: t-split, hub (rename the pipe hub), pump, filter (Protects all downstream pipes from calcification (implement this mechanic, related to leaking, which should become relevant from day 100 onward (perhaps every day adds one calc to all pipes (reset when pipe is replaces eg for leaks or upgraded) and a high number of calc becomes bad (perhaps leaking or clogged))), treat (no longer needed: remove), valve (seems useless, perhaps give it more meaning), depot (allow for tremendous storage (100 water) and give it a fullness meter bar)\
+\
+water notation: don't use "20 water / day / 21 water / day" instead use "20 \\watersymbol / 21 \\watersymbol" for flow and "70 \\watersymbol" for water storage such as depot, and watersymbol is a water droplet like a watersource but then smaller.\
+water wells should be upgradeable to 50 \\watersymbol / 50 \\watersymbol and pipes to: Large: 50, medium: 30, small : 10 ; so base water well 20, upgrade values: 30, 40, 50, getting more expensive each time.\
+USE more symbols: try to use less names like small, medium and large and just put the values next to the related symbol; also instead of saying: "you need 120 steel" , say " you need 120 \\steelsymbol" this makes the game less language related and more intuitive and prettier. \
+\
+add a similar info button to how ampere works for the current cable rating , the first one is great, i just want another one for the cable ampere choice\
+for the purification center: place it next to the well in the menu (similar how power works, placing the creation stations just under pipe choices), it should work like this: place anywhere, needs a pumping station (placed on the sea) that produces saltwater (same water symbol, but with a horizontal line through the circle part ( a mix of unicode of salt and the watersymbol so far)) that has very high leaking rates (so needs filter and at least armored pipe level to even lay), the purification center then accepts this salt water (or any other water if that's the case) and produces the same amount of pure water and salt (which therefore doesn't need to be imported, has unicode symbol (circle with horizontal line through the middle)\
+\
+General menu change: remove all explanation text (such as "drag between buildings to connect them" to an inline info button next to the "build your network" info on the right side (replaces some of the horizontal line), also: symbols should be added for maintenance crews: should be a yellow working helmet : 3/4 eg\
+\
+About the investment part: i'd like a very realistic market that is normally distributed around the interest rate (10% per 7 days) with always increasing variance (+0.01sd/day, starting at 0), and allow hiring of market analysts (symbol = mix of money and graduation hat) that greatly increase the return based on how many you have and how long they work for you (+10% expected return per worker and +1% per week they work for you, but increase salary +1% also) \
+\
+Give other hireable workers symbols also, ; 1 dispatcher should only show the adjacent regions, 2 should go 2 levels deep, and so on up to 4, (meaning you should show that many regions always); engineers should automatically replace pipes that would start leaking before they do (because leaking pipes have at least one day they deliver too little, before maintenance crews can fix it) and now engineers fix that problem,  ; estates: buy land when they see discounts ( visible to players, but hard to notice, works as follows: every day every region has a 1% chance to have a 50% discount, 2% for 40% discount, 3% for 30% and so on until 5% for 10% discount, estates buy these lands automatically for the given discount levels and max spending price. this means that you can have disconnected regions, making your network not always connected (which would give advantages)\
+\
+Try to limit how often the left sidebar has to scroll, perhaps by introducing some space saving design; on the right of the cash, profit next day and customers supplied, add two more windows: client requests (only one request, ranked on most above base sell price, which shows the next one after the first one is accepted or rejected) and fix all pipes button\
+\
+Buying the electricity license should just make every water house request electricity, just make those triple as likely to put in a request as normal new houses would. \
+\
+Make the possibility for a play the game for x minutes autoplay for me right now (later removed), because it's quite time consuming for me to hand level the company (because without removing it, the game doesn't fully update new changes)) \
+\
+change PEOPLE category to roads (also replace all of these by their symbols), because roads will transport people (category), and commodities (another category), and these commodities include solar panels, etc etc\
+\
+Parklands can be cut down for timber right? and mountains can be demolished (very expensive) for stone and a rare chance for gems (for the jeweler (high profit margin))\
+\
+\
+sea windmill parks can be put on sea water, no island needed, but a windmill park on an island gives more electricity output\
+\
+the river needs a more smooth flow lines, no discontinuities\
+\
+Make the parklands and mountains more random in size (except for the 9 starting regions, which should behave nicely), but the rest should allow multiregion mountains (which tremendous resources) and woods\
+\
+\
+ }

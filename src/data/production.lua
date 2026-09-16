@@ -45,8 +45,8 @@ Data.RECIPES = {
   -- with a well for anything but the ground it stands on, which is why it
   -- answers to no deposit and the map's one truly endless input.
   purifier   = { name = "PURIFICATION CENTRE", makes = "water", rate = 16, cost = 2600, upkeep = 24,
-                 inputs = {}, materials = { steel = 20, concrete = 20 }, coastal = true,
-                 blurb = "No deposit, no well: turns the sea itself into supply. Stands only on the coast." },
+                 inputs = {saltwater=1}, coproduct="salt", materials = { steel = 20, concrete = 20 },
+                 blurb = "Piped saltwater becomes equal quantities of clean water and salt. Place on any owned land." },
 
   -- The businesses a population opens. Each is hidden until there is somebody
   -- to sell to: nobody refines petrol for a city with no roads.
@@ -62,6 +62,7 @@ Data.RECIPES = {
                  blurb = "Drinks water and power by the tanker-load and puts out the internet, cabled to subscribers like power to a workshop." },
 }
 
+Data.RECIPES.jeweler={name="JEWELER",makes="jewelry",rate=2,cost=8000,upkeep=35,inputs={gems=1,power=1},materials={steel=30},blurb="Rare gems become valuable jewelry. Deliver to a depot yard for sale."}
 Data.EXTRACTORS = {
   well     = { out = "water",  name = "WELL",       on = "deposit",
                tip = "Only on a marked water deposit." },

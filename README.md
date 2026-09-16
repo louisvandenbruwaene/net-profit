@@ -2,7 +2,9 @@
 
 A turn-based utility-company game about networks, cash, and promises.
 
-The new [infrastructure guide](INFRASTRUCTURE.md) covers electricity, water, farming and pollution, including the simplified simulation rules. It supersedes older engineering descriptions below.
+The [September implementation guide](IDEAS-IMPLEMENTATION.md) documents every requirement from `ideas.rtf`, including water aging, saltwater purification, staffing, investments, land discounts, temporary autoplay and the new app logo. **Stats → Autoplay** runs the temporary gameplay assistant for the selected number of minutes.
+
+The [infrastructure guide](INFRASTRUCTURE.md) covers electricity, water, farming and pollution, including the simplified simulation rules. It supersedes older engineering descriptions below.
 
 For changing prices, production and progression, start with [EDITING.md](EDITING.md).
 The [engine assessment](ENGINE-MIGRATION.md) describes a Godot migration designed around Inspector-editable values and reusable scenes.
@@ -46,7 +48,7 @@ directory from a game run out of a source folder, so the game looks in both and
 mirrors each save into the other. Playing the app and running the checkout are
 the same company, not two that drift apart.
 
-To regenerate the app icon from `assets/net-profit.svg`, run `sh macos/make-icon.sh`.
+To regenerate the app icon from `assets/net-profit.png`, run `sh macos/make-icon.sh`.
 
 On Linux, run `make install` to add the application-menu entry.
 

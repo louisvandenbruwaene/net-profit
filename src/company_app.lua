@@ -77,6 +77,7 @@ local function resetSession()
   state.commodity="water"; state.people=nil
   state.capacity=1; state.size="small"; state.recentSizes={"small"}
   state.borrow=500
+  state.autoRemaining=nil
   state.invest=100
   state.rail=nil; state.transit=nil
   state.filter=nil; state.bottlenecks=nil; state.rename=nil; state.advanced=nil; state.lineOptions=nil; state.showPermits=nil
@@ -211,6 +212,11 @@ local function action(name,...)
     if snap then city=assert(Save.unpack(snap)); clear(); save(); toast("Decision undone") end
     return
   end
+  if name=="autoplay" then
+    if state.autoRemaining then state.autoRemaining=nil; toast("Autoplay stopped")
+    else state.autoRemaining=math.max(1,math.min(120,tonumber((...)) or 5))*60; state.autoTick=0; state.modal=nil; toast("Autoplay started; stop it in Stats") end
+    return true
+  end
   if city.bankrupt then return end
   local snapshot=Save.pack(city)
   local result,err
@@ -239,7 +245,7 @@ local function action(name,...)
     if name=="layPipe" then
       state.edge=result.id; state.node=nil; A.play("link")
       for _,n in ipairs(city:clientList()) do
-        if (city.served[n.id] or 0)>=n.demand then R.ring(n.x,n.y,P.good) end
+        if city:fullyServed(n) then R.ring(n.x,n.y,P.good) end
       end
     elseif name=="layLink" then
       state.link=result.id; state.node=nil; state.edge=nil; A.play("link")
@@ -280,7 +286,7 @@ local function hit(x,y)
   if x<UI.width or y<84 or y>love.graphics.getHeight()-58 then return nil,nil end
   for _,n in ipairs(city.g:aliveNodes()) do
     local sx,sy=cam:toScreen(n.x,n.y)
-    if (not state.filter or not n.commodity or n.commodity==state.filter) and
+    if (not state.filter or not n.commodity or n.commodity==state.filter or (n.demands and n.demands[state.filter])) and
       (sx-x)^2+(sy-y)^2<math.max(13,R.sym(25,cam.scale))^2 then return n.id,nil end
   end
   local nearest,dist=nil,10
@@ -294,7 +300,7 @@ local function hit(x,y)
   if nearest or state.filter then return nil,nearest,nil end
   local link,linkDist=nil,10
   for _,l in ipairs(city.links or {}) do
-    if l.alive then
+    if l.alive and l.mode~="bus" then
       local ax,ay,bx,by=Draw.linkPoints(cam,city,l)
       local d=pointDistance(x,y,ax,ay,bx,by)
       if d<linkDist then link,linkDist=l.id,d end
@@ -309,6 +315,7 @@ function love.load(args)
        or a=="--probe" then testMode=a end
   end
   R.init(); A.init()
+  if love.window and love.window.setIcon and love.image then love.window.setIcon(love.image.newImageData("assets/net-profit.png")) end
   -- Reports where this build keeps its company and what it found there, then
   -- quits. The one question that is genuinely hard to answer any other way,
   -- because the answer depends on how the game was launched.
@@ -370,6 +377,17 @@ end
 
 function love.update(dt)
   R.update(dt); cam:update(dt)
+  if state.autoRemaining then
+    state.autoRemaining=state.autoRemaining-dt
+    state.autoTick=(state.autoTick or 0)+dt
+    if state.autoRemaining<=0 then state.autoRemaining=nil; save(); toast("Autoplay finished")
+    elseif state.autoTick>=.6 then
+      state.autoTick=0
+      local nextCity,message,stop=require("autoplay").step(city)
+      city=nextCity; state.undo={}; toast(message); save()
+      if stop then state.autoRemaining=nil end
+    end
+  end
   state.hoverNode,state.hoverEdge,state.hoverLink=hit(love.mouse.getPosition())
   -- Every frame, not only when the mouse moves: whatever is under the cursor
   -- can change under a held drag, and the preview must never quote a size
@@ -442,7 +460,7 @@ function love.mousepressed(x,y,button)
   local wx,wy=cam:toWorld(x,y)
   local d=city:districtAt(wx,wy)
   state.node,state.edge,state.link,state.district=nil,nil,nil,nil
-  state.pan={x=x,y=y,moved=false,district=(d and not d.owned) and d.id or nil}
+  state.pan={x=x,y=y,moved=false,district=(d and city:districtVisible(d)) and d.id or nil}
 end
 
 function love.mousemoved(x,y,dx,dy)

@@ -104,7 +104,7 @@ function City:materialError(bill, scale)
     if amount then
       local want = math.ceil(amount * scale)
       if self:materialStock(material) < want then
-        return "needs " .. want .. " " .. material .. ", and the yards hold "
+        return "needs " .. want .. " " .. require("symbols").get(material) .. ", and the yards hold "
           .. self:materialStock(material)
       end
     end
@@ -665,8 +665,11 @@ function City:survey()
   if #seeds == 0 then seeds = { self.districts[City.MAP.start] } end
   local want = {}
   for _, d in ipairs(seeds) do
-    for dc = -City.surveyRadius, City.surveyRadius do
-      for dr = -City.surveyRadius, City.surveyRadius do
+    -- Generate a hidden terrain halo before construction is possible. A future
+    -- mountain in the next cell must not appear over an existing building.
+    local radius=math.max(1,self:workerCount("dispatchers"))+2
+    for dc = -radius, radius do
+      for dr = -radius, radius do
         want[#want + 1] = { d.col + dc, d.row + dr }
       end
     end
@@ -1040,9 +1043,15 @@ function City:scatterObstacles(n, district)
     local chosen=varied and self:rand((giant and cfg.massive or size).min,(giant and cfg.massive or size).max)
     for _ = 1, 40 do
       local r = chosen or self:rand(70, 140)
-      local x = self:rand(b.x + r + cfg.border, b.x + b.w - r - cfg.border)
-      local y = self:rand(b.y + r + cfg.border, b.y + b.h - r - cfg.border)
+      local margin=giant and cfg.border or r+cfg.border
+      local x = self:rand(b.x + margin, b.x + b.w - margin)
+      local y = self:rand(b.y + margin, b.y + b.h - margin)
       local clear = true
+      if giant then
+        local nearX=math.max(0,math.min(City.MAP.w*3,x))
+        local nearY=math.max(0,math.min(City.MAP.h*3,y))
+        if (x-nearX)^2+(y-nearY)^2<(r+30)^2 then clear=false end
+      end
       -- The home district keeps a wide clearing so the opening is never a maze.
       if home and (x - (b.x + b.w / 2)) ^ 2 + (y - (b.y + b.h / 2)) ^ 2 < (r + 340) ^ 2 then
         clear = false
@@ -1050,7 +1059,7 @@ function City:scatterObstacles(n, district)
       -- The river is the seed's alone, so keeping ground off it cannot make a
       -- cell depend on anything the player did.
       local edge = self:riverEdge(x, y)
-      if edge and edge < r + 30 then clear = false end
+      if edge and edge < (giant and 100 or r+30) then clear = false end
       for _, o in ipairs(placed) do
         if (o.x - x) ^ 2 + (o.y - y) ^ 2 < (o.r + r + 40) ^ 2 then clear = false; break end
       end
@@ -1091,7 +1100,11 @@ function City:scatterDeposits(district, spec)
           if (s.x - x) ^ 2 + (s.y - y) ^ 2 < 260 ^ 2 then far = false; break end
         end
         if far then
-          local buried = self:obstacleAt(x, y)
+          local buried
+          for _,o in ipairs(self.obstacles) do
+            if self:districtAt(o.x,o.y)==district and (o.x-x)^2+(o.y-y)^2<=o.r^2 then buried=o; break end
+          end
+          if not buried and self:riverAt(x,y) then buried={kind="river",r=60} end
           local dep = {
             x = x, y = y, commodity = want.commodity, taken = false,
             yield = buried and 1.9 or 1.5, discount = buried and 0.45 or 0.62,
@@ -1426,7 +1439,7 @@ local function solveOrder()
     seen[key] = true
     local best = 0
     for _,recipe in pairs(City.RECIPES) do
-    if recipe.makes==key then
+    if recipe.makes==key or recipe.coproduct==key then
       for input in pairs(recipe.inputs) do
         best = math.max(best, levelOf(input, seen) + 1)
       end
@@ -1663,7 +1676,9 @@ function City:recomputeHubs()
             end
             c.hub = h.id
             h.covered[#h.covered + 1] = c.id
-            h.demandBy[c.commodity] = (h.demandBy[c.commodity] or 0) + (c.demand or 0)
+            for key,want in pairs(c.demands or {[c.commodity]=c.demand or 0}) do
+              h.demandBy[key]=(h.demandBy[key] or 0)+want
+            end
             if not c.connected then
               c.connected = true
               self.hubConnectionDue = (self.hubConnectionDue or 0) + City.hub.connect
@@ -1692,10 +1707,13 @@ function City:shareHubSupply()
       return a.id < b.id
     end)
     for _, c in ipairs(order) do
-      local have = left[c.commodity] or 0
-      local take = math.min(have, c.demand or 0)
-      self.served[c.id] = take
-      left[c.commodity] = have - take
+      self.servedBy[c.id]=self.servedBy[c.id] or {}
+      for key,want in pairs(c.demands or {[c.commodity]=c.demand or 0}) do
+        local take=math.min(left[key] or 0,want)
+        self.servedBy[c.id][key]=take
+        if key==c.commodity then self.served[c.id]=take end
+        left[key]=(left[key] or 0)-take
+      end
     end
   end
 end
@@ -1893,7 +1911,7 @@ function City:setGate(id, value)
   local n = self.g.nodes[id]
   if not (n and n.alive and n.kind == "gate") then return nil, "no such gate" end
   if type(value) ~= "number" or value ~= value then return nil, "invalid setting" end
-  value = math.max(0, math.min(24, math.floor(value)))
+  value = math.max(0, math.min(100, math.floor(value)))
   n.throughput = value
   self:refresh()
   return n
@@ -2106,6 +2124,7 @@ function City:repairAll()
       self.money = self.money - cost
       e.cap = e.capMax or e.cap
       e.leaking, e.burstReported, e.decayTick = false, nil, nil
+      e.calcification=0
       fixed, spent = fixed + 1, spent + cost
     end
   end
@@ -2135,6 +2154,7 @@ function City:repairPipe(id)
   self:spend(cost)
   e.cap = e.capMax or e.cap
   e.leaking, e.decayTick = false, nil
+  e.calcification=0
   e.burstReported = nil
   self:refresh()
   return cost
@@ -2688,6 +2708,7 @@ function City:refresh()
   -- customer on a hub is not in them.
   self:recomputeHubs()
   self.served = {}
+  self.servedBy = {}
   self.detail = { edge = {}, node = {}, hub = {}, works = {} }
   self.flowBy = {}
   self.edgeFlowBy = {}
@@ -2740,8 +2761,11 @@ function City:refresh()
     if n.kind == "source" and n.commodity then feeds[n.commodity] = true
     elseif n.kind == "works" then
       if n.makes then feeds[n.makes] = true end
+      local recipe=City.RECIPES[n.recipe]; if recipe and recipe.coproduct then feeds[recipe.coproduct]=true end
       for key in pairs(n.wants or {}) do wants[key] = true end
-    elseif n.kind == "depot" and (n.stored or 0) > 0 then feeds[n.commodity] = true
+    elseif n.kind == "depot" then
+      if (n.stored or 0)>0 then feeds[n.commodity]=true end
+      if n.intakeRequest then wants[n.commodity]=true end
     elseif n.kind == "terminal" then
       for _, key in ipairs(Graph.ALL) do
         if Graph.COMMODITIES[key].landed ~= false then feeds[key] = true end
@@ -2752,6 +2776,7 @@ function City:refresh()
       for key in pairs(n.intake or {}) do wants[key] = true end
     elseif n.kind == "client" and not n.hub and not n.prospect then
       wants[n.commodity] = true
+      for key in pairs(n.demands or {}) do wants[key] = true end
     elseif n.kind == "station" then
       wants.gasoline = true
     end
@@ -2766,7 +2791,9 @@ function City:refresh()
     -- anybody is asking for it yet. A works with no customer still has an
     -- output, and the player needs to see it to know the chain works.
     for _, w in ipairs(works) do
+      local recipe=City.RECIPES[w.recipe]
       if w.makes == name then w.ready = self:worksOutput(w) end
+      if recipe and recipe.coproduct==name then w.coproduct=name; w.coproductReady=self:worksOutput(w) end
     end
 
     if feeds[name] and wants[name] then
@@ -2779,13 +2806,18 @@ function City:refresh()
       if n and n.kind == "exchange" then
         self.detail.hub[id] = self.detail.hub[id] or {}
         self.detail.hub[id][name] = v
+      elseif n and n.kind == "depot" then
+        self.detail.depot=self.detail.depot or {}
+        self.detail.depot[id]=v
       elseif n and n.kind == "works" then
         self.detail.works[id][name] = v
       elseif n and n.kind == "dc" then
         self.detail.yard = self.detail.yard or {}
         self.detail.yard[name] = (self.detail.yard[name] or 0) + v
       else
-        self.served[id] = v
+        self.servedBy[id] = self.servedBy[id] or {}
+        self.servedBy[id][name] = v
+        if name == n.commodity or n.kind=="station" then self.served[id] = v end
       end
     end
     for id, v in pairs(produced or {}) do
@@ -2824,6 +2856,7 @@ function City:refresh()
       headroom[key] = (headroom[key] or 0) + (n.stored or 0)
     elseif n.kind == "works" and n.makes then
       headroom[n.makes] = (headroom[n.makes] or 0) + (n.ready or 0)
+      if n.coproduct then headroom[n.coproduct]=(headroom[n.coproduct] or 0)+(n.coproductReady or 0) end
     elseif n.kind == "terminal" then
       -- A haven never runs out. What it can actually put into the city is the
       -- capacity of the track leaving it, so that is what counts as headroom:
@@ -2853,7 +2886,7 @@ function City:refresh()
   self.revision = (self.revision or 0) + 1
   self.unserved = 0
   for _, c in ipairs(self:clientList()) do
-    if (self.served[c.id] or 0) < c.demand then self.unserved = self.unserved + 1 end
+    if not self:fullyServed(c) then self.unserved = self.unserved + 1 end
   end
   return self.served
 end
@@ -2908,10 +2941,13 @@ end
 function City:constraintFor(id)
   local c = self.g.nodes[id]
   if not (c and c.alive and c.kind == "client" and not c.prospect) then return nil end
-  if (self.served[id] or 0) >= (c.demand or 0) then return nil end
+  if self:fullyServed(c) then return nil end
   if c.supplyClosed then return "valve" end
 
   local com = c.commodity
+  for key,want in pairs(c.demands or {}) do
+    if ((self.servedBy[c.id] or {})[key] or 0)<want then com=key; break end
+  end
   local seen, queue, head = { [id] = true }, { id }, 1
   local saturated, sawFeed = nil, false
   while head <= #queue do
@@ -2948,7 +2984,7 @@ end
 function City:shortCustomers()
   local t = {}
   for _, c in ipairs(self:clientList()) do
-    if (self.served[c.id] or 0) < c.demand then t[#t + 1] = c end
+    if not self:fullyServed(c) then t[#t + 1] = c end
   end
   return t
 end
@@ -3018,7 +3054,7 @@ function City:endDay()
   for _, c in ipairs(self:clientList()) do
     local got = self.served[c.id] or 0
     report.revenue = report.revenue + self:clientIncome(c)
-    if got >= c.demand then
+    if self:fullyServed(c) then
       c.grace = City.CLIENTS[c.clientType].patience
     else
       c.grace = c.grace - 1
@@ -3052,7 +3088,7 @@ function City:endDay()
   --    capacity every day until somebody pays to fix it.
   for _, e in ipairs(self.g.edges) do
     if e.alive then
-      if not e.leaking and self:random() < self:leakChance(e) then
+      if not e.leaking and self:random() < self:leakChance(e) and not self:preventLeak(e,report) then
         e.leaking = true
         self:note("Leak found on a %s main", e.commodity)
       end
@@ -3086,6 +3122,13 @@ function City:endDay()
       self.stock[material] = (self.stock[material] or 0) + units
       report.delivered[material] = units
     end
+  end
+
+  -- Jewelry is sold at the receiving yard, once and before solvency settles.
+  report.jewelryIncome=(report.delivered.jewelry or 0)*900
+  if report.jewelryIncome>0 then
+    self.stock.jewelry=math.max(0,(self.stock.jewelry or 0)-(report.delivered.jewelry or 0))
+    self.money=self.money+report.jewelryIncome; report.revenue=report.revenue+report.jewelryIncome
   end
 
   -- 3a1b. Cars that reached a yard are sold to the districts that want them.
@@ -3127,6 +3170,7 @@ function City:endDay()
     self.money = self.money - worstCost
     worst.cap = worst.capMax or worst.cap
     worst.leaking, worst.burstReported, worst.decayTick = false, nil, nil
+    worst.calcification=0
     report.crewFixed = report.crewFixed + 1
     report.crewCost = report.crewCost + worstCost
   end
@@ -3139,6 +3183,9 @@ function City:endDay()
   -- 3c. Depots take in the day's unsold output and give back what they lent.
   report.stored, report.drawn = 0, 0
   for _, n in ipairs(self.g:nodesOfKind("depot")) do
+    local incoming=(self.detail.depot or {})[n.id] or 0
+    n.stored=(n.stored or 0)+incoming
+    report.stored=report.stored+incoming
     local drawn = self.produced[n.id] or 0
     if drawn > 0 then
       n.stored = math.max(0, (n.stored or 0) - drawn)
@@ -3148,7 +3195,7 @@ function City:endDay()
   for _, name in ipairs(Graph.TRADES) do
     local spare = self.wellSpare[name] or 0
     for _, n in ipairs(self.g:nodesOfKind("depot")) do
-      if n.commodity == name and spare > 0 and self.g:degree(n.id) > 0 then
+      if not n.freightStorage and n.commodity == name and spare > 0 and self.g:degree(n.id) > 0 then
         local room = (n.capacityStore or City.depotCapacity) - (n.stored or 0)
         local take = math.min(spare, room, City.depotFillRate)
         if take > 0 then
@@ -3164,8 +3211,9 @@ function City:endDay()
   for i = #self.investments, 1, -1 do
     local inv = self.investments[i]
     if self.day >= inv.matures then
-      local r = gauss(self, City.rules.investMean, City.rules.investSd)
-      local payout = math.floor(inv.amount * (1 + r))
+      local mean,sd=self:investmentDistribution()
+      local r = gauss(self, mean, sd)
+      local payout = math.max(0,math.floor(inv.amount * (1 + r)))
       self.money = self.money + payout
       report.interest = report.interest + (payout - inv.amount)
       self:note("Investment returned $%d on $%d (%+.1f%%)", payout, inv.amount, r * 100)
@@ -3726,12 +3774,12 @@ City.LESSONS = {
   },
   {
     key = "people", title = "Roads",
-    body = "Build a stop in each town. Choose Road and drag between the stops. Drivers pay to use it.",
+    body = "Connect houses and factories to roads. Cars use offroads too; trucks need normal roads or highways. Highway interchanges collect tolls.",
     when = function(c) return c:unlocked("roads") end,
   },
   {
     key = "routes", title = "Bus, ferry and plane routes",
-    body = "Connect stops with bus routes. Ferries use water. Planes fly between airports.",
+    body = "Attach bus stops to normal roads and connect them with bus routes. Bus stops cannot stand on highways. Ferries use water; planes use airports.",
     when = function(c) return c:unlocked("routes") end,
   },
   {
@@ -3905,7 +3953,8 @@ function City:haulageBill()
   for _, e in ipairs(self.g.edges) do
     if e.alive and e.rail then
       local spec = City.MODES[e.bulk or "rail"]
-      local units = math.abs(((self.detail or {}).edge or {})[e.id] or 0)
+      local units = 0
+      for key in pairs(e.wagons or {[e.commodity]=e.cap}) do units=units+math.abs(((self.edgeFlowBy or {})[key] or {})[e.id] or 0) end
       local cost = units * (spec.haulPerUnit + self:pipeLength(e) * spec.haulPerM)
       if spec.diesel then fuelled = fuelled + cost end
       total = total + cost
@@ -3994,7 +4043,7 @@ City.MILESTONES = require("data.progression").MILESTONES
 function City:awardMilestones()
   local count, total = 0, 0
   for _, c in ipairs(self:clientList()) do
-    if c.alive and (self.served[c.id] or 0) >= c.demand then count = count + 1 end
+    if c.alive and self:fullyServed(c) then count = count + 1 end
   end
   for i, m in ipairs(City.MILESTONES) do
     if not self.milestones[i] and count >= m.target then
@@ -4009,5 +4058,7 @@ end
 
 require("people")(City)
 require("infrastructure")(City)
+require("road_model")(City)
+require("ideas")(City)
 
 return City

@@ -55,7 +55,7 @@ Data.PEOPLE = {
 Data.ROUTES = {
   bus   = { name = "BUS ROUTE", seats = 40,  vehicle = 240,  running = 16,  fare = 3,  max = 12, needs = "road",
             colour = { 0.96, 0.78, 0.30 },
-            blurb = "Seats on a road you already have: cheap, short, and it takes the people who do not drive." },
+            blurb = "A bus service on the same normal roads and highways as cars. Stops are for boarding; no separate bus road is built." },
   ferry = { name = "FERRY",     seats = 120, vehicle = 1400, running = 55,  fare = 6,  max = 20, needs = "water",
             colour = { 0.42, 0.72, 0.96 },
             blurb = "Calls at the coast, the river and the islands, once there is a harbour." },

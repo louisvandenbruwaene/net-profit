@@ -121,6 +121,36 @@ end
 function Draw.mark(commodity, x, y, r, dim)
   local spec = Graph.COMMODITIES[commodity] or Graph.COMMODITIES.water
   local a = dim and 0.45 or 1
+  if commodity=="steel" then
+    lg.setColor(P.with(spec.color,a))
+    lg.rectangle("fill",x-r,y-r,r*2,r*.4); lg.rectangle("fill",x-r*.22,y-r,r*.44,r*2); lg.rectangle("fill",x-r,y+r*.6,r*2,r*.4); return
+  elseif commodity=="panels" or commodity=="glass" then
+    lg.setColor(P.with(spec.fill,a)); lg.rectangle("fill",x-r,y-r*.75,r*2,r*1.5)
+    lg.setColor(P.with(spec.color,a)); stroke(r*2,.08); lg.rectangle("line",x-r,y-r*.75,r*2,r*1.5)
+    if commodity=="panels" then lg.line(x-r,y,x+r,y); lg.line(x-r/3,y-r*.75,x-r/3,y+r*.75); lg.line(x+r/3,y-r*.75,x+r/3,y+r*.75)
+    else lg.line(x-r*.6,y+r*.4,x+r*.3,y-r*.4) end; return
+  elseif commodity=="timber" or commodity=="planks" then
+    lg.setColor(P.with(spec.color,a)); stroke(r*2,.12)
+    for j=-1,1 do lg.line(x-r,y+j*r*.65,x+r,y+j*r*.65) end
+    if commodity=="timber" then lg.circle("line",x+r*.7,y,r*.35) end; return
+  elseif commodity=="rock" or commodity=="ore" or commodity=="coke" then
+    lg.setColor(P.with(spec.fill,a)); lg.polygon("fill",x-r,y+r*.7,x-r*.7,y-r*.4,x+r*.2,y-r,x+r,y+r*.7)
+    lg.setColor(P.with(spec.color,a)); stroke(r*2,.1); lg.polygon("line",x-r,y+r*.7,x-r*.7,y-r*.4,x+r*.2,y-r,x+r,y+r*.7); return
+  elseif spec.mark=="gem" then
+    lg.setColor(P.with(spec.color,a)); stroke(r*2,.1)
+    lg.polygon("line",x-r,y-r*.4,x-r*.5,y-r,x+r*.5,y-r,x+r,y-r*.4,x,y+r)
+    lg.line(x-r,y-r*.4,x+r,y-r*.4); lg.line(x-r*.5,y-r,x,y+r,x+r*.5,y-r); return
+  end
+  if spec.mark=="salt" then
+    lg.setColor(P.with(spec.color,a)); stroke(r*2,.1); lg.circle("line",x,y,r*.8); lg.line(x-r,y,x+r,y); return
+  elseif spec.mark=="box" or spec.mark=="gem" then
+    lg.setColor(P.with(spec.fill,a)); lg.polygon("fill",x-r,y-r*.4,x,y-r,x+r,y-r*.4,x+r,y+r*.5,x,y+r,x-r,y+r*.5)
+    lg.setColor(P.with(spec.color,a)); stroke(r*2,.09)
+    lg.polygon("line",x-r,y-r*.4,x,y-r,x+r,y-r*.4,x+r,y+r*.5,x,y+r,x-r,y+r*.5)
+    lg.line(x-r,y-r*.4,x,y,x+r,y-r*.4); lg.line(x,y,x,y+r)
+    if commodity=="steel" then lg.line(x-r*.7,y+r*.2,x+r*.7,y+r*.2) end
+    return
+  end
   if spec.mark == "signal" then
     -- A signal does not pour: a dot and the two waves leaving it.
     lg.setColor(P.with(spec.fill, a))
@@ -139,6 +169,7 @@ function Draw.mark(commodity, x, y, r, dim)
   lg.setColor(P.with(spec.color, a))
   stroke(r * 2, 0.09)
   lg.polygon("line", pts)
+  if spec.mark=="saltwater" then lg.line(x-r*.8,y+r*.25,x+r*.8,y+r*.25) end
 end
 
 -- Kept as an alias: most of the game's trades really are droplets.
@@ -327,6 +358,9 @@ function Draw.structureGlyph(kind, x, y, s)
     lg.setColor(P.bg)
     lg.rectangle("fill", -3.4 * s, -2.4 * s, 6.8 * s, 4.8 * s, 0.8 * s)
     lg.setColor(r, g, b, a)
+  elseif kind == "intersection" or kind == "roundabout" or kind == "interchange" then
+    lg.setLineWidth(3*s); lg.line(-12*s,0,12*s,0); lg.line(0,-12*s,0,12*s)
+    if kind~="intersection" then lg.circle("line",0,0,(kind=="interchange" and 9 or 6)*s) end
   elseif kind == "stop" then
     -- A stop: a post with its sign plate, and a shelter roof beside it.
     lg.rectangle("fill", -7.8 * s, -10 * s, 2.4 * s, 19 * s)
@@ -430,14 +464,13 @@ function Draw.edgePoints(cam, city, e)
   return ax+ox,ay+oy,bx+ox,by+oy
 end
 
--- A road and the bus that runs on it join the same two places, so each mode
--- keeps to its own side of the line.
+-- Physical road geometry. Bus services use the road segments below.
 function Draw.linkPoints(cam, city, l)
   local a, b = city.g.nodes[l.a], city.g.nodes[l.b]
   local ax, ay = cam:toScreen(a.x, a.y)
   local bx, by = cam:toScreen(b.x, b.y)
   local length = math.max(1, math.sqrt((bx - ax) ^ 2 + (by - ay) ^ 2))
-  local offset = ({ bus = 8, ferry = -8 })[l.mode] or 0
+  local offset = ({ ferry = -8 })[l.mode] or 0
   local sign = l.a < l.b and 1 or -1
   local ox, oy = -(by - ay) / length * offset * sign, (bx - ax) / length * offset * sign
   return ax + ox, ay + oy, bx + ox, by + oy
@@ -458,7 +491,7 @@ end
 -- drawing them is a frame spent on nothing.
 local function drawDistrictGround(city, cam)
   for _, d in ipairs(city.districts or {}) do
-    if cam:seesBox(d.x, d.y, d.x + d.w, d.y + d.h) then
+    if city:districtVisible(d) and cam:seesBox(d.x, d.y, d.x + d.w, d.y + d.h) then
       local x, y = cam:toScreen(d.x, d.y)
       local w, h = d.w * cam.scale, d.h * cam.scale
       if d.island then
@@ -493,7 +526,7 @@ end
 local function drawDistrictChrome(city, cam, state)
   lg.setLineWidth(1)
   for _, d in ipairs(city.districts or {}) do
-    if cam:seesBox(d.x, d.y, d.x + d.w, d.y + d.h) then
+    if city:districtVisible(d) and cam:seesBox(d.x, d.y, d.x + d.w, d.y + d.h) then
     local x, y = cam:toScreen(d.x, d.y)
     local w, h = d.w * cam.scale, d.h * cam.scale
     local cx, cy = x + w / 2, y + h / 2
@@ -518,12 +551,12 @@ local function drawDistrictChrome(city, cam, state)
         if (d.population or 0) > 0 then
           label("POP " .. d.population, cx, cy - 44, P.textDim, R.fonts.tiny)
         end
-        label("$" .. city:districtCost(d), cx, cy + 4,
+        label("$" .. city:districtCost(d)..(city:landDiscount(d)>0 and ("  -"..math.floor(city:landDiscount(d)*100).."%") or ""), cx, cy + 4,
           buyable and P.energy or P.textFaint, R.fonts.small)
         if hot and not buyable and city:districtAdjacent(d) then
           label("needs more cash", cx, cy + 26, P.textFaint, R.fonts.tiny)
         elseif hot and not city:districtAdjacent(d) then
-          label("not adjacent", cx, cy + 26, P.textFaint, R.fonts.tiny)
+          label("separate holding", cx, cy + 26, P.textFaint, R.fonts.tiny)
         end
       end
     end
@@ -572,7 +605,19 @@ local function scenery(o, x, y, r)
         pts[#pts + 1] = x - s + 2 * s * t
         pts[#pts + 1] = yy + math.sin(t * math.pi * 2) * s * 0.2
       end
-      lg.line(pts)
+      local smooth={}
+      for k=1,#pts-2,2 do
+        local a=math.max(1,k-2); local b=math.min(#pts-1,k+4)
+        for step=0,7 do
+          local t=step/8
+          for axis=0,1 do
+            local p0,p1,p2,p3=pts[a+axis],pts[k+axis],pts[k+2+axis],pts[b+axis]
+            smooth[#smooth+1]=.5*((2*p1)+(-p0+p2)*t+(2*p0-5*p1+4*p2-p3)*t*t+(-p0+3*p1-3*p2+p3)*t*t*t)
+          end
+        end
+      end
+      smooth[#smooth+1]=pts[#pts-1]; smooth[#smooth+1]=pts[#pts]
+      lg.line(smooth)
     end
   else
     -- A boulder: angular and taller than it is wide at the peak, so it reads
@@ -632,7 +677,19 @@ local function drawSea(city, cam, state)
         local sx, sy = cam:toScreen(wx, wy + math.sin(t * math.pi * 5 + i * 1.7) * 26)
         pts[#pts + 1] = sx; pts[#pts + 1] = sy
       end
-      lg.line(pts)
+      local smooth={}
+      for k=1,#pts-2,2 do
+        local a=math.max(1,k-2); local b=math.min(#pts-1,k+4)
+        for step=0,7 do
+          local t=step/8
+          for axis=0,1 do
+            local p0,p1,p2,p3=pts[a+axis],pts[k+axis],pts[k+2+axis],pts[b+axis]
+            smooth[#smooth+1]=.5*((2*p1)+(-p0+p2)*t+(2*p0-5*p1+4*p2-p3)*t*t+(-p0+3*p1-3*p2+p3)*t*t*t)
+          end
+        end
+      end
+      smooth[#smooth+1]=pts[#pts-1]; smooth[#smooth+1]=pts[#pts]
+      lg.line(smooth)
     end
   end)
   -- The coastline itself.
@@ -707,7 +764,19 @@ local function drawRiver(city, cam)
         local sx, sy = cam:toScreen(p.x[i] + p.nx[i] * off, p.y[i] + p.ny[i] * off)
         pts[#pts + 1], pts[#pts + 2] = sx, sy
       end
-      lg.line(pts)
+      local smooth={}
+      for k=1,#pts-2,2 do
+        local a=math.max(1,k-2); local b=math.min(#pts-1,k+4)
+        for step=0,7 do
+          local t=step/8
+          for axis=0,1 do
+            local p0,p1,p2,p3=pts[a+axis],pts[k+axis],pts[k+2+axis],pts[b+axis]
+            smooth[#smooth+1]=.5*((2*p1)+(-p0+p2)*t+(2*p0-5*p1+4*p2-p3)*t*t+(-p0+3*p1-3*p2+p3)*t*t*t)
+          end
+        end
+      end
+      smooth[#smooth+1]=pts[#pts-1]; smooth[#smooth+1]=pts[#pts]
+      lg.line(smooth)
     end
     end
     end
@@ -727,7 +796,7 @@ local function drawSeams(city, cam, state)
       -- Surveyors report on ground the company has not bought yet, which is the
       -- whole reason to have them: you can see what a district holds before you
       -- write the cheque.
-      if d and (d.owned or (city.orders or {}).surveyors) then
+      if d and city:districtVisible(d) and (d.owned or (city.orders or {}).surveyors) then
         -- A deposit is the only place its trade can be taken out of the
         -- ground, so it is drawn in that trade's own colour and says which
         -- trade it is. The ring is the ground a works has to stand on.
@@ -761,8 +830,10 @@ local function edgeInGrid(e,grid)
   return false
 end
 
-local PASSENGER={stop=true,station=true,resort=true}
+local PASSENGER={stop=true,station=true,resort=true,intersection=true,roundabout=true,interchange=true}
 local function nodeInGrid(city,n,grid)
+  if grid=="people" and City.TRANSIT_NODES[n.kind] then return true end
+  for key in pairs(n.demands or {}) do if Graph.gridOf(key)==grid then return true end end
   if n.commodity then return Graph.gridOf(n.commodity)==grid end
   if n.makes and Graph.gridOf(n.makes)==grid then return true end
   for name in pairs(n.wants or {}) do if Graph.gridOf(name)==grid then return true end end
@@ -786,31 +857,53 @@ local function dashes(ax, ay, bx, by, on, off)
   end
 end
 
--- The people network, drawn apart from freight three ways over: a road is a
--- dark carriageway with a dashed centre line, a bus route a row of dots beside
--- its road, a ferry a dashed crossing, and an airline a dashed arc lifted off
--- the ground, because nothing on the way matters to a plane.
+-- A bus service highlights its existing road path; it never draws another road.
+function Draw.linkSegments(cam,city,l)
+  local parts={}
+  if l.mode=='bus' then
+    for _,road in ipairs(city:roadPath(l.a,l.b,'bus') or {}) do
+      parts[#parts+1]={Draw.linkPoints(cam,city,road)}
+    end
+  else
+    parts[1]={Draw.linkPoints(cam,city,l)}
+  end
+  return parts
+end
 local function drawLinks(city, cam, state)
   local byLink = (city.transit or {}).byLink or {}
   for _, l in ipairs(city.links or {}) do
     local na, nb = city.g.nodes[l.a], city.g.nodes[l.b]
-    if l.alive and not state.filter and cam:seesBox(math.min(na.x, nb.x), math.min(na.y, nb.y),
-        math.max(na.x, nb.x), math.max(na.y, nb.y)) then
+    if l.alive and not state.filter and (l.mode=="bus" or cam:seesBox(math.min(na.x, nb.x), math.min(na.y, nb.y),
+        math.max(na.x, nb.x), math.max(na.y, nb.y))) then
       fading(not state.people and state.link ~= l.id and state.hoverLink ~= l.id)
-      local ax, ay, bx, by = Draw.linkPoints(cam, city, l)
+      for _,part in ipairs(Draw.linkSegments(cam,city,l)) do
+      local ax, ay, bx, by = part[1],part[2],part[3],part[4]
       local hot = state.link == l.id or state.hoverLink == l.id
       local trips = (byLink[l.id] or {}).trips or 0
       local w = math.max(2, 5 * cam.scale)
-      if l.mode~="air" then segments[#segments+1]={ax=ax,ay=ay,bx=bx,by=by,pad=w+3} end
+      if l.mode~="air" and l.mode~="bus" then segments[#segments+1]={ax=ax,ay=ay,bx=bx,by=by,pad=w+3} end
       if hot then
         lg.setColor(P.with(P.text, 0.6)); lg.setLineWidth(w + 6)
         lg.line(ax, ay, bx, by)
       end
       if l.mode == "road" then
-        lg.setColor(0.30, 0.31, 0.34, 0.95); lg.setLineWidth(w + 2)
+        lg.setColor(City.ROAD_TYPES[l.roadType or "road"].colour); lg.setLineWidth(w + (l.roadType=="highway" and 5 or 2))
         lg.line(ax, ay, bx, by)
         lg.setColor(P.with(P.energy, 0.85)); lg.setLineWidth(math.max(1, 1.4 * cam.scale))
         dashes(ax, ay, bx, by, math.max(4, 12 * cam.scale), math.max(4, 10 * cam.scale))
+        local rec=byLink[l.id] or {}
+        for i,kind in ipairs({"car","truck","bus"}) do
+          if (rec[kind] or 0)>0 then
+            local t=(R.t*0.15+l.id*0.17+i*0.23)%1
+            local vx,vy=ax+(bx-ax)*t,ay+(by-ay)*t
+            local size=math.max(2,3*cam.scale)
+            lg.setColor(kind=="bus" and P.energy or kind=="truck" and P.good or P.flow)
+            lg.rectangle("fill",vx-size,vy-size,size*(kind=="car" and 2 or 4),size*2)
+            if kind=="truck" then
+              lg.setColor(P.bg); lg.rectangle("fill",vx+size,vy-size,math.max(1,cam.scale),size*2)
+            end
+          end
+        end
       else
         local spec = City.ROUTES[l.mode]
         lg.setColor(P.with(spec.colour, 0.9)); lg.setLineWidth(math.max(1.4, 2.2 * cam.scale))
@@ -818,7 +911,7 @@ local function drawLinks(city, cam, state)
           local dx, dy = bx - ax, by - ay
           local len = math.max(1, math.sqrt(dx * dx + dy * dy))
           local dot = math.max(1.5, 2.4 * cam.scale)
-          for d = 0, len, math.max(8, 18 * cam.scale) do
+          for d = 0, (hot and len or -1), math.max(8, 18 * cam.scale) do
             local t = d / len
             lg.rectangle("fill", ax + dx * t - dot, ay + dy * t - dot, dot * 2, dot * 2)
           end
@@ -843,6 +936,7 @@ local function drawLinks(city, cam, state)
         label(string.format("$%d  /  %d trips", price or 0, trips), (ax + bx) / 2, (ay + by) / 2 - 20,
           trips > 0 and P.textDim or P.textFaint, R.fonts.tiny)
       end
+      end -- physical road segments, or the ferry/air service geometry
       fading(false)
     end
   end
@@ -881,7 +975,7 @@ function Draw.world(city, cam, state)
   end
 
   for _, o in ipairs(city.obstacles) do
-    if cam:sees(o.x, o.y, o.r * cam.scale + 60) then
+    if city:districtVisible(city:districtAt(o.x,o.y) or {}) and cam:sees(o.x, o.y, o.r * cam.scale + 60) then
     local spec = City.OBSTACLES[o.kind]
     local x, y = cam:toScreen(o.x, o.y)
     local r = o.r * cam.scale
@@ -966,7 +1060,10 @@ function Draw.world(city, cam, state)
         local nx,ny = -dy/len, dx/len
         local wide = math.max(2, 3.4*cam.scale)
         lg.setColor(P.with(mode.colour,0.9)); lg.setLineWidth(wide)
-        lg.line(ax,ay,bx,by)
+        if e.bulk=="highway" then
+          lg.setColor(P.with(mode.colour,0.35)); lg.setLineWidth(1)
+          dashes(ax,ay,bx,by,4,9)
+        else lg.line(ax,ay,bx,by) end
         if e.bulk == "rail" or not e.bulk then
           lg.setColor(P.with(P.textFaint,0.6)); lg.setLineWidth(math.max(1,1.4*cam.scale))
           local step = math.max(9,16*cam.scale)
@@ -988,7 +1085,7 @@ function Draw.world(city, cam, state)
           end
         end
         if #loaded == 0 and e.commodity then loaded[1] = e.commodity end
-        for i,name in ipairs(loaded) do
+        for i,name in ipairs(e.bulk=="highway" and {} or loaded) do
           local off = (i - (#loaded+1)/2) * math.max(1.6, 2.6*cam.scale)
           lg.setColor(P.with(Graph.COMMODITIES[name].color,0.95))
           lg.setLineWidth(math.max(1,1.8*cam.scale))
@@ -1019,7 +1116,7 @@ function Draw.world(city, cam, state)
         if grade > 2 then lg.line(ax-nx,ay-ny,bx-nx,by-ny) end
       end
       local flow = city.detail.edge[e.id] or 0
-      if flow ~= 0 then
+      if flow ~= 0 and e.bulk~="highway" and not e.goodsRoad then
         local count = math.min(12,math.ceil(math.abs(flow)))
         for i=1,count do
           local t = (R.t*0.22+i/count)%1
@@ -1036,7 +1133,7 @@ function Draw.world(city, cam, state)
       if e.unboosted then
         label("NO BOOSTER",(ax+bx)/2,(ay+by)/2-22,P.bad,R.fonts.tiny)
       elseif e.leaking or state.edge == e.id or state.hoverEdge == e.id or state.bottlenecks then
-        label(string.format("%.1f/%d",math.abs(flow),e.effectiveCap or e.cap)..(e.voltage and ("  "..City.INFRA.voltages[e.voltage].kv.." kV") or ""),(ax+bx)/2,(ay+by)/2-22,e.leaking and P.bad or P.textDim,R.fonts.tiny)
+        label((e.commodity=="power" and (city:quantity("power",math.abs(flow)).." / "..city:quantity("power",e.effectiveCap or e.cap)) or (city:quantity(e.commodity,math.abs(flow)).." / "..city:quantity(e.commodity,e.effectiveCap or e.cap)))..(e.voltage and ("  "..City.INFRA.voltages[e.voltage].kv.." kV") or ""),(ax+bx)/2,(ay+by)/2-22,e.leaking and P.bad or P.textDim,R.fonts.tiny)
       end
       fading(false)
     end
@@ -1045,7 +1142,7 @@ function Draw.world(city, cam, state)
   drawLinks(city, cam, state)
 
   for _, n in ipairs(city.g:aliveNodes()) do
-    if (not state.filter or not n.commodity or n.commodity==state.filter)
+    if (not state.filter or not n.commodity or n.commodity==state.filter or (n.demands and n.demands[state.filter]))
        and cam:sees(n.x, n.y, 90) then
     fading(state.node ~= n.id and state.hoverNode ~= n.id and not nodeInGrid(city,n,grid))
     local x,y = cam:toScreen(n.x,n.y)
@@ -1065,12 +1162,12 @@ function Draw.world(city, cam, state)
     local color = spec and spec.color or Graph.KINDS[n.kind].color
     local served = city.served[n.id] or 0
     if n.prospect then color = P.textDim end
-    local supplied = not n.prospect and served >= (n.demand or 0)
+    local supplied = not n.prospect and (n.kind=="client" and city:fullyServed(n) or n.kind~="client" and served >= (n.demand or 0))
     if state.node == n.id or state.hoverNode == n.id then
       lg.setColor(P.text); lg.setLineWidth(math.max(1, r * 0.09))
       lg.circle("line", x, y, r + math.max(4, r * 0.5))
     end
-    if n.kind == "client" and not n.prospect and served < n.demand then
+    if n.kind == "client" and not n.prospect and not city:fullyServed(n) then
       lg.setColor(P.with(n.grace == 1 and P.bad or P.warn,0.65))
       lg.setLineWidth(math.max(1.3, r * 0.13))
       lg.arc("line","open",x,y,r + math.max(3, r * 0.3),
@@ -1084,10 +1181,11 @@ function Draw.world(city, cam, state)
     if n.kind == "client" then
       lg.setColor(color)
       Draw.clientGlyph(n.clientType, x, y + r * 0.06, r / 15)
-      if r>=7.5 and (focused or (not n.prospect and (n.supplyClosed or served<n.demand))) then
+      if r>=7.5 and (focused or (not n.prospect and (n.supplyClosed or not city:fullyServed(n)))) then
         local title = n.prospect and "OFFER" or n.supplyClosed and "SHUT"
-          or string.format("%d/%d",served,n.demand)
-        label(title,x,y+r*1.5+8,n.prospect and P.energy or (served>=n.demand and P.good or P.warn))
+          or n.demands and n.demands.water and n.demands.power and (city:fullyServed(n) and "Water + electricity supplied" or "Water / electricity short")
+          or city:quantity(n.commodity,served).." / "..city:quantity(n.commodity,n.demand)
+        label(title,x,y+r*1.5+8,n.prospect and P.energy or (city:fullyServed(n) and P.good or P.warn))
       end
       if focused then
         local premium = city:ratePremium(n)
@@ -1207,8 +1305,11 @@ function Draw.world(city, cam, state)
         local rec = (((city.transit or {}).byNode) or {})[n.id]
         if named and rec and rec.boarded then label(rec.boarded .. " boarded", x, y+r*1.5+8, P.textDim) end
       elseif n.kind == "depot" then
+        local fill=math.min(1,(n.stored or 0)/(n.capacityStore or City.depotCapacity))
+        lg.setColor(P.panelEdge); lg.rectangle("fill",x-r,y+r+4,r*2,4)
+        lg.setColor(Graph.COMMODITIES[n.commodity or "water"].color); lg.rectangle("fill",x-r,y+r+4,r*2*fill,4)
         if named then
-          label((n.stored or 0) .. "/" .. (n.capacityStore or City.depotCapacity), x, y+r*1.5+8,
+          label(city:quantity(n.commodity,n.stored or 0), x, y+r*1.5+8,
             (n.stored or 0) > 0 and P.good or P.textDim)
         end
       end

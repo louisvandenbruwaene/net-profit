@@ -221,7 +221,7 @@ function Walk.start(app,mode)
   check(app.camera().x~=x,"left drag on empty ground actually pans")
   love.keypressed("f")
   local e=c.g.edges[1]
-  e.leaking=true; e.cap=1; c:refresh()
+  e.leaking=true; e.cap=1; c.money=c.money+c:repairCost(e); c:refresh()
   app.action("focusEdge",e.id)
   love.draw()
   click("repair")
@@ -464,6 +464,7 @@ function Walk.start(app,mode)
     -- Rail is steel by the kilometre, and the yards are empty on day three.
     check(select(2,c:layPipe(t.id,j.id,"water",2,true)):find("yards hold")~=nil,
       "a railway cannot be built out of nothing")
+    assert(c:layLink(t.id,j.id,"road"))
     local road=assert(c:layPipe(t.id,j.id,"water",1,"highway"))
     check(road.bulk=="highway","but a highway is tarmac, and needs none")
     assert(c:demolishPipe(road.id))
@@ -615,8 +616,11 @@ function Walk.start(app,mode)
       if hub then break end
       hub=c:build(well.x+off[1],well.y+off[2],"manifold")
     end
-    check(hub~=nil,"there is room beside the well for a manifold")
-    n.x,n.y=hub.x+120,hub.y+40
+    for _,off in ipairs({{120,40},{120,-40},{-120,40},{-120,-40},{40,120},{-40,120},{40,-120},{-40,-120}}) do
+      if not select(2,c:crossingCost(hub.x,hub.y,hub.x+off[1],hub.y+off[2])) then
+        n.x,n.y=hub.x+off[1],hub.y+off[2]; break
+      end
+    end
     c:refresh()
     if not c:pipeBetween(well.id,hub.id,"water") then
       assert(c:layPipe(well.id,hub.id,"water","large"))
@@ -686,7 +690,12 @@ function Walk.start(app,mode)
     click("people")
     check(app.state.people and app.state.transit=="road","People selects passenger construction")
     check(not anywhere("line-options") and not anywhere("tool-junction"),"People hides pipes and fittings")
-    check(anywhere("tool-stop"),"a stop is offered once people live here")
+    check(anywhere("tool-stop"),"a bus stop is offered once people live here")
+    check(anywhere("road-type-offroad") and anywhere("road-type-road") and anywhere("road-type-highway"),"all three road variants have controls")
+    click("road-type-highway"); check(c.buildRoadType=="highway","highway construction can be selected")
+    click("road-type-offroad"); check(c.buildRoadType=="offroad","offroad construction can be selected")
+    click("road-type-road")
+    check(anywhere("tool-intersection") and anywhere("tool-roundabout") and anywhere("tool-interchange"),"each road junction has a build control")
     check(not anywhere("tool-resort"),"a resort is not, before anybody rides a route")
     capture("net-profit-32-people-tools",app,1100,700)
     local function spot(d)
@@ -715,14 +724,30 @@ function Walk.start(app,mode)
       love.mousemoved(tx,ty,tx-sx,ty-sy)
       love.mousereleased(tx,ty,1)
     end
+    local houseA=assert(c:addClient("house",false,home))
+    local houseB=assert(c:addClient("house",false,west))
+    houseA.x,houseA.y=spot(home); houseB.x,houseB.y=spot(west)
+    c:refresh()
+    cam:centerOn((houseA.x+houseB.x)/2,(houseA.y+houseB.y)/2)
+    app.state.tool="stop"; app.state.filter="power"
+    click("road-type-offroad")
+    check(not app.state.tool and not app.state.filter,"choosing offroad clears placement tools and utility filters")
+    drag(houseA,houseB)
+    local offroad=c.links[#c.links]
+    check(offroad.alive and offroad.roadType=="offroad" and offroad.a==houseA.id and offroad.b==houseB.id,
+      "real mouse dragging connects two houses directly with an offroad")
+    check(c:roadPath(houseA.id,houseB.id,"car") and not c:roadPath(houseA.id,houseB.id,"truck"),
+      "the house-to-house offroad carries cars")
+    capture("net-profit-house-offroad",app,1100,700)
+    love.keypressed("delete")
+    app.state.node,app.state.edge,app.state.link=nil,nil,nil
+    click("road-type-road")
+    cam:centerOn((ax+bx)/2,(ay+by)/2)
     drag(stops[1],stops[2])
     local road=c.links[#c.links]
     check(road and road.mode=="road" and road.alive,"dragging between the stops lays a road")
     check(app.state.link==road.id,"and opens the road's own panel")
-    click("link-price-up")
-    check(road.toll==2,"its toll is set from that panel")
-    click("link-price-down")
-    check(c.transit.carried>0,"drivers use it the moment it is open")
+    check(road.toll==0,"normal roads are free to use")
     click("back-to-build")
     click("transit-bus")
     drag(stops[1],stops[2])
@@ -730,6 +755,18 @@ function Walk.start(app,mode)
     check(bus.mode=="bus" and bus.alive,"with Bus picked up, the same drag opens a bus route")
     click("vehicle-up")
     check(bus.vehicles==2,"a second bus is added from the route panel")
+    app.action("focusNode",stops[1].id)
+    click("stop-bus-"..bus.id)
+    check(app.state.link==bus.id,"bus services are inspected from boarding stops")
+    assert(c:demolishLink(road.id))
+    local bend=c.g:addNode((stops[1].x+stops[2].x)/2,(stops[1].y+stops[2].y)/2+100,"roundabout")
+    local shared=assert(c:layLink(stops[1].id,bend.id,"road"))
+    assert(c:layLink(bend.id,stops[2].id,"road"))
+    local Draw=require("company_render")
+    local parts=Draw.linkSegments(cam,c,bus)
+    local expected={Draw.linkPoints(cam,c,shared)}
+    check(#parts==2 and parts[1][1]==expected[1] and parts[1][2]==expected[2],"bus highlights follow the same road geometry as cars")
+    capture("net-profit-shared-bus-roads",app,1100,700)
     love.keypressed("delete")
     check(not bus.alive,"delete lifts the selected route")
     app.state.link=nil; app.state.node=nil
@@ -770,7 +807,10 @@ function Walk.start(app,mode)
   click("tab-network")
   click("tab-finance")
   capture("net-profit-test-compact",app,1100,700)
-  if mode=="--smoke" then require("infrastructure_walkthrough")(app,capture,click,scrollTo,check) end
+  if mode=="--smoke" then
+    require("infrastructure_walkthrough")(app,capture,click,scrollTo,check)
+    require("ideas_walkthrough")(app,capture,click,scrollTo,check)
+  end
 end
 
 function Walk.update(app,mode,frame)
@@ -964,7 +1004,7 @@ function Walk.update(app,mode,frame)
         cl.x,cl.y=hub.x+math.cos(a)*(300+(i%3)*140),hub.y+math.sin(a)*(240+(i%2)*150)
         cl.demand=i%3==0 and 5 or 3
       end
-      assert(c:layPipe(src.id,hub.id,"water",18))
+      assert(c:layPipe(src.id,hub.id,"water","large"))
       c:refresh()
       app.state.modal=nil; app.state.tab="network"; app.state.scroll=0
       app.action("focusNode",hub.id)
@@ -1029,11 +1069,11 @@ function Walk.update(app,mode,frame)
           for _=1,10 do
             local n=c.g.nodes[from]
             local far=math.sqrt((n.x-mill.x)^2+(n.y-mill.y)^2)
-            if far<=300 then assert(c:layPipe(from,mill.id,"water",24)); break end
+            if far<=300 then assert(c:layPipe(from,mill.id,"water","large")); break end
             local j=assert(c:build(n.x+(mill.x-n.x)/far*280,n.y+(mill.y-n.y)/far*280,"junction"))
-            assert(c:layPipe(from,j.id,"water",24)); from=j.id
+            assert(c:layPipe(from,j.id,"water","large")); from=j.id
           end
-          assert(c:layPipe(mill.id,brew.id,"water",22))
+          assert(c:layPipe(mill.id,brew.id,"water","large"))
         end
         local hub=assert(c:build(brew.x+250,brew.y+40,"exchange"))
         assert(c:layPipe(brew.id,hub.id,"beer","large"))

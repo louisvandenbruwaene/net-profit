@@ -40,6 +40,7 @@ test:
 	@$(LUA) test/test_save_location.lua
 	@$(LUA) test/test_save_failures.lua
 	@$(LUA) test/test_infrastructure.lua
+	@$(LUA) test/test_ideas.lua
 
 # What an endless map costs to solve. Kept out of `test` because it is a timing
 # measurement and a loaded machine is not a regression, but watched in CI.
@@ -78,7 +79,7 @@ export: dist
 	@mkdir -p dist/portable/assets
 	@cp dist/net-profit.love dist/portable/net-profit.love
 	@cp README.md install-linux.sh dist/portable/
-	@cp assets/net-profit.svg dist/portable/assets/
+	@cp assets/net-profit.png dist/portable/assets/
 	@cd dist/portable && zip -9 -r ../net-profit-portable.zip . >/dev/null
 	@echo "dist/net-profit-portable.zip (game + installer)"
 	@echo "dist/net-profit.bundle (committed source + Git history)"

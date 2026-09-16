@@ -28,7 +28,7 @@ function Save.pack(city)
        and k ~= "flowBy" and k ~= "produced" and k ~= "producedBy" and k ~= "spare"
        and k ~= "wellSpare" and k ~= "capacityBy" and k ~= "unserved"
        and k ~= "adoptedFrom" and k ~= "cellIndex" and k ~= "cellRng" and k ~= "transit"
-       and k ~= "edgeFlowBy" and k ~= "oilSpills" then
+       and k ~= "servedBy" and k ~= "edgeFlowBy" and k ~= "oilSpills" then
       data[k] = v
     end
   end

@@ -27,16 +27,16 @@ do
   local spring
   for _,d in ipairs(c.deposits) do if d.opening then spring=d end end
   local well=assert(c:buySource('water',spring.x,spring.y))
-  check(well.ports==2,'a newly sunk well has two outlets')
+  check(well.ports==1,'a newly sunk well has one outlet')
   local filter=assert(c:build(well.x+70,well.y,'filtration'))
   local main=assert(c:layPipe(well.id,filter.id,'water','large'))
   check(filter.ports==2,'filtration has two connections')
   local split=assert(c:build(filter.x+70,filter.y,'junction'))
   local pipe=assert(c:layPipe(filter.id,split.id,'water','large'))
-  check(pipe.filtered and main.filtered,'new mains joined to treatment remember filtration')
+  check(pipe.filtered and not main.filtered,'only downstream mains receive filtration')
   local raw={a=pipe.a,b=pipe.b,cap=25,capMax=25,size='large',commodity='water',grade=1}
   check(c:leakChance(pipe)<c:leakChance(raw),'treated mains calcify less')
-  check(c:pipeError(well.id,split.id,'water')==nil,'a well can now acquire a second outlet')
+  check(c:pipeError(well.id,split.id,'water')~=nil,'a well cannot acquire a second outlet')
   check(Graph.KINDS.junction.ports==3 and Graph.KINDS.manifold.ports==6,'T splits and pipe hubs retain distinct connections')
   local _,bar=c:waterRating(pipe)
   check(bar>2 and bar<4,'ordinary pipe pressure is in a plausible service range')
@@ -45,7 +45,7 @@ do
   local _,boost=c:waterRating(boosted)
   check(boost>bar and c:rangeBetween(split.id,pump.id,nil,'water')>City.rules.linkRange,'pumps increase pressure and reach')
   local restored=assert(Save.unpack(Save.pack(c)))
-  check(restored.g.nodes[well.id].ports==2 and restored.g.edges[pipe.id].filtered,'fittings and treatment survive saving')
+  check(restored.g.nodes[well.id].ports==1 and restored.g.edges[pipe.id].filtered,'fittings and treatment survive saving')
 end
 -- Binders consume source supply once; duplicate routes do not create water.
 do
@@ -77,7 +77,7 @@ end
 do
   local c=city()
   check(c:build(1320,1050,'hvtower') and c:build(1550,1050,'pylon') and c:build(1700,1050,'pole'),'all three power towers can be built')
-  check(not c:build(1450,1200,'transformer'),'a transformer is a tower upgrade, not a building')
+  check(c:build(1450,1200,'transformer'),'standalone transformers are available')
 end
 -- Power steps down through towers, and customers hang off transformer towers.
 do
@@ -124,8 +124,8 @@ end
 do
   local c=city()
   local V=City.INFRA.voltages
-  check(V.high.span==300 and V.medium.span==100 and V.low.span==50,'a tower every 300, 100 and 50 m')
-  check(V.high.boost==2500 and V.medium.boost==500 and V.low.boost==100,'a booster every 2500, 500 and 100 m')
+  check(V.high.span==300 and V.medium.span==200 and V.low.span==150,'a tower every 300, 200 and 150 m')
+  check(V.high.boost==2500 and V.medium.boost==1000 and V.low.boost==300,'a booster every 2500, 1000 and 300 m')
   for kind,voltage in pairs({hvtower='high',pylon='medium',pole='low'}) do
     local a=node(c,kind,1250,1050)
     local b=node(c,kind,1250+V[voltage].span+1,1050)
@@ -146,16 +146,16 @@ do
   local hvs,ninth=chain('hvtower',gen,1190,8,300)
   check(c:pipeError(hvs[8].id,ninth.id,'power'):find('booster'),'high voltage runs 2500 m from its generator, then needs a booster')
   local root=node(c,'hvtower',1250,1120); root.upgrade='transformer'; root.ports=6
-  local towers,sixth=chain('pylon',root,1120,5,100)
-  check(c:pipeError(towers[5].id,sixth.id,'power'):find('booster'),'medium voltage needs a booster after 500 m')
+  local towers,sixth=chain('pylon',root,1120,5,200)
+  check(c:pipeError(towers[5].id,sixth.id,'power'):find('booster'),'medium voltage needs a booster after 1000 m')
   assert(c:upgradeTower(towers[3].id,'booster'))
   check(c:pipeError(towers[5].id,sixth.id,'power')==nil,'a booster restarts the booster distance')
   local last=assert(c:layPipe(towers[5].id,sixth.id,'power','large'))
   towers[3].upgrade=nil; c:refresh()
-  check(last.unboosted and last.effectiveCap==0,'without its booster the cable beyond 500 m carries nothing')
+  check(last.unboosted and last.effectiveCap==0,'without its booster the cable beyond 1000 m carries nothing')
   local poleRoot=node(c,'pole',1250,1260); poleRoot.upgrade='transformer'; poleRoot.ports=6
-  local poles,third=chain('pole',poleRoot,1260,2,50)
-  check(c:pipeError(poles[2].id,third.id,'power'):find('booster'),'low voltage needs a booster after 100 m')
+  local poles,third=chain('pole',poleRoot,1260,2,150)
+  check(c:pipeError(poles[2].id,third.id,'power'):find('booster'),'low voltage needs a booster after 300 m')
   local far=node(c,'hvtower',1250+2500,1330)
   local _,_,_,loss=c:powerRating({a=gen.id,b=far.id,cap=25,capMax=25,size='large',voltage='high'})
   check(loss<0.05,'a 2.5 km transmission line loses only a few percent')

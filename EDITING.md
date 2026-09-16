@@ -25,3 +25,7 @@ Run `make test` after an edit. Some tests deliberately assert the current balanc
 Colours live in `src/palette.lua` and commodity colours in `src/graph.lua`. Much of the current map art is drawn procedurally in `src/company_render.lua`; there is no individual building PNG to replace yet. This is one reason an engine migration should include reusable building scenes with external textures.
 
 These files cover common balance edits, not every game rule. Adding an entirely new mechanic still needs simulation and interface changes. World generation settings remain in `src/city.lua`, and goals and presentation helpers live in `src/experience.lua`.
+
+## September requirements
+
+See [IDEAS-IMPLEMENTATION.md](IDEAS-IMPLEMENTATION.md) for the new rules and their controls. Staffing, daily land offers, saltwater validation and migration are in `src/ideas.lua`. Temporary autoplay is in `src/autoplay.lua`; its regression tests use isolated companies. The primary app logo is `assets/net-profit.png`; `assets/net-profit.icns` must be an actual macOS icon container, not a renamed PNG.
