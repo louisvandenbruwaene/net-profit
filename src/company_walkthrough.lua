@@ -329,6 +329,8 @@ function Walk.start(app,mode)
     for _,e in ipairs(c.g.edges) do if e.alive then e.leaking=true; e.cap=1 end end
     c:refresh()
     app.state.node,app.state.edge=nil,nil
+    love.draw()
+    capture("net-profit-header-repair",app,1100,700)
     click("repair-all")
     local open=0
     for _,e in ipairs(c.g.edges) do if e.alive and e.leaking then open=open+1 end end
