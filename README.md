@@ -82,8 +82,10 @@ Click land on the map to view it or buy it. Use the wheel to zoom and drag to pa
 **Show all** centres the view and zooms to show your buildings.
 
 Declining a request costs 1 reputation. Letting it expire costs 2.
-Requests grow with reputation: up to 10 per day at 100%, if there is room for them.
-The opening still brings at most one per day. Requests expire after five days.
+Every close where all signed customers are fully supplied adds 2 reputation. Losing a customer costs 12.
+Requests grow with reputation: one a day up to 66%, rising in even steps to four a day at 100%, if there is room for them.
+While the limit is one, odd days always bring a request and even days usually do. The first close always leaves a new house one pipe from your T split.
+Requests expire after five days.
 
 ## Controls
 
@@ -178,7 +180,7 @@ closing a day is final.
   further out it lies. Every natural deposit has a daily ceiling no amount of
   deepening passes, and the ceiling rises with distance, so more supply always
   means more map.
-- **Hubs.** A hub serves everyone inside 700m who pays at least the rate you set,
+- **Area hubs.** An area hub serves everyone inside 700m who pays at least the rate you set,
   with no main drawn to any of them and offers in range signing themselves. Raise
   the floor and the cheap houses drop off. When a hub is short, what it landed
   goes to the best payers first. Its feed widens itself at the usual price until
@@ -297,8 +299,9 @@ trunk is a standing liability and a garden stub is not.
   lowball house is worth refusing outright and a premium factory is worth
   rerouting the map for. Declining costs nothing. Offers expire after several
   days, and accepted customers have a visible patience clock.
-- **Cash:** customers pay for delivered units. Wells earn wholesale that scales
-  with their output. The expense line is itemised: office, wells, plant, mains,
+- **Cash:** customers pay for delivered units. A well earns wholesale only while
+  it supplies somebody: a flat fee plus a share of the water actually delivered.
+  An unconnected well is only an upkeep bill. The expense line is itemised: office, wells, plant, mains,
   crews, imports and loan interest.
 - **Failure:** a main has a daily chance to develop a leak. Once leaking it loses
   capacity every close until repaired. At zero it stays installed and repairable.

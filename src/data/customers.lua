@@ -2,8 +2,8 @@
 local Data = {}
 
 Data.CLIENTS = {
-  house   = { name = "HOUSE",   commodity = "water", demand = {2, 4}, rate = 4,  patience = 3, weight = 10 },
-  estate  = { name = "ESTATE",  commodity = "water", demand = {5, 7}, rate = 6,  patience = 2, weight = 3 },
+  house   = { name = "HOUSE",   commodity = "water", demand = {2, 4}, rate = 6,  patience = 3, weight = 10 },
+  estate  = { name = "ESTATE",  commodity = "water", demand = {5, 7}, rate = 8,  patience = 2, weight = 3 },
   workshop= { name = "WORKSHOP",commodity = "power", demand = {3, 5}, rate = 10, patience = 2, weight = 7 },
   -- A household on the electricity grid. It takes low voltage, so it hangs off
   -- a low voltage pole rather than a standard tower.

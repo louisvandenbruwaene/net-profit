@@ -43,6 +43,12 @@ return function(app,capture,click,scrollTo,check)
  click('water'); click('line-options')
  capture('net-profit-ideas-pipe-options',app,1100,700)
  click('line-options')
+ -- Brine is not offered to a company that has barely started.
+ love.draw(); local early=false
+ for _,b in ipairs(UI.buttons) do early=early or b.id=='purifier' or b.id=='seawater' end
+ check(not early and not c:unlocked('seawater'),'sea pump and purifier wait for the seawater unlock')
+ for _=1,City.UNLOCKS.seawater.clients do c:acceptClient(assert(c:addClient('house',true)).id) end
+ check(c:unlocked('seawater'),'enough customers open the seawater structures')
  scrollTo(app,'purifier'); click('purifier')
  check(app.state.tool=='works' and app.state.recipe=='purifier','purifier is beside the well controls')
  click('seawater'); check(app.state.commodity=='saltwater' and app.state.tool=='source','seawater pump tool is reachable from water')

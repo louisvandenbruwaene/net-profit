@@ -74,7 +74,10 @@ Data.rules = {
   qualityStep = 0.13,       -- each quality level removes this fraction
   adDays = 5,
   adBoost = 0.25,
-  arriveBase = 0.14,
+  -- The chance of a request on a day that is not already promised one, before
+  -- reputation adds its share. Odd days always bring one while the company is
+  -- small, so the player is never left two closes in a row with nothing to do.
+  arriveBase = 0.40,
   -- How much of the per metre bore charge survives the square root. Tuned so a
   -- capacity three stub costs about what it always did and a capacity thirty
   -- trunk costs a third of what it used to.
@@ -98,9 +101,14 @@ Data.rules = {
   investSdPerDay = 0.01,
   investSdRuin = 4,
   sourceIncome = 12,        -- wholesale, per well per day
-  repLoss = 8,
+  repLoss = 12,
   repDecline = 1,
   repIgnored = 2,
+  -- Earned at every close where every signed customer was fully supplied.
+  repGain = 2,
+  -- Requests a day at 100% reputation. The limit climbs in even steps from one
+  -- at 50% reputation, so the drip becomes a stream rather than a flood.
+  requestMax = 4,
   -- A well answers to a trunk main now, so the opening is a well, a junction,
   -- the trunk into it, a stub on to the first house, and still a little room:
   -- four purchases where there used to be two, not two purchases stretched.

@@ -2625,7 +2625,23 @@ function City:pickClientType(district)
   return pool[self:random(#pool)]
 end
 
-function City:addClient(kind, prospect, district)
+-- Where the day-one follow-up request should stand: beside a water fitting
+-- with a free connection, or beside the well itself.
+function City:openingAnchor()
+  local best
+  for _, n in ipairs(self.g:aliveNodes()) do
+    local fitting = n.kind == "junction" or n.kind == "manifold" or (n.kind == "source" and n.commodity == "water")
+    if fitting and (n.commodity == nil or n.commodity == "water") and self:connectionPorts(n.id) < (n.ports or 1)
+      and (not best or (best.kind == "source" and n.kind ~= "source")) then best = n end
+  end
+  return best
+end
+
+function City:addClient(kind, prospect, district, near)
+  if near then
+    district = self:districtAt(near.x, near.y)
+    if not (district and district.owned) then near, district = nil, nil end
+  end
   local owned = self:ownedDistricts()
   district = district or owned[self:random(#owned)]
   kind = kind or self:pickClientType(district)
@@ -2650,9 +2666,11 @@ function City:addClient(kind, prospect, district)
     anchor = { x = district.x + district.w / 2, y = district.y + district.h / 2 }
   end
   local reach = 260 + #self:clientList() * 45
-  for _ = 1, 160 do
+  if near then anchor = near end
+  for attempt = 1, 160 do
     local ang = self:random() * math.pi * 2
-    local r = self:rand(180, math.min(600, reach))
+    local r = near and attempt <= 120 and self:rand(110, math.min(220, City.rules.linkRange - 40))
+      or self:rand(180, math.min(600, reach))
     local x = math.max(70, math.min(self.bounds.w - 70, anchor.x + math.cos(ang) * r))
     local y = math.max(70, math.min(self.bounds.h - 70, anchor.y + math.sin(ang) * r * 0.78))
     if not self:placementError(x, y) then
@@ -2920,10 +2938,15 @@ function City:clientIncome(c)
   return math.floor((self.served[c.id] or 0) * c.rate * self:eventRate(c.commodity) + 0.5)
 end
 
+-- A well is paid for water somebody takes, not for water it could pump. The
+-- flat fee is the standing contract with the network, so a well nobody draws
+-- on earns nothing and is only an upkeep bill: customers are the business.
 function City:sourceIncome(n)
   if n.kind ~= "source" then return 0 end
+  local delivered = (self.produced or {})[n.id] or 0
+  if delivered <= 0 then return 0 end
   local trade = City.trade[n.commodity] or City.trade.water
-  return math.floor(trade.wholesale + (n.output or 0) * trade.wholesalePerUnit)
+  return math.floor(trade.wholesale + delivered * trade.wholesalePerUnit)
 end
 
 --------------------------------------------------------------------------------
@@ -3235,13 +3258,15 @@ function City:endDay()
     + (self.adDaysLeft>0 and City.rules.adBoost or 0)
   local count=0
   if limit>1 then
-    count=self.reputation>=100 and 10 or self:rand(math.max(1,math.ceil(limit*0.6)),limit)
-  elseif self:random()<chance or self.day%3==0 then count=1 end
-  if self.adDaysLeft>0 and limit>1 then count=math.min(10,count+2) end
+    count=self:random(limit-1,limit)
+  elseif self.day%2==1 or self:random()<chance then count=1 end
+  if self.adDaysLeft>0 then count=count+1 end
   report.arrivals={}
-  local room=math.max(0,math.max(4,limit*6)-#self:clientList(true))
-  for _=1,math.min(count,room) do
-    local c=self:addClient(nil,true)
+  local room=math.max(0,math.max(4,limit*3)-#self:clientList(true))
+  for i=1,math.min(count,room) do
+    -- The first close always leaves a second house within one pipe of the
+    -- network just built, so day two opens on something to connect.
+    local c=self.day==1 and i==1 and self:addClient("house",true,nil,self:openingAnchor()) or self:addClient(nil,true)
     if not c then break end
     local request={name=City.CLIENTS[c.clientType].name,x=c.x,y=c.y,id=c.id}
     report.arrivals[#report.arrivals+1]=request
@@ -3271,7 +3296,7 @@ function City:endDay()
   require("experience").close(self,report)
 
   if report.unhappy == 0 and #self:clientList() > 0 then
-    self.reputation = math.min(100, self.reputation + 1)
+    self.reputation = math.min(100, self.reputation + City.rules.repGain)
   end
 
   self.history[#self.history + 1] = {
@@ -3595,7 +3620,8 @@ end
 
 function City:requestLimit()
   local growth=math.max(0,math.min(1,(self.reputation-50)/50))
-  return math.floor(1+9*growth*growth)
+  local top=City.rules.requestMax
+  return math.min(top,1+math.floor((top-1)*growth+1e-9))
 end
 
 function City:declineClient(id)
@@ -3738,8 +3764,8 @@ City.LESSONS = {
     when = function(c) return c:licenceCount() > 1 end,
   },
   {
-    key = "hub", title = "Hubs",
-    body = "A hub serves nearby clients without separate pipes. Connect supply to it. Range: 700m.",
+    key = "hub", title = "Area hubs",
+    body = "An area hub serves nearby clients without separate pipes. Connect supply to it. Range: 700m.",
     when = function(c) return c:unlocked("hub") end,
   },
   {

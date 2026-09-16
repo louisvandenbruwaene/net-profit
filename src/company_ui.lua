@@ -139,7 +139,7 @@ local toolTips = {
   tower="Reduces nearby leaks by 55%. Range: 220m. Costs $2/day.",
   gate="2 pipe ports. Sets how much supply passes through. Costs $1/day.",
   depot="Stores spare supply. Releases it when needed. Costs $3/day.",
-  exchange="Serves clients within 700m. Accepts nearby requests. Needs a supply pipe. Can replace full feed pipes for you.",
+  exchange="Area hub. Serves clients within 700m. Accepts nearby requests. Needs a supply pipe. Can replace full feed pipes for you.",
   dc="Receives freight. Sends it through local pipes and roads.",
   terminal="Imports goods for a fee. Requires a freight route. Cannot import electricity.",
   stop="Buses board here. Attach to normal roads, then connect a bus route.",
@@ -1087,7 +1087,7 @@ local function buildPanel()
       Draw.structureGlyph(name,bx+17,by+24)
       -- The icon holds the left of the tile; the name and the price share
       -- what it leaves, centred in it rather than pushed against it.
-      text(({junction="T split",manifold="Hub",pump="Pump",filtration="Filter",hvtower="HV tower",pylon="Tower",pole="LV pole",transformer="Transformer",binder="Binder",lab="Env. lab",tower="Treat",gate="Valve",depot="Depot",exchange="Hub",terminal="Haven",dc="Yard",
+      text(({junction="T split",manifold="Hub",pump="Pump",filtration="Filter",hvtower="HV tower",pylon="Tower",pole="LV pole",transformer="Transformer",binder="Binder",lab="Env. lab",tower="Treat",gate="Valve",depot="Depot",exchange="Area hub",terminal="Haven",dc="Yard",
              stop="Bus stop",station="Station",resort="Resort",corner="Corner",intersection="Crossing",roundabout="Roundabout",interchange="Interchange"})[name],
         bx+32,by+8,"tiny",P.text,TILE_TEXT,"center")
       text("$"..City.price[name],bx+32,by+28,"small",P.textDim,TILE_TEXT,"center")
@@ -1096,7 +1096,7 @@ local function buildPanel()
   -- The sea pump and the purifier are structures like any other, so they are
   -- built from the same grid. Their marks are the water they handle: brine
   -- from the sea, and the same drop with the sparkle of having been cleaned.
-  if not state.people and (state.commodity=="water" or state.commodity=="saltwater") then
+  if not state.people and (state.commodity=="water" or state.commodity=="saltwater") and city:unlocked("seawater") then
     local extras={
       {id="seawater",name="Sea pump",mark="saltwater",price=1600,colour=Graph.COMMODITIES.saltwater.color,
        tip="Place on the sea near your coastline. Feed it through a filter and armoured saltwater main.",
@@ -1122,7 +1122,7 @@ local function buildPanel()
   y=y+math.ceil(math.max(shown,1)/3)*58+10
   -- What is not here yet, and what brings it.
   if advanced and not state.people then
-    for _,key in ipairs({"hub","haven","yard"}) do
+    for _,key in ipairs({"hub","seawater","haven","yard"}) do
       local hint=city:unlockHint(key)
       if hint then
         y=y+paragraph(City.UNLOCKS[key].name..": "..string.lower(hint),y,P.textFaint)+4
@@ -1872,7 +1872,7 @@ local function stats()
   local costs=city:expenseBreakdown()
   for _,v in ipairs({{"Office",costs.office},{"Sources",costs.sources},{"Buildings",costs.structures},
     {"Pipes",costs.pipes},{"Staff",costs.crews},{"Imports",costs.imports},{"Freight",costs.haulage},
-    {"Hubs",costs.hubs},{"Fuel",costs.fuel},{"Travel",costs.transit},{"Interest",costs.interest}}) do
+    {"Area hubs",costs.hubs},{"Fuel",costs.fuel},{"Travel",costs.transit},{"Interest",costs.interest}}) do
     if (v[2] or 0)>0 then row(v[1],string.format("$%.1f",v[2]),y); y=y+26 end
   end
   y=y+16
@@ -1931,7 +1931,10 @@ function UI.draw(c,s,action)
     if city:fullyServed(client) then supplied=supplied+1 end
   end
   local metrics={{"AVAILABLE CASH","$"..city.money,P.energy},
-    {"EST. PROFIT / DAY",string.format("$%+d",net),net>=0 and P.good or P.bad},
+    -- Before anything is built the only figure is the office rent, and a red
+    -- number is a poor first thing to show somebody who has not started yet.
+    #city.g:nodesOfKind("source")==0 and #clients==0 and {"EST. PROFIT / DAY","Not trading",P.textDim}
+      or {"EST. PROFIT / DAY",string.format("$%+d",net),net>=0 and P.good or P.bad},
     {"CUSTOMERS SUPPLIED",#clients==0 and "No contracts" or supplied.." / "..#clients,
       #clients==0 and P.textDim or supplied==#clients and P.good or P.warn}}
   local request=city:nextRequest()
@@ -1953,7 +1956,10 @@ function UI.draw(c,s,action)
       -- rate it is. Above is worth taking and below is not, so it is coloured
       -- that way, and an offer at the going rate stays plain.
       local tint=premium>0 and P.good or premium<0 and P.bad or nil
-      button("request-open",string.format("%+.0f%%",premium*100),x+dx,UI.HEAD_VALUE,bw,bh,
+      -- Who is asking, then how their price compares, so the button says what it opens.
+      local who=((City.CLIENTS[request.clientType] or {}).name or "REQUEST")
+      who=request.powerRequest and "Power" or who:sub(1,1)..who:sub(2):lower()
+      button("request-open",who.." "..string.format("%+.0f%%",premium*100),x+dx,UI.HEAD_VALUE,bw,bh,
         function() act("focusRequest",request.id) end,true,
         "Open this contract"..(request.powerRequest and " for electricity" or "")..
         ": the best offer on the table, "..string.format("%+.0f%%",premium*100)..
