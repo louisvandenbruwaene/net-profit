@@ -10,7 +10,22 @@ return function(app,capture,click,scrollTo,check)
  app.setTestCity(c)
  click('build-help'); check(app.state.buildHelp,'build instructions expand inline')
  click('build-help')
- -- One control on the request window: it opens the contract for the best offer.
+ -- One control on the request window, coloured by the offer on it: above the
+ -- going rate is worth taking, below it is not, and at it says nothing.
+ local P=require('palette')
+ do
+  local offer=c:nextRequest(); local rate=offer.rate
+  local function control()
+   love.draw()
+   for _,b in ipairs(UI.buttons) do if b.id=='request-open' then return b end end
+  end
+  offer.rate=rate*1.4
+  check(control().color==P.good,'an offer above the going rate reads green')
+  offer.rate=rate*0.6
+  check(control().color==P.bad,'and one below it reads red')
+  offer.rate=rate
+  check(control().color==nil and not control().active,'an offer at the going rate stays plain')
+ end
  local offer=c:nextRequest()
  click('request-open')
  check(app.state.node==offer.id,'the request control opens the contract for that house')
@@ -77,12 +92,16 @@ return function(app,capture,click,scrollTo,check)
   check(R.fonts[key]:getWidth('AVAILABLE CASH')==plain:getWidth('AVAILABLE CASH'),
     'letters are spaced by the typeface: '..key)
  end
- -- A header window with controls prints its figure clear of them.
+ -- A header window shows its figure whole, and the two that hold a decision
+ -- hold the same control, centred between the lines that bound the window.
  local UIm=require('company_ui')
- for _,value in ipairs({'3  $240','18  $12480','+140%','All sound'}) do
-  local font=R.fonts[UIm.headerFont(value,198,true)]
-  check(UIm.HEAD_VALUE+font:getHeight()<=UIm.HEAD_ROW,'header figure clears its controls: '..value)
-  check(font:getWidth(value)<=198,'header figure is not cut off: '..value)
+ for _,value in ipairs({'$94998','0 / 12','No contracts','All sound'}) do
+  check(SF.width(value,R.fonts[UIm.headerFont(value,198)])<=198,'header figure is not cut off: '..value)
  end
- check(UIm.headerFont('$1200',198,false)=='big','a window without controls keeps the large figure')
+ check(UIm.headerFont('$1200',198)=='big','a window with room keeps the large figure')
+ for _,width in ipairs({144,212,300}) do
+  local dx,bw,bh=UIm.headerButton(width)
+  check(UIm.HEAD_VALUE+bh<=UIm.HEAD_BAR,'the header control fits the bar at '..width)
+  check(math.abs((dx+bw/2)-(width/2-14))<0.01,'and is centred between its lines at '..width)
+ end
 end
