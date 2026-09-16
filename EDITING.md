@@ -16,7 +16,7 @@ Most everyday balance changes now live in `src/data/`. These files contain value
 
 For example, change `startMoney = 750` to `startMoney = 1000` in `economy.lua`. Restart with `make run` and create a company in an empty slot to try the new opening. An existing company's cash is saved, so changing starting money does not change its bank balance.
 
-To make households pay more, change the `house` entry's `rate = 4` in `customers.lua`. Newly generated households use the new value; existing customers retain their saved contracts. Built pipes retain purchased capacities and sources retain their saved output. Factory recipe rates and inputs are read from the definitions, so those changes also affect existing factories after restarting. Use a new company for a clean balance comparison.
+To make households pay more, change the `house` entry's `rate = 6` in `customers.lua`. Newly generated households use the new value; existing customers retain their saved contracts. Built pipes retain purchased capacities and sources retain their saved output. Factory recipe rates and inputs are read from the definitions, so those changes also affect existing factories after restarting. Use a new company for a clean balance comparison.
 
 In recipes, `inputs` are **per output unit**: crop farm output `rate = 12` with `water = 3` consumes 36 water per day at full production. Costs are dollars; probabilities such as `leakBase = 0.07` mean 7%. Keep pipe sizes in ascending capacity order and recipe chains acyclic. Keep existing keys such as `water`, `house` and `turbine`: rules and old saves use those identifiers.
 

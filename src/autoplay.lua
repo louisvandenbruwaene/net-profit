@@ -55,20 +55,28 @@ function A.step(city)
  if city.bankrupt then return city,'Company has stopped trading',true end
  local c=assert(Save.unpack(Save.pack(city)))
  if #c.g:nodesOfKind('source')==0 then
+  -- The marked opening spring first, then any other. Each attempt is its own
+  -- copy, so a plan that fails halfway leaves no stray well behind.
+  local springs={}
   for _,d in ipairs(c.deposits) do
    local land=c:districtAt(d.x,d.y)
-   if d.commodity=='water' and not d.taken and land and land.owned then
-    local well=c:buySource('water',d.x,d.y)
-    if well then
-     local target=c:clientList(true)[1]
-     local vx,vy=90,60
-     if target then local len=distance(well,target); vx=(target.x-well.x)/len*90; vy=(target.y-well.y)/len*90 end
-     local hub=c:build(well.x+vx,well.y+vy,'junction')
-     if hub and c:layPipe(well.id,hub.id,'water','large') then return c,'Built a well and distribution split' end
-     return city,'Saving for the opening network'
-    end
-   end
+   if d.commodity=='water' and not d.taken and land and land.owned then springs[#springs+1]=d end
   end
+  table.sort(springs,function(a,b) return (a.opening and 1 or 0)>(b.opening and 1 or 0) end)
+  local short=false
+  for _,d in ipairs(springs) do
+   local trial=assert(Save.unpack(Save.pack(c)))
+   local well=trial:buySource('water',d.x,d.y)
+   if well then
+    local target=trial:clientList(true)[1]
+    local vx,vy=90,60
+    if target then local len=distance(well,target); vx=(target.x-well.x)/len*90; vy=(target.y-well.y)/len*90 end
+    local hub=trial:build(well.x+vx,well.y+vy,'junction')
+    if hub and trial:layPipe(well.id,hub.id,'water','large') then return trial,'Built a well and distribution split' end
+   elseif c.money<c:sourceCost('water') then short=true end
+  end
+  if short then return city,'Not enough cash for a well; autoplay paused',true end
+  return city,'No buildable well site; autoplay paused',true
  end
  local _,broken=c:repairAllCost()
  if broken>0 then local r=c:repairAll(); if r and r.fixed>0 then return c,'Repaired '..r.fixed..' lines' end end
@@ -100,9 +108,12 @@ function A.step(city)
    if expanded then return expanded,'Built another well and distribution split' end
   end
  end
- if c.money>2000 then
+ -- A full T split is the usual reason a waiting request cannot be reached, and
+ -- turning it into a hub is cheap, so do it as soon as the cash allows.
+ if #requests>0 then
   for _,n in ipairs(c.g:nodesOfKind('junction')) do
-   if c:connectionPorts(n.id)>=n.ports and c:convertNode(n.id,'manifold','water') then return c,'Expanded distribution connections' end
+   if c:connectionPorts(n.id)>=n.ports and c.money>=c:convertCost(n.id,'manifold')+150
+     and c:convertNode(n.id,'manifold','water') then return c,'Expanded distribution connections' end
   end
  end
  if c.money>4000 and (#requests==0 or (c.spare.water or 0)<10) then
