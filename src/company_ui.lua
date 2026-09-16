@@ -13,6 +13,7 @@ local state, city, act, scroll, H, W
 
 local M   = 22           -- sidebar margin
 local CW  = 300          -- sidebar content width
+local TILE_TEXT = 64     -- a structure tile, less the icon on its left
 local TOP = 81         -- first content line, before scrolling
 local tooltipId,tooltipSince,tooltipX,tooltipY
 
@@ -146,6 +147,7 @@ local toolTips = {
   binder="Short attachment range. Allows two identical parallel pipes; expensive upgrades allow up to five.",
   lab="Cleans soil and water in this district and its eight neighbours. Costs $24/day.",
   resort="Requires a coast or riverbank. Visitors pay you. Costs $40/day per level.",
+  corner="2 road connections. Bends a road around what is in its way. Takes offroads and normal roads.",
 }
 
 local function towerTip(kind,rest)
@@ -156,7 +158,7 @@ toolTips.hvtower=towerTip("hvtower","Carries generator output across the map. A 
 toolTips.pylon=towerTip("pylon","With a transformer it feeds workshops, works and facilities, or steps down to poles.")
 toolTips.pole=towerTip("pole","With a transformer it feeds homes.")
 
-local TOOLS = {"junction","manifold","pump","filtration","hvtower","pylon","pole","transformer","binder","lab","gate","depot","exchange","terminal","dc","stop","station","resort","intersection","roundabout","interchange"}
+local TOOLS = {"junction","manifold","pump","filtration","hvtower","pylon","pole","transformer","binder","lab","gate","depot","exchange","terminal","dc","stop","station","resort","corner","intersection","roundabout","interchange"}
 
 -- Replacing a structure where it stands. The mains never come off, so this is
 -- the difference between buying three more ports and rebuilding a junction box
@@ -890,7 +892,7 @@ local function buildPanel()
         y=y+28+paragraph("Choose the maximum current the cable can safely carry. At the same voltage, more amperes means more capacity. Three-phase power = 1.732 x kV x A. Higher voltage delivers the same energy with lower current and less resistance loss; thicker conductors reduce that loss.",y+28)+12
       end
     end
-    text(state.commodity=="power" and "CABLE CURRENT RATING" or "MAIN",M,y,"small",P.textDim)
+    text(state.commodity=="power" and "CABLE CURRENT RATING" or (S.get(state.commodity).."  / day"),M,y,"small",P.textDim)
     y=y+18
     for i,spec in ipairs(City.PIPE_SIZES) do
       local bx=M+(i-1)*76
@@ -903,7 +905,7 @@ local function buildPanel()
     end
     y=y+36
     -- And the lining, which is fixed on the day it is laid.
-    text(state.commodity=="power" and "INSULATION" or "LINING",M,y,"small",P.textDim)
+    text(S.get("shield"),M,y,"small",P.textDim)
     y=y+18
     local have=city.lining or 1
     for g=1,#City.GRADES do
@@ -1023,11 +1025,6 @@ local function buildPanel()
       spec and spec.blurb or "Choose a freight mode and connect a haven to a depot yard.",false,P.good)
   end
   y=y+44
-  if state.commodity=="water" or state.commodity=="saltwater" then
-    button("purifier","Purification  $2600",M,y,174,32,function() state.tool="works"; state.recipe="purifier" end,city.money>=2600,"Saltwater in; equal clean water and salt out. Place on owned land.",state.tool=="works" and state.recipe=="purifier",P.good)
-    button("seawater",S.get("saltwater").." Sea pump",M+180,y,120,32,function() state.commodity="saltwater"; state.tool="source"; state.grade=math.max(3,state.grade or 1) end,true,"Sea pump, then filter, then armoured saltwater main")
-    y=y+40
-  end
   end -- commodity supply
   -- Supply and maintenance sit above the structures: how full each trade is and
   -- whether anything needs mending is checked far more often than a new building.
@@ -1045,7 +1042,9 @@ local function buildPanel()
     end
   end
   heading(state.people and "PASSENGER BUILDINGS" or "EVERYDAY STRUCTURES",y); y=y+24
-  local advanced=state.advanced==true
+  -- Every building the company has unlocked is on the panel. Hiding half of
+  -- them behind a toggle only made the player press the toggle.
+  local advanced=true
   -- Which tools exist yet. The first three are always there; the rest arrive
   -- when the company is the size where they are the obvious next move.
   local gate={tower="everyday",gate="everyday",depot="everyday",
@@ -1054,7 +1053,7 @@ local function buildPanel()
   local shown=0
   for i,name in ipairs(TOOLS) do
     local form=Graph.formOf(state.commodity)
-    local passenger=name=="stop" or name=="station" or name=="resort" or name=="intersection" or name=="roundabout" or name=="interchange"
+    local passenger=name=="stop" or name=="station" or name=="resort" or name=="corner" or name=="intersection" or name=="roundabout" or name=="interchange"
     local shared=name=="terminal" or name=="dc"
     local relevant
     if state.people then
@@ -1085,10 +1084,38 @@ local function buildPanel()
         afford,toolTips[name],state.tool==name,Graph.KINDS[name].color)
       lg.setColor(afford and Graph.KINDS[name].color or P.textFaint)
       Draw.structureGlyph(name,bx+17,by+24)
+      -- The icon holds the left of the tile; the name and the price share
+      -- what it leaves, centred in it rather than pushed against it.
       text(({junction="T split",manifold="Hub",pump="Pump",filtration="Filter",hvtower="HV tower",pylon="Tower",pole="LV pole",transformer="Transformer",binder="Binder",lab="Env. lab",tower="Treat",gate="Valve",depot="Depot",exchange="Hub",terminal="Haven",dc="Yard",
-             stop="Bus stop",station="Station",resort="Resort",intersection="Crossing",roundabout="Roundabout",interchange="Interchange"})[name],
-        bx+32,by+8,"tiny",P.text)
-      text("$"..City.price[name],bx+32,by+28,"small",P.textDim)
+             stop="Bus stop",station="Station",resort="Resort",corner="Corner",intersection="Crossing",roundabout="Roundabout",interchange="Interchange"})[name],
+        bx+32,by+8,"tiny",P.text,TILE_TEXT,"center")
+      text("$"..City.price[name],bx+32,by+28,"small",P.textDim,TILE_TEXT,"center")
+    end
+  end
+  -- The sea pump and the purifier are structures like any other, so they are
+  -- built from the same grid. Their marks are the water they handle: brine
+  -- from the sea, and the same drop with the sparkle of having been cleaned.
+  if not state.people and (state.commodity=="water" or state.commodity=="saltwater") then
+    local extras={
+      {id="seawater",name="Sea pump",mark="saltwater",price=1600,colour=Graph.COMMODITIES.saltwater.color,
+       tip="Place on the sea near your coastline. Feed it through a filter and armoured saltwater main.",
+       active=state.commodity=="saltwater" and state.tool=="source",
+       press=function() state.commodity="saltwater"; state.tool="source"; state.grade=math.max(3,state.grade or 1) end},
+      {id="purifier",name="Purifier",mark="clean",price=City.RECIPES.purifier.cost,colour=P.good,
+       tip="Saltwater in; equal clean water and salt out. Place on owned land.",
+       active=state.tool=="works" and state.recipe=="purifier",
+       press=function() state.tool="works"; state.recipe="purifier" end},
+    }
+    for _,spec in ipairs(extras) do
+      local col,rw=shown%3,math.floor(shown/3)
+      shown=shown+1
+      local bx,by=M+col*102,y+rw*58
+      local afford=city.money>=spec.price
+      button(spec.id,"",bx,by,96,50,spec.press,afford,spec.tip,spec.active,spec.colour)
+      lg.setColor(afford and spec.colour or P.textFaint)
+      SF.mark(spec.mark,bx+17,by+25,11)
+      text(spec.name,bx+32,by+8,"tiny",P.text,TILE_TEXT,"center")
+      text("$"..spec.price,bx+32,by+28,"small",P.textDim,TILE_TEXT,"center")
     end
   end
   y=y+math.ceil(math.max(shown,1)/3)*58+10
@@ -1110,7 +1137,10 @@ local function buildPanel()
     local open={}
     for _,key in ipairs(City.RECIPE_ORDER) do
       local unlock=City.RECIPES[key].unlock
-      if key~="turbine" and City.RECIPES[key].makes==state.commodity and (not unlock or city:unlocked(unlock)) then open[#open+1]=key end
+      -- The turbine is a power plant and the purifier is an everyday
+      -- structure with a tile of its own; neither belongs in this list twice.
+      if key~="turbine" and key~="purifier" and City.RECIPES[key].makes==state.commodity
+        and (not unlock or city:unlocked(unlock)) then open[#open+1]=key end
     end
     for _,key in ipairs(open) do
       local r=City.RECIPES[key]
@@ -1147,11 +1177,6 @@ local function buildPanel()
       text("$"..city:havenCost(key),bx+8,y+24,"small",P.textDim)
     end
     y=y+56
-  end
-  if not state.people then
-  button("advanced",advanced and "Fewer buildings" or "More buildings",
-    M,y,CW,32,function() state.advanced=not advanced end,true,"Show or hide specialist structures")
-  y=y+48
   end
   UI.contentBottom=y+state.scroll
 end
@@ -1907,21 +1932,35 @@ function UI.draw(c,s,action)
       #clients==0 and P.textDim or supplied==#clients and P.good or P.warn}}
   local request=city:nextRequest()
   local bill,broken=city:repairAllCost()
-  metrics[4]={"CLIENT REQUEST",request and string.format("%+.0f%%",city:requestPremium(request)*100) or "None",P.energy}
-  metrics[5]={"FIX ALL PIPES",broken>0 and (broken.."  $"..bill) or "All sound",broken>0 and P.warn or P.good}
+  local premium=request and city:requestPremium(request) or 0
+  metrics[4]={"CLIENT REQUEST","None",P.energy}
+  metrics[5]={"FIX ALL PIPES",broken>0 and (broken.." damaged") or "All sound",broken>0 and P.warn or P.good}
   local width=(W-UI.width-34)/#metrics
   for i,m in ipairs(metrics) do
     local x=UI.width+22+(i-1)*width
-    local controls=(i==4 and request) or (i==5 and broken>0)
-    local font=(i==3 and #clients==0) and "mid" or UI.headerFont(m[2],width-14,controls)
+    local room=width-16
     -- The heading is measured too: at the narrowest window CUSTOMERS SUPPLIED
     -- is wider than the window it names and ran into CLIENT REQUEST.
-    single(m[1],x,16,"tiny",P.textDim,width-16); single(m[2],x,UI.HEAD_VALUE,font,m[3],width-16)
+    single(m[1],x,16,"tiny",P.textDim,room)
     if i==4 and request then
-      button("quick-accept","+",x,UI.HEAD_ROW,32,20,function() act("acceptClient",request.id) end,true,"Accept highest premium request"..(request.powerRequest and " for electricity" or ""))
-      button("quick-decline","-",x+36,UI.HEAD_ROW,32,20,function() act("declineClient",request.id) end,true,"Reject and show next request")
-      button("quick-inspect","i",x+72,UI.HEAD_ROW,26,20,function() act("focusNode",request.id) end,true,"Inspect request")
-    elseif i==5 and broken>0 then button("repair-all","Repair",x,UI.HEAD_ROW,math.min(96,width-16),20,function() act("repairAll") end,city.money>=bill,"Repair every damaged line") end
+      -- One control, carrying the only number that ranks an offer: how far
+      -- above or below the going rate it is. Pressing it opens the contract.
+      button("request-open",string.format("%+.0f%%",premium*100),x,UI.HEAD_VALUE,room,36,
+        function() act("focusRequest",request.id) end,true,
+        "Open this contract"..(request.powerRequest and " for electricity" or "")..
+        ": the best offer on the table, "..string.format("%+.0f%%",premium*100)..
+        " against the going rate.",false,premium>=0 and P.good or P.warn)
+    else
+      local controls=i==5 and broken>0
+      local font=(i==3 and #clients==0) and "mid" or UI.headerFont(m[2],width-14,controls)
+      single(m[2],x,UI.HEAD_VALUE,font,m[3],room)
+      -- The price is the whole of the decision, so the price is the whole of
+      -- the button, and it fills the window rather than hugging its left edge.
+      if controls then
+        button("repair-all","$"..bill,x,UI.HEAD_ROW,room,20,function() act("repairAll") end,
+          city.money>=bill,"Repair every damaged line")
+      end
+    end
     if i>1 then lg.setColor(P.panelEdge); lg.line(x-14,20,x-14,60) end
   end
 

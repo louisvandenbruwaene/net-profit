@@ -71,25 +71,36 @@ function F.mark(key,x,y,r)
   local cr,cg,cb,ca=lg.getColor()
   local lw=lg.getLineWidth()
   lg.setLineWidth(math.max(1.4,r*0.21))
-  if key=='crews' or key=='engineers' then
-    -- The hard hat keeps its own yellow, multiplied by the colour of the text
+  if key=='crews' then
+    -- A hard hat, in its own yellow multiplied by the colour of the text
     -- around it, which is what the baked sheet did.
     lg.setColor(cr,cg*0.82,cb*0.2,ca)
-    lg.arc('fill','pie',x,y+r*.4,r,math.pi,2*math.pi); lg.rectangle('fill',x-r*1.2,y+r*.3,r*2.4,r*.3)
-    lg.line(x,y-r*.7,x,y+r*.4)
-  elseif key=='analysts' then
-    lg.polygon('line',x-r,y-r*.3,x,y-r,x+r,y-r*.3,x,y+r*.2)
-    lg.line(x-r*.65,y,x-r*.65,y+r*.45,x+r*.65,y+r*.45,x+r*.65,y)
-    local cx,cy=x+r*.55,y+r*.55
-    lg.circle('line',cx,cy,r*.5)
-    lg.line(cx,cy-r*.38,cx,cy+r*.38)
-    lg.line(cx+r*.22,cy-r*.23,cx-r*.2,cy-r*.23,cx-r*.2,cy,cx+r*.2,cy,cx+r*.2,cy+r*.23,cx-r*.22,cy+r*.23)
+    lg.arc('fill','pie',x,y+r*.4,r,math.pi,2*math.pi)
+    lg.rectangle('fill',x-r*1.2,y+r*.3,r*2.4,r*.3)
+  elseif key=='engineers' then
+    -- A spanner. The crews mend what has broken and the engineers change a
+    -- main before it does, so they cannot both be a hard hat.
+    lg.line(x-r*.85,y+r*.85,x+r*.15,y-r*.15)
+    lg.arc('line','open',x+r*.45,y-r*.45,r*.5,math.pi*0.15,math.pi*1.6)
   elseif key=='dispatchers' then
-    lg.rectangle('line',x-r*.7,y-r*.5,r*1.4,r*1.5)
-    lg.line(x+r*.3,y-r*.5,x+r*.7,y-r*1.2)
-    lg.line(x-r*.35,y,x+r*.35,y); lg.line(x-r*.35,y+r*.4,x+r*.35,y+r*.4)
+    -- A signal reaching outward: what a dispatcher buys is how far you can see.
+    local sx,sy=x-r*.5,y+r*.75
+    lg.circle('fill',sx,sy,r*.24)
+    lg.arc('line','open',sx,sy,r*.8,-math.pi/2,0)
+    lg.arc('line','open',sx,sy,r*1.3,-math.pi/2,0)
   elseif key=='surveyors' then
-    lg.circle('line',x,y,r); lg.line(x-r*1.3,y,x+r*1.3,y); lg.line(x,y-r*1.3,x,y+r*1.3)
+    -- A level on its tripod.
+    lg.line(x,y-r*.2,x-r*.75,y+r)
+    lg.line(x,y-r*.2,x+r*.75,y+r)
+    lg.line(x,y-r*.2,x,y+r*.9)
+    lg.line(x-r*.85,y-r*.55,x+r*.5,y-r*.55)
+    lg.circle('line',x+r*.62,y-r*.55,r*.22)
+  elseif key=='analysts' then
+    -- A graduate's cap over a rising line. The coin that used to sit in front
+    -- of the cap read as a blot on it.
+    lg.polygon('line',x-r,y-r*.5,x,y-r,x+r,y-r*.5,x,y)
+    lg.line(x+r*.78,y-r*.36,x+r*.78,y+r*.05)
+    lg.line(x-r*.85,y+r,x-r*.3,y+r*.5,x+r*.1,y+r*.75,x+r*.85,y+r*.15)
   elseif key=='estates' then
     lg.polygon('line',x-r,y,x,y-r,x+r,y); lg.rectangle('line',x-r*.7,y,r*1.4,r)
   elseif key=='people' then
@@ -98,6 +109,18 @@ function F.mark(key,x,y,r)
     lg.line(x-r,y-r,x-r,y+r); lg.line(x+r,y-r,x+r,y+r); lg.line(x,y-r,x,y-r*.3); lg.line(x,y+r*.3,x,y+r)
   elseif key=='goods' then
     lg.rectangle('line',x-r,y-r,r*2,r*2); lg.line(x-r,y,x+r,y)
+  elseif key=='shield' then
+    -- What a lining buys: the main behind it.
+    lg.polygon('line',x-r*.85,y-r*.8,x+r*.85,y-r*.8,x+r*.85,y+r*.1,x,y+r,x-r*.85,y+r*.1)
+  elseif key=='clean' then
+    -- Seawater with the sparkle of having been through the purifier.
+    Draw=Draw or require('company_render')
+    Draw.mark('saltwater',x-r*.2,y+r*.1,r*.82)
+    lg.setColor(cr,cg,cb,ca)
+    local sx,sy,sr=x+r*.62,y-r*.62,r*.42
+    lg.line(sx-sr,sy,sx+sr,sy); lg.line(sx,sy-sr,sx,sy+sr)
+    lg.line(sx-sr*.55,sy-sr*.55,sx+sr*.55,sy+sr*.55)
+    lg.line(sx-sr*.55,sy+sr*.55,sx+sr*.55,sy-sr*.55)
   else
     Draw.mark(key,x,y,r)
   end
