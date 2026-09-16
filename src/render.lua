@@ -20,14 +20,22 @@ function R.dimensions()
 end
 
 function R.init()
+  local fontFile = "assets/DejaVuSans-Bold.ttf"
+  local function loadFont(size)
+    if love.filesystem and love.filesystem.getInfo and love.filesystem.getInfo(fontFile) then
+      return lg.newFont(fontFile, size)
+    end
+    return lg.newFont(size)
+  end
   R.fonts = {
-    tiny  = lg.newFont(11),
-    small = lg.newFont(12),
-    body  = lg.newFont(14),
-    mid   = lg.newFont(18),
-    big   = lg.newFont(30),
-    huge  = lg.newFont(54),
+    tiny  = loadFont(11),
+    small = loadFont(12),
+    body  = loadFont(14),
+    mid   = loadFont(18),
+    big   = loadFont(30),
+    huge  = loadFont(54),
   }
+  require("symbol_font").install(R.fonts)
 end
 
 --------------------------------------------------------------------------------

@@ -32,9 +32,9 @@ Data.FORMS = {
 }
 
 Data.PIPE_SIZES = {
-  { key = "small",  name = "SMALL",  cap = 7,  tiein = 1.0, trench = 1.0 },
-  { key = "medium", name = "MEDIUM", cap = 15, tiein = 1.6, trench = 1.7 },
-  { key = "large",  name = "LARGE",  cap = 25, tiein = 2.6, trench = 2.9 },
+  { key = "small",  name = "SMALL",  cap = 10,  tiein = 1.0, trench = 1.0 },
+  { key = "medium", name = "MEDIUM", cap = 30, tiein = 1.6, trench = 1.7 },
+  { key = "large",  name = "LARGE",  cap = 50, tiein = 2.6, trench = 2.9 },
   -- A trunk for a company that already runs hubs and havens. Four large mains'
   -- worth of flow for well under four large mains' worth of digging.
   { key = "massive", name = "MASSIVE", cap = 100, tiein = 6.5, trench = 7.5, unlock = "massive" },

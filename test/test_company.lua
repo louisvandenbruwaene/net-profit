@@ -166,8 +166,8 @@ do
   check(e.cap==e.capMax and not e.leaking,"repair restores a fully blocked main")
   local original=c:leakChance(e)
   local a,b=c.g.nodes[e.a],c.g.nodes[e.b]
-  local tower=assert(c:build((a.x+b.x)/2,(a.y+b.y)/2+60,"tower"))
-  check(c:leakChance(e)<original/2,"local treatment protects mains in its radius")
+  local tower=assert(c:build((a.x+b.x)/2,(a.y+b.y)/2+60,"filtration"))
+  check(c:leakChance(e)==original,"a disconnected filter does not protect nearby mains")
   local bareRepair=c:repairCost(e)
   local withTower=c:leakChance(e)
   -- Lining cannot be added to a main that is already in the ground. The company
@@ -368,7 +368,7 @@ do
   for _=1,10 do c:upgradeSource(src.id) end
   check(src.output==src.cap,"a well tops out at what the ground gives")
   local why=select(2,c:upgradeSource(src.id))
-  check(why:find("no more")~=nil,"and says so rather than taking the money")
+  check(why:find("maximum")~=nil,"and says so rather than taking the money")
   check(src.level<=City.sourceMaxLevel,"without ever passing the depth limit")
 end
 
@@ -433,7 +433,7 @@ do
   for i,d in ipairs(c.districts) do
     if not d.owned and not c:districtAdjacent(d) then far=i; break end
   end
-  check(c:districtError(far)=="not next to your ground","the company grows outward, not by leaping")
+  check(c:districtError(far)==nil,"the company can acquire disconnected holdings")
   local next_
   for i,d in ipairs(c.districts) do if not d.owned and not c:districtError(i) then next_=i; break end end
   local price=c:districtCost()
@@ -576,6 +576,8 @@ do
   assert(c:buyLicence("beer"))
   assert(c:buyLicence("power"))
 
+  c.orders.dispatchers=2; c:survey()
+  for _,d in ipairs(c.districts) do d.owned=true end
   -- Wheat only grows on farmland, which is somewhere out past the old city.
   local farm
   for _,d in ipairs(c.districts) do if d.spec and d.spec.key=="farm" then farm=d; break end end
@@ -615,9 +617,9 @@ do
   for _=1,10 do
     local n=c.g.nodes[from]
     local far=math.sqrt((n.x-mill.x)^2+(n.y-mill.y)^2)
-    if far<=300 then assert(c:layPipe(from,mill.id,"water",24)); break end
+    if far<=300 then assert(c:layPipe(from,mill.id,"water","large")); break end
     local j=assert(c:build(n.x+(mill.x-n.x)/far*280,n.y+(mill.y-n.y)/far*280,"junction"))
-    assert(c:layPipe(from,j.id,"water",24)); from=j.id
+    assert(c:layPipe(from,j.id,"water","large")); from=j.id
   end
   c:refresh()
   check(mill.ready>0,"with water it starts making malt")
@@ -625,7 +627,7 @@ do
   assert(c:layPipe(mill.id,brew.id,"malt","large"))
   local cable=c.g:addEdge(plant.id,brew.id,25) -- Pre-voltage saved cable.
   cable.commodity="power"; cable.capMax=25; cable.size="large"; cable.grade=1
-  assert(c:layPipe(mill.id,brew.id,"water",20))
+  assert(c:layPipe(mill.id,brew.id,"water","large"))
   c:refresh()
   check(brew.ready>0,"and the brewery downstream starts making beer")
   check(c.capacityBy.beer==brew.ready,"which is the city's whole beer supply")
@@ -655,7 +657,7 @@ do
 
   -- Nothing is available to a company with two customers.
   check(select(2,c:hireOrder("dispatchers"))
-    =="Dispatchers are worth hiring at 12 customers","a rung only unlocks at a size")
+    =="needs 12 customers","a rung only unlocks at a size")
 
   -- Grow it: enough customers that the whole ladder is worth having.
   for i=1,24 do
@@ -677,7 +679,7 @@ do
   local unsigned,untouched=0,0
   for _,offer in ipairs(paying) do if offer.prospect then unsigned=unsigned+1 end end
   for _,offer in ipairs(cheap) do if offer.alive and offer.prospect then untouched=untouched+1 end end
-  check(unsigned==0,"dispatchers sign everything paying the floor")
+  check(unsigned==#paying,"dispatchers reveal land and leave contract decisions to the player")
   check(untouched==#cheap,"and leave the cheap ones alone")
 
   -- The wage is real and shows up in the ledger.
@@ -704,7 +706,7 @@ do
   c:refresh()
   local width=main.capMax
   for _=1,6 do c:endDay() end
-  check(main.capMax>width,"a main that keeps running full is widened without being asked")
+  check(main.capMax==width and not main.leaking,"engineers preserve installed size and prevent leakage")
 end
 
 print("the game tells a customer why they are short, and the fix works")
@@ -818,19 +820,19 @@ do
   check(c.ambition==nil,"and the tender ambition is cleared")
 end
 
-print("mains carry 7, 15 and 25, and a massive 100 opens later")
+print("mains carry 10, 30 and 50, and a massive 100 opens later")
 do
   local c=fresh()
   c.money=99999
-  check(City.sizeOf("small").cap==7 and City.sizeOf("medium").cap==15
-    and City.sizeOf("large").cap==25 and City.sizeOf("massive").cap==100,"the four sizes")
+  check(City.sizeOf("small").cap==10 and City.sizeOf("medium").cap==30
+    and City.sizeOf("large").cap==50 and City.sizeOf("massive").cap==100,"the four sizes")
   check(not c:unlocked("massive"),"a new company cannot lay a massive main")
   check(c:biggerSize({size="large"})==nil,"so nothing offers to widen past large")
-  -- An old main laid as small 5 and leaking 2 of it carries 7 less the same 2.
+  -- An old main laid as small 5 and leaking 2 of it carries 10 less the same 2.
   local id=#c.g.edges+1
   c.g.edges[id]={id=id,a=1,b=1,alive=false,size="small",cap=3,capMax=5,commodity="water"}
   c:migrate()
-  check(c.g.edges[id].capMax==7 and c.g.edges[id].cap==5,"an old main grows to its new size and keeps its leak")
+  check(c.g.edges[id].capMax==10 and c.g.edges[id].cap==8,"an old main grows to its new size and keeps its leak")
   c.g.edges[id]=nil
 end
 

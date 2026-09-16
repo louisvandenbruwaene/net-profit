@@ -87,9 +87,9 @@ Data.havenReach = 150
 
 Data.terminalUpkeep = 26
 
-Data.depotCapacity = 18
+Data.depotCapacity = 100
 
-Data.depotFillRate = 8
+Data.depotFillRate = 100
 
 Data.hub = {
   radius = 700,          -- how far the last mile reaches

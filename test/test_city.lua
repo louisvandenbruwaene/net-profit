@@ -84,7 +84,7 @@ do
 
   local e = c:layPipe(hub.id, cust.id, "water", "small")
   ok("pipe laid", e ~= nil)
-  check("a small main carries seven", e.cap, 7)
+  check("a small main carries ten", e.cap, 10)
   check("the customer takes what they asked for", c.served[cust.id], 3)
 
   local before = c.money
@@ -128,19 +128,19 @@ do
   -- customer, so it runs the check on an ordinary junction instead.
   local far = assert(c:build(src.x + 260, src.y + 120, "junction"))
   local e = c:layPipe(hub.id, far.id, "water", "medium")
-  check("built as a medium main", e.cap, 15)
-  check("and remembers it", e.capMax, 15)
+  check("built as a medium main", e.cap, 30)
+  check("and remembers it", e.capMax, 30)
 
   e.leaking = true
   c:endDay()
-  check("a leak costs capacity every day", e.cap, 14)
+  check("a leak costs capacity every day", e.cap, 29)
   c:endDay()
-  check("and keeps costing", e.cap, 13)
+  check("and keeps costing", e.cap, 28)
 
   local before = c.money
   local cost = c:repairPipe(e.id)
   ok("repair charges", cost ~= nil and c.money == before - cost)
-  check("capacity restored", e.cap, 15)
+  check("capacity restored", e.cap, 30)
   check("leak stopped", e.leaking, false)
 
   -- Nothing widens a main. A bigger one goes in its place, and the old one is
@@ -148,7 +148,7 @@ do
   c.money = 10000
   local was = e.paid
   ok("a medium main can be replaced with a large one", c:replacePipe(e.id, "large") ~= nil)
-  check("which carries twenty five", e.cap, 25)
+  check("which carries fifty", e.cap, 50)
   ok("and cost less than the whole job", e.paid > was)
 
   -- Lining is fixed when the main is laid, and only better lining lowers risk.
@@ -225,7 +225,7 @@ do
   local dug, dugWhy = c:buySource("water", free.x, free.y)
   ok("and a well on the mark opens it" .. (dug and "" or (": " .. tostring(dugWhy))),
     dug ~= nil and dug.seam == true)
-  ok("the deposit caps what it can ever give", dug and dug.cap == free.cap)
+  ok("the deposit caps what it can ever give", dug and dug.cap == 50)
 end
 
 --------------------------------------------------------------------------------

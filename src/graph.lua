@@ -66,7 +66,7 @@ Graph.KINDS = {
   -- The people network. A stop is where a district boards a road or a route, a
   -- filling station sells petrol to the drivers passing it, and a resort is
   -- somewhere worth travelling to.
-  stop     = { name = "STOP",     ports = 6,  throughput = 999, cost = 120,  color = {0.94, 0.84, 0.44} },
+  stop     = { name = "BUS STOP",     ports = 6,  throughput = 999, cost = 120,  color = {0.94, 0.84, 0.44} },
   station  = { name = "STATION",  ports = 3,  throughput = 999, cost = 260,  color = {0.98, 0.62, 0.34} },
   resort   = { name = "RESORT",   ports = 4,  throughput = 999, cost = 4800, color = {0.98, 0.58, 0.74} },
   -- Customers. Placed by the world, never by the player.
@@ -116,7 +116,7 @@ Graph.COMMODITIES = {
             color = {0.52, 0.72, 0.44}, fill = {0.32, 0.50, 0.28} },
   ore   = { name = "ORE",   order = 13, mark = "box", conduit = "ROAD", form = "solid", role = "feed",
             color = {0.72, 0.50, 0.42}, fill = {0.50, 0.32, 0.26} },
-  salt  = { name = "SALT",  order = 13.5, mark = "box", conduit = "ROAD", form = "solid", role = "feed",
+  salt  = { name = "SALT",  order = 13.5, mark = "salt", conduit = "ROAD", form = "solid", role = "feed",
             color = {0.92, 0.92, 0.96}, fill = {0.70, 0.72, 0.78} },
   coke  = { name = "COKE",  order = 14, mark = "box", conduit = "ROAD", form = "solid", role = "feed",
             color = {0.46, 0.46, 0.52}, fill = {0.20, 0.20, 0.24} },
@@ -158,7 +158,7 @@ Graph.COMMODITIES = {
 Graph.TRADES = { "water", "power", "beer", "oil", "internet" }
 for key,spec in pairs(require("data.infrastructure").kinds) do Graph.KINDS[key]=spec end
 Graph.KINDS.junction.name="T SPLIT"
-Graph.KINDS.manifold.name="PIPE HUB"
+Graph.KINDS.manifold.name="HUB"
 Graph.COMMODITIES.panels={name="SOLAR PANELS",order=34,mark="box",conduit="ROAD",form="solid",role="material",
   color={0.46,0.65,0.92},fill={0.22,0.36,0.62}}
 
@@ -176,6 +176,11 @@ Graph.GRIDS = {
 function Graph.gridOf(commodity) return Graph.GRIDS[commodity] or commodity end
 
 -- Everything, in a stable order, for the places that really do mean everything.
+Graph.COMMODITIES.saltwater={name="SALTWATER",order=0,mark="saltwater",conduit="MAIN",form="liquid",role="feed",landed=false,
+ color={0.42,0.82,0.88},fill={0.22,0.55,0.68}}
+Graph.COMMODITIES.gems={name="GEMS",order=29,mark="gem",conduit="ROAD",form="solid",role="feed",landed=false,color={0.9,0.45,0.9},fill={0.6,0.2,0.7}}
+Graph.COMMODITIES.jewelry={name="JEWELRY",order=36,mark="gem",conduit="ROAD",form="solid",role="material",landed=false,color={1,0.8,0.3},fill={0.8,0.6,0.1}}
+Graph.GRIDS.saltwater="water"; Graph.GRIDS.gems="goods"; Graph.GRIDS.jewelry="goods"
 Graph.ALL = {}
 for key in pairs(Graph.COMMODITIES) do Graph.ALL[#Graph.ALL + 1] = key end
 table.sort(Graph.ALL, function(a, b)
@@ -433,9 +438,9 @@ function Graph:buildNetwork(uncapped, commodity)
         -- commodity until it is migrated.)
         net:arc(SS, vin, node.output or INF)
         node._feedArc = #net.arcs - 1
-      elseif node.kind == "works" and node.makes == commodity and (node.ready or 0) > 0 then
+      elseif node.kind == "works" and (node.makes == commodity or node.coproduct == commodity) and (node.ready or 0) > 0 then
         -- Everything this works managed to make out of what turned up.
-        net:arc(SS, vin, node.ready)
+        net:arc(SS, vin, node.coproduct==commodity and node.coproductReady or node.ready)
         node._feedArc = #net.arcs - 1
       elseif node.kind == "depot" and (node.stored or 0) > 0
              and (not commodity or node.commodity == commodity) then
@@ -446,12 +451,17 @@ function Graph:buildNetwork(uncapped, commodity)
       end
       if (node.kind == "client" or node.kind == "sink") and not node.prospect
          and not node.supplyClosed and not node.hub
-         and (not commodity or node.commodity == commodity) then
+         and (not commodity or (node.demands and node.demands[commodity]) or node.commodity == commodity) then
         -- The service valve controls only this customer's draw, not the main.
         -- A customer on a hub is not here at all: their demand is carried by
         -- the hub, as one number.
-        net:arc(vout, TT, uncapped and INF or (node.demand or INF))
+        net:arc(vout, TT, uncapped and INF or (node.demands and node.demands[commodity]) or (node.demand or INF))
         node._drainArc = #net.arcs - 1
+      elseif node.kind == "depot" and node.intakeRequest and node.commodity==commodity then
+        -- Fill storage only after customers and production inputs have been
+        -- satisfied. The second solve reuses their flow in the residual graph.
+        net.depotDemands=net.depotDemands or {}
+        net.depotDemands[#net.depotDemands+1]={node=node,vertex=vout,amount=node.intakeRequest}
       elseif node.kind == "exchange" and commodity and (node.demandBy or {})[commodity] then
         net:arc(vout, TT, uncapped and INF or node.demandBy[commodity])
         node._drainArc = #net.arcs - 1
@@ -484,6 +494,7 @@ function Graph:buildNetwork(uncapped, commodity)
       cap = commodity and e.wagons[commodity] or nil
       if cap and commodity=='oil' then cap=math.max(0,cap-(e.shipSpill or 0)) end
     elseif not commodity or e.commodity == commodity then cap = e.effectiveCap or e.cap end
+    if e.transportBlocked then cap=0 end
     if e.alive and cap and self.nodes[e.a].alive and self.nodes[e.b].alive then
       net:arc(2 * e.a, 2 * e.b - 1, cap, { kind = "edge", id = e.id })
       e._arcAB = #net.arcs - 1
@@ -509,12 +520,17 @@ end
 function Graph:maxflow(uncapped, commodity)
   local net, SS, TT = self:buildNetwork(uncapped, commodity)
   local flow = net:maxflow(SS, TT)
+  for _,request in ipairs(net.depotDemands or {}) do
+    net:arc(request.vertex,TT,request.amount)
+    request.node._drainArc=#net.arcs-1
+  end
+  if net.depotDemands then flow=flow+net:maxflow(SS,TT) end
   local seen = net:reachable(SS)
 
   local served, produced = {}, {}
   for _, node in ipairs(self.nodes) do
     if node.alive and node._drainArc and (node.kind == "client" or node.kind == "sink"
-       or node.kind == "exchange" or node.kind == "works" or node.kind == "dc" or node.kind == "station") then
+       or node.kind == "depot" or node.kind == "exchange" or node.kind == "works" or node.kind == "dc" or node.kind == "station") then
       local a = net.arcs[node._drainArc]
       served[node.id] = a.cap0 - a.cap
     end

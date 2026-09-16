@@ -19,10 +19,10 @@ return function(City)
 
   local RANK={low=1,medium=2,high=3}
   local function dist(a,b) return math.sqrt((a.x-b.x)^2+(a.y-b.y)^2) end
-  local function generator(n) return n.kind=='source' and n.commodity=='power' end
+  local function generator(n) return n.kind=='source' and (n.commodity=='power' or (n.demands and n.demands.power)) end
   local function farm(n) return (City.RECIPES[n.recipe or ''] or {}).farm end
   local function electrical(n)
-    return D.towers[n.kind] or n.commodity=='power' or n.kind=='works' or n.kind=='exchange' or n.kind=='dc'
+    return n.kind=='transformer' or D.towers[n.kind] or (n.commodity=='power' or (n.demands and n.demands.power)) or n.kind=='works' or n.kind=='exchange' or n.kind=='dc'
   end
   function City:pollutionAt(x,y)
     local d=self:districtAt(x,y)
@@ -77,7 +77,7 @@ return function(City)
   function City:buySource(commodity,x,y,plant)
     local n,err=base.buySource(self,commodity,x,y,plant)
     if n then
-      if commodity=='water' then n.ports=2 end
+      if commodity=='water' then n.ports=1; n.output=20; n.cap=50; n.level=1 end
       if commodity=='power' then n.voltage='high' end
       if plant=='wind' and y and y<0 and not self:districtAt(x,y) then n.offshore=true; n.upkeep=math.ceil(n.upkeep*1.5) end
       self:refresh()
@@ -116,10 +116,11 @@ return function(City)
   -- it also take cables at every lower voltage, and customers only connect to a
   -- tower with a transformer that carries their own voltage.
   function City:customerVoltage(n)
-    if n.kind=='client' then return n.commodity=='power' and (D.customerVoltage[n.clientType] or 'medium') or nil end
+    if n.kind=='client' then return (n.commodity=='power' or (n.demands and n.demands.power)) and (D.customerVoltage[n.clientType] or 'medium') or nil end
     if n.kind=='works' or n.kind=='exchange' or n.kind=='dc' then return 'medium' end
   end
   function City:voltagesAt(n)
+    if n.kind=='transformer' then return {low=true,medium=true,high=true} end
     local home=D.towers[n.kind]
     if home then
       if n.upgrade~='transformer' then return {[home]=true} end
@@ -138,10 +139,10 @@ return function(City)
     if ca or cb then
       local want,tower=ca or cb,ca and nb or na
       local label=string.lower(Graph.KINDS[D.voltages[want].tower].name)
-      if D.towers[tower.kind]~=want then
+      if tower.kind~='transformer' and D.towers[tower.kind]~=want then
         return nil,(want=='low' and 'homes take ' or 'this customer takes ')..D.voltages[want].kv..' kV: connect a '..label..' with a transformer'
       end
-      if tower.upgrade~='transformer' then return nil,'add a transformer to this '..label..' to connect customers' end
+      if tower.kind~='transformer' and tower.upgrade~='transformer' then return nil,'add a transformer to this '..label..' to connect customers' end
       return want
     end
     local sa,sb=self:voltagesAt(na),self:voltagesAt(nb)
@@ -163,7 +164,7 @@ return function(City)
       links[b]=links[b] or {}; links[b][#links[b]+1]={a,w}
     end
     for _,n in ipairs(self.g:aliveNodes()) do
-      local boost=(voltage=='high' and generator(n))
+      local boost=n.kind=='transformer' or (voltage=='high' and generator(n))
         or (D.towers[n.kind] and n.upgrade and self:voltagesAt(n)[voltage])
       if boost then runs[n.id]=0; queue[#queue+1]=n.id end
     end
@@ -236,6 +237,7 @@ return function(City)
     if rail then return base.rangeBetween(self,a,b,rail) end
     local na,nb=self.g.nodes[a],self.g.nodes[b]
     if commodity=='power' then
+      if na.kind=='transformer' or nb.kind=='transformer' then return 95 end
       local voltage=a~=b and self:cableVoltage(a,b)
       if not voltage then
         local set=self:voltagesAt(na)
@@ -260,8 +262,8 @@ return function(City)
       local why
       voltage,why=self:cableVoltage(a,b)
       if not voltage then return why end
-    elseif D.towers[na.kind] or D.towers[nb.kind] then return 'power towers carry electricity only'
-    elseif (na.kind=='filtration' or nb.kind=='filtration') and commodity~='water' then return 'filtration treats water only' end
+    elseif D.towers[na.kind] or D.towers[nb.kind] or na.kind=='transformer' or nb.kind=='transformer' then return 'power towers carry electricity only'
+    elseif (na.kind=='filtration' or nb.kind=='filtration') and commodity~='water' and commodity~='saltwater' then return 'filtration treats water only' end
     local count=0
     for _,e in ipairs(self.g:edgesAt(a)) do
       if e.commodity==commodity and ((e.a==a and e.b==b) or (e.b==a and e.a==b)) then count=count+1 end
@@ -283,9 +285,10 @@ return function(City)
     local voltage=D.voltages[e.voltage or 'medium']
     local amps=D.amps[e.size or 'small'] or 500
     local healthy=math.max(0,e.cap)/math.max(1,e.capMax or e.cap)
-    local gross=math.sqrt(3)*voltage.kv*amps/100 -- 100 kW game units
+    local kw=math.sqrt(3)*voltage.kv*amps
+    local gross=kw*24/5 -- daily energy in 5 kWh accounting increments
     local resistance=(D.resistance[e.size or 'small'] or 0.12)*self:pipeLength(e)/1000
-    local loss=math.min(0.8,3*amps*amps*resistance/(gross*100000))
+    local loss=math.min(0.8,3*amps*amps*resistance/(kw*1000))
     return math.max(0,math.floor(gross*(1-loss)*healthy)),amps,voltage.kv,loss
   end
   function City:waterRating(e)
@@ -296,7 +299,7 @@ return function(City)
     -- design envelope; the game does not pretend to solve transient hydraulics.
     local velocity=math.sqrt(2*9.81*head*diameter/(D.water.friction*math.max(1,self:pipeLength(e))))
     local capacity=math.pi*diameter*diameter/4*velocity*3600
-    return math.min(e.cap,math.floor(capacity)),head*0.0981
+    return math.min(e.cap,math.floor(capacity))*math.max(0.1,1-math.max(0,(e.calcification or 0)-100)/200),head*0.0981
   end
   function City:pipeQuote(a,b,commodity,size,rail,grade)
     local q=base.pipeQuote(self,a,b,commodity,size,rail,grade)
@@ -343,6 +346,7 @@ return function(City)
   function City:replacePipe(id,size,grade)
     local e,err=base.replacePipe(self,id,size,grade)
     if e then
+      e.calcification=0
       if e.commodity=='water' then e.filtered=self:treatedWater(e.a) end
       self:refresh()
     end
@@ -380,7 +384,9 @@ return function(City)
       end
       if e.alive and e.commodity=='water' and e.hydraulic then e.effectiveCap=self:waterRating(e) end
     end
-    return base.refresh(self)
+    local result=base.refresh(self)
+    if self.updateFiltration then self:updateFiltration() end
+    return result
   end
   function City:worksOutput(n)
     if farm(n) and self:pollutionAt(n.x,n.y)>=D.pollution.stopAt then return 0 end

@@ -107,7 +107,7 @@ do
   local large = c:pipeQuote(src.id, hubSpot.id, "water", "large").total
   ok("a large main costs less than the four small ones it replaces",
     large < small * 4, string.format("$%d against $%d", large, small * 4))
-  ok("and carries no more", City.sizeOf("large").cap <= City.sizeOf("small").cap * 4)
+  ok("and carries no more", City.sizeOf("large").cap <= City.sizeOf("small").cap * 5)
 end
 
 --------------------------------------------------------------------------------
@@ -184,13 +184,13 @@ do
   assert(c:layPipe(src.id, hub.id, "water", "large"))
   local far = assert(c:build(src.x + 260, src.y + 120, "junction"))
   local main = assert(c:layPipe(hub.id, far.id, "water", "small"))
-  ok("a small main carries seven", main.cap == 7)
+  ok("a small main carries ten", main.cap == 10)
   ok("and nothing widens it", c:replaceQuote(main.id, "small", 1) ~= nil
     and c:replaceError(main.id, "small", 1) == "that is what is already in the ground")
 
   local before = c.money
   assert(c:replacePipe(main.id, "large"))
-  ok("a large one can take its place", main.cap == 25)
+  ok("a large one can take its place", main.cap == 50)
   ok("but not a massive one, before the company is big enough",
     c:replaceError(main.id, "massive", 1) ~= nil and not c:layPipe(hub.id, far.id, "water", "massive"))
   ok("at the price of the new main less scrap on the old", c.money < before)

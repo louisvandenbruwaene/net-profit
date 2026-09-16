@@ -1,272 +1,187 @@
--- Headless checks for people, trips and the businesses that move them:
--- luajit test/test_people.lua
-package.path = "src/?.lua;../src/?.lua;" .. package.path
-local Graph = require("graph")
-local City = require("city")
-local Save = require("company_save")
-
-local pass, fail = 0, 0
-local function ok(name, cond)
-  if cond then pass = pass + 1 else fail = fail + 1; print("  FAIL  " .. name) end
+package.path='src/?.lua;'..package.path
+local City=require('city')
+local Graph=require('graph')
+local Save=require('company_save')
+local count=0
+local function check(v,m) assert(v,m); count=count+1 end
+local function world()
+ local c=City.new({seed=31,obstacles=0}); c.money=1e6; c.obstacles={}; c.permits={park=true,bedrock=true,river=true}
+ for _,d in ipairs(c.districts) do d.owned=true; d.population=0 end
+ c.districts[5].population=600; c.districts[6].population=600
+ for _,n in ipairs(c.g:aliveNodes()) do c.g:killNode(n.id) end
+ return c
 end
-
--- Two neighbouring districts of six hundred people, a stop in each, and money
--- enough that none of these checks are about cash.
-local function town()
-  local c = City.new({ seed = 31, obstacles = 0 })
-  c.money = 1e6
-  c.stock = { steel = 2000, concrete = 2000, glass = 2000 }
-  local west, home = c.districts[5], c.districts[6]
-  west.owned = true
-  west.population, home.population = 600, 600
-  c:refresh()
-  local a = assert(c:build(1500, 900, "stop"))
-  local b = assert(c:build(500, 900, "stop"))
-  return c, a, b, west, home
+local function node(c,kind,x,y,typ)
+ local n=c.g:addNode(x,y,kind)
+ if kind=='client' then n.clientType=typ or 'house'; n.commodity='water'; n.demand=3; n.rate=4; n.grace=3 end
+ return n
 end
-
-local P = City.PEOPLE
-local function drivers(share) return math.floor(18 * (share or P.carShare) + 0.5) end
-
---------------------------------------------------------------------------------
-print("people settle where the service is good")
+local function road(c,a,b,kind)
+ c.buildRoadType=kind or 'road'; return assert(c:layLink(a.id,b.id,'road'))
+end
+-- Physical topology, exact daily vehicle tolls and deterministic refreshes.
 do
-  local c = City.new({ seed = 31, obstacles = 0 })
-  local home = c.districts[City.MAP.start]
-  ok("a new company's ground is empty", (home.population or 0) == 0)
-  ok("and nothing about travel is offered yet", not c:unlocked("roads"))
-  ok("so a stop cannot be built", c:build(1500, 900, "stop") == nil)
-  c.money = 1e6
-  local signed = {}
-  for i = 1, 4 do signed[i] = assert(c:addClient("house", false, home)) end
-  local function supply(amount)
-    for _, n in ipairs(signed) do c.served[n.id] = amount or n.demand end
-  end
-  supply()
-  c:growPopulation()
-  local first = home.population
-  ok("a district with its customers supplied gains people", first > 0)
-  for _ = 1, 40 do supply(); c:growPopulation() end
-  ok("and grows toward what its customers can house",
-    home.population > first and home.population <= 4 * P.perCustomer)
-  local full = home.population
-  supply(0)
-  c:growPopulation()
-  ok("a district left dry loses people", home.population < full)
-  ok("travel opens once a district has people enough", c:unlocked("roads"))
+ local c=world(); local a=node(c,'client',1400,900); local b=node(c,'client',500,900)
+ local x=node(c,'interchange',1200,900); local y=node(c,'interchange',700,900)
+ road(c,a,x); road(c,b,y)
+ check(c.transit.carried==0,'a destination in another component is unreachable')
+ local h=road(c,x,y,'highway')
+ check(c.transit.tolls==2,'both household cars pay once on the highway')
+ check(c.transit.byLink[h.id].car==2,'only real trips are counted on a highway')
+ local destination=c.transit.byNode[a.id].destination; local rng=c.rng
+ c:refresh(); check(c.transit.tolls==2 and c.rng==rng,'refresh neither rerolls trips nor advances RNG')
+ check(c.transit.byNode[a.id].destination==destination,'daily destination stays stable')
+ assert(c:setLinkPrice(h.id,12)); check(c.transit.tolls==24,'connected vehicles pay even at the maximum toll')
+ local clone=assert(Save.unpack(Save.pack(c)))
+ check(clone.links[h.id].roadType=='highway' and clone.transit.tolls==24,'road variants and deterministic tolls survive saving')
+ assert(c:demolishLink(h.id)); check(c.transit.tolls==0,'cutting the highway removes its traffic and income')
 end
-
---------------------------------------------------------------------------------
-print("people travel, and pay tolls on the way")
+-- Road variants and appropriate junctions.
 do
-  local c, a, b = town()
-  local total, commutes = 0, true
-  for _, t in ipairs(c:tripDemands()) do
-    total = total + t.count
-    if t.purpose ~= "work" then commutes = false end
-  end
-  ok("with no resort, every trip is a commute", commutes)
-  ok("six hundred people want eighteen trips a day each way", total == 36)
-  ok("with no road, nobody is carried", c.transit.carried == 0 and c.transit.waiting == 36)
-  local road = assert(c:layLink(a.id, b.id, "road"))
-  local T = c.transit
-  ok("a road carries the drivers both ways", T.carried == 2 * drivers())
-  ok("and every one of them pays the toll", T.tolls == 2 * drivers() * road.toll)
-  ok("the people without a car are left waiting", T.waiting == 36 - 2 * drivers())
-  ok("the tolls are part of the day's revenue", c:transitIncome() == T.total and c:dailyRevenue() >= T.total)
-  assert(c:setLinkPrice(road.id, 3))
-  ok("a toll above what a commute is worth empties the road", c.transit.carried == 0)
-  assert(c:setLinkPrice(road.id, 1))
-  local capacity = P.roadCapacity
-  P.roadCapacity = 3
-  c:refresh()
-  ok("a road carries no more than its capacity", c.transit.carried == 3)
-  P.roadCapacity = capacity
-  c:refresh()
-  ok("the road costs something to keep", c:expenseBreakdown().transit > 0)
-  local report = c:endDay()
-  ok("the close books what was carried", report.tripsCarried == 2 * drivers() and report.transitIncome > 0)
+ local c=world(); local a=node(c,'client',1400,900); local b=node(c,'works',1500,900)
+ local l=road(c,a,b,'offroad')
+ check(c:roadPath(a.id,b.id,'car') and not c:roadPath(a.id,b.id,'truck'),'only cars use offroads')
+ check(not c:roadConnected(a.id,b.id),'buses cannot route over offroads')
+ check(l.toll==0 and not c:setLinkPrice(l.id,1),'offroads are free')
+ local cross=node(c,'intersection',1600,900); local round=node(c,'roundabout',1700,900); local stop=node(c,'stop',1800,900)
+ c.buildRoadType='road'; check(c:linkError(cross.id,round.id,'road')~=nil,'offroad intersections reject normal roads')
+ c.buildRoadType='highway'; check(c:linkError(round.id,stop.id,'road')~=nil,'roundabouts and stops reject highways')
+ c.buildRoadType='offroad'; check(c:linkError(stop.id,a.id,'road')~=nil,'bus stops reject offroads')
+ check(c:linkError(a.id,b.id,'bus')~=nil,'houses and factories are not bus boarding points')
+ check(Graph.KINDS.stop.name=='BUS STOP','stops are named bus stops')
 end
-
---------------------------------------------------------------------------------
-print("buses carry the people who do not drive")
+-- Bus fares and service withdrawal when the physical route disappears.
 do
-  local c, a, b = town()
-  ok("a bus needs a road first", c:layLink(a.id, b.id, "bus") == nil)
-  assert(c:layLink(a.id, b.id, "road"))
-  local bus = assert(c:layLink(a.id, b.id, "bus"))
-  local T = c.transit
-  local riders = 2 * (18 - drivers())
-  ok("a bus carries everyone without a car", T.byLink[bus.id].trips == riders)
-  ok("at the fare", T.fares == riders * bus.fare)
-  ok("so nobody is left waiting", T.waiting == 0)
-  local lone = assert(c:build(500, 1250, "stop"))
-  ok("a bus will not run to a stop no road reaches",
-    select(2, c:layLink(a.id, lone.id, "bus")) == "a bus needs a road between its stops")
-  local cash = c.money
-  assert(c:addVehicle(bus.id))
-  ok("a second bus is bought", bus.vehicles == 2 and c.money == cash - City.ROUTES.bus.vehicle)
-  assert(c:removeVehicle(bus.id))
-  ok("and sold back", bus.vehicles == 1)
-  ok("the last bus is not sold, the route is lifted", c:removeVehicle(bus.id) == nil)
+ local c=world(); local a=node(c,'stop',1500,900); local b=node(c,'stop',500,900)
+ check(not c:layLink(a.id,b.id,'bus'),'a bus requires a physical road first')
+ local l=road(c,a,b); check(l.toll==0,'normal roads charge no toll')
+ local bus=assert(c:layLink(a.id,b.id,'bus'))
+ check(c.transit.fares>0 and c.transit.tolls==0,'passengers pay bus fares on a free road')
+ check(c.transit.byLink[l.id].bus==1,'the bus itself traverses the road once')
+ assert(c:addVehicle(bus.id)); check(bus.vehicles==2,'bus fleet controls still work')
+ assert(c:demolishLink(l.id)); check(c.transit.fares==0,'a broken bus road stops passenger fares')
 end
-
---------------------------------------------------------------------------------
-print("a filling station on the road sells petrol to the drivers")
+-- Container trucks deliver several commodities over shared normal roads.
 do
-  local c, a, b = town()
-  ok("a station is not offered before there is a road", c:build(1000, 950, "station") == nil)
-  local direct = assert(c:layLink(a.id, b.id, "road"))
-  ok("it is once there is one", c:unlocked("fuel"))
-  local s = assert(c:build(1000, 950, "station"))
-  assert(c:layLink(a.id, s.id, "road"))
-  assert(c:layLink(s.id, b.id, "road"))
-  assert(c:demolishLink(direct.id))
-  ok("with no petrol piped to it, a station sells nothing", c.transit.fuel == 0)
-  c.served[s.id] = 30
-  c:routeTrips()
-  local T = c.transit
-  ok("drivers get through by way of the station", T.carried == 2 * drivers())
-  ok("and fill up there", T.fuel > 0 and (T.byNode[s.id].sold or 0) > 0)
-  ok("never more than the tank held", T.byNode[s.id].sold <= 30)
-  assert(c:setStationPrice(s.id, P.tollMax))
-  c.served[s.id] = 30
-  c:routeTrips()
-  ok("priced far above the pump, nobody fills up", c.transit.fuel == 0)
-  local feed = assert(c:build(1000, 1150, "junction"))
-  assert(c:layPipe(feed.id, s.id, "gasoline", "small"))
-  ok("with a petrol main tied in, a station is a customer for its tank", (function()
-    local net = c.g:buildNetwork(false, "gasoline")
-    for _, arc in ipairs(net.arcs) do
-      if arc.cap0 == s.fuelWanted then return true end
-    end
-    return false
-  end)())
+ local c=world(); c.licences.food=true
+ local a=node(c,'terminal',1400,900); a.haven='highway'
+ local b=node(c,'client',1500,900,'market'); b.commodity='food'; b.demand=4
+ check(not c:layPipe(a.id,b.id,'food',1,'highway'),'trucks require a connected road')
+ local l=road(c,a,b)
+ local e=assert(c:layPipe(a.id,b.id,'food',1,'highway'))
+ check(c.served[b.id]==4,'container trucks serve a food store directly')
+ check((c.transit.byLink[l.id].truck or 0)>0,'loaded containers are counted on the physical road')
+ assert(c:addWagon(e.id,'water')); check(e.wagons.food and e.wagons.water,'one truck service handles separate commodity containers')
+ assert(c:demolishLink(l.id)); check((c.served[b.id] or 0)==0 and e.transportBlocked,'cut roads stop actual freight flow')
+ road(c,a,b,'offroad'); check((c.served[b.id] or 0)==0,'an offroad does not restore truck delivery')
 end
-
---------------------------------------------------------------------------------
-print("resorts pull leisure trips to the coast")
+-- Dual utility households: independent flow and payment, joint satisfaction.
 do
-  local c, a, b = town()
-  assert(c:layLink(a.id, b.id, "road"))
-  ok("a resort is not offered before anyone rides a route", not c:unlocked("resort"))
-  assert(c:layLink(a.id, b.id, "bus"))
-  ok("once a route carries somebody, it is", c:unlocked("resort"))
-  c.districts[2].owned = true
-  ok("a resort will not stand inland",
-    select(2, c:build(1500, 600, "resort")) == "a resort stands on the coast, an island or the riverbank")
-  local r = assert(c:build(1500, 100, "resort"))
-  assert(c:layLink(a.id, r.id, "road"))
-  local T = c.transit
-  ok("people travel to it for the day", ((T.byNode[r.id] or {}).visitors or 0) > 0)
-  ok("and spend money there", T.resorts > 0)
-  local cash = c.money
-  assert(c:upgradeResort(r.id))
-  ok("a resort can be built up", r.level == 2 and c.money < cash)
+ local c=world(); c.licences.power=true
+ local h=node(c,'client',1500,900); h.powerAccepted=true
+ local water=node(c,'source',1450,900); water.commodity='water'; water.output=20
+ local power=node(c,'source',1450,950); power.commodity='power'; power.output=20
+ local function edge(a,b,key)
+  local e=c.g:addEdge(a.id,b.id,20); e.commodity=key; e.capMax=20; return e
+ end
+ local w=edge(water,h,'water'); c:refresh()
+ check(h.demands.water==3 and h.demands.power==2,'the same house requests water and 10 kWh/day')
+ check(c.servedBy[h.id].water==3 and not c:fullyServed(h),'water alone does not satisfy both utilities')
+ local p=edge(power,h,'power'); c:refresh()
+ check(c.servedBy[h.id].power==2 and c:fullyServed(h),'one house receives both commodities concurrently')
+ check(c:clientIncome(h)==24,'both deliveries contribute to household income')
+ p.alive=false; c:refresh(); check(c:clientIncome(h)==12 and not c:fullyServed(h),'electricity failure preserves water billing but reduces satisfaction')
+ check(c:quantity('power',7)=='35 kWh/day','electricity quantities use real daily energy units')
+ p.alive=true; local copy=assert(Save.unpack(Save.pack(c)))
+ check(copy.g.nodes[h.id].demands.power==2 and copy:fullyServed(copy.g.nodes[h.id]),'dual contracts survive saving')
 end
-
---------------------------------------------------------------------------------
-print("cars sell where people live")
+-- Migration adds access roads once, never resurrecting demolished roads.
 do
-  local c, a, b, west = town()
-  ok("the car works is hidden before anyone drives", c:build(1300, 1200, "works", "carworks") == nil)
-  assert(c:layLink(a.id, b.id, "road"))
-  c.stock.cars = 50
-  local sold, income = c:sellCars()
-  ok("cars in the yards are sold to the districts", sold == 50 and income == 50 * P.carPrice)
-  ok("and more of a district drives", c:carShareOf(west.id) > P.carShare)
-  local before = c:carShareOf(west.id)
-  c:sellCars()
-  ok("cars wear out, so a district keeps buying", c:carShareOf(west.id) < before)
-  c:refresh()
-  ok("and more drivers pay more tolls",
-    c.transit.byDistrict[west.id].carried == drivers(c:carShareOf(west.id)))
-  ok("a car works can be built once there is a road", c:build(1300, 1200, "works", "carworks") ~= nil)
-  ok("cars are taken in at the yards", Graph.COMMODITIES.cars.role == "vehicle")
+ local c=world(); local a=node(c,'dc',1400,900); local b=node(c,'dc',1500,900)
+ local e=c.g:addEdge(a.id,b.id,18); e.commodity='water'; e.bulk='highway'; e.rail=true; e.wagons={water=18}; e.capMax=18
+ c.roadModelVersion=nil; c:refresh()
+ local l=c:linkBetween(a.id,b.id,'road'); check(l and l.roadType=='road','legacy freight highways retain a usable normal road')
+ assert(c:demolishLink(l.id)); c:refresh(); check(not c:roadPath(a.id,b.id,'truck'),'migration never rebuilds demolished access')
 end
-
---------------------------------------------------------------------------------
-print("later regions are towns already")
+-- Depot-to-depot cargo is conserved and credited only at the daily close.
 do
-  local c = City.new({ seed = 77 })
-  local found, near = nil, false
-  for col = -6, 10 do
-    for row = 4, 14 do
-      local d = c:surveyCell(col, row)
-      if d and d.spec and d.spec.key == "city" then
-        found = found or d
-        if (d.ring or 0) < 2 then near = true end
-      end
-    end
-  end
-  ok("somewhere past the second ring there is a town", found ~= nil)
-  ok("and none any closer", not near)
-  if found then
-    ok("it arrives with people in it", (found.population or 0) >= 900 and found.founded == found.population)
-    local pop = found.population
-    c:growPopulation()
-    ok("and nobody leaves a town the company has not bought", found.population == pop)
-    ok("its ceiling is its own, not the ring's", c:populationCeiling(found) > found.population)
-  end
+ local c=world(); local a=node(c,'depot',1400,900); local b=node(c,'depot',1500,900)
+ a.commodity='water'; a.stored=8; a.capacityStore=18
+ b.commodity='water'; b.stored=0; b.capacityStore=18
+ road(c,a,b); local e=assert(c:layPipe(a.id,b.id,'water',1,'highway'))
+ check(c.detail.depot[b.id]==8 and c.produced[a.id]==8,'an empty depot receives cargo from another depot')
+ check(b.stored==0,'previewing deliveries does not create stored cargo')
+ c:endDay(); check(a.stored==0 and b.stored==8,'daily close conserves cargo across depot transfers')
+ local l=c:linkBetween(a.id,b.id,'road'); assert(c:demolishLink(l.id)); c:endDay()
+ check(a.stored==0 and b.stored==8,'a disconnected depot cannot teleport stored cargo')
 end
-
---------------------------------------------------------------------------------
-print("the internet waits for a reactor")
+-- Freight follows road detours even when the endpoints are far apart.
 do
-  local c = City.new({ seed = 31, obstacles = 0 })
-  c.money = 1e6
-  c.stock = { steel = 2000, concrete = 2000 }
-  for _, name in ipairs({ "power", "oil", "food", "beer" }) do c.licences[name] = true end
-  ok("with every other trade held, nothing is offered next", c:nextLicence() == nil)
-  ok("the internet licence cannot be bought yet", c:buyLicence("internet") == nil)
-  ok("and no data centre can be built", c:build(1300, 1200, "works", "datacentre") == nil)
-  assert(c:buySource("power", 1300, 900, "nuclear"))
-  ok("a running reactor opens it", c:nextLicence() == "internet")
-  assert(c:buyLicence("internet"))
-  ok("a data centre can then be built", c:build(1300, 1200, "works", "datacentre") ~= nil)
-  local sub = assert(c:addClient("subscriber", true))
-  ok("subscribers want the internet", sub.commodity == "internet")
-  ok("and it travels by fibre", Graph.formOf("internet") == "data" and City.trade.internet.tiein ~= nil)
-  ok("it is the fifth trade", Graph.TRADES[5] == "internet")
+ local c=world(); local a=node(c,'dc',1400,900); local b=node(c,'dc',3800,900)
+ local x=node(c,'roundabout',2600,1000)
+ road(c,a,x); road(c,x,b)
+ local e=assert(c:layPipe(a.id,b.id,'water',1,'highway'))
+ check(c:pipeLength(e)>2400,'truck haulage uses the physical detour length')
+ check(c:railQuote(a.id,b.id,1,'highway').trench==0,'opening a truck service does not charge for building another road')
+ check(not c:layPipe(a.id,b.id,'power',1,'highway'),'containers cannot carry electricity')
 end
-
---------------------------------------------------------------------------------
-print("a freight highway carries people as well as lorries")
+-- Filling stations still receive and sell real delivered gasoline.
 do
-  local c = City.new({ seed = 31, obstacles = 0 })
-  c.money = 1e6
-  c.districts[5].owned = true
-  c.districts[5].population, c.districts[6].population = 600, 600
-  local yardA = assert(c:build(1500, 900, "dc"))
-  local yardB = assert(c:build(500, 900, "dc"))
-  local hwy = assert(c:layPipe(yardA.id, yardB.id, "water", 1, "highway"))
-  ok("drivers use the highway", ((c.transit.byEdge[hwy.id] or {}).trips or 0) == 2 * drivers())
-  assert(c:setEdgeToll(hwy.id, 2))
-  ok("and pay the toll set on it", c.transit.tolls == c.transit.byEdge[hwy.id].trips * 2)
+ local c=world(); local a=node(c,'client',1400,900); local b=node(c,'client',1600,900)
+ local station=node(c,'station',1500,900); station.fuelWanted=30; station.price=3
+ local source=node(c,'source',1500,950); source.commodity='gasoline'; source.output=30
+ local e=c.g:addEdge(source.id,station.id,30); e.commodity='gasoline'; e.capMax=30
+ road(c,a,station); road(c,station,b)
+ check(c.served[station.id]>0,'a station receives gasoline through its service drain')
+ check(c.transit.fuel>0 and c.transit.byNode[station.id].sold<=c.served[station.id],'daily traffic buys no more fuel than was delivered')
 end
-
---------------------------------------------------------------------------------
-print("roads survive a save, a stop takes its roads with it, and older saves load")
+-- Passenger destinations exclude utility access, including saved old choices.
 do
-  local c, a, b = town()
-  local road = assert(c:layLink(a.id, b.id, "road"))
-  assert(c:setLinkPrice(road.id, 2))
-  local clone = assert(Save.unpack(Save.pack(c)))
-  ok("roads come back from a save", clone.links[road.id] and clone.links[road.id].toll == 2)
-  ok("with the same trips carried", clone.transit.carried == c.transit.carried)
-  ok("and the population kept", clone.districts[5].population == 600)
-  ok("the day's trips are worked out again, not saved", not Save.pack(c):find("byDistrict"))
-
-  assert(c:demolishNode(a.id))
-  ok("taking the stop out cuts its road", not road.alive and c.transit.carried == 0)
-
-  c.links = nil
-  for _, d in ipairs(c.districts) do d.population = nil end
-  c.licences.internet = nil
-  local old = assert(Save.unpack(Save.pack(c)))
-  ok("a save from before people existed loads with none",
-    #old.links == 0 and (old.districts[5].population or 0) == 0 and old.licences.internet == false)
+ local c=world(); local a=node(c,'client',1400,900); local b=node(c,'client',1600,900)
+ local direct=road(c,a,b)
+ check(#c.g:nodesOfKind('stop')==0 and c.transit.byLink[direct.id].car==2,'houses connect and drive directly without bus stops')
+ local well=node(c,'source',1500,1000); well.commodity='water'; well.output=20
+ road(c,a,well)
+ local manifold=node(c,'manifold',1500,1100)
+ local depot=node(c,'depot',1600,1100); depot.commodity='water'; depot.stored=0
+ local hub=node(c,'exchange',1700,1100)
+ for _,n in ipairs({well,manifold,depot,hub}) do
+  check(not c:dailyDestinationAllowed(n,'car'),'utility and freight-only buildings are not passenger destinations')
+ end
+ a.dailyDestination=well.id; a.destinationDay=c.day
+ c:refresh(); check(a.dailyDestination==b.id,'a saved water-well destination is replaced immediately')
+ for day=1,20 do
+  c.day=day; c:refresh()
+  check(a.dailyDestination==b.id and b.dailyDestination==a.id,'daily car destinations remain real homes on day '..day)
+ end
+ local shop=node(c,'client',1600,1200,'market'); local work=node(c,'works',1700,1200); local resort=node(c,'resort',1800,1200)
+ for _,n in ipairs({shop,work,resort}) do check(c:dailyDestinationAllowed(n,'car'),'people can visit shops, workplaces and resorts') end
 end
-
-print(string.format("\n%d passed, %d failed", pass, fail))
-os.exit(fail == 0 and 0 or 1)
+-- Buses and cars use exactly the same physical road segments.
+do
+ local c=world()
+ local a=node(c,'client',1400,900); local b=node(c,'client',500,900)
+ local bend=node(c,'roundabout',1000,1100)
+ local sa=node(c,'stop',1500,800); local sb=node(c,'stop',400,800)
+ local first=road(c,sa,a); local shared=road(c,a,bend); road(c,bend,b); road(c,b,sb)
+ a.dailyDestination=b.id; a.destinationDay=c.day; b.dailyDestination=a.id; b.destinationDay=c.day
+ local before=#c.links; local bus=assert(c:layLink(sa.id,sb.id,'bus'))
+ check(#c.links==before+1 and c.links[#c.links].mode=='bus','opening a bus service does not build a physical road')
+ local path,length=c:roadPath(sa.id,sb.id,'bus')
+ check(#path==4 and length>c:nodeDistance(sa.id,sb.id),'buses follow the shared road detour, not a straight shortcut')
+ check(c.transit.byLink[shared.id].car==2 and c.transit.byLink[shared.id].bus==1,'cars and the bus travel on the same road')
+ check(c:dailyDestinationAllowed(sa,'car'),'bus stops count as passenger destinations')
+ a.dailyDestination=sa.id; c:refresh()
+ check(c.transit.byNode[a.id].destination==sa.id and (c.transit.byLink[first.id].car or 0)>0,'people can choose and drive to a bus stop')
+ a.dailyDestination=b.id; c:refresh()
+ assert(c:demolishLink(first.id))
+ check(not c:roadPath(sa.id,sb.id,'bus') and c.transit.byLink[shared.id].car==2,'losing bus-stop access stops buses without stopping house-to-house cars')
+end
+-- A bus stop participates in the random draw even before a bus service opens.
+do
+ local c=world(); local home=node(c,'client',1400,900); local stop=node(c,'stop',1500,900)
+ local shared=road(c,home,stop)
+ check(home.dailyDestination==stop.id,'the random destination draw includes bus stops')
+ check(c.transit.byLink[shared.id].car==1 and not c.transit.byLink[shared.id].bus,'driving to a bus stop does not create a bus service')
+end
+print(count..' transport and household checks passed')

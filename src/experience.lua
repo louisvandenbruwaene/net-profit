@@ -93,7 +93,7 @@ function E.progress(c,a)
   if a.id=="diversified" then
     local trades,count={},0
     for _,n in ipairs(c:clientList()) do
-      if (c.served[n.id] or 0)>=n.demand and not trades[n.commodity] then
+      if (c.fullyServed and c:fullyServed(n) or not c.fullyServed and (c.served[n.id] or 0)>=n.demand) and not trades[n.commodity] then
         trades[n.commodity]=true; count=count+1
       end
     end
@@ -201,7 +201,12 @@ function E.offerPreview(c,id)
     local copy=assert(Save.unpack(Save.pack(c)))
     local n=assert(copy:acceptClient(id))
     local net=copy:dailyRevenue()-copy:dailyExpenses()-(c:dailyRevenue()-c:dailyExpenses())
-    if (copy.served[id] or 0)>=n.demand then return {cost=0,delivery=n.demand,demand=n.demand,net=net,displaced=displaced(c,copy,id)} end
+    if copy:fullyServed(n) then return {cost=0,delivery=n.demand,demand=n.demand,net=net,displaced=displaced(c,copy,id)} end
+    -- A multi-utility offer needs a complete plan for every supply. Do not
+    -- label one primary pipe as a complete connection for the household.
+    if n.demands and n.demands.water and n.demands.power then
+      return {delivery=copy.served[id] or 0,demand=n.demand,multipleUtilities=true}
+    end
     local candidates={}
     for _,source in ipairs(copy.g:aliveNodes()) do
       if source.id~=id and not source.prospect and not copy:pipeError(source.id,id,n.commodity) then

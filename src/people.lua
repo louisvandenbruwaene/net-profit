@@ -98,7 +98,7 @@ function City:customersByDistrict()
     if d then
       local s = by[d.id] or { signed = 0, supplied = 0 }
       s.signed = s.signed + 1
-      if (self.served[c.id] or 0) >= (c.demand or 0) then s.supplied = s.supplied + 1 end
+      if self:fullyServed(c) then s.supplied = s.supplied + 1 end
       by[d.id] = s
     end
   end
@@ -265,15 +265,15 @@ function City:routeTrips()
   for _, l in ipairs(self.links or {}) do
     if l.alive then
       if l.mode == "road" then
-        arc(l.a, l.b, "link", l, l.toll or 0, P.roadCapacity, true)
-      elseif City.ROUTES[l.mode] then
+        -- Daily private vehicles are routed by road_model.
+      elseif City.ROUTES[l.mode] and (l.mode ~= "bus" or self:roadConnected(l.a,l.b)) then
         arc(l.a, l.b, "link", l, l.fare or 0, (l.vehicles or 1) * City.ROUTES[l.mode].seats, false)
       end
     end
   end
   for _, e in ipairs(self.g.edges) do
     if e.alive and e.bulk == "highway" then
-      arc(e.a, e.b, "edge", e, e.toll or P.tollDefault, P.roadCapacity, true)
+      -- A freight service is not a physical road.
     end
   end
   if not any then return T end
@@ -513,12 +513,12 @@ end
 
 function City:linkError(a, b, mode)
   local na, nb = self:transitNode(a), self:transitNode(b)
-  if not (na and nb) then return "people travel between stops, stations, resorts, yards and havens" end
+  if not (na and nb) then return "roads connect houses, businesses and road junctions; bus services connect bus stops" end
   if a == b then return "a route needs two ends" end
   if mode == "road" then
     if not self:unlocked("roads") then return "nobody travels yet" end
     if self:linkBetween(a, b, "road") then return "that road already exists" end
-    if self:nodeDistance(a, b) > City.PEOPLE.roadRange then return "too far for one road: put a stop between" end
+    if self:nodeDistance(a, b) > City.PEOPLE.roadRange then return "too far for one road: put a matching junction between" end
     local mult, blocker = self:crossingCost(na.x, na.y, nb.x, nb.y)
     if not mult then return "cannot cross " .. string.lower(City.OBSTACLES[blocker.kind].name) end
     return nil
@@ -547,8 +547,9 @@ function City:layLink(a, b, mode)
   self.links = self.links or {}
   local l = { id = #self.links + 1, a = a, b = b, mode = mode, alive = true, paid = cost }
   if mode == "road" then
-    l.toll = City.PEOPLE.tollDefault
-    self:note("Road laid for $%d, tolled at $%d a trip", cost, l.toll)
+    l.roadType = self.buildRoadType or "road"
+    l.toll = l.roadType == "highway" and City.PEOPLE.tollDefault or 0
+    self:note("Road laid for $%d; highway toll $%d per vehicle", cost, l.toll)
   else
     l.fare, l.vehicles = City.ROUTES[mode].fare, 1
     self:note("%s opened for $%d, at $%d a seat", City.ROUTES[mode].name, cost, l.fare)
