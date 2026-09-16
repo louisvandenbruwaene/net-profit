@@ -1846,7 +1846,7 @@ local function stats()
     y=y+46
   end
   button("auto-minus","-",M,y,30,30,function() state.autoMinutes=math.max(1,(state.autoMinutes or 5)-1) end,true)
-  button("autoplay",state.autoRemaining and ("Stop  "..math.ceil(state.autoRemaining).."s") or ("Autoplay "..(state.autoMinutes or 5).." min"),M+36,y,228,30,function() act("autoplay",state.autoMinutes or 5) end,true,"Temporary assistant: builds water service, accepts viable contracts, repairs and advances days. Uses this company's cash; Stop ends it immediately.")
+  button("autoplay",state.autoRemaining and ("Stop  "..math.ceil(state.autoRemaining).."s") or ("Autoplay "..(state.autoMinutes or 5).." min"),M+36,y,228,30,function() act("autoplay",state.autoMinutes or 5) end,true,"Plays for you: repairs mains, signs offers it can connect, builds water and power networks, adds wells and turbines, buys land, hires crews and advances days. Uses this company's cash; Stop ends it immediately.")
   button("auto-plus","+",M+270,y,30,30,function() state.autoMinutes=math.min(120,(state.autoMinutes or 5)+1) end,true)
   y=y+40
   button("tab-ambitions","Goals",M,y,CW,36,function() state.tab="ambitions"; state.scroll=0 end,true,"Choose a goal. Earn a cash reward.")

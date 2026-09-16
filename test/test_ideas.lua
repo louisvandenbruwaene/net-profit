@@ -177,10 +177,18 @@ do
  check(report.jewelryIncome==1800 and report.revenue>=1800 and c.stock.jewelry==0,'jewelry is sold once and recorded in revenue')
  check(revenue>=1800,'next-day estimate includes jewelry sales')
 end
--- Temporary assistant buys its opening using the actual starting budget.
+-- The assistant plays a fresh company the way a person would: it opens on
+-- the starting budget, signs and connects offers, keeps everyone supplied and
+-- keeps closing days.
 do
- local c=City.new({seed=24,obstacles=0}); local A=require('autoplay')
- for _=1,20 do local stop; c,_,stop=A.step(c); if stop then break end end
- check(#c:clientList()>0 and c.day>1 and not c.bankrupt,'autoplay connects customers and advances the company')
+ local c=City.new({seed=24}); local A=require('autoplay')
+ for _=1,2000 do
+  local stop; c,_,stop=A.step(c)
+  if stop or c.day>25 then break end
+ end
+ check(c.day>25 and not c.bankrupt,'autoplay keeps closing days without going under')
+ check(#c:clientList()>=10,'autoplay signs and connects offers as they arrive')
+ check(#c:shortCustomers()==0 and c.reputation>=70,'autoplay keeps its customers supplied')
+ check(rawget(c,'refresh')==nil and rawget(c,'stale')==nil,'a planning copy never leaks into the company')
 end
 print(checks..' ideas checks passed')

@@ -135,7 +135,11 @@ Clearing removes the obstacle and credits the resources once. A depot's **Load f
 
 Open **Stats**, choose 1–120 minutes, then press **Autoplay**. Press the same button to stop. Switching companies clears the timer. The timer itself is session state and does not restart from a save.
 
-The assistant builds and expands water service, accepts contracts it can actually fulfill, repairs damage, upgrades wells and constrained mains, adds wells, expands distribution connections, buys affordable nearby land and advances days. All purchases use normal game cash and validation. A failed construction plan is discarded in full. The assistant pauses if it cannot establish an affordable opening or the company stops trading. Its simulation actions do not grant free resources or unlocks.
+The assistant plays in the order a careful player would. It repairs damaged lines and pays down debt first. Then it restores supply to signed customers who are short, widening the full main in the way or laying a second route where a customer only takes a small one. Next it signs offers, best price first, but only when it can connect them and nobody already signed goes short. It declines offers it cannot serve on their last day, since a refusal costs less reputation than letting one expire. It keeps water supply ahead of demand by deepening wells and sinking new ones joined to the network.
+
+Once the company has 25 customers and money to spare, it buys the electricity licence. It builds river turbines tied into one grid, standard towers across the map, and transformer-fitted towers and poles beside workshops and homes, buying a river district if it has none. It also hires maintenance crews as the network grows, unlocks better pipe linings, buys land that pays back within about six weeks of profit, and invests part of a large cash surplus one placement at a time.
+
+Each decision is planned on a copy of the company and discarded in full if any step fails. Networks are solved once a plan asks how much is flowing, not after every structure, and planning is spread across steps so the game does not stall. A plan is tried at most once per day, so days always close. The assistant pauses if it cannot establish an affordable opening or the company stops trading. All purchases use normal game cash and validation, with no free resources or unlocks.
 
 Autoplay is deliberately isolated in `src/autoplay.lua` and a small application/UI integration so it can be removed later. Automated verification uses test companies, never the player's slots.
 
