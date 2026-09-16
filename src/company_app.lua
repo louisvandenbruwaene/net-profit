@@ -119,6 +119,18 @@ local function action(name,...)
     cam:centerOn(n.x,n.y)
     return
   end
+  -- The header's one request control. The contract opens, the house it is
+  -- about sits under the pointer, and the map comes in closer than it was: a
+  -- request is about one building, so the view should be about one building.
+  if name=="focusRequest" then
+    local id=...
+    local n=city.g.nodes[id]
+    if not n then return end
+    clear(); state.filter=nil; state.modal=nil; state.node=id; reveal()
+    cam:centerOn(n.x,n.y)
+    cam.targetScale=math.min(2.2,math.max(cam.targetScale,1.35))
+    return
+  end
   if name=="focusEdge" then
     local id=...
     local e=city.g.edges[id]

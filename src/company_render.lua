@@ -358,6 +358,9 @@ function Draw.structureGlyph(kind, x, y, s)
     lg.setColor(P.bg)
     lg.rectangle("fill", -3.4 * s, -2.4 * s, 6.8 * s, 4.8 * s, 0.8 * s)
     lg.setColor(r, g, b, a)
+  elseif kind == "corner" then
+    -- The road arrives from the left and leaves downward: a bend, drawn as one.
+    lg.setLineWidth(3*s); lg.line(-12*s,-6*s,0,-6*s); lg.line(0,-6*s,0,12*s)
   elseif kind == "intersection" or kind == "roundabout" or kind == "interchange" then
     lg.setLineWidth(3*s); lg.line(-12*s,0,12*s,0); lg.line(0,-12*s,0,12*s)
     if kind~="intersection" then lg.circle("line",0,0,(kind=="interchange" and 9 or 6)*s) end

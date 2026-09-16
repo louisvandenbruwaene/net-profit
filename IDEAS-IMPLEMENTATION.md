@@ -78,14 +78,14 @@ Crop and livestock farms reserve a 280 × 280 m plot. Their water, oil, power an
 An investment matures after seven days. At settlement, its return is drawn from a normal distribution with:
 
 - Base expected return: 10%.
-- Standard deviation: `0.01 × (company day − 1)`, starting at zero.
+- Standard deviation: `0.01 × (company day − 1)`, starting at zero and stopping where a total loss is four standard deviations below the mean — 0.275 with no analysts, reached around day 29. Without that cap the payout floor at zero clipped the left tail and quietly paid the player for it. At the cap a settlement loses money 36% of the time; one analyst carries the mean to 20% against a 0.30 spread and loses 25% of the time, and earns its $175-a-cycle wage on $1,750 invested.
 - Analyst contribution: +10 percentage points per employed analyst, plus +1 percentage point per completed week that individual has worked for the company.
 
 For example, an analyst with one completed week changes the expected return from 10% to 21%. Hiring another analyst changes it to 31%. Each analyst costs $1,000 to recruit. Initial salary is $25/day and compounds by 1% each completed week of that analyst's service. Each worker's hiring day persists in the save. Dismissing a worker removes one analyst, with the newest dismissed first. Analyst headcount has no fixed cap.
 
 Returns can be negative. Payout is floored at zero, so an investment can lose its entire principal but cannot create a debt beyond the amount invested. Consequently the extreme tail is clipped; the underlying return draw remains normal. The Company panel shows current expected return and standard deviation.
 
-Workers have compact symbols and counts. Maintenance uses a yellow hard hat; analysts combine a graduation cap and money symbol. Hovering a hiring control identifies the role, recruitment price, daily wage and function. Clicking the hiring control adds one worker; Stop dismisses one.
+Workers have compact symbols and counts, each distinct from the others: a yellow hard hat for maintenance crews, a spanner for engineers, a signal reaching outward for dispatchers, a level on its tripod for surveyors, a house for estates, and a graduate's cap over a rising line for analysts. Hovering a hiring control identifies the role, recruitment price, daily wage and function. Clicking the hiring control adds one worker; Stop dismisses one.
 
 Dispatchers reveal one neighboring ring each, up to four. Ownership remains visible, including disconnected holdings. Hidden neighboring terrain is generated ahead of construction so future mountain generation cannot appear on top of an established network. Dispatchers leave contract acceptance to the player.
 
@@ -110,11 +110,11 @@ Players may buy nonadjacent regions. Islands still require a harbor. Estates sta
 
 The top bar now has five windows: cash, estimated daily profit, supplied customers, client request, and fix all pipes. The request window shows one request, ranked by percentage above its base selling price. Accepting or rejecting it immediately exposes the next. Its info button opens the inspector. Fix All repairs the damaged lines for the displayed total.
 
-A window that carries controls prints its figure at a size that clears the control row, so the damaged count and its price stay legible above the Repair button instead of running through it. Headings and figures are both measured against the width of their window, which matters at the 1100-point minimum.
+The client request window is a single control carrying the offer's percentage above or below the going rate. Pressing it opens that contract, selects the house and brings the map in closer than it was. Fix All shows the number of damaged mains, with the repair price alone on a button that fills the window. Headings and figures are both measured against the width of their window, which matters at the 1100-point minimum.
 
 Buying the power license gives existing water houses an electricity request without silently changing an already signed water contract. Accepting adds electricity demand and its own agreed rate. Declining leaves water service intact. Eligible existing houses make follow-up electricity requests at three times the ordinary request probability, capped at 100%, with a seven-day delay after a rejection.
 
-The build instructions sit behind the inline info button. Supply and maintenance totals use a compact expandable row. Commodity quantities use shared pictograms across the map and panels. Pipe choices favor numerical capacity over size names. Resource shortage messages use the same resource symbols.
+Every structure the company has unlocked is on the panel; the More/Fewer buildings toggle is gone. A structure tile puts its icon on the left and centres its name and price in what the icon leaves. The sea pump and the purification centre are structures in that same grid, marked with the brine drop and the same drop with the sparkle of having been cleaned, and the purifier is no longer listed again under Works. Pipe capacity is headed with the commodity symbol and `/ day`, and lining with a shield. Roads gain a corner: a two-port node for bending a road, $30, taking offroads and normal roads. The build instructions sit behind the inline info button. Supply and maintenance totals use a compact expandable row. Commodity quantities use shared pictograms across the map and panels. Pipe choices favor numerical capacity over size names. Resource shortage messages use the same resource symbols.
 
 The former People category is represented by the Roads symbol. Roads carry passenger traffic and commodity trucks; the existing physical road/path rules remain shared by both. Commodity freight includes solar panels, harvested resources and salt.
 

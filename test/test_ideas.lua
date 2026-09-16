@@ -88,6 +88,21 @@ do
  check(copy:investmentDistribution()==mean and copy:workerCount('analysts')==2,'analyst tenure survives save')
  assert(c:dismissOrder('analysts')); check(#c.analystHired==1,'dismissal removes one analyst')
 end
+-- The spread widens until it would start paying the player for the tail the
+-- payout floor clips off, and then stops.
+do
+ local c=fresh(); c.day=400
+ local mean,sd=c:investmentDistribution()
+ check(mean==.1 and math.abs(sd-.275)<1e-9,'the spread stops widening')
+ check(math.abs((1+mean)/sd-4)<1e-9,'where a total loss is four deviations out')
+ assert(c:hireOrder('analysts'))
+ local m2,sd2=c:investmentDistribution()
+ check(m2>mean and sd2>sd,'an analyst buys mean, and a little more room to use it')
+ check(m2/sd2>mean/sd,'and improves the return against the risk')
+ check(math.abs((1+m2)/sd2-4)<1e-9,'with the total loss still that far out')
+ c.day=12; local _,early=c:investmentDistribution()
+ check(math.abs(early-.11)<1e-9,'an early company is still under the cap')
+end
 -- Stable discounts with the requested categorical frequencies and separate holdings.
 do
  local c=fresh(); local totals={[0]=0,[10]=0,[20]=0,[30]=0,[40]=0,[50]=0}

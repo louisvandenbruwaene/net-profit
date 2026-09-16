@@ -82,6 +82,21 @@ Data.rules = {
   investDays = 7,
   investMean = 0.10,
   investSd = 0.05,
+  -- The spread of a settlement widens by investSdPerDay every day the company
+  -- trades, and then stops where a total loss is investSdRuin deviations out.
+  -- It has to stop somewhere: a payout cannot go below zero, so a spread wide
+  -- enough to reach -100% quietly pays the player for the tail that gets
+  -- clipped off. Four deviations puts that tail at about one settlement in
+  -- thirty thousand, which is worth nothing to anybody.
+  --
+  -- What is left is a real gamble that an analyst makes worth taking. At the
+  -- opening 10% mean the cap is 0.275, so a settlement loses money 36% of the
+  -- time; one analyst carries the mean to 20% against a 0.30 spread and loses
+  -- 25% of the time. An analyst costs $1,000 and $25/day -- $175 a cycle --
+  -- and pays 10 points of mean, so it earns its wage on $1,750 invested and
+  -- its hiring fee on the cycle after that.
+  investSdPerDay = 0.01,
+  investSdRuin = 4,
   sourceIncome = 12,        -- wholesale, per well per day
   repLoss = 8,
   repDecline = 1,

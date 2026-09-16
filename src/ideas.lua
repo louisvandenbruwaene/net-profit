@@ -22,9 +22,14 @@ return function(City)
     return n==true and 1 or tonumber(n) or 0
   end
   function City:investmentDistribution()
-    local mean=.10
+    local r=City.rules
+    local mean=r.investMean
     for _,day in ipairs(self.analystHired or {}) do mean=mean+.10+.01*math.floor(math.max(0,self.day-day)/7) end
-    return mean,.01*math.max(0,self.day-1)
+    -- Widening for ever turned a settlement into a lottery the house could not
+    -- lose, because the payout floor clipped the left tail off. It stops where
+    -- a total loss is still four deviations out: see the note in economy.lua.
+    local cap=(1+mean)/r.investSdRuin
+    return mean,math.min(cap,r.investSdPerDay*math.max(0,self.day-1))
   end
   function City:hireOrder(key)
     local spec=City.ORDERS[key]

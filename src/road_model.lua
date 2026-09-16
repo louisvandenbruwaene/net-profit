@@ -1,9 +1,13 @@
 local Graph=require('graph')
 return function(City)
  City.ROAD_TYPES={offroad={name='OFFROAD',factor=.5,colour={.65,.48,.30}},road={name='NORMAL ROAD',factor=1,colour={.65,.68,.72}},highway={name='HIGHWAY',factor=2,colour={.96,.80,.35}}}
- local junctions={intersection='OFFROAD INTERSECTION',roundabout='ROUNDABOUT',interchange='HIGHWAY INTERCHANGE'}
+ -- A corner is the cheap one: two ports, for bending a road round something
+ -- rather than for meeting another road at it.
+ local junctions={corner='ROAD CORNER',intersection='OFFROAD INTERSECTION',roundabout='ROUNDABOUT',interchange='HIGHWAY INTERCHANGE'}
+ local ports={corner=2}
+ local costs={corner=30,interchange=400}
  for key,name in pairs(junctions) do
-  Graph.KINDS[key]={name=name,ports=8,throughput=999,cost=key=='interchange' and 400 or 80,color={.8,.75,.5}}
+  Graph.KINDS[key]={name=name,ports=ports[key] or 8,throughput=999,cost=costs[key] or 80,color={.8,.75,.5}}
   City.price[key]=Graph.KINDS[key].cost; City.BUILDABLE[key]=true; City.BUILD_UNLOCK[key]='roads'; City.TRANSIT_NODES[key]=true
  end
  for _,key in ipairs({'client','works','depot','source','exchange'}) do City.TRANSIT_NODES[key]=true end
