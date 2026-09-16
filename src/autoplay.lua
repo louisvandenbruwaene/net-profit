@@ -1,7 +1,9 @@
 -- Temporary play assistant. It plays the way a careful person would: keep the
 -- mains sound, fix whoever is short, sign the best offers it can actually
--- reach, grow supply before it runs out, take on electricity once water pays,
--- buy ground when it needs more, and only then close the day.
+-- reach, and grow supply before it runs out. Then it grows the company the way
+-- the game opens up: electricity, a freight hub to land materials and imported
+-- trades, area hubs, roads with tolled highways, buses between towns, resorts,
+-- filters, staff and more ground, and only then closes the day.
 --
 -- Every move uses normal game prices and actions. Each step makes one decision
 -- on a copy of the company; a plan that fails halfway is thrown away whole, so
@@ -9,11 +11,12 @@
 -- until tomorrow, which is what guarantees the day eventually closes.
 local Save=require('company_save')
 local City=require('city')
+local Graph=require('graph')
 local D=require('data.infrastructure')
 local A={}
 
 local MAX_ACTIONS=30        -- decisions per day before the day is closed anyway
-local BUDGET=0.05           -- seconds of planning per step once one plan has run
+A.budget=0.05               -- seconds of planning per step once one plan has run
 local tried,actions={},{}   -- per company and day, never saved
 local function key(c) return tostring(c.seed)..':'..c.day end
 local function dist(a,b) return math.sqrt((a.x-b.x)^2+(a.y-b.y)^2) end
@@ -23,18 +26,15 @@ local function dist(a,b) return math.sqrt((a.x-b.x)^2+(a.y-b.y)^2) end
 -- something actually asks how much is flowing.
 local refresh=City.refresh
 local function settle(c) if c.stale then c.stale=nil; refresh(c) end end
+local function net(c) settle(c); return c:dailyRevenue()-c:dailyExpenses() end
 local function spendable(c)
   settle(c)
   -- What a sensible player keeps back so one bad day is not the end.
   return c.money-math.max(200,c:dailyExpenses()*4)
 end
-
--- Ground has to earn itself back: no district costs more than about six weeks
--- of what the company clears in a day.
-local function affordableLand(c,cost)
-  settle(c)
-  return cost<=40*math.max(50,c:dailyRevenue()-c:dailyExpenses()) and spendable(c)>=cost
-end
+-- A project has to earn itself back: nothing costs more than about six weeks of
+-- what the company clears in a day, and the cash has to be there as well.
+local function worth(c,cost) return spendable(c)>=cost and cost<=40*math.max(60,net(c)) end
 
 local packed={}
 local function attempt(c,id,plan)
@@ -58,8 +58,8 @@ local function attempt(c,id,plan)
 end
 
 -- Somewhere free to stand near a point, on owned ground.
-local function spot(c,x,y,ok)
-  for r=0,120,12 do
+local function spot(c,x,y,ok,reach)
+  for r=0,reach or 120,12 do
     for i=0,(r==0 and 0 or 15) do
       local a=i*math.pi/8
       local px,py=x+math.cos(a)*r,y+math.sin(a)*r
@@ -67,13 +67,21 @@ local function spot(c,x,y,ok)
     end
   end
 end
+local function place(c,kind,x,y,extra,ok,reach)
+  local px,py=spot(c,x,y,ok,reach)
+  if not px then return nil end
+  return c:build(px,py,kind,extra) or nil
+end
+
+-- Whether a main or a freight line carries a trade.
+local function carries(e,commodity) return e.commodity==commodity or (e.wagons and e.wagons[commodity]) end
 
 -- Everything one network reaches over live mains of one trade.
 local function component(c,start,commodity)
   local seen,queue={[start]=true},{start}
   for _,id in ipairs(queue) do
     for _,e in ipairs(c.g:edgesAt(id)) do
-      if e.alive and e.commodity==commodity and e.cap>0 then
+      if e.alive and carries(e,commodity) and e.cap>0 then
         local other=e.a==id and e.b or e.a
         if not seen[other] then seen[other]=true; queue[#queue+1]=other end
       end
@@ -82,8 +90,10 @@ local function component(c,start,commodity)
   return seen
 end
 
+local haul -- a plan may need a trade landed at the road head
 local function freePort(c,n) return c:connectionPorts(n.id)<(n.ports or 1) end
 local function short(c) settle(c); return c:shortCustomers() end
+local function count(c,kind) return #c.g:nodesOfKind(kind) end
 
 -- What a customer is still waiting for, by trade.
 local function need(c,n)
@@ -96,19 +106,27 @@ local function need(c,n)
   return want
 end
 
+local function centroid(list)
+  local x,y=0,0
+  for _,n in ipairs(list) do x,y=x+n.x,y+n.y end
+  return {x=x/math.max(1,#list),y=y/math.max(1,#list)}
+end
+
 --------------------------------------------------------------------------------
--- Water
+-- Pipes: water from wells, and beer, oil and petrol landed at a haven
 --------------------------------------------------------------------------------
 
 local FITTING={junction=true,manifold=true,pump=true}
 
--- Unused output of the wells feeding a network.
-local function headroom(c,seen)
+-- Unused output of the wells feeding a network, or plenty if a haven feeds it:
+-- the outside world does not run out.
+local function headroom(c,seen,commodity)
   settle(c)
   local spare=0
   for id in pairs(seen) do
     local n=c.g.nodes[id]
-    if n.kind=='source' and n.commodity=='water' then
+    if n.kind=='terminal' then return math.huge end
+    if n.kind=='source' and n.commodity==commodity then
       spare=spare+math.max(0,(n.effectiveOutput or n.output or 0)-(c.produced[n.id] or 0))
     end
   end
@@ -117,7 +135,7 @@ end
 
 -- A chain of T splits from a fitting towards a building, finishing with a main
 -- into it. True only if every link went in.
-local function waterChain(c,from,target,last)
+local function chain(c,from,target,commodity,last,mid)
   local hops=math.max(1,math.ceil(dist(from,target)/240))
   if hops>6 then return false end
   local start=from
@@ -125,24 +143,25 @@ local function waterChain(c,from,target,last)
     local t=i/hops
     local x,y=spot(c,start.x+(target.x-start.x)*t,start.y+(target.y-start.y)*t,function(px,py) return dist(from,{x=px,y=py})<290 end)
     local n=x and c:build(x,y,'junction')
-    if not n or not c:layPipe(from.id,n.id,'water','medium',nil,c.lining) then return false end
+    if not n or not c:layPipe(from.id,n.id,commodity,mid or 'medium',nil,c.lining) then return false end
     from=n
   end
-  return c:layPipe(from.id,target.id,'water',last or 'small',nil,c.lining)~=nil
+  return c:layPipe(from.id,target.id,commodity,last or 'small',nil,c.lining)~=nil
 end
 
-local function connectWater(c,target,want)
+local function connectPipe(c,target,want,commodity,last,mid)
   local best
   for _,n in ipairs(c.g:aliveNodes()) do
-    if FITTING[n.kind] and n.id~=target.id and not c:pipeBetween(n.id,target.id,'water')
+    if (FITTING[n.kind] or n.kind=='dc' and commodity~='water') and n.id~=target.id
+      and not c:pipeBetween(n.id,target.id,commodity)
       and dist(n,target)<1400 and (not best or dist(n,target)<dist(best,target))
       and (freePort(c,n) or n.kind=='junction' and dist(n,target)<500)
-      and headroom(c,component(c,n.id,'water'))>=want then best=n end
+      and headroom(c,component(c,n.id,commodity),commodity)>=want then best=n end
   end
   if not best then return false end
   -- A full T split becomes a hub, which is what a person does when one runs out of room.
-  if not freePort(c,best) and not c:convertNode(best.id,'manifold','water') then return false end
-  return waterChain(c,best,target)
+  if not freePort(c,best) and not c:convertNode(best.id,'manifold',commodity) then return false end
+  return chain(c,best,target,commodity,last,mid)
 end
 
 -- The cheapest well worth deepening, deepened.
@@ -157,29 +176,33 @@ end
 
 -- A new well on owned ground with a hub beside it, joined to the nearest
 -- network when `join` asks for it so its water is not stranded.
-local function newWell(c,join)
-  local best
+local function spring(c,to)
+  local best,far
   for _,d in ipairs(c.deposits) do
     local land=c:districtAt(d.x,d.y)
     if d.commodity=='water' and not d.taken and land and land.owned and not c:sourceError('water',d.x,d.y) then
       local near=math.huge
-      for _,n in ipairs(c:clientList()) do near=math.min(near,dist(n,d)) end
-      if not best or near<best.near then best={d=d,near=near} end
+      if to then near=dist(to,d) else for _,n in ipairs(c:clientList()) do near=math.min(near,dist(n,d)) end end
+      if not best or near<far then best,far=d,near end
     end
   end
+  return best,far
+end
+local function newWell(c,join,to)
+  local best=spring(c,to)
   if not best or spendable(c)<c:sourceCost('water')+120 then return nil end
-  local well=c:buySource('water',best.d.x,best.d.y)
+  local well=c:buySource('water',best.x,best.y)
   if not well then return nil end
-  local x,y=spot(c,well.x+80,well.y+60)
-  local hub=x and c:build(x,y,'manifold')
+  local hub=place(c,'manifold',well.x+80,well.y+60)
   if not hub or not c:layPipe(well.id,hub.id,'water','large',nil,c.lining) then return nil end
+  if to then return chain(c,hub,to,'water','large','large') and 'Sank a well for a hub' or nil end
   if not join then return 'Sank a new well with a hub beside it' end
   local mine,to=component(c,hub.id,'water'),nil
   for _,n in ipairs(c.g:aliveNodes()) do
     if FITTING[n.kind] and not mine[n.id] and freePort(c,n) and dist(n,hub)<700
       and (not to or dist(n,hub)<dist(to,hub)) then to=n end
   end
-  return to and waterChain(c,hub,to,'medium') and 'Sank a new well and joined it to the network' or nil
+  return to and chain(c,hub,to,'water','medium') and 'Sank a new well and joined it to the network' or nil
 end
 
 --------------------------------------------------------------------------------
@@ -187,7 +210,7 @@ end
 --
 -- Generators send out high voltage, so a grid starts at a high voltage tower
 -- fitted with a transformer. Standard towers carry medium voltage across the
--- map; a standard tower with a transformer serves workshops and feeds low
+-- map; a standard tower with a transformer serves workshops, hubs and low
 -- voltage poles, and a pole with a transformer serves homes.
 --------------------------------------------------------------------------------
 
@@ -219,13 +242,12 @@ end
 -- A tower near a point that stays within reach of what it must cable to:
 -- {structure, metres} pairs.
 local function tower(c,kind,x,y,upgrade,reach)
-  local px,py=spot(c,x,y,function(px,py)
+  local n=place(c,kind,x,y,nil,function(px,py)
     for _,r in ipairs(reach or {}) do if dist(r[1],{x=px,y=py})>r[2] then return false end end
     return true
   end)
-  local n=px and c:build(px,py,kind)
   if n and upgrade and not c:upgradeTower(n.id,upgrade) then return nil end
-  return n or nil
+  return n
 end
 
 -- Cables between towers are trunks that carry many homes, so they go in a size
@@ -279,7 +301,7 @@ local function connectPower(c,target)
     server=feed and tower(c,'pole',(feed.x+target.x)/2,(feed.y+target.y)/2,'transformer',{{feed,span},{target,span}})
     if not server or not cable(c,feed,server,'small') then return false end
   end
-  return server~=nil and c:layPipe(server.id,target.id,'power','small',nil,c.lining)~=nil
+  return server~=nil and c:layPipe(server.id,target.id,'power',voltage=='medium' and 'medium' or 'small',nil,c.lining)~=nil
 end
 
 -- Riverbank a turbine could stand on, per district. The river never moves, so
@@ -300,57 +322,61 @@ local function riverbank(c,d)
   return banks[id]
 end
 
--- A river turbine on owned ground. It ties into the grid there is by a high
--- voltage line, or starts one with a substation towards the customers.
+-- Another power station, whichever is cheaper per unit of electricity: a river
+-- turbine on owned riverbank, or a wind park built from landed steel and
+-- concrete. It ties into the grid there is by a high voltage line, or starts
+-- one with a substation towards the customers.
 local function newGenerator(c)
-  if spendable(c)<c:plantCost('hydro') then return nil end
-  local anchor={x=0,y=0,n=0}
-  for _,n in ipairs(c:clientList()) do anchor.x,anchor.y,anchor.n=anchor.x+n.x,anchor.y+n.y,anchor.n+1 end
-  if anchor.n==0 then return nil end
-  anchor.x,anchor.y=anchor.x/anchor.n,anchor.y/anchor.n
+  local clients=c:clientList()
+  if #clients==0 then return nil end
+  local anchor=centroid(clients)
   local grid=nearestLive(c,anchor,function(n) return n.kind=='hvtower' end)
-  local aim,best=grid or anchor,nil
+  if not grid and next(energised(c)) then
+    -- Every high voltage tower is full: a new substation beside a standard
+    -- tower joins the grid there instead of starting a second, separate one.
+    local pylon=nearestLive(c,anchor,function(n) return n.kind=='pylon' end)
+    grid=pylon and tower(c,'hvtower',pylon.x+60,pylon.y-60,'transformer',{{pylon,190}})
+    if not grid or not cable(c,grid,pylon) then return nil end
+  end
+  local aim,best,plant=grid or anchor,nil,'hydro'
   for _,d in ipairs(c:ownedDistricts()) do
     for _,p in ipairs(riverbank(c,d)) do
       if (not best or dist(p,aim)<dist(best,aim)) and not c:sourceError('power',p.x,p.y,'hydro') then best=p end
     end
   end
-  if not best or grid and dist(best,grid)>1800 then return nil end
-  local plant=c:buySource('power',best.x,best.y,'hydro')
-  if not plant then return nil end
+  if best and grid and dist(best,grid)>1800 then best=nil end
+  local windy=count(c,'dc')>0 and c:plantCost('wind')/City.PLANTS.wind.output<c:plantCost('hydro')/City.PLANTS.hydro.output
+  if (windy or not best) and haul(c,'concrete') and not c:materialError(City.MATERIALS.wind) then
+    local x,y=spot(c,aim.x+220,aim.y+160,function(px,py) return not c:sourceError('power',px,py,'wind') end,400)
+    if x then best,plant={x=x,y=y},'wind' end
+  end
+  if not best or spendable(c)<c:plantCost(plant) then return nil end
+  local station=c:buySource('power',best.x,best.y,plant)
+  if not station then return nil end
+  local name=plant=='wind' and 'a wind park' or 'a river turbine'
   if grid then
-    local from=plant
-    local hops=math.max(1,math.ceil(dist(plant,grid)/280))
+    local from=station
+    local hops=math.max(1,math.ceil(dist(station,grid)/280))
     for i=1,hops-1 do
       local t=i/hops
-      local n=tower(c,'hvtower',plant.x+(grid.x-plant.x)*t,plant.y+(grid.y-plant.y)*t,nil,{{from,295}})
+      local n=tower(c,'hvtower',station.x+(grid.x-station.x)*t,station.y+(grid.y-station.y)*t,nil,{{from,295}})
       if not n or not cable(c,from,n,'large') then return nil end
       from=n
     end
-    return dist(from,grid)<=300 and cable(c,from,grid,'large') and 'Built a river turbine and tied it into the grid' or nil
+    return dist(from,grid)<=300 and cable(c,from,grid,'large') and 'Built '..name..' and tied it into the grid' or nil
   end
-  local toward=math.min(1,150/math.max(1,dist(plant,anchor)))
-  local hv=tower(c,'hvtower',plant.x+(anchor.x-plant.x)*toward,plant.y+(anchor.y-plant.y)*toward,'transformer',{{plant,295}})
-  return hv and cable(c,plant,hv,'large') and 'Built a river turbine and a grid substation' or nil
-end
-
--- A river district next door, for a licensed company with no river of its own.
-local function riverDistrict(c)
-  local best
-  for _,d in ipairs(c.districts) do
-    if not d.owned and c:districtAdjacent(d) and not c:districtError(d.id) and #riverbank(c,d)>0
-      and (not best or c:districtCost(d)<c:districtCost(best)) then best=d end
-  end
-  return best
+  local toward=math.min(1,150/math.max(1,dist(station,anchor)))
+  local hv=tower(c,'hvtower',station.x+(anchor.x-station.x)*toward,station.y+(anchor.y-station.y)*toward,'transformer',{{station,295}})
+  return hv and cable(c,station,hv,'large') and 'Built '..name..' and a grid substation' or nil
 end
 
 --------------------------------------------------------------------------------
 -- Customers
 --------------------------------------------------------------------------------
 
--- The nearest full main between a customer and its supply. Another
--- customer's own stub is full because that customer is supplied, not because
--- it is in the way, so those are passed over.
+-- The nearest full main or freight line between a customer and its supply.
+-- Another customer's own stub is full because that customer is supplied, not
+-- because it is in the way, so those are passed over.
 local function bottleneck(c,n,commodity)
   settle(c)
   local seen,queue={[n.id]=true},{n.id}
@@ -359,16 +385,17 @@ local function bottleneck(c,n,commodity)
       local e=c.g.edges[ei]
       local other=e.a==id and e.b or e.a
       local far=c.g.nodes[other]
-      if e.alive and e.commodity==commodity and not seen[other] and (far.kind~='client' or other==n.id) then
-        if math.abs(c.detail.edge[ei] or 0)>=(e.effectiveCap or e.cap) then return e end
+      if e.alive and carries(e,commodity) and not seen[other] and (far.kind~='client' or other==n.id) then
+        local flow=math.abs((((c.edgeFlowBy or {})[commodity] or {})[ei]) or c.detail.edge[ei] or 0)
+        if flow>=(e.wagons and e.wagons[commodity] or e.effectiveCap or e.cap) then return e end
         seen[other]=true; queue[#queue+1]=other
       end
     end
   end
 end
 
--- Make one signed customer whole: diagnose, fix the one thing in the way, and
--- look again, a few times over.
+-- Make one signed customer (or a hub) whole: diagnose, fix the one thing in the
+-- way, and look again, a few times over.
 local function serve(c,n)
   for _=1,6 do
     local commodity,want=next(need(c,n))
@@ -376,31 +403,30 @@ local function serve(c,n)
     local why=c:constraintFor(n.id)
     local e=why=='main' and bottleneck(c,n,commodity)
     if why=='main' and not e then why='output' end
-    local edge=e and e.id
     if why=='valve' then c:toggleSupply(n.id)
     elseif why=='main' then
       -- Widen the full main, or when it cannot be widened (a customer only
       -- takes a small one) bring in a second route beside it.
-      local bigger=c:biggerSize(e)
-      if not (bigger and c:replacePipe(edge,bigger,e.grade))
-        and not (commodity=='water' and connectWater(c,n,want) or commodity=='power' and connectPower(c,n)) then return false end
+      local bigger=not e.bulk and c:biggerSize(e)
+      if not (bigger and c:replacePipe(e.id,bigger,e.grade))
+        and not (commodity=='power' and connectPower(c,n) or commodity~='power' and connectPipe(c,n,want,commodity)) then return false end
     elseif why=='output' and commodity=='water' then
       if not deepenWell(c) and not newWell(c,true) then return false end
     elseif why=='output' and commodity=='power' then
       if not newGenerator(c) then return false end
-    elseif commodity=='water' then
-      if not connectWater(c,n,want) then return false end
     elseif commodity=='power' then
       if powerSpare(c)<want and not newGenerator(c) then return false end
       if not connectPower(c,n) then return false end
+    elseif Graph.formOf(commodity)=='liquid' then
+      if not connectPipe(c,n,want,commodity) then return false end
     else return false end
   end
   return next(need(c,n))==nil
 end
 
 -- Sign an offer and connect it, as long as nobody already signed goes short.
--- A new connection can pull water or power away from a neighbour on the same
--- main, so that is put right as part of the same plan.
+-- A new connection can pull supply away from a neighbour on the same main, so
+-- that is put right as part of the same plan.
 local function sign(c,id)
   local before={}
   for _,x in ipairs(short(c)) do before[x.id]=true end
@@ -416,12 +442,377 @@ local function sign(c,id)
   return true
 end
 
-local TRADES={water=true,power=true}
 local function servable(c,n)
   for commodity in pairs(n.demands or {[n.commodity]=n.demand}) do
-    if not TRADES[commodity] or not c:licensed(commodity) then return false end
+    if not c:licensed(commodity) then return false end
+    if commodity~='water' and commodity~='power' and not (Graph.formOf(commodity)=='liquid' and count(c,'dc')>0) then return false end
   end
   return not n.powerRequest or c.licences.power
+end
+
+--------------------------------------------------------------------------------
+-- Freight: a road head, a yard, and trucks between them
+--------------------------------------------------------------------------------
+
+local function yard(c) return c.g:nodesOfKind('dc')[1] end
+local function freightLine(c)
+  for _,e in ipairs(c.g.edges) do if e.alive and e.bulk then return e end end
+end
+-- Landed goods a plan will need: one more wagon on the line for a trade it
+-- does not carry yet.
+function haul(c,commodity)
+  local line=freightLine(c)
+  if not line then return false end
+  return (line.wagons or {})[commodity]~=nil or c:addWagon(line.id,commodity)~=nil
+end
+
+local function freightHub(c)
+  local clients=c:clientList()
+  local middle=centroid(clients)
+  local depot=place(c,'dc',middle.x+160,middle.y+140,nil,nil,400)
+  if not depot then return nil end
+  local haven
+  for _,a in ipairs({0,1,2,3,4,5,6,7}) do
+    haven=place(c,'terminal',depot.x+math.cos(a*math.pi/4)*260,depot.y+math.sin(a*math.pi/4)*260,'highway',
+      function(px,py) return dist(depot,{x=px,y=py})<400 end)
+    if haven then break end
+  end
+  if not haven then return nil end
+  local held=c.buildRoadType
+  c.buildRoadType='road'
+  local road=c:layLink(haven.id,depot.id,'road')
+  c.buildRoadType=held
+  if not road or not c:layPipe(haven.id,depot.id,'steel',2,'highway') then return nil end
+  return 'Opened a road head and a freight yard with trucks for steel'
+end
+
+-- An oil rig on an owned field, in a district with no wells for it to foul,
+-- piped into the oil network so the company stops paying for landed crude.
+local function newRig(c)
+  local depot=yard(c)
+  if not (depot and haul(c,'oil')) then return nil end
+  local best
+  for _,d in ipairs(c.deposits) do
+    local land=c:districtAt(d.x,d.y)
+    if d.commodity=='oil' and not d.taken and land and land.owned and dist(d,depot)<1400 and not c:sourceError('oil',d.x,d.y) then
+      local wells=false
+      for _,w in ipairs(c.g:nodesOfKind('source')) do wells=wells or w.commodity=='water' and c:districtAt(w.x,w.y)==land end
+      if not wells and (not best or dist(d,depot)<dist(best,depot)) then best=d end
+    end
+  end
+  if not best then return nil end
+  local rig=c:buySource('oil',best.x,best.y)
+  local hub=rig and place(c,'manifold',rig.x+80,rig.y+60)
+  if not hub or not c:layPipe(rig.id,hub.id,'oil','large',nil,c.lining) then return nil end
+  local mine,to=component(c,hub.id,'oil'),nil
+  for _,n in ipairs(c.g:aliveNodes()) do
+    if (n.kind=='dc' or FITTING[n.kind]) and not mine[n.id] and freePort(c,n) and dist(n,hub)<1400
+      and headroom(c,component(c,n.id,'oil'),'oil')>0 and (not to or dist(n,hub)<dist(to,hub)) then to=n end
+  end
+  return to and chain(c,hub,to,'oil','medium') and 'Sank an oil rig and piped it into the network' or nil
+end
+
+-- An environment lab for a district whose wells are about to be fouled.
+local function lab(c)
+  for _,d in ipairs(c:ownedDistricts()) do
+    local covered=false
+    for _,n in ipairs(c.g:nodesOfKind('lab')) do covered=covered or c:labCovers(n,d) end
+    if (d.pollution or 0)>=D.pollution.stopAt*0.5 and not covered then
+      return place(c,'lab',d.x+d.w/2,d.y+d.h/2,nil,nil,300) and 'Built an environment lab in '..d.name or nil
+    end
+  end
+end
+
+--------------------------------------------------------------------------------
+-- Area hubs: a neighbourhood served without a main to every house
+--------------------------------------------------------------------------------
+
+local function areaHub(c)
+  local hubs=c.g:nodesOfKind('exchange')
+  local offers={}
+  for _,n in ipairs(c:clientList(true)) do
+    local covered=false
+    for _,h in ipairs(hubs) do covered=covered or dist(h,n)<City.hub.radius end
+    if not covered and servable(c,n) then offers[#offers+1]=n end
+  end
+  local group
+  for _,n in ipairs(offers) do
+    local near={}
+    for _,m in ipairs(offers) do if dist(n,m)<City.hub.radius*0.8 then near[#near+1]=m end end
+    if not group or #near>#group then group=near end
+  end
+  if not group or #group<3 then return nil end
+  -- A hub picks up everyone in reach. Landed beer and oil come in by the
+  -- truckload, not by the neighbourhood, so a hub only goes where everyone it
+  -- would take needs water or electricity.
+  local middle=centroid(group)
+  for _,n in ipairs(c.g.nodes) do
+    if n.alive and n.kind=='client' and c.g:degree(n.id)==0 and dist(n,middle)<=City.hub.radius+200 then
+      for commodity in pairs(n.demands or {[n.commodity]=n.demand}) do
+        if commodity~='water' and commodity~='power' then return nil end
+      end
+    end
+  end
+  local before={}
+  for _,x in ipairs(short(c)) do before[x.id]=true end
+  local hub=place(c,'exchange',middle.x,middle.y,nil,nil,200)
+  if not hub then return nil end
+  settle(c)
+  for commodity in pairs(hub.demandBy or {}) do
+    if commodity=='power' then
+      if not connectPower(c,hub) then return nil end
+    elseif commodity=='water' then
+      -- A hub is a neighbourhood's worth of demand: it gets a well of its own
+      -- where there is one to sink, rather than drawing on somebody else's.
+      local _,far=spring(c,hub)
+      if not (far and far<1300 and newWell(c,false,hub) or connectPipe(c,hub,0,commodity,'large','large')) then return nil end
+    elseif not connectPipe(c,hub,0,commodity,'large','large') then return nil end
+  end
+  -- The hub now answers for everyone it picked up, so its feed and its supply
+  -- are brought up to what they take.
+  for _=1,5 do
+    settle(c)
+    local shortfall
+    for commodity,want in pairs(hub.demandBy or {}) do
+      if (((c.detail.hub or {})[hub.id] or {})[commodity] or 0)<want then shortfall=commodity end
+    end
+    if not shortfall then break end
+    local feed=bottleneck(c,hub,shortfall)
+    local bigger=feed and not feed.bulk and c:biggerSize(feed)
+    if not (bigger and c:replacePipe(feed.id,bigger,feed.grade)) then
+      if shortfall=='water' then
+        if not deepenWell(c) and not newWell(c,true) then return nil end
+      elseif shortfall=='power' then
+        if not newGenerator(c) then return nil end
+      else return nil end
+    end
+  end
+  -- Whoever the hub's draw left short on the old mains is put right as well.
+  for _,x in ipairs(short(c)) do
+    if not before[x.id] and not x.hub and not serve(c,x) then return nil end
+  end
+  for _,x in ipairs(short(c)) do if not before[x.id] then return nil end end
+  return #(hub.covered or {})>=3 and 'Built an area hub serving '..#hub.covered..' customers' or nil
+end
+
+--------------------------------------------------------------------------------
+-- Roads: households on offroads to an interchange, interchanges joined by a
+-- tolled highway, a filling station where there is petrol to sell
+--------------------------------------------------------------------------------
+
+local function withRoad(c,variant,fn)
+  local held=c.buildRoadType
+  c.buildRoadType=variant
+  local ok,a,b=pcall(fn)
+  c.buildRoadType=held
+  if not ok then error(a) end
+  return a,b
+end
+local function onRoad(c,id)
+  for _,l in ipairs(c.links or {}) do if l.alive and l.mode=='road' and (l.a==id or l.b==id) then return true end end
+  return false
+end
+local HOUSEHOLD={house=true,estate=true,home=true,subscriber=true}
+
+-- Seven households nobody has put on a road yet, around the one furthest from
+-- the interchanges already standing, onto a new interchange in their middle.
+local function roadCluster(c)
+  local interchanges=c.g:nodesOfKind('interchange')
+  local loose={}
+  for _,n in ipairs(c:clientList()) do
+    if HOUSEHOLD[n.clientType] and not onRoad(c,n.id) then loose[#loose+1]=n end
+  end
+  if #loose<4 then return nil end
+  local seed,far
+  for _,n in ipairs(loose) do
+    local d=math.huge
+    for _,i in ipairs(interchanges) do d=math.min(d,dist(i,n)) end
+    if not far or d>far then seed,far=n,d end
+  end
+  table.sort(loose,function(a,b) return dist(a,seed)<dist(b,seed) end)
+  local group={}
+  for i=1,math.min(7,#loose) do if dist(loose[i],seed)<700 then group[#group+1]=loose[i] end end
+  if #group<4 then return nil end
+  local middle=centroid(group)
+  local hub=place(c,'interchange',middle.x,middle.y,nil,nil,200)
+  if not hub then return nil end
+  local joined=0
+  for _,n in ipairs(group) do
+    if withRoad(c,'offroad',function() return c:layLink(n.id,hub.id,'road') end) then joined=joined+1 end
+  end
+  return joined>=3 and 'Put '..joined..' households on offroads to a new interchange' or nil
+end
+
+-- A tolled highway between the two nearest interchanges that no road joins yet.
+local function highway(c)
+  local list=c.g:nodesOfKind('interchange')
+  local best
+  for i=1,#list do
+    for j=i+1,#list do
+      local a,b=list[i],list[j]
+      if dist(a,b)<=City.PEOPLE.roadRange and freePort(c,a) and freePort(c,b) and not c:roadPath(a.id,b.id,'car')
+        and (not best or dist(a,b)<dist(best[1],best[2])) then best={a,b} end
+    end
+  end
+  if not best then return nil end
+  local road=withRoad(c,'highway',function() return c:layLink(best[1].id,best[2].id,'road') end)
+  if not road then return nil end
+  c:setLinkPrice(road.id,8)
+  return 'Joined two interchanges with a tolled highway'
+end
+
+-- A filling station on the way into an interchange, fed with petrol landed at
+-- the road head.
+local function station(c)
+  local line=freightLine(c)
+  if not line then return nil end
+  for _,i in ipairs(c.g:nodesOfKind('interchange')) do
+    local fed=false
+    for _,l in ipairs(c.links or {}) do
+      if l.alive and (l.a==i.id or l.b==i.id) then
+        local other=c.g.nodes[l.a==i.id and l.b or l.a]
+        fed=fed or other.kind=='station'
+      end
+    end
+    if not fed and freePort(c,i) then
+      if not haul(c,'gasoline') then return nil end
+      local s=place(c,'station',i.x+70,i.y+50)
+      if not s then return nil end
+      c:setStationPrice(s.id,8)
+      if not withRoad(c,'road',function() return c:layLink(i.id,s.id,'road') end) then return nil end
+      -- Households on this interchange now drive through the station.
+      for _,l in ipairs(c.links) do
+        if l.alive and l.mode=='road' and l.roadType=='offroad' and (l.a==i.id or l.b==i.id) and freePort(c,s) then
+          local house=l.a==i.id and l.b or l.a
+          c:demolishLink(l.id)
+          if not withRoad(c,'offroad',function() return c:layLink(house,s.id,'road') end) then return nil end
+        end
+      end
+      return connectPipe(c,s,1,'gasoline') and 'Opened a filling station on the way into an interchange' or nil
+    end
+  end
+end
+
+--------------------------------------------------------------------------------
+-- Buses between towns, and resorts for them to visit
+--------------------------------------------------------------------------------
+
+local function stopIn(c,d)
+  for _,s in ipairs(c.g:nodesOfKind('stop')) do
+    if s.x>=d.x and s.x<d.x+d.w and s.y>=d.y and s.y<d.y+d.h then return s end
+  end
+  return place(c,'stop',d.x+d.w/2,d.y+d.h/2,nil,nil,250)
+end
+
+local function busRoute(c)
+  local towns={}
+  for _,d in ipairs(c:ownedDistricts()) do
+    if not d.island and (d.population or 0)>=City.PEOPLE.tripAt then towns[#towns+1]=d end
+  end
+  local pair
+  for i=1,#towns do
+    for j=i+1,#towns do
+      local a,b=towns[i],towns[j]
+      local far=dist({x=a.x+a.w/2,y=a.y+a.h/2},{x=b.x+b.w/2,y=b.y+b.h/2})
+      if far<=1500 and (not pair or far<pair[3]) then
+        local sa,sb
+        for _,s in ipairs(c.g:nodesOfKind('stop')) do
+          if c:districtAt(s.x,s.y)==a then sa=s end
+          if c:districtAt(s.x,s.y)==b then sb=s end
+        end
+        if not (sa and sb and c:linkBetween(sa.id,sb.id,'bus')) then pair={a,b,far} end
+      end
+    end
+  end
+  if not pair then return nil end
+  local a,b=stopIn(c,pair[1]),stopIn(c,pair[2])
+  if not (a and b) then return nil end
+  if not c:roadConnected(a.id,b.id) then
+    local road=withRoad(c,'road',function() return c:layLink(a.id,b.id,'road') end)
+    if not road then
+      -- Round whatever is in the way through a corner.
+      for _,off in ipairs({250,-250,500,-500}) do
+        local mx,my=(a.x+b.x)/2,(a.y+b.y)/2
+        local len=math.max(1,dist(a,b))
+        local bend=place(c,'corner',mx-(b.y-a.y)/len*off,my+(b.x-a.x)/len*off)
+        if bend and withRoad(c,'road',function() return c:layLink(a.id,bend.id,'road') and c:layLink(bend.id,b.id,'road') end) then road=true; break end
+      end
+    end
+    if not road then return nil end
+  end
+  return c:layLink(a.id,b.id,'bus') and 'Opened a bus route between '..pair[1].name..' and '..pair[2].name or nil
+end
+
+local function moreBuses(c)
+  settle(c)
+  for _,l in ipairs(c.links or {}) do
+    local rec=((c.transit or {}).byLink or {})[l.id]
+    if l.alive and l.mode=='bus' and rec and rec.trips>=City.ROUTES.bus.seats*(l.vehicles or 1)*0.9
+      and (l.vehicles or 1)<City.PEOPLE.maxVehicles and c:addVehicle(l.id) then return 'Added a bus to a full route' end
+  end
+end
+
+local function resort(c)
+  if not (haul(c,'concrete') and haul(c,'glass')) then return nil end
+  if c:materialError({concrete=40,glass=20}) then return nil end
+  local stops=c.g:nodesOfKind('stop')
+  for _,d in ipairs(c:ownedDistricts()) do
+    for _,p in ipairs(riverbank(c,d)) do
+      if not c:resortSiteError(p.x,p.y) then
+        local r=place(c,'resort',p.x,p.y,nil,function(px,py) return not c:resortSiteError(px,py) end,40)
+        if r then
+          table.sort(stops,function(x,y) return dist(x,r)<dist(y,r) end)
+          local s=stops[1]
+          return s and withRoad(c,'road',function() return c:layLink(s.id,r.id,'road') end) and 'Built a riverside resort by the bus stop' or nil
+        end
+      end
+    end
+  end
+end
+
+--------------------------------------------------------------------------------
+-- Upkeep of a long-lived network
+--------------------------------------------------------------------------------
+
+-- A filter straight after each well keeps the mains beyond it from calcifying.
+local function filterWell(c)
+  for _,w in ipairs(c.g:nodesOfKind('source')) do
+    if w.commodity=='water' then
+      for _,e in ipairs(c.g:edgesAt(w.id)) do
+        local other=c.g.nodes[e.a==w.id and e.b or e.a]
+        if e.alive and e.commodity=='water' and other.kind~='filtration' then
+          local size=e.size
+          c:demolishPipe(e.id)
+          local f=place(c,'filtration',(w.x+other.x)/2,(w.y+other.y)/2)
+          if f and c:layPipe(w.id,f.id,'water',size,nil,c.lining) and c:layPipe(f.id,other.id,'water',size,nil,c.lining) then
+            return 'Put a filter after a well'
+          end
+          return nil
+        end
+      end
+    end
+  end
+end
+
+-- More ground, chosen for what it holds: springs where they are surveyed, a
+-- river for turbines, a town for the buses, and a discount when one is offered.
+local function buyLand(c,reason)
+  local best,score
+  for _,d in ipairs(c.districts) do
+    if not d.owned and not d.island and c:districtAdjacent(d) and not c:districtError(d.id) then
+      local s=c:landDiscount(d)*10
+      if reason=='water' or c:workerCount('surveyors')>0 then
+        for _,dep in ipairs(c.deposits) do
+          if dep.commodity=='water' and not dep.taken and c:districtAt(dep.x,dep.y)==d then s=s+2 end
+        end
+      end
+      if reason=='river' and #riverbank(c,d)>0 then s=s+10 end
+      s=s-c:districtCost(d)/1000
+      if not best or s>score then best,score=d,s end
+    end
+  end
+  if not best or reason=='river' and #riverbank(c,best)==0 then return nil end
+  return worth(c,c:districtCost(best)) and c:buyDistrict(best.id) and 'Bought '..best.name or nil
 end
 
 --------------------------------------------------------------------------------
@@ -429,29 +820,34 @@ end
 --------------------------------------------------------------------------------
 
 function A.step(city)
-  if city.bankrupt then return city,'Company has stopped trading',true end
   local c=city
   local k=key(c)
-  if A.day~=k then tried,actions,A.day={},{},k end
+  -- A new day, or a company this assistant did not hand back last time (a
+  -- load, an undo, another slot), starts with a clean slate.
+  if A.day~=k or A.last~=city then tried,actions,A.day={},{},k end
+  local function out(result,...) A.last=result; return result,... end
+  if city.bankrupt then return out(city,'Company has stopped trading',true) end
   local function close()
     local closed=assert(Save.unpack(Save.pack(c)))
     closed:endDay()
     return closed,'Day '..closed.day..': $'..closed.money,closed.bankrupt
   end
-  if (actions[k] or 0)>=MAX_ACTIONS then return close() end
+  if (actions[k] or 0)>=MAX_ACTIONS then return out(close()) end
   -- Planning is spread over several steps so the game never stalls on one.
   -- Each step gets at least one plan in, and a plan is never tried twice in a
   -- day, so the day always moves on.
-  local deadline=os.clock()+BUDGET
+  local deadline=os.clock()+A.budget
   packed.ran=false
   local function late() return packed.ran and os.clock()>deadline end
+  local done,msg
   local function try(id,plan)
-    if late() then return nil end
-    return attempt(c,id,plan)
+    if late() then return false end
+    done,msg=attempt(c,id,plan)
+    return done~=nil
   end
 
   -- The opening: a well on the marked spring and a T split towards the house.
-  if #c.g:nodesOfKind('source')==0 then
+  if count(c,'source')==0 then
     local springs={}
     for _,d in ipairs(c.deposits) do
       local land=c:districtAt(d.x,d.y)
@@ -459,34 +855,29 @@ function A.step(city)
     end
     table.sort(springs,function(a,b) return (a.opening and 1 or 0)>(b.opening and 1 or 0) end)
     for _,d in ipairs(springs) do
-      local done,msg=attempt(c,'spring'..d.x..':'..d.y,function(t)
+      if try('spring'..d.x..':'..d.y,function(t)
         local well=t:buySource('water',d.x,d.y)
         if not well then return end
         local house=t:clientList(true)[1] or {x=well.x+90,y=well.y+60}
-        local x,y=spot(t,(well.x+house.x)/2,(well.y+house.y)/2)
-        local split=x and t:build(x,y,'junction')
+        local split=place(t,'junction',(well.x+house.x)/2,(well.y+house.y)/2)
         return split and t:layPipe(well.id,split.id,'water','large') and 'Built a well and a T split'
-      end)
-      if done then return done,msg end
+      end) then return out(done,msg) end
     end
-    if c.money<c:sourceCost('water') then return city,'Not enough cash for a well; autoplay paused',true end
-    return city,'No buildable well site; autoplay paused',true
+    if c.money<c:sourceCost('water') then return out(city,'Not enough cash for a well; autoplay paused',true) end
+    return out(city,'No buildable well site; autoplay paused',true)
   end
-
-  local done,msg
-  local function did(d,m) done,msg=d,m; return d~=nil end
 
   -- 1. Sound mains and no debt before anything new.
   local bill,broken=c:repairAllCost()
-  if broken>0 and c.money>=bill and did(try('repair',function(t) return t:repairAll() and 'Repaired '..broken..' lines' end)) then return done,msg end
+  if broken>0 and c.money>=bill and try('repair',function(t) return t:repairAll() and 'Repaired '..broken..' lines' end) then return out(done,msg) end
   if (c.loan or 0)>0 and spendable(c)>0
-    and did(try('repay',function(t) return t:repay(math.min(t.loan,spendable(t))) and 'Repaid part of the loan' end)) then return done,msg end
+    and try('repay',function(t) return t:repay(math.min(t.loan,spendable(t))) and 'Repaid part of the loan' end) then return out(done,msg) end
 
   -- 2. Whoever is signed and short comes first: they are the ones about to leave.
   local waiting=short(c)
   table.sort(waiting,function(a,b) return (a.grace or 9)<(b.grace or 9) end)
   for _,n in ipairs(waiting) do
-    if did(try('serve'..n.id,function(t) return serve(t,t.g.nodes[n.id]) and 'Restored supply to a customer' end)) then return done,msg end
+    if try('serve'..n.id,function(t) return serve(t,t.g.nodes[n.id]) and 'Restored supply to a customer' end) then return out(done,msg) end
   end
 
   -- 3. Offers, best price first: sign the ones the network can actually carry.
@@ -494,18 +885,21 @@ function A.step(city)
   for _,n in ipairs(c:clientList(true)) do offers[#offers+1]=n end
   for _,n in ipairs(c:clientList()) do if n.powerRequest then offers[#offers+1]=n end end
   table.sort(offers,function(a,b) return c:requestPremium(a)>c:requestPremium(b) end)
+  -- A cluster of offers is cheaper to take with one area hub than one by one.
+  if #offers>=3 and c:unlocked('hub') and not c:materialError(City.MATERIALS.exchange) and worth(c,City.price.exchange+600)
+    and try('area-hub',areaHub) then return out(done,msg) end
   for _,n in ipairs(offers) do
     if servable(c,n) and c:requestPremium(n)>-0.3 and spendable(c)>0 then
       local what=n.powerRequest and 'Connected electricity to a household'
         or 'Signed and connected a '..string.lower(City.CLIENTS[n.clientType].name)
-      if did(try('offer'..n.id,function(t) return sign(t,n.id) and what end)) then return done,msg end
+      if try('offer'..n.id,function(t) return sign(t,n.id) and what end) then return out(done,msg) end
     end
   end
-  if late() then return city,'Weighing offers' end
+  if late() then return out(city,'Weighing offers') end
   -- An offer it cannot serve is declined on its last day: a refusal costs less
   -- reputation than letting it lapse.
   for _,n in ipairs(c:clientList(true)) do
-    if n.expires<=c.day and did(attempt(c,'decline'..n.id,function(t) return t:declineClient(n.id) and 'Declined an offer it could not serve' end)) then return done,msg end
+    if n.expires<=c.day and try('decline'..n.id,function(t) return t:declineClient(n.id) and 'Declined an offer it could not serve' end) then return out(done,msg) end
   end
 
   -- 4. Supply ahead of demand.
@@ -513,9 +907,10 @@ function A.step(city)
   for _,n in ipairs(c:clientList(true)) do if n.commodity=='water' then thirst=thirst+n.demand end end
   for _,n in ipairs(waiting) do thirst=thirst+(need(c,n).water or 0) end
   if (c.spare.water or 0)<math.max(6,thirst) then
-    if did(try('deepen',function(t) return deepenWell(t) and 'Deepened a well' end))
-      or did(try('well-join',function(t) return newWell(t,true) end))
-      or did(try('well',function(t) return newWell(t,false) end)) then return done,msg end
+    if try('deepen',function(t) return deepenWell(t) and 'Deepened a well' end)
+      or try('well-join',function(t) return newWell(t,true) end)
+      or try('well',function(t) return newWell(t,false) end)
+      or try('land-water',function(t) return buyLand(t,'water') end) then return out(done,msg) end
   end
   local power=0
   for _,n in ipairs(offers) do
@@ -523,54 +918,64 @@ function A.step(city)
     elseif n.commodity=='power' then power=power+n.demand end
   end
   if c.licences.power and power>0 and powerSpare(c)<math.min(power,16) and spendable(c)>=c:plantCost('hydro')+1500 then
-    if did(try('generator',newGenerator)) then return done,msg end
-    local river=riverDistrict(c)
-    if river and affordableLand(c,c:districtCost(river)+c:plantCost('hydro')+1500)
-      and did(try('river',function(t) return t:buyDistrict(river.id) and 'Bought '..river.name..' for its river' end)) then return done,msg end
+    if try('generator',newGenerator) or try('land-river',function(t) return buyLand(t,'river') end) then return out(done,msg) end
   end
 
-  -- 5. Growing the company once today's work is done.
-  -- Once licensed, new houses ask for electricity as well as water, so the
-  -- licence waits until the company can afford to build a grid for them.
-  if not c.licences.power and #c:clientList()>=25 and spendable(c)>=City.price.powerLicence+12000
-    and did(try('licence',function(t) return t:buyLicence('power') and 'Bought the electricity licence' end)) then return done,msg end
+  -- 5. Growing the company once today's work is done, in the order the game
+  --    opens up. Each project waits for the cash and the reason to exist.
+  local clients=#c:clientList()
   local pipes=0
   for _,e in ipairs(c.g.edges) do if e.alive then pipes=pipes+1 end end
-  if (c.crews or 0)<math.min(City.crewMax,math.floor(pipes/15)) and spendable(c)>=City.crewHire+300
-    and did(try('crew',function(t) return t:hireCrew() and 'Hired a maintenance crew' end)) then return done,msg end
-  local grade=City.GRADES[(c.lining or 1)+1]
-  if grade and pipes>=25 and spendable(c)>=grade.price*4
-    and did(try('lining',function(t) return t:upgradeQuality() and 'Unlocked '..grade.name..' pipes' end)) then return done,msg end
-  -- More ground when the wells have nowhere left to go or the offers have
-  -- dried up, bought only with money the company does not need.
-  local freeSpring=false
-  for _,d in ipairs(c.deposits) do
-    local land=c:districtAt(d.x,d.y)
-    if d.commodity=='water' and not d.taken and land and land.owned then freeSpring=true end
-  end
-  if not freeSpring or #c:clientList(true)==0 then
-    local best,bestSprings
-    for _,d in ipairs(c.districts) do
-      if not d.owned and not d.island and c:districtAdjacent(d) and not c:districtError(d.id) then
-        local springs=0
-        for _,s in ipairs(c.deposits) do
-          if s.commodity=='water' and not s.taken and s.x>=d.x and s.x<d.x+d.w and s.y>=d.y and s.y<d.y+d.h then springs=springs+1 end
-        end
-        if not best or springs>bestSprings or springs==bestSprings and c:districtCost(d)<c:districtCost(best) then best,bestSprings=d,springs end
-      end
-    end
-    if best and affordableLand(c,c:districtCost(best)*2.5)
-      and did(try('land',function(t) return t:buyDistrict(best.id) and 'Bought '..best.name end)) then return done,msg end
+  local projects={
+    -- Once licensed, new houses ask for electricity as well as water, so the
+    -- licence waits until the company can afford to build a grid for them.
+    {'licence-power',not c.licences.power and clients>=25 and worth(c,City.price.powerLicence+6000),
+      function(t) return t:buyLicence('power') and 'Bought the electricity licence' end},
+    {'crew',(c.crews or 0)<math.min(City.crewMax,math.floor(pipes/15)) and worth(c,City.crewHire+300),
+      function(t) return t:hireCrew() and 'Hired a maintenance crew' end},
+    {'freight',count(c,'terminal')==0 and c:unlocked('haven') and worth(c,City.HAVENS.highway.price+City.price.dc+900),freightHub},
+    {'licence-beer',c.licences.beer==false and count(c,'dc')>0 and clients>=15 and worth(c,City.price.beerLicence+2500),
+      function(t) return t:buyLicence('beer') and haul(t,'beer') and 'Bought the beer licence and trucks for it' end},
+    {'licence-oil',c.licences.oil==false and count(c,'dc')>0 and clients>=25 and worth(c,City.price.oilLicence+3000),
+      function(t) return t:buyLicence('oil') and haul(t,'oil') and 'Bought the oil licence and trucks for it' end},
+    {'rig',c.licences.oil and count(c,'dc')>0 and worth(c,c:sourceCost('oil')+1200),newRig},
+    {'lab',c:unlocked('works') and worth(c,City.price.lab+800),lab},
+    {'roads',c:unlocked('roads') and worth(c,1600),roadCluster},
+    {'highway',count(c,'interchange')>=2 and worth(c,1200),highway},
+    {'station',c:unlocked('fuel') and count(c,'interchange')>0 and count(c,'dc')>0 and worth(c,City.price.station+900),station},
+    {'bus',c:unlocked('roads') and worth(c,City.ROUTES.bus.vehicle+900),busRoute},
+    {'buses',c:unlocked('routes') and worth(c,City.ROUTES.bus.vehicle*3),moreBuses},
+    {'resort',c:unlocked('resort') and count(c,'resort')==0 and count(c,'dc')>0 and worth(c,City.price.resort+1500),resort},
+    {'filter',c.day>=60 and pipes>=10 and worth(c,City.price.filtration*2+600),filterWell},
+    {'lining',City.GRADES[(c.lining or 1)+1] and pipes>=25 and worth(c,(City.GRADES[(c.lining or 1)+1] or {}).price or 0),
+      function(t) return t:upgradeQuality() and 'Unlocked better pipe lining' end},
+    {'surveyors',c:workerCount('surveyors')==0 and c:orderAvailable('surveyors') and worth(c,City.ORDERS.surveyors.hire*3),
+      function(t) return t:hireOrder('surveyors') and 'Hired surveyors' end},
+    {'engineers',c:workerCount('engineers')==0 and pipes>=60 and c:orderAvailable('engineers') and worth(c,City.ORDERS.engineers.hire*3),
+      function(t) return t:hireOrder('engineers') and 'Hired engineers' end},
+    {'ads',#offers==0 and c.adDaysLeft==0 and worth(c,City.price.ads*6),
+      function(t) return t:buyAds() and 'Booked an advertising campaign' end},
+    {'permit-park',not c.permits.park and c.day>=30 and worth(c,City.PERMITS.park.cost*3),
+      function(t) return t:buyPermit('park') and 'Bought the parkland easement' end},
+    {'permit-river',not c.permits.river and c.day>=45 and worth(c,City.PERMITS.river.cost*3),
+      function(t) return t:buyPermit('river') and 'Bought the river works charter' end},
+    -- More ground when there is money to grow into it, or it is on offer cheap.
+    {'land',(#offers==0 or c.day%7==0) and worth(c,1000),function(t) return buyLand(t) end},
+    {'analyst',c:workerCount('analysts')==0 and worth(c,City.ORDERS.analysts.hire*10),
+      function(t) return t:hireOrder('analysts') and 'Hired a market analyst' end},
+  }
+  for _,p in ipairs(projects) do
+    if p[2] and try(p[1],p[3]) then return out(done,msg) end
   end
   -- Idle cash works: a slice of a large surplus goes into the weekly market,
   -- one modest placement at a time.
   local surplus=spendable(c)-20000
   if surplus>5000 and c:investedTotal()==0 then
     local amount=math.floor(math.min(50000,surplus*0.25))
-    if did(try('invest',function(t) return t:invest(amount) and 'Invested $'..amount end)) then return done,msg end
+    if try('invest',function(t) return t:invest(amount) and 'Invested $'..amount end) then return out(done,msg) end
   end
-  if late() then return city,'Planning' end
-  return close()
+  if late() then return out(city,'Planning') end
+  return out(close())
 end
 
 return A
