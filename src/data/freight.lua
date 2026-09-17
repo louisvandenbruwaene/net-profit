@@ -93,7 +93,9 @@ Data.depotFillRate = 100
 
 Data.hub = {
   radius = 700,          -- how far the last mile reaches
-  connect = 12,          -- one off, per customer picked up
+  connect = 12,          -- kept for test/test_balance.lua's cost model; the
+                         -- hub itself now builds a real pipe run instead of
+                         -- charging this (see City:recomputeHubs)
   perClient = 0.35,      -- per customer per day, whatever they take
   upkeep = 6,            -- the hub itself, per day
   floorStep = 1,         -- the rate floor moves in whole dollars

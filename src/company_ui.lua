@@ -139,7 +139,7 @@ local toolTips = {
   tower="Reduces nearby leaks by 55%. Range: 220m. Costs $2/day.",
   gate="2 pipe ports. Sets how much supply passes through. Costs $1/day.",
   depot="Stores spare supply. Releases it when needed. Costs $3/day.",
-  exchange="Area hub. Serves clients within 700m. Accepts nearby requests. Needs a supply pipe. Can replace full feed pipes for you.",
+  exchange="Automation hub. Wires up any client within 700m itself: real pipe, splits and pumps, built and paid for like you drew it. Needs a supply pipe. Can replace full feed pipes for you.",
   dc="Receives freight. Sends it through local pipes and roads.",
   terminal="Imports goods for a fee. Requires a freight route. Cannot import electricity.",
   stop="Buses board here. Attach to normal roads, then connect a bus route.",
@@ -1087,7 +1087,7 @@ local function buildPanel()
       Draw.structureGlyph(name,bx+17,by+24)
       -- The icon holds the left of the tile; the name and the price share
       -- what it leaves, centred in it rather than pushed against it.
-      text(({junction="T split",manifold="Hub",pump="Pump",filtration="Filter",hvtower="HV tower",pylon="Tower",pole="LV pole",transformer="Transformer",binder="Binder",lab="Env. lab",tower="Treat",gate="Valve",depot="Depot",exchange="Area hub",terminal="Haven",dc="Yard",
+      text(({junction="T split",manifold="Hub",pump="Pump",filtration="Filter",hvtower="HV tower",pylon="Tower",pole="LV pole",transformer="Transformer",binder="Binder",lab="Env. lab",tower="Treat",gate="Valve",depot="Depot",exchange="Automation hub",terminal="Haven",dc="Yard",
              stop="Bus stop",station="Station",resort="Resort",corner="Corner",intersection="Crossing",roundabout="Roundabout",interchange="Interchange"})[name],
         bx+32,by+8,"tiny",P.text,TILE_TEXT,"center")
       text("$"..City.price[name],bx+32,by+28,"small",P.textDim,TILE_TEXT,"center")
@@ -1872,7 +1872,7 @@ local function stats()
   local costs=city:expenseBreakdown()
   for _,v in ipairs({{"Office",costs.office},{"Sources",costs.sources},{"Buildings",costs.structures},
     {"Pipes",costs.pipes},{"Staff",costs.crews},{"Imports",costs.imports},{"Freight",costs.haulage},
-    {"Area hubs",costs.hubs},{"Fuel",costs.fuel},{"Travel",costs.transit},{"Interest",costs.interest}}) do
+    {"Automation hubs",costs.hubs},{"Fuel",costs.fuel},{"Travel",costs.transit},{"Interest",costs.interest}}) do
     if (v[2] or 0)>0 then row(v[1],string.format("$%.1f",v[2]),y); y=y+26 end
   end
   y=y+16
@@ -2050,7 +2050,9 @@ function UI.draw(c,s,action)
   button("undo","Undo",10,H-44,52,32,function() act("undo") end,#state.undo>0,"Undo last decision (Z); day closes are final")
   button("fit","Show all",68,H-44,74,32,function() act("fit") end,true,"Zoom out to show all your buildings. Shortcut: F.")
   button("mute",state.muted and "Muted" or "Sound",148,H-44,58,32,function() act("mute") end,true,"Toggle sound (M)")
-  button("companies","Companies",214,H-44,112,32,
+  button("solo",city.hideUnfocusedNetworks and "Solo" or "Grids",212,H-44,54,32,function() act("solo") end,true,
+    "Hide every network but the one you're focused on, instead of dimming it (H)")
+  button("companies","Companies",272,H-44,112,32,
     function() act("openSlots") end,true,
     "Six companies, kept side by side. Switch, start another, or delete one.")
   local message=state.toast or (state.tool and (string.upper(state.tool).." selected: click the map to place, right-click or Esc to put it down")

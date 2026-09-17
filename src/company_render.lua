@@ -11,7 +11,8 @@ local labelPriority=0
 
 -- Grids other than the selected one are drawn faded, so the grid being built
 -- stands out. While fading, every colour set is scaled, and the colour a glyph
--- reads back is unscaled so it is not faded twice.
+-- reads back is unscaled so it is not faded twice. Set to 0 by Draw.world when
+-- the player has switched on solo view, hiding other grids outright.
 local UNFOCUSED_ALPHA=0.4
 local fade=1
 local setColor,getColor=lg.setColor,lg.getColor
@@ -426,6 +427,29 @@ function Draw.turbine(x, y, r)
     lg.line(x, y - 0.25 * r, x + math.cos(a) * 0.85 * r, y - 0.25 * r + math.sin(a) * 0.85 * r)
   end
   lg.circle("fill", x, y - 0.25 * r, math.max(1, r * 0.14))
+end
+
+-- A terminal's live freight, shuttling in and out: a truck for a road head, a
+-- plane for an air freight apron, a hull for a harbour. Drawn in the colour
+-- the caller already set, facing whichever way it is currently travelling.
+function Draw.freightVehicle(haven, x, y, dir, s)
+  local r, g, b, a = trim()
+  lg.push()
+  lg.translate(x, y)
+  lg.scale(dir, 1)
+  if haven == "airfield" then
+    lg.polygon("fill", -3.4 * s, 0, 3.2 * s, -1.3 * s, 3.2 * s, 1.3 * s)
+    lg.rectangle("fill", -3.4 * s, -0.4 * s, 4.6 * s, 0.8 * s)
+  elseif haven == "port" then
+    lg.polygon("fill", -3.4 * s, 1.6 * s, 3.4 * s, 1.6 * s, 2.1 * s, -0.8 * s, -2.1 * s, -0.8 * s)
+    lg.rectangle("fill", -0.7 * s, -2.2 * s, 1.4 * s, 1.6 * s)
+  else
+    lg.rectangle("fill", -3.2 * s, -1.6 * s, 6.4 * s, 3.2 * s, 0.5 * s)
+    lg.setColor(P.bg)
+    lg.rectangle("fill", 1.6 * s, -1.15 * s, 1.4 * s, 2.3 * s)
+  end
+  lg.pop()
+  lg.setColor(r, g, b, a)
 end
 
 -- Every node on the map is a disc: a dark body tinted by its trade, and a rim
@@ -890,8 +914,14 @@ local function drawLinks(city, cam, state)
         lg.line(ax, ay, bx, by)
       end
       if l.mode == "road" then
-        lg.setColor(City.ROAD_TYPES[l.roadType or "road"].colour); lg.setLineWidth(w + (l.roadType=="highway" and 5 or 2))
+        local roadW = w + (l.roadType=="highway" and 5 or 2)
+        lg.setColor(City.ROAD_TYPES[l.roadType or "road"].colour); lg.setLineWidth(roadW)
         lg.line(ax, ay, bx, by)
+        -- Two straight segments meeting at a corner leave a flat-capped
+        -- notch; filling a disc the road's own width at the shared vertex
+        -- is a round join, and reads as an actual curb at any bend angle.
+        if na.kind == "corner" then lg.circle("fill", ax, ay, roadW / 2) end
+        if nb.kind == "corner" then lg.circle("fill", bx, by, roadW / 2) end
         lg.setColor(P.with(P.energy, 0.85)); lg.setLineWidth(math.max(1, 1.4 * cam.scale))
         dashes(ax, ay, bx, by, math.max(4, 12 * cam.scale), math.max(4, 10 * cam.scale))
         local rec=byLink[l.id] or {}
@@ -946,6 +976,7 @@ local function drawLinks(city, cam, state)
 end
 
 function Draw.world(city, cam, state)
+  UNFOCUSED_ALPHA = city.hideUnfocusedNetworks and 0 or 0.4
   labels,occupied,segments={},{},{}; labelPriority=0
   local _,height = R.dimensions()
   lg.setScissor(cam.vx, cam.vy, cam.vw, cam.vh)
@@ -1259,7 +1290,10 @@ function Draw.world(city, cam, state)
 
     else
       lg.setColor(color)
-      Draw.structureGlyph(n.kind, x, y, r / 15)
+      -- A corner's own bend is now drawn by the road itself (drawLinks'
+      -- round join), so the fixed schematic icon here would just duplicate
+      -- it -- with the wrong angle. The palette button still shows it.
+      if n.kind ~= "corner" then Draw.structureGlyph(n.kind, x, y, r / 15) end
       -- A tower's upgrade as a corner badge: the two-coil transformer symbol,
       -- or an upward chevron for a booster.
       if n.upgrade and r >= 5 then
@@ -1282,8 +1316,19 @@ function Draw.world(city, cam, state)
         if named then
           label((City.HAVENS[n.haven or "port"] or {}).name or "HAVEN", x, y+r*1.5+8, color)
         end
+        local landed = (city.produced or {})[n.id] or 0
+        if landed > 0 and r >= 6 then
+          -- A freight terminal used to change only by a number once a day.
+          -- While it has live freight, run a small truck/plane/ship back and
+          -- forth beside it continuously, the same R.t-driven technique the
+          -- pipe-flow dots and road traffic already use.
+          local span = r * 1.6
+          local phase = (R.t * 0.35 + n.id * 0.11) % 2
+          local ping01 = math.abs(phase - 1) -- 1 -> 0 -> 1, a smooth ping-pong
+          local vx = x + r * 1.5 + span * ping01
+          Draw.freightVehicle(n.haven or "port", vx, y, phase < 1 and -1 or 1, r * 0.32)
+        end
         if focused then
-          local landed = (city.produced or {})[n.id] or 0
           local _, bill = city:importBill()
           label(landed > 0 and (landed .. " landed  -$" .. math.floor((bill[n.id] or 0) + 0.5))
             or "no freight moving", x, y-r*1.5-24, landed > 0 and P.textDim or P.warn, R.fonts.tiny)

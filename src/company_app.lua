@@ -112,6 +112,7 @@ local function action(name,...)
   if name=="fit" then fit(); return end
   if name=="fitWorld" then fitWorld(); return end
   if name=="mute" then state.muted=not state.muted; A.setEnabled(not state.muted); return end
+  if name=="solo" then city.hideUnfocusedNetworks=not city.hideUnfocusedNetworks; return end
   if name=="focusNode" then
     local id=...
     local n=city.g.nodes[id]
@@ -553,6 +554,7 @@ function love.keypressed(key)
   elseif key=="t" and (#city.g:nodesOfKind("terminal")+#city.g:nodesOfKind("dc")>0) then state.rail=(state.rail==nil) and "rail" or nil
   elseif key=="z" then action("undo")
   elseif key=="m" then action("mute")
+  elseif key=="h" then action("solo")
   elseif key=="u" and state.edge then action("upgradePipe",state.edge)
   elseif key=="r" then
     if state.edge then action("repairPipe",state.edge) else action("repairAll") end

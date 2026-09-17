@@ -6,6 +6,7 @@
 -- on nothing at all so it can earn interest. There is no single right answer,
 -- which is the point.
 local Graph = require("graph")
+local NB = require("network_builder")
 
 local City = {}
 City.__index = City
@@ -1679,16 +1680,48 @@ function City:recomputeHubs()
             for key,want in pairs(c.demands or {[c.commodity]=c.demand or 0}) do
               h.demandBy[key]=(h.demandBy[key] or 0)+want
             end
-            if not c.connected then
-              c.connected = true
-              self.hubConnectionDue = (self.hubConnectionDue or 0) + City.hub.connect
-            end
+            c.connected = true
           end
         end
       end
     end
   end
   return hubs
+end
+
+-- The hub used to just mark a covered client served for a flat fee, with no
+-- real pipe ever laid. Now it actually builds the last mile itself once a
+-- day: a chain of T splits from the nearest fitting with room and supply,
+-- out to the client, the same builder autoplay uses on its own network (see
+-- src/network_builder.lua) -- paying the ordinary construction cost, same as
+-- if the player had drawn the pipe by hand.
+--
+-- Once a day, not every refresh: laying a pipe calls refresh again to price
+-- and settle it, and refresh runs constantly -- every build action, and every
+-- plan autoplay so much as considers and throws away. A client the search
+-- cannot yet reach (no network within range) would otherwise fail the exact
+-- same expensive search again on every one of those, forever. The standing
+-- order on hub feeds a few lines below (`widenHubFeeds`) runs on the same
+-- once-a-day rhythm for the same reason.
+function City:extendHubs()
+  local built = 0
+  for _, h in ipairs(self.g:nodesOfKind("exchange")) do
+    for _, id in ipairs(h.covered or {}) do
+      local c = self.g.nodes[id]
+      -- A client the search cannot yet reach stays covered but unconnected
+      -- indefinitely; retrying it in full every single day is the same cost
+      -- that made this run every refresh instead. Back off for a few days
+      -- after a miss, same idea as a customer's own grace period elsewhere.
+      if c and c.alive and self.g:degree(c.id) == 0 and self.day >= (c.hubRetryDay or 0) then
+        local ok = false
+        for wantKey, wantAmount in pairs(c.demands or { [c.commodity] = c.demand or 0 }) do
+          if NB.connectPipe(self, c, wantAmount, wantKey) then ok, built = true, built + 1 end
+        end
+        if not ok then c.hubRetryDay = self.day + 5 end
+      end
+    end
+  end
+  return built
 end
 
 -- What each hub actually landed, shared out among the customers it covers. The
@@ -3158,13 +3191,12 @@ function City:endDay()
   report.carsSold, report.carIncome = self:sellCars()
   report.revenue = report.revenue + report.carIncome
 
-  -- 3a2. Connections made today. A hub picks customers up the moment it can
-  --      reach them, and the joining fee falls due at the close.
-  if (self.hubConnectionDue or 0) > 0 then
-    report.connections = self.hubConnectionDue
-    self.money = self.money - self.hubConnectionDue
-    self:note("$%d in new connections through the hubs", self.hubConnectionDue)
-    self.hubConnectionDue = 0
+  -- 3a2. Hubs build their own last mile out to whoever they picked up today.
+  report.hubsBuilt = self:extendHubs()
+  if report.hubsBuilt > 0 then
+    self:note("%d connection%s wired in by the hubs", report.hubsBuilt,
+      report.hubsBuilt == 1 and "" or "s")
+    self:refresh()
   end
 
   -- 3a3. The standing order on hub feeds.
@@ -3764,8 +3796,8 @@ City.LESSONS = {
     when = function(c) return c:licenceCount() > 1 end,
   },
   {
-    key = "hub", title = "Area hubs",
-    body = "An area hub serves nearby clients without separate pipes. Connect supply to it. Range: 700m.",
+    key = "hub", title = "Automation hubs",
+    body = "An automation hub wires up nearby clients itself: real pipe, no manual laying. Connect supply to it. Range: 700m.",
     when = function(c) return c:unlocked("hub") end,
   },
   {
