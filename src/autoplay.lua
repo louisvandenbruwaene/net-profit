@@ -13,13 +13,14 @@ local Save=require('company_save')
 local City=require('city')
 local Graph=require('graph')
 local D=require('data.infrastructure')
+local NB=require('network_builder')
 local A={}
 
 local MAX_ACTIONS=30        -- decisions per day before the day is closed anyway
 A.budget=0.05               -- seconds of planning per step once one plan has run
 local tried,actions={},{}   -- per company and day, never saved
 local function key(c) return tostring(c.seed)..':'..c.day end
-local function dist(a,b) return math.sqrt((a.x-b.x)^2+(a.y-b.y)^2) end
+local dist=NB.dist
 
 -- A plan builds many things in a row, and solving every network after each one
 -- is nearly all the time a plan takes. On a plan's copy the solve waits until
@@ -57,38 +58,11 @@ local function attempt(c,id,plan)
   return trial,message
 end
 
--- Somewhere free to stand near a point, on owned ground.
-local function spot(c,x,y,ok,reach)
-  for r=0,reach or 120,12 do
-    for i=0,(r==0 and 0 or 15) do
-      local a=i*math.pi/8
-      local px,py=x+math.cos(a)*r,y+math.sin(a)*r
-      if not c:placementError(px,py) and (not ok or ok(px,py)) then return px,py end
-    end
-  end
-end
-local function place(c,kind,x,y,extra,ok,reach)
-  local px,py=spot(c,x,y,ok,reach)
-  if not px then return nil end
-  return c:build(px,py,kind,extra) or nil
-end
-
--- Whether a main or a freight line carries a trade.
-local function carries(e,commodity) return e.commodity==commodity or (e.wagons and e.wagons[commodity]) end
-
--- Everything one network reaches over live mains of one trade.
-local function component(c,start,commodity)
-  local seen,queue={[start]=true},{start}
-  for _,id in ipairs(queue) do
-    for _,e in ipairs(c.g:edgesAt(id)) do
-      if e.alive and carries(e,commodity) and e.cap>0 then
-        local other=e.a==id and e.b or e.a
-        if not seen[other] then seen[other]=true; queue[#queue+1]=other end
-      end
-    end
-  end
-  return seen
-end
+-- Somewhere free to stand near a point, on owned ground; a chain of T splits
+-- from a fitting to a target; and the nearest fitting worth starting from.
+-- Shared with the hub, which runs the same builder against the player's own
+-- network -- see src/network_builder.lua.
+local spot,place,carries,component=NB.spot,NB.place,NB.carries,NB.component
 
 local haul -- a plan may need a trade landed at the road head
 local function freePort(c,n) return c:connectionPorts(n.id)<(n.ports or 1) end
@@ -116,52 +90,23 @@ end
 -- Pipes: water from wells, and beer, oil and petrol landed at a haven
 --------------------------------------------------------------------------------
 
-local FITTING={junction=true,manifold=true,pump=true}
+local FITTING=NB.FITTING
+local chain=NB.chain
 
 -- Unused output of the wells feeding a network, or plenty if a haven feeds it:
--- the outside world does not run out.
+-- the outside world does not run out. A trial copy may be stale, so settle it
+-- first; the real company (see City:recomputeHubs) never needs to.
 local function headroom(c,seen,commodity)
   settle(c)
-  local spare=0
-  for id in pairs(seen) do
-    local n=c.g.nodes[id]
-    if n.kind=='terminal' then return math.huge end
-    if n.kind=='source' and n.commodity==commodity then
-      spare=spare+math.max(0,(n.effectiveOutput or n.output or 0)-(c.produced[n.id] or 0))
-    end
-  end
-  return spare
+  return NB.headroom(c,seen,commodity)
 end
 
--- A chain of T splits from a fitting towards a building, finishing with a main
--- into it. True only if every link went in.
-local function chain(c,from,target,commodity,last,mid)
-  local hops=math.max(1,math.ceil(dist(from,target)/240))
-  if hops>6 then return false end
-  local start=from
-  for i=1,hops-1 do
-    local t=i/hops
-    local x,y=spot(c,start.x+(target.x-start.x)*t,start.y+(target.y-start.y)*t,function(px,py) return dist(from,{x=px,y=py})<290 end)
-    local n=x and c:build(x,y,'junction')
-    if not n or not c:layPipe(from.id,n.id,commodity,mid or 'medium',nil,c.lining) then return false end
-    from=n
-  end
-  return c:layPipe(from.id,target.id,commodity,last or 'small',nil,c.lining)~=nil
-end
-
+-- A trial copy may still be stale from an earlier step in the same plan;
+-- settle it once up front so every headroom check the search makes below sees
+-- this trial's own numbers, not last plan's.
 local function connectPipe(c,target,want,commodity,last,mid)
-  local best
-  for _,n in ipairs(c.g:aliveNodes()) do
-    if (FITTING[n.kind] or n.kind=='dc' and commodity~='water') and n.id~=target.id
-      and not c:pipeBetween(n.id,target.id,commodity)
-      and dist(n,target)<1400 and (not best or dist(n,target)<dist(best,target))
-      and (freePort(c,n) or n.kind=='junction' and dist(n,target)<500)
-      and headroom(c,component(c,n.id,commodity),commodity)>=want then best=n end
-  end
-  if not best then return false end
-  -- A full T split becomes a hub, which is what a person does when one runs out of room.
-  if not freePort(c,best) and not c:convertNode(best.id,'manifold',commodity) then return false end
-  return chain(c,best,target,commodity,last,mid)
+  settle(c)
+  return NB.connectPipe(c,target,want,commodity,last,mid)
 end
 
 -- The cheapest well worth deepening, deepened.

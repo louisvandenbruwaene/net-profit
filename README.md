@@ -180,11 +180,12 @@ closing a day is final.
   further out it lies. Every natural deposit has a daily ceiling no amount of
   deepening passes, and the ceiling rises with distance, so more supply always
   means more map.
-- **Area hubs.** An area hub serves everyone inside 700m who pays at least the rate you set,
-  with no main drawn to any of them and offers in range signing themselves. Raise
-  the floor and the cheap houses drop off. When a hub is short, what it landed
-  goes to the best payers first. Its feed widens itself at the usual price until
-  you switch that off.
+- **Automation hubs.** An automation hub serves everyone inside 700m who pays at least
+  the rate you set, offers in range signing themselves, and wires each one up itself:
+  a real chain of pipe, splits and pumps built and paid for exactly like you had drawn
+  it by hand. Raise the floor and the cheap houses drop off. When a hub is short, what
+  it landed goes to the best payers first. Its feed widens itself at the usual price
+  until you switch that off.
 - **The sea.** North of the first row is water that does not end. Islands in it
   are bought outright rather than next door, and need a harbour to reach. What
   they are for is the wind: a wind park burns nothing at all and will stand

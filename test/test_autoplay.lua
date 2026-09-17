@@ -86,9 +86,11 @@ do
     if cx then break end
   end
   check(cx, "the fixture finds room for a neighbourhood")
+  local houses = {}
   for i = 1, 4 do
     local n = assert(c:addClient("house", true))
     n.x, n.y, n.expires = cx + math.cos(i * 1.57) * 140, cy + math.sin(i * 1.57) * 110, c.day + 5
+    houses[#houses + 1] = n.id
   end
   -- Pubs and factories nearby would ride on the hub too; clear them out so
   -- the neighbourhood is households.
@@ -98,8 +100,19 @@ do
   c:refresh()
   c.money = c.money + 20000
   c = play(c, 300, has("exchange"))
-  local hub = c.g:nodesOfKind("exchange")[1]
-  check(hub and #(hub.covered or {}) >= 3, "it builds an area hub that serves a neighbourhood of offers")
+  check(#c.g:nodesOfKind("exchange") > 0, "it builds an area hub for a neighbourhood of offers")
+  -- The hub wires each house into a real network of its own now, rather than
+  -- serving it invisibly, so a house that used to sit in `hub.covered`
+  -- forever now graduates out of it the moment its own pipe lands: checking
+  -- that it is actually fed is what "serves the neighbourhood" means now.
+  -- Building the hub already triggered its own refresh, which is where that
+  -- wiring happens, so no further steps are needed to see it.
+  local served = 0
+  for _, id in ipairs(houses) do
+    local n = c.g.nodes[id]
+    if n and n.alive and c:fullyServed(n) then served = served + 1 end
+  end
+  check(served >= 3, "the hub gets a neighbourhood of offers actually fed")
 end
 
 print("an imported trade")
