@@ -38,8 +38,10 @@ return function(app,capture,click,scrollTo,check)
   capture('net-profit-28b-voltage-help',app,1100,700)
   click('voltage-help')
   check(not app.state.voltageHelp,'and collapses it again')
-  scrollTo(app,'tool-pole'); click('tool-pole')
-  check(app.state.tool=='pole','the low voltage pole is in the power toolbar')
+  scrollTo(app,'tool-grid'); click('tool-grid')
+  check(app.state.tool=='grid','the tower is in the power toolbar')
+  click('voltage-high'); check(app.state.voltage=='high','the tower voltage is chosen above the tools')
+  click('voltage-low'); check((app.state.voltage or 'low')=='low','and can be set back to low voltage')
   app.state.tool=nil; app.state.scroll=0
   local setColor=love.graphics.setColor
   app.state.commodity='water'
