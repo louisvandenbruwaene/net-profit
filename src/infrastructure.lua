@@ -367,7 +367,7 @@ return function(City)
   end
   function City:refresh()
     for _,n in ipairs(self.g:aliveNodes()) do
-      n.effectiveOutput=nil
+      n.effectiveOutput=self.shockOutput and self:shockOutput(n) or nil
       if n.kind=='source' and (n.commodity=='water' or n.commodity=='wheat') and self:pollutionAt(n.x,n.y)>=D.pollution.stopAt then n.effectiveOutput=0 end
     end
     local runs={}

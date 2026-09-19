@@ -29,3 +29,13 @@ These files cover common balance edits, not every game rule. Adding an entirely 
 ## September requirements
 
 See [IDEAS-IMPLEMENTATION.md](IDEAS-IMPLEMENTATION.md) for the new rules and their controls. Staffing, daily land offers, saltwater validation and migration are in `src/ideas.lua`. Temporary autoplay is in `src/autoplay.lua`; its regression tests use isolated companies. The primary app logo is `assets/net-profit.png`; `assets/net-profit.icns` must be an actual macOS icon container, not a renamed PNG.
+
+## Levels, shocks and secure contracts
+
+**Levels** (`src/data/upgrades.lua`, logic in `src/upgrades.lua`). Junctions, towers, automation hubs and pumps are one building each with four levels. A new one starts at level 1 and is grown in place: `ports`, `throughput`, `reach` (towers and pumps) and `radius` (hubs) per level, `cost` to reach it, and `clients` the company must have signed before it is allowed. A junction becomes a manifold (a six port hub) at level 2 and keeps every main tied in. Towers scale throughput by the voltage they carry (`TOWER_SCALE`). `LEGACY` is the level a building from an older save counts as. Saves need no migration because a level only ever adds to what a building already has, and reach only counts once a building has been upgraded. The old kinds (`manifold`, `pole`, `pylon`, `hvtower`) still exist in saves and tests; the build panel sells one Junction and one Tower, and the tower's voltage is chosen above the tools.
+
+**Shocks** (`src/data/resilience.lua`, logic in `src/resilience.lua`). Droughts and grid faults hold a trade's sources to a fraction of their output for a few days; a ground shift cracks the mains around one point. Nothing lands before `SHOCK_CLIENTS` customers or day `SHOCK_FROM`, and never more often than `SHOCK_CHANCE` a day. Shocks are rolled from a hash of the seed and the day and never from `City:random()`, so they do not reshuffle a save's offers and leaks.
+
+**Secure contracts.** `SECURE.share` percent of new offers pay `SECURE.rate` times the going rate, refund `SECURE.credit` times the missing revenue for every short day, and leave after `SECURE.patience` short days. Hubs and autoplay never sign them on the player's behalf.
+
+**The Advisor** (Stats, then Advisor). *Check resilience* fails each loaded main and structure in turn on a copy of the company (`City:startResilience`, run a little each frame) and grades the worst single failure, A to F by `GRADES`. *Best next upgrades* (`experience.lua`, `E.advise`) does each candidate upgrade on a copy and ranks by payback. Neither changes the company. Upgrade buttons elsewhere quote what the upgrade would earn when pointed at.

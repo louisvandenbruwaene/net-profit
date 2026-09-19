@@ -24,6 +24,10 @@ being drawn to any of it, works that turn wheat into malt into beer, railways
 and shipping lanes moving materials in wagons, and departments that do the
 clerical half of the job for a wage.
 
+## Growing the network
+
+Buildings are few and each one levels up: a junction becomes a six connection hub, towers gain connections, capacity and reach, automation hubs serve wider districts and pumps carry further. Droughts, grid faults and ground shifts test the network, and some customers offer a secure contract that pays more and refunds every short day. **Stats > Advisor** grades how much one failure would cost you and ranks the upgrades that earn the most. See [EDITING.md](EDITING.md) for the numbers.
+
 ## Play
 
 On macOS, download the macOS build of LÖVE 11.x from [love2d.org](https://love2d.org/),

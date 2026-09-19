@@ -80,7 +80,7 @@ local function resetSession()
   state.autoRemaining=nil
   state.invest=100
   state.rail=nil; state.transit=nil
-  state.filter=nil; state.bottlenecks=nil; state.rename=nil; state.advanced=nil; state.lineOptions=nil; state.showPermits=nil
+  state.filter=nil; state.bottlenecks=nil; state.spof=nil; state.advisorFocus=nil; state.job=nil; state.rename=nil; state.advanced=nil; state.lineOptions=nil; state.showPermits=nil
 end
 
 -- Selecting anything on the map is a question, and the sidebar is the answer.
@@ -230,6 +230,10 @@ local function action(name,...)
     else state.autoRemaining=math.max(1,math.min(120,tonumber((...)) or 5))*60; state.autoTick=0; state.modal=nil; toast("Autoplay started; stop it in Stats") end
     return true
   end
+  -- A resilience check changes nothing in the company, so it is neither an
+  -- undoable decision nor a reason to write the save.
+  if name=="assessResilience" then city:assessResilience(); return true end
+  if name=="startResilience" then state.job=city:startResilience(); return true end
   if city.bankrupt then return end
   local snapshot=Save.pack(city)
   local result,err
@@ -282,7 +286,7 @@ local function action(name,...)
         layLink=(name=="layLink" and result.mode=="road") and "Road laid" or "Route opened",
         setLinkPrice="Price set",setEdgeToll="Toll set",setStationPrice="Pump price set",
         addVehicle="Vehicle added",removeVehicle="Vehicle sold",demolishLink="Line lifted",
-        upgradeResort="Resort built up",upgradeTower="Tower upgraded"})[name] or "Network updated")
+        upgradeResort="Resort built up",upgradeTower="Tower upgraded",upgradeLevel="Building upgraded"})[name] or "Network updated")
     end
   end
   save()
@@ -448,7 +452,10 @@ function love.mousepressed(x,y,button)
     if state.tool=="source" then action("buySource",state.commodity,wx,wy,state.plant)
     elseif state.tool=="terminal" then action("build",wx,wy,state.tool,state.havenKind or "port")
     elseif state.tool=="works" then action("build",wx,wy,state.tool,state.recipe or "brewery")
-    else action("build",wx,wy,state.tool,state.commodity) end
+    else
+      local kind=state.tool=="grid" and City.INFRA.voltages[state.voltage or "low"].tower or state.tool
+      action("build",wx,wy,kind,state.commodity)
+    end
     return
   end
   local node,edge,link=hit(x,y)
@@ -567,7 +574,7 @@ function love.keypressed(key)
     elseif state.link then action("demolishLink",state.link)
     elseif state.node then action("demolishNode",state.node) end
   elseif tonumber(key) and tonumber(key)>=1 and tonumber(key)<=9 then
-    state.tool=({"junction","manifold","pump","tower","gate","depot","exchange","terminal","dc"})[tonumber(key)]
+    state.tool=({"junction","grid","pump","tower","gate","depot","exchange","terminal","dc"})[tonumber(key)]
   end
 end
 

@@ -504,11 +504,11 @@ function Walk.start(app,mode)
     -- The chamber can be replaced where it stands.
     app.action("focusNode",src.id)
     love.draw()
-    local swap=findButton("replace-manifold")
-    check(swap and swap.enabled,"the chamber offers to be replaced in place")
+    local swap=findButton("level-up")
+    check(swap and swap.enabled,"the chamber offers to be upgraded in place")
     love.mousepressed(swap.x+swap.w/2,swap.y+swap.h/2,1)
     love.mousereleased(swap.x+swap.w/2,swap.y+swap.h/2,1)
-    check(src.kind=="manifold","replacing it works")
+    check(src.kind=="manifold","upgrading it works")
     check(c.g:degree(src.id)==degree,"without a single main coming off")
 
     -- Removing it is the move that costs the network.
@@ -811,6 +811,7 @@ function Walk.start(app,mode)
   if mode=="--smoke" then
     require("infrastructure_walkthrough")(app,capture,click,scrollTo,check)
     require("ideas_walkthrough")(app,capture,click,scrollTo,check)
+    require("resilience_walkthrough")(app,capture,click,scrollTo,check)
   end
 end
 

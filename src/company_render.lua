@@ -1403,6 +1403,32 @@ function Draw.world(city, cam, state)
     end
     lg.setLineWidth(1)
   end
+  -- Single points of failure, and whatever upgrade the advisor is pointed at.
+  do
+    local pulse = 0.5+0.5*math.sin(R.t*4)
+    local function mark(kind,id,colour)
+      if kind=="edge" then
+        local e = city.g.edges[id]
+        if not (e and e.alive) then return end
+        local a,b = city.g.nodes[e.a],city.g.nodes[e.b]
+        local ax,ay = cam:toScreen(a.x,a.y)
+        local bx,by = cam:toScreen(b.x,b.y)
+        lg.setColor(P.with(colour,0.30+0.40*pulse)); lg.setLineWidth(7); lg.line(ax,ay,bx,by)
+      else
+        local n = city.g.nodes[id]
+        if not (n and n.alive) then return end
+        local x,y = cam:toScreen(n.x,n.y)
+        lg.setColor(P.with(colour,0.45+0.45*pulse)); lg.setLineWidth(3)
+        lg.circle("line",x,y,22+4*pulse)
+      end
+    end
+    local report = state.spof and city:resilienceReport()
+    if report then
+      for i=1,math.min(#report.points,8) do mark(report.points[i].kind,report.points[i].id,P.bad) end
+    end
+    if state.advisorFocus then mark(state.advisorFocus.kind,state.advisorFocus.id,P.good) end
+    lg.setLineWidth(1)
+  end
   R.drawEffects(cam)
   local mx,my = love.mouse.getPosition()
   if state.drag and state.transit then
@@ -1479,14 +1505,16 @@ function Draw.world(city, cam, state)
       end
     else
       err = city:placementError(wx,wy)
-      local unlock = City.BUILD_UNLOCK[state.tool]
+      -- One tower tool stands for three voltages; the choice is in the panel.
+      local kind = state.tool=="grid" and City.INFRA.voltages[state.voltage or "low"].tower or state.tool
+      local unlock = City.BUILD_UNLOCK[kind]
       if not err and unlock and not city:unlocked(unlock) then err = "not available yet" end
       if not err and state.tool=="resort" then err = city:resortSiteError(wx,wy) end
-      cost = city:nodeCost(state.tool)
+      cost = city:nodeCost(kind)
       if state.tool=="terminal" then
-        local kind = state.havenKind or "port"
-        cost = city:havenCost(kind)
-        if not err then err = select(2, city:havenSite(wx,wy,kind)) end
+        local haven = state.havenKind or "port"
+        cost = city:havenCost(haven)
+        if not err then err = select(2, city:havenSite(wx,wy,haven)) end
       elseif state.tool=="works" then
         cost = (City.RECIPES[state.recipe or ""] or {}).cost or cost
         if not err and (City.RECIPES[state.recipe or ""] or {}).farm then err=city:farmSiteError(wx,wy) end
@@ -1494,13 +1522,13 @@ function Draw.world(city, cam, state)
       -- The bill of materials, before the click rather than after it.
       if not err then
         local bill = state.tool=="works" and city:materialsFor("works",state.recipe)
-          or city:materialsFor(state.tool)
+          or city:materialsFor(kind)
         err = city:materialError(bill)
       end
     end
     local color = (err or cost>city.money) and P.bad or P.good
     lg.setColor(P.with(color,0.3)); lg.setLineWidth(1)
-    local carries = City.INFRA.towers[state.tool]
+    local carries = City.INFRA.towers[state.tool=="grid" and City.INFRA.voltages[state.voltage or "low"].tower or state.tool]
     local range = state.tool=="pump" and City.INFRA.pumpRange or carries and City.INFRA.voltages[carries].span
       or state.tool=="binder" and City.INFRA.binderRange or state.tool=="tower" and 220 or 300
     lg.circle("line",mx,my,range*cam.scale)

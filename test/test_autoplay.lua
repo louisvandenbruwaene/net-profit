@@ -8,6 +8,9 @@ local A = require("autoplay")
 -- Planning time depends on the machine; unlimited planning makes every run the
 -- same run.
 A.budget = math.huge
+-- These scenarios measure the assistant's planning, so the company is spared
+-- the droughts and ground shifts a real one is dealt (see test_resilience.lua).
+require("data.resilience").SHOCK_CHANCE = 0
 
 local checks = 0
 local function check(value, message)
@@ -89,13 +92,19 @@ do
   local houses = {}
   for i = 1, 4 do
     local n = assert(c:addClient("house", true))
+    -- Secure contracts are left for a person to sign; these offers are plain.
+    n.secure = nil
     n.x, n.y, n.expires = cx + math.cos(i * 1.57) * 140, cy + math.sin(i * 1.57) * 110, c.day + 5
     houses[#houses + 1] = n.id
   end
   -- Pubs and factories nearby would ride on the hub too; clear them out so
   -- the neighbourhood is households.
+  -- Every other offer goes too: a new hub reaches 450 m, so the neighbourhood
+  -- being tested has to be the only one the assistant could pick.
+  local ours = {}
+  for _, id in ipairs(houses) do ours[id] = true end
   for _, n in ipairs(c:clientList(true)) do
-    if n.clientType ~= "house" and n.clientType ~= "estate" then c:declineClient(n.id) end
+    if not ours[n.id] then c:declineClient(n.id) end
   end
   c:refresh()
   c.money = c.money + 20000
@@ -123,6 +132,7 @@ do
   check(c.licences.beer, "it takes the beer licence once beer can be landed")
   local yard = c.g:nodesOfKind("dc")[1]
   local pub = assert(c:addClient("pub", true))
+  pub.secure = nil
   pub.x, pub.y, pub.expires = yard.x + 180, yard.y + 120, c.day + 5
   c:refresh()
   c = play(c, 300, function(c) return pub.alive and not pub.prospect and c:fullyServed(pub) end)

@@ -133,9 +133,9 @@ end
 --------------------------------------------------------------------------------
 
 local toolTips = {
-  junction="3 connections. Changes pipe size. Splits a pipe into two. Costs $1/day.",
+  junction="Starts with 3 connections and 60 a day. Upgrade it in place: level 2 makes it a six-connection hub, and it keeps every main tied in. Costs $1/day.",
   manifold="6 connections. Changes pipe size. Carries several goods. Costs $1/day.",
-  pump="2 pipe ports. Boosts pressure; reaches 950m. Costs $1/day.",
+  pump="2 pipe ports. Boosts pressure; reaches 950m, further with each upgrade. Costs $1/day.",
   tower="Reduces nearby leaks by 55%. Range: 220m. Costs $2/day.",
   gate="2 pipe ports. Sets how much supply passes through. Costs $1/day.",
   depot="Stores spare supply. Releases it when needed. Costs $3/day.",
@@ -158,13 +158,23 @@ end
 toolTips.hvtower=towerTip("hvtower","Carries generator output across the map. A transformer steps it down to standard towers and poles.")
 toolTips.pylon=towerTip("pylon","With a transformer it feeds workshops, works and facilities, or steps down to poles.")
 toolTips.pole=towerTip("pole","With a transformer it feeds homes.")
+toolTips.grid="One tower for every voltage: choose it above. It starts with three connections and little capacity; upgrade it for more connections, capacity and reach. A transformer upgrade lets it feed customers."
 
-local TOOLS = {"junction","manifold","pump","filtration","hvtower","pylon","pole","transformer","binder","lab","gate","depot","exchange","terminal","dc","stop","station","resort","corner","intersection","roundabout","interchange"}
+-- Fewer buildings, each one grown by upgrading it. A junction becomes a hub at
+-- level 2, and one tower is built at whichever voltage is chosen above the
+-- grid (a transformer is an upgrade, not a building). The older kinds still
+-- exist in saved companies; they are simply no longer sold as separate things.
+local TOOLS = {"junction","pump","filtration","grid","binder","lab","gate","depot","exchange","terminal","dc","stop","station","resort","corner","intersection","roundabout","interchange"}
+local function toolKind(name)
+  if name=="grid" then return City.INFRA.voltages[state.voltage or "low"].tower end
+  return name
+end
 
 -- Replacing a structure where it stands. The mains never come off, so this is
 -- the difference between buying three more ports and rebuilding a junction box
 -- from scratch with every pipe relaid by hand.
-local REPLACEMENTS = {"junction","manifold","pump","tower","gate","depot"}
+-- A manifold is what a junction becomes by levelling up, so it is not offered here.
+local REPLACEMENTS = {"junction","pump","tower","gate","depot"}
 
 local function replaceStrip(n,y)
   if not City.CONVERTIBLE[n.kind] then return y end
@@ -202,6 +212,67 @@ end
 -- build" returns the workshop -- so navigation is one click in each direction
 -- and nothing ever has to be hunted for.
 
+-- What an upgrade earns, in a sentence, or "" when it earns nothing. The
+-- flow solver has to be run on a copy to know, so callers only ask for the
+-- ones that matter: the one the player is pointing at, or the one that is
+-- the only fix for a starved customer.
+local function gainText(p)
+  if not p or p.error or (p.net or 0)<=0 then return "" end
+  return string.format(" Earns about $%d/day, pays back in %s.",math.floor(p.net+0.5),
+    p.payback and (p.payback.." day"..(p.payback==1 and "" or "s")) or "no time")
+end
+local function pointing(x,y,w,h)
+  local mx,my=love.mouse.getPosition()
+  return mx>=x and mx<x+w and my>=y and my<y+h
+end
+
+-- One building, four levels. Shows what this level gives, what the next one
+-- would give, and the button that buys it. When the structure is the thing
+-- holding the network back, the button also says what upgrading it earns.
+local function levelBlock(n,y)
+  if not city:levelFamily(n) then return y end
+  local level,count=city:levelOf(n),city:levelCount(n)
+  heading("LEVEL "..level.." OF "..count,y); y=y+26
+  single(city:levelName(n),M,y,"body",P.accent,CW); y=y+26
+  local used=city:connectionPorts(n.id)
+  row("Connections",used.." / "..n.ports,y,used>=n.ports and P.warn or P.text); y=y+24
+  local through=n.throughput or 999
+  local carried=math.floor(city.detail.node[n.id] or 0)
+  row("Capacity",through>=999 and "Unlimited" or (carried.." / "..through.." a day"),y,
+    through<999 and carried>=through and P.bad or P.text,
+    "What passes through it in a day against what it is allowed to pass."); y=y+24
+  if n.kind=="exchange" then row("Serves customers within",city:hubRadius(n).." m",y); y=y+24 end
+  local reach=city:reachBonus(n)
+  if reach>0 then row("Reach",string.format("+%d%%",math.floor(reach*100+0.5)),y,P.energy,
+    "Added to how far a cable or pipe from here may run."); y=y+24 end
+  local nxt=city:levelNext(n.id)
+  if not nxt then
+    text("Fully upgraded.",M,y+2,"small",P.textDim,CW)
+    return y+30
+  end
+  local err=city:levelError(n.id)
+  local full=through<999 and carried>=through
+  local mx,my=love.mouse.getPosition()
+  local hover=mx>=M and mx<M+CW and my>=y+4 and my<y+40
+  local gain
+  if full and hover then
+    local p=E.levelPreview(city,n.id)
+    if not p.error and p.net>0 then
+      gain=string.format("Earns about $%+d/day, pays back in %s days.",p.net,p.payback or "many")
+    end
+  end
+  local gives=nxt.ports.." connections, "..(nxt.throughput>=999 and "unlimited" or nxt.throughput).." a day"
+    ..(nxt.reach and nxt.reach>0 and string.format(", +%d%% reach",nxt.reach*100+0.5) or "")
+    ..(nxt.radius and (", "..nxt.radius.." m range") or "")
+  button("level-up","Upgrade to "..string.lower(nxt.name).."  $"..nxt.cost,M+0,y+4,CW,36,
+    function() act("upgradeLevel",n.id) end,err==nil,
+    err and (err..". Level "..nxt.level..": "..gives..".") or ("Level "..nxt.level..": "..gives..". "..(gain or "")),
+    false,P.good,full)
+  y=y+48
+  y=y+paragraph("Next: "..gives..(err and ("  ("..err..")") or ""),y,err and P.textFaint or P.textDim)+8
+  return y
+end
+
 local function inspectClient(n,y)
   if n.demands then
     for _,key in ipairs(Graph.ALL) do
@@ -219,8 +290,18 @@ local function inspectClient(n,y)
     "Every customer negotiates their own price. The going rate for a "..
     string.lower(City.CLIENTS[n.clientType].name).." is $"..(n.rateBase or n.rate)..
     ". The spread widens as the company grows.")
-  row("Price difference",string.format("%+.0f%%",premium*100),y+52,
-    good and P.good or bad and P.bad or P.textDim)
+  if n.secure then
+    local exposure=(not n.prospect) and city:exposureOf(n.id)
+    local state_=n.prospect and "" or exposure==nil and " (unchecked)" or exposure and " (exposed)" or " (protected)"
+    row("Contract","SECURE"..state_,y+52,exposure and P.bad or P.energy,
+      "Pays "..math.floor((City.SECURE.rate-1)*100+0.5).."% over the going rate. Every day it is not fully supplied you refund the missing "..
+      "units at its rate, and it leaves after "..City.SECURE.patience.." short days. "..
+      (n.prospect and "" or exposure==nil and "Run a resilience check in Stats > Advisor to see whether one failure would cut it off. "
+        or exposure and "One failure would cut it off: see the Advisor. " or "It survives any single failure. "))
+  else
+    row("Price difference",string.format("%+.0f%%",premium*100),y+52,
+      good and P.good or bad and P.bad or P.textDim)
+  end
   row("Income / day","$"..city:contractValue(n),y+78,P.energy)
   row("Delivery",city:quantity(n.commodity,city.served[n.id] or 0).." / "..city:quantity(n.commodity,n.demand),y+104)
   row(n.prospect and "Offer expires" or "Patience",
@@ -243,7 +324,8 @@ local function inspectClient(n,y)
     button("decline","Decline",M+198,y+168,102,36,function() act("declineClient",n.id) end,true,
       "Lose 1 reputation. Ignoring it costs 2.",
       false,bad and P.bad or P.flow,bad)
-    if bad then text("Paying "..string.format("%.0f%%",-premium*100).." under the going rate.",M,y+214,"small",P.bad,CW)
+    if n.secure then text("Secure contract: pays well, refunds every short day.",M,y+214,"small",P.energy,CW)
+    elseif bad then text("Paying "..string.format("%.0f%%",-premium*100).." under the going rate.",M,y+214,"small",P.bad,CW)
     elseif good then text("Paying "..string.format("%.0f%%",premium*100).." over the going rate.",M,y+214,"small",P.good,CW) end
   else
     button("supply-valve",n.supplyClosed and "[ ]  Customer supply" or "[x]  Customer supply",
@@ -274,7 +356,8 @@ local function inspectClient(n,y)
           bigger~=nil and city.money>=bore,
           bigger and ("Digs out the "..string.lower(City.sizeOf(e.size or "small").name)..
             " main holding this customer back and lays a "..string.lower(City.sizeOf(bigger).name)..
-            " one carrying "..City.sizeOf(bigger).cap..". Nothing widens a main in the ground.")
+            " one carrying "..City.sizeOf(bigger).cap..". Nothing widens a main in the ground."..
+            gainText(bigger and E.replacePreview(city,eid,bigger,e.grade)))
             or (e.size=="large" and city:unlockHint("massive") and ("Massive mains: "..
               string.lower(city:unlockHint("massive"))..".") or "Nothing carries more than a massive main."),
           false,P.good,true)
@@ -291,7 +374,7 @@ local function inspectClient(n,y)
           local cost=city:sourceUpgradeCost(src)
           button("deepen-for-client","Deepen "..string.upper(n.commodity).." well "..src.id.."   $"..cost,
             M,dy+52,CW,36,function() act("upgradeSource",src.id) end,city.money>=cost,
-            "Adds output at the well, with no new route to pay for",false,P.good,true)
+            "Adds output at the well, with no new route to pay for."..gainText(E.sourcePreview(city,src.id)),false,P.good,true)
         end
       elseif why=="unconnected" then
         text("No "..n.commodity.." connection. Drag a pipe from your network.",
@@ -352,7 +435,8 @@ local function inspectSource(n,y)
     local cost=city:sourceUpgradeCost(n)
     button("upgrade-source","Deepen well   +"..trade.upgradeStep.." output   $"..cost,
       M,y+258,CW,38,function() act("upgradeSource",n.id) end,city.money>=cost,
-      "Adds "..trade.upgradeStep.." supply per day. Keeps existing pipes.",
+      "Adds "..trade.upgradeStep.." supply per day. Keeps existing pipes."..
+      (maxed and gainText(E.sourcePreview(city,n.id)) or ""),
       false,P.good,maxed and city.money>=cost)
     text("A new "..n.commodity.." well costs $"..city:sourceCost(n.commodity)..
          " plus the route to reach it.",M,y+304,"small",P.textDim,CW)
@@ -514,7 +598,8 @@ local function inspectHub(n,y)
     "$"..City.hub.upkeep.." for the hub and $"..City.hub.perClient.." for every customer on it.")
   text("Connect supply to this hub. It serves nearby clients without extra pipes.",
     M,ly+30,"small",P.textDim,CW)
-  return demolishBlock(n,ly+96,"Demolish the hub",
+  ly=levelBlock(n,ly+84)
+  return demolishBlock(n,ly+12,"Demolish the hub",
     "Closes the hub. Its customers go back to having no connection at all.")
 end
 
@@ -724,6 +809,8 @@ local function inspectEdge(e,y)
     local q=city:replaceQuote(e.id,spec.key,target)
     local same=spec.key==(e.size or "") and target==(e.grade or 1)
     local open=city:sizeAllowed(spec)
+    local gain=(open and not same and q~=nil and pointing(M+(i-1)*76,ry,72,32))
+      and gainText(E.replacePreview(city,e.id,spec.key,target)) or ""
     button("replace-"..spec.key,(e.commodity=="power" and (City.INFRA.amps[spec.key].." A") or (spec.cap..S.get(e.commodity))).." $"..(q and q.net or 0),M+(i-1)*76,ry,72,32,
       function() act("replacePipe",e.id,spec.key,target) end,
       open and not same and q~=nil and city.money>=(q and q.net or 0),
@@ -731,7 +818,7 @@ local function inspectEdge(e,y)
         or not open and ("Massive mains: "..string.lower(city:unlockHint(spec.unlock))..".")
         or ("A "..string.lower(spec.name).." "..string.lower(City.GRADES[target].name)..
             " main carrying "..spec.cap..". $"..(q and q.total or 0).." of work, less $"..
-            (q and q.salvage or 0).." of scrap on the one that comes out."),
+            (q and q.salvage or 0).." of scrap on the one that comes out."..gain),
       false,Graph.COMMODITIES[e.commodity].color)
   end
   ry=ry+40
@@ -1042,6 +1129,18 @@ local function buildPanel()
       end
     end
   end
+  if not state.people and state.commodity=="power" then
+    heading("TOWER VOLTAGE",y); y=y+24
+    for i,key in ipairs(City.INFRA.voltageOrder) do
+      local v=City.INFRA.voltages[key]
+      button("voltage-"..key,(v.name:gsub(" voltage","")),M+(i-1)*102,y,96,30,
+        function() state.voltage=key end,true,
+        v.name.." ("..v.kv.." kV): a tower every "..v.span.." m, a booster every "..v.boost..
+        " m. Carries "..(key=="high" and "generator output across the map." or key=="medium" and "power to workshops and works." or "power to homes."),
+        (state.voltage or "low")==key,City.INFRA.voltages[key] and Graph.KINDS[v.tower].color)
+    end
+    y=y+42
+  end
   heading(state.people and "PASSENGER BUILDINGS" or "EVERYDAY STRUCTURES",y); y=y+24
   -- Every building the company has unlocked is on the panel. Hiding half of
   -- them behind a toggle only made the player press the toggle.
@@ -1061,7 +1160,7 @@ local function buildPanel()
       relevant=passenger or shared
     elseif passenger then
       relevant=false
-    elseif City.INFRA.towers[name] or name=="transformer" then
+    elseif name=="grid" then
       relevant=state.commodity=="power"
     elseif name=="filtration" or name=="tower" then
       relevant=state.commodity=="water" or state.commodity=="saltwater"
@@ -1074,23 +1173,24 @@ local function buildPanel()
     else
       relevant=true
     end
-    if relevant and (i<=4 or City.INFRA.towers[name] or name=="transformer" or state.people or advanced)
+    if relevant and (i<=4 or name=="grid" or state.people or advanced)
       and (not City.BUILD_UNLOCK[name] or city:unlocked(City.BUILD_UNLOCK[name]))
       and (not gate[name] or city:unlocked(gate[name])) then
       local col,rw=shown%3,math.floor(shown/3)
       shown=shown+1
       local bx,by=M+col*102,y+rw*58
-      local afford=city.money>=City.price[name]
+      local kind=toolKind(name)
+      local afford=city.money>=City.price[kind]
       button("tool-"..name,"",bx,by,96,50,function() state.tool=state.tool==name and nil or name end,
-        afford,toolTips[name],state.tool==name,Graph.KINDS[name].color)
-      lg.setColor(afford and Graph.KINDS[name].color or P.textFaint)
-      Draw.structureGlyph(name,bx+17,by+24)
+        afford,toolTips[name],state.tool==name,Graph.KINDS[kind].color)
+      lg.setColor(afford and Graph.KINDS[kind].color or P.textFaint)
+      Draw.structureGlyph(kind,bx+17,by+24)
       -- The icon holds the left of the tile; the name and the price share
       -- what it leaves, centred in it rather than pushed against it.
-      text(({junction="T split",manifold="Hub",pump="Pump",filtration="Filter",hvtower="HV tower",pylon="Tower",pole="LV pole",transformer="Transformer",binder="Binder",lab="Env. lab",tower="Treat",gate="Valve",depot="Depot",exchange="Automation hub",terminal="Haven",dc="Yard",
+      text(({junction="Junction",grid="Tower",pump="Pump",filtration="Filter",binder="Binder",lab="Env. lab",tower="Treat",gate="Valve",depot="Depot",exchange="Automation hub",terminal="Haven",dc="Yard",
              stop="Bus stop",station="Station",resort="Resort",corner="Corner",intersection="Crossing",roundabout="Roundabout",interchange="Interchange"})[name],
         bx+32,by+8,"tiny",P.text,TILE_TEXT,"center")
-      text("$"..City.price[name],bx+32,by+28,"small",P.textDim,TILE_TEXT,"center")
+      text("$"..City.price[kind],bx+32,by+28,"small",P.textDim,TILE_TEXT,"center")
     end
   end
   -- The sea pump and the purifier are structures like any other, so they are
@@ -1234,6 +1334,7 @@ local function inspectorPanel(n,e)
         row("Local pollution",string.format("%.1f / 100",city:pollutionAt(n.x,n.y)),tail,P.warn)
         tail=tail+32
       end
+      tail=levelBlock(n,tail)
       tail=demolishBlock(n,tail)
     elseif n.kind=="client" then inspectClient(n,y); tail=y+400
     elseif n.kind=="source" then tail=inspectSource(n,y)
@@ -1250,12 +1351,14 @@ local function inspectorPanel(n,e)
       row("Ports",degree.." / "..n.ports,y,degree>=n.ports and P.warn or P.text)
       row("Carrying",math.floor(city.detail.node[n.id] or 0),y+26)
       if n.kind=="tower" then row("Local leak risk","-55% within 220m",y+52,P.energy)
-      elseif n.kind=="pump" then row("Reach","520m",y+52,P.flow) end
+      elseif n.kind=="pump" then row("Reach",math.floor(City.INFRA.pumpRange*(1+city:reachBonus(n))).." m",y+52,P.flow) end
       if n.capped then
         text("Closed well. Its pipes stay connected.",
           M,y+80,"small",P.textDim,CW)
       end
-      tail=replaceStrip(n,y+(n.capped and 128 or 84))
+      tail=y+(n.capped and 128 or 84)
+      if city:levelFamily(n) then tail=levelBlock(n,tail)+8 end
+      tail=replaceStrip(n,tail)
       tail=demolishBlock(n,tail+12)
     end
   else
@@ -1536,14 +1639,15 @@ local function customers()
       lg.setFont(R.fonts.body); lg.setColor(P.energy)
       lg.printf("$"..city:contractValue(c).."/day",M+CW-110,y+9,100,"right")
       -- A badge the player can read at a glance once the spread opens up.
-      local tag = premium>0.12 and string.format("PREMIUM %+.0f%%",premium*100)
+      local tag = c.secure and "SECURE CONTRACT"
+        or premium>0.12 and string.format("PREMIUM %+.0f%%",premium*100)
         or premium<-0.12 and string.format("LOWBALL %+.0f%%",premium*100)
         or (c.commodity=="power" and string.format("$%.2f/kWh",c.rate/5) or string.format("$%d/unit",c.rate))
       if prospect then status="Expires in "..math.max(0,c.expires-city.day+1).." days" end
       single((c.demands and c.demands.water and c.demands.power and ("Water + "..city:quantity("power",c.demands.power)) or city:quantity(c.commodity,c.demand)).." / "..status,M+12,y+35,"small",
         prospect and P.energy or met and P.good or P.warn,CW-16)
       lg.setFont(R.fonts.small)
-      lg.setColor(premium>0.12 and P.good or premium<-0.12 and P.bad or P.textDim)
+      lg.setColor(c.secure and P.energy or premium>0.12 and P.good or premium<-0.12 and P.bad or P.textDim)
       lg.printf(tag,M+12,y+57,CW-24,"left")
       y=y+92
     end
@@ -1620,6 +1724,15 @@ local function ledger()
     text(string.format("%s x%.2f  /  %d day%s left",string.upper(city.event.commodity),
       city.event.rate,city.event.left,city.event.left==1 and "" or "s"),
       M+10,y+53,"tiny",city.event.rate>1 and P.good or P.bad)
+    y=y+88
+  end
+  if city.shock then
+    heading("SUPPLY SHOCK",y)
+    lg.setColor(P.with(P.bad,0.14)); lg.rectangle("fill",M,y+24,CW,46,4)
+    lg.setColor(P.with(P.bad,0.5)); lg.rectangle("line",M,y+24,CW,46,4)
+    text(city.shock.head,M+10,y+31,"small",P.text,CW-20)
+    text(string.format("%s output x%.2f  /  %d day%s left",string.upper(city.shock.commodity),
+      city.shock.output,city.shock.left,city.shock.left==1 and "" or "s"),M+10,y+53,"tiny",P.bad)
     y=y+88
   end
   heading("COMPANY JOURNAL",y)
@@ -1708,6 +1821,119 @@ local function slotsPanel(x,y,w,h)
     function() state.modal=nil; state.slotConfirm=nil end,true,"Back to the network")
 end
 
+-- The two questions a maturing network asks: what is the one thing that could
+-- hurt most, and what is the best thing to spend on next. Both are answered by
+-- running the flow solver on a copy, and neither changes the company.
+local function adviceLabel(item)
+  if item.kind=="pipe" then
+    return "Widen "..string.lower(city:describeElement("edge",item.id)).." to "..item.size
+  elseif item.kind=="source" then
+    local n=city.g.nodes[item.id]
+    return "Deepen "..string.lower(n.commodity).." well "..item.id
+  end
+  local n=city.g.nodes[item.id]
+  local nxt=city:levelNext(item.id)
+  return "Upgrade "..string.lower(Graph.KINDS[n.kind].name).." "..item.id.." to "..string.lower(nxt and nxt.name or "the next level")
+end
+
+local function advisor()
+  local y=TOP-state.scroll
+  state.advisorFocus=nil
+  button("stats-back","Back to stats",M,y,CW,30,function() state.tab="stats"; state.scroll=0; state.spof=nil end)
+  y=y+46
+
+  if city.shock then
+    lg.setColor(P.with(P.bad,0.14)); lg.rectangle("fill",M,y,CW,46,4)
+    lg.setColor(P.with(P.bad,0.5)); lg.rectangle("line",M,y,CW,46,4)
+    text(city.shock.head,M+10,y+7,"small",P.text,CW-20)
+    text(string.format("%d day%s left",city.shock.left,city.shock.left==1 and "" or "s"),M+10,y+29,"tiny",P.bad)
+    y=y+58
+  end
+
+  heading("RESILIENCE",y); y=y+30
+  -- A check on a large company is dozens of flow solves, so it runs a little
+  -- each frame and the panel shows how far it has got.
+  if state.job and state.job.city~=city then state.job=nil end
+  local progress
+  if state.job then
+    local done,fraction=city:stepResilience(state.job,0.012)
+    if done then state.job=nil else progress=fraction end
+  end
+  local r,stale=city:resilienceReport()
+  if progress then
+    text(string.format("Checking... %d%%",math.floor(progress*100)),M,y,"small",P.warn,CW)
+    lg.setColor(P.panelEdge); lg.rectangle("fill",M,y+22,CW,5,2)
+    lg.setColor(P.warn); lg.rectangle("fill",M,y+22,CW*progress,5,2)
+    y=y+40
+  end
+  if not r then
+    y=y+paragraph("Fails every loaded main and structure, one at a time, and reports what each would cost you. Nothing in your company changes.",y)+10
+  elseif not r.grade then
+    y=y+paragraph("Nothing is earning yet, so there is nothing to protect.",y)+10
+  else
+    local colour=({A=P.good,B=P.good,C=P.warn,D=P.warn,F=P.bad})[r.grade] or P.text
+    text(r.grade,M,y-6,"big",colour)
+    if r.worst then
+      single("Worst single failure: "..string.lower(r.worst.label),M+46,y,"small",P.textDim,CW-46)
+      text(string.format("Would cost $%d/day (%d%% of revenue), %d customer%s",
+        math.floor(r.worst.loss+0.5),math.floor(r.share*100+0.5),r.worst.hurt,r.worst.hurt==1 and "" or "s"),
+        M+46,y+20,"small",colour,CW-46)
+    else
+      text("Nothing single failure can take from you.",M+46,y+6,"small",colour,CW-46)
+    end
+    y=y+64
+    row("Checked",r.checked.." of "..r.total.." loaded items",y,P.textDim); y=y+26
+    if stale then text("Out of date: the network has changed since.",M,y,"small",P.warn,CW); y=y+24 end
+  end
+  button("assess",r and "Check again" or "Check resilience",M,y,r and r.grade and 150 or CW,32,
+    function() act("startResilience") end,progress==nil,
+    "Runs in the background and takes a few seconds on a large company. Nothing is changed.",false,P.good,progress==nil and (not r or stale))
+  if r and r.grade and #r.points>0 then
+    button("spof-toggle",state.spof and "Hide on map" or "Show on map",M+158,y,CW-158,32,
+      function() state.spof=not state.spof end,true,"Marks the single points of failure on the map",state.spof,P.bad)
+  end
+  y=y+44
+  if r then
+    for i=1,math.min(#r.points,6) do
+      local p=r.points[i]
+      button("spof-"..i,"",M,y,CW,44,function()
+        act(p.kind=="edge" and "focusEdge" or "focusNode",p.id)
+      end,true,"Select it on the map",false,P.bad)
+      single(p.label,M+10,y+6,"small",P.text,CW-100)
+      lg.setFont(R.fonts.small); lg.setColor(P.bad)
+      lg.printf(string.format("-$%d/day",math.floor(p.loss+0.5)),M+CW-96,y+6,86,"right")
+      single(p.hurt.." customer"..(p.hurt==1 and "" or "s").." would lose supply",M+10,y+25,"tiny",P.textDim,CW-20)
+      y=y+50
+    end
+    if #r.points>6 then text("and "..(#r.points-6).." more",M,y,"small",P.textFaint); y=y+26 end
+  end
+  y=y+10
+
+  heading("BEST NEXT UPGRADES",y); y=y+30
+  local list=E.advise(city)
+  if #list==0 then
+    y=y+paragraph("Nothing that is full is holding an earning customer back. When a main, a well or a structure runs flat out and a wider or stronger one would earn more, it appears here with what it pays back.",y)+10
+  end
+  local mx,my=love.mouse.getPosition()
+  for i,item in ipairs(list) do
+    local hover=mx>=M and mx<M+CW and my>=y and my<y+54
+    if hover then state.advisorFocus={kind=item.kind=="pipe" and "edge" or "node",id=item.id} end
+    button("advice-"..i,"",M,y,CW,54,function()
+      if item.kind=="pipe" then act("replacePipe",item.id,item.size,item.grade)
+      elseif item.kind=="source" then act("upgradeSource",item.id)
+      else act("upgradeLevel",item.id) end
+    end,item.affordable,item.affordable and "Buy it now" or "Not enough cash yet",false,P.good)
+    single(adviceLabel(item),M+10,y+6,"small",item.affordable and P.text or P.textFaint,CW-84)
+    lg.setFont(R.fonts.small); lg.setColor(item.affordable and P.energy or P.textFaint)
+    lg.printf("$"..item.cost,M+CW-76,y+6,66,"right")
+    single(string.format("+$%d/day  /  pays back in %s",math.floor(item.net+0.5),
+      item.payback and (item.payback.." day"..(item.payback==1 and "" or "s")) or "no time"),
+      M+10,y+28,"tiny",P.good,CW-20)
+    y=y+60
+  end
+  UI.contentBottom=y+state.scroll+24
+end
+
 local function report()
   local r=city.lastReport
   local w,h = 580,state.reportDetails and 620 or 440
@@ -1759,6 +1985,7 @@ local function report()
   end
   local event=r.event
   if event then single(event,x+32,y+274,"small",P.energy,w-64) end
+  if r.shock then single(r.shock,x+32,y+296,"small",P.bad,w-64) end
   button("report-details",state.reportDetails and "Hide accounting" or "Show accounting",x+32,y+316,w-64,30,
     function() state.reportDetails=not state.reportDetails end,true,"Revenue, expenses, repairs, investments and awards")
   if state.reportDetails then
@@ -1766,6 +1993,7 @@ local function report()
       {"Revenue",r.revenue},{"Costs / day",-r.expenses},{"Repairs / prevention",-(r.crewCost or 0)-(r.preventCost or 0)},
       {"Investment profit / loss",r.interest or 0},{"Grants",reward},
     }
+    if (r.credits or 0)>0 then entries[#entries+1]={"Secure contract refunds",-r.credits} end
     for i,v in ipairs(entries) do
       text(v[1],x+32,y+360+(i-1)*24,"small",P.textDim)
       text(string.format("$%+d",v[2]),x+400,y+360+(i-1)*24,"small",v[2]<0 and P.warn or P.good)
@@ -1851,6 +2079,9 @@ local function stats()
   y=y+40
   button("tab-ambitions","Goals",M,y,CW,36,function() state.tab="ambitions"; state.scroll=0 end,true,"Choose a goal. Earn a cash reward.")
   y=y+46
+  button("tab-advisor","Advisor: resilience and upgrades",M,y,CW,32,function() state.tab="advisor"; state.scroll=0 end,true,
+    "Which single failure would hurt most, and which upgrade earns the most.")
+  y=y+42
   button("tab-ledger","History",M,y,CW,32,function() state.tab="ledger"; state.scroll=0 end,true,"Past events and payments.")
   y=y+48
   heading("STATS",y); y=y+30
@@ -1985,7 +2216,7 @@ function UI.draw(c,s,action)
       -- The Map tab is a map: opening it pulls the camera back to show the
       -- whole city, so the ground being priced is the ground being looked at.
       if t[1]=="map" then act("fitWorld") end
-    end,true,nil,state.tab==t[1] or (t[1]=="stats" and (state.tab=="ambitions" or state.tab=="ledger")))
+    end,true,nil,state.tab==t[1] or (t[1]=="stats" and (state.tab=="ambitions" or state.tab=="ledger" or state.tab=="advisor")))
     tabX=tabX+tabWidth+4
   end
   lg.setColor(P.with(P.panelEdge,0.65)); lg.line(M,58,M+CW,58)
@@ -1997,6 +2228,7 @@ function UI.draw(c,s,action)
   elseif state.tab=="map" then mapTab()
   elseif state.tab=="stats" then stats()
   elseif state.tab=="ambitions" then goals()
+  elseif state.tab=="advisor" then advisor()
   else ledger() end
   scroll=false; lg.setScissor()
   UI.maxScroll=math.max(0,(UI.contentBottom or H)-(H-65))

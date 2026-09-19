@@ -1629,6 +1629,10 @@ City.BUILDABLE = { junction = true, manifold = true, pump = true, tower = true,
 -- everybody who moves in afterwards is free.
 City.hub = require("data.freight").hub
 
+-- A hub reaches as far as its level lets it. One that predates levels carries
+-- no radius of its own and reaches the standard distance.
+function City:hubRadius(h) return h.radius or City.hub.radius end
+
 -- What a hub will pick up: everyone in range who pays at least the floor, is
 -- not already on a main of their own, and whose trade the company is licensed
 -- for. An offer inside the radius signs itself, which is the whole point of
@@ -1645,9 +1649,12 @@ function City:recomputeHubs()
   -- company, which is the difference between a city and a city of five
   -- thousand: the coverage scan was costing more than the flow solve.
   local size = City.hub.radius
+  for _, h in ipairs(hubs) do size = math.max(size, self:hubRadius(h)) end
   local grid = {}
   for _, c in ipairs(self.g.nodes) do
-    if c.alive and c.kind == "client" and not c.supplyClosed
+    -- A secure contract is a promise to cover a failure, so it is never signed
+    -- on the player's behalf just because a hub happens to reach it.
+    if c.alive and c.kind == "client" and not c.supplyClosed and not (c.prospect and c.secure)
        and self.licences[c.commodity] and self.g:degree(c.id) == 0 then
       local key = math.floor(c.x / size) .. "," .. math.floor(c.y / size)
       local bucket = grid[key]
@@ -1655,8 +1662,8 @@ function City:recomputeHubs()
     end
   end
 
-  local r2 = City.hub.radius ^ 2
   for _, h in ipairs(hubs) do
+    local r2 = self:hubRadius(h) ^ 2
     h.covered, h.demandBy, h.signed = {}, {}, 0
     h.floor = h.floor or 0
     local hcol, hrow = math.floor(h.x / size), math.floor(h.y / size)
@@ -3111,8 +3118,14 @@ function City:endDay()
     local got = self.served[c.id] or 0
     report.revenue = report.revenue + self:clientIncome(c)
     if self:fullyServed(c) then
-      c.grace = City.CLIENTS[c.clientType].patience
+      c.grace = c.patience or City.CLIENTS[c.clientType].patience
     else
+      -- A secure contract refunds what it was not given.
+      local credit = self:serviceCredit(c)
+      if credit > 0 then
+        report.expenses = report.expenses + credit
+        report.credits = (report.credits or 0) + credit
+      end
       c.grace = c.grace - 1
       report.unhappy = report.unhappy + 1
       if c.grace <= 0 then
@@ -3323,6 +3336,9 @@ function City:endDay()
       self:note("%s", spec.head)
     end
   end
+
+  -- 5c. Drought, grid faults and ground shifts.
+  self:advanceShock(report)
 
   report.bonus = self:awardMilestones()
   require("experience").close(self,report)
@@ -4118,5 +4134,7 @@ require("people")(City)
 require("infrastructure")(City)
 require("road_model")(City)
 require("ideas")(City)
+require("resilience")(City)
+require("upgrades")(City)
 
 return City

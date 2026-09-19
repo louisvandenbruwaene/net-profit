@@ -40,6 +40,7 @@ test:
 	@$(LUA) test/test_save_location.lua
 	@$(LUA) test/test_save_failures.lua
 	@$(LUA) test/test_infrastructure.lua
+	@$(LUA) test/test_resilience.lua
 	@$(LUA) test/test_ideas.lua
 	@$(LUA) test/test_autoplay.lua
 

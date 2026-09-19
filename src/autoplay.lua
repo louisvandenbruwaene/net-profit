@@ -475,15 +475,17 @@ end
 local function areaHub(c)
   local hubs=c.g:nodesOfKind('exchange')
   local offers={}
+  -- A hub is built at level 1, so that is how far a new one will reach.
+  local reach=City.LEVELS.LEVELS.hub[1].radius
   for _,n in ipairs(c:clientList(true)) do
     local covered=false
-    for _,h in ipairs(hubs) do covered=covered or dist(h,n)<City.hub.radius end
+    for _,h in ipairs(hubs) do covered=covered or dist(h,n)<c:hubRadius(h) end
     if not covered and servable(c,n) then offers[#offers+1]=n end
   end
   local group
   for _,n in ipairs(offers) do
     local near={}
-    for _,m in ipairs(offers) do if dist(n,m)<City.hub.radius*0.8 then near[#near+1]=m end end
+    for _,m in ipairs(offers) do if dist(n,m)<reach*0.8 then near[#near+1]=m end end
     if not group or #near>#group then group=near end
   end
   if not group or #group<3 then return nil end
@@ -492,7 +494,7 @@ local function areaHub(c)
   -- would take needs water or electricity.
   local middle=centroid(group)
   for _,n in ipairs(c.g.nodes) do
-    if n.alive and n.kind=='client' and c.g:degree(n.id)==0 and dist(n,middle)<=City.hub.radius+200 then
+    if n.alive and n.kind=='client' and c.g:degree(n.id)==0 and dist(n,middle)<=reach+200 then
       for commodity in pairs(n.demands or {[n.commodity]=n.demand}) do
         if commodity~='water' and commodity~='power' then return nil end
       end
@@ -827,7 +829,8 @@ function A.step(city)
 
   -- 3. Offers, best price first: sign the ones the network can actually carry.
   local offers={}
-  for _,n in ipairs(c:clientList(true)) do offers[#offers+1]=n end
+  -- A secure contract refunds every short day, which is a promise for a person to make.
+  for _,n in ipairs(c:clientList(true)) do if not n.secure then offers[#offers+1]=n end end
   for _,n in ipairs(c:clientList()) do if n.powerRequest then offers[#offers+1]=n end end
   table.sort(offers,function(a,b) return c:requestPremium(a)>c:requestPremium(b) end)
   -- A cluster of offers is cheaper to take with one area hub than one by one.
