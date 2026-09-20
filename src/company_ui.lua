@@ -347,9 +347,16 @@ local function inspectClient(n,y)
           .." "..e.id,carrying.." / "..e.cap,dy+24,P.bad)
         local bigger=city:biggerSize(e)
         local bore=bigger and (city:replaceQuote(e.id,bigger,e.grade) or {}).net or 0
+        -- The next size up may exist and simply not be open to this company
+        -- yet, which is a different thing from there being nothing wider, and
+        -- the button says which. Neither is spelled out in terms of whichever
+        -- size happens to be the widest today.
+        local _,here=City.sizeOf(e.size or "small")
+        local shut=City.PIPE_SIZES[here+1]
         button("widen-bottleneck",
           bigger and ("Put a "..string.lower(City.sizeOf(bigger).name).." main in   $"..bore)
-            or (e.size=="large" and not city:unlocked("massive") and "Massive mains are not open yet"
+            or (shut and (City.sizeOf(shut.key).name:sub(1,1)..string.lower(shut.name:sub(2)))
+                .." mains are not open yet"
               or "That main is already the largest there is"),
           M,dy+52,CW,36,
           function() act("replacePipe",eid,bigger,e.grade) end,
@@ -358,8 +365,8 @@ local function inspectClient(n,y)
             " main holding this customer back and lays a "..string.lower(City.sizeOf(bigger).name)..
             " one carrying "..City.sizeOf(bigger).cap..". Nothing widens a main in the ground."..
             gainText(bigger and E.replacePreview(city,eid,bigger,e.grade)))
-            or (e.size=="large" and city:unlockHint("massive") and ("Massive mains: "..
-              string.lower(city:unlockHint("massive"))..".") or "Nothing carries more than a massive main."),
+            or (shut and city:sizeGate(shut))
+            or ("Nothing carries more than a "..string.lower(City.PIPE_SIZES[#City.PIPE_SIZES].name).." main."),
           false,P.good,true)
         button("inspect-bottleneck","Inspect that main",M,dy+94,CW,30,
           function() act("focusEdge",eid) end,true,"Select the main and centre on it")
@@ -2056,7 +2063,7 @@ local function goals()
   end
   heading("YOUR NEXT TOOLS",y); y=y+28
   local nextTools=0
-  for _,key in ipairs({"everyday","hub","orders","haven","yard","works","massive","roads","routes","internet"}) do
+  for _,key in ipairs({"everyday","hub","orders","haven","yard","works","massive","trunk","roads","routes","internet"}) do
     local hint=city:unlockHint(key)
     if hint and nextTools<3 then
       text(City.UNLOCKS[key].name,M,y,"body",P.flow)

@@ -2090,9 +2090,7 @@ function City:layPipe(a, b, commodity, size, rail, grade)
   if err then return nil, err end
   if not mode then
     local spec = City.asSize(size)
-    if not self:sizeAllowed(spec) then
-      return nil, "massive mains open at " .. City.UNLOCKS.massive.clients .. " customers"
-    end
+    if not self:sizeAllowed(spec) then return nil, self:sizeGate(spec) end
     local lo, hi = self:sizeRange(a, b)
     local _, idx = City.sizeOf(spec.key)
     if idx < lo then return nil, City.PIPE_SIZES[lo].name .. " main or bigger, here" end
@@ -2173,9 +2171,7 @@ function City:replaceError(id, size, grade)
   if spec.key == (e.size or "") and grade == (e.grade or 1) then
     return "that is what is already in the ground"
   end
-  if not self:sizeAllowed(spec) then
-    return "massive mains open at " .. City.UNLOCKS.massive.clients .. " customers"
-  end
+  if not self:sizeAllowed(spec) then return self:sizeGate(spec) end
   local lo, hi = self:sizeRange(e.a, e.b)
   local _, idx = City.sizeOf(spec.key)
   if not lo then return "needs a structure between them to change pipe size" end
@@ -3866,7 +3862,18 @@ function City:unlocked(key)
   if spec.road and not (self:settled() and self:hasRoad()) then return false end
   if spec.passengers and not self:hasPassengers() then return false end
   if spec.reactor and not self:hasReactor() then return false end
+  if spec.intake and not self:hasIntake() then return false end
   return true
+end
+
+-- Whether a works on running water has been commissioned. A well will not do:
+-- a trunk main is a main sized for a source that can fill one, and that is the
+-- one kind of source that can.
+function City:hasIntake()
+  for _, n in ipairs(self.g:nodesOfKind("source")) do
+    if n.alive and n.intake then return true end
+  end
+  return false
 end
 
 -- Why a thing is not available yet, in one line.
@@ -3878,10 +3885,22 @@ function City:unlockHint(key)
   if spec.road then return "Requires people and a road" end
   if spec.passengers then return "Requires a used passenger route" end
   if spec.reactor then return "Requires a working reactor" end
+  if spec.intake and not self:hasIntake() then
+    return "Requires a works on the river or the coast"
+  end
   if spec.licences and self:licenceCount() < spec.licences then
     return "Requires 2 trade licences"
   end
   return "Opens at " .. spec.clients .. " customers"
+end
+
+-- Why a main of this size cannot go in yet, in the words of whatever is
+-- actually holding it up rather than of whichever size used to be the widest.
+function City:sizeGate(spec)
+  local key = spec and spec.unlock
+  local gate = key and City.UNLOCKS[key]
+  if not gate then return "that size is not open to this company yet" end
+  return string.lower(gate.name) .. ": " .. string.lower(self:unlockHint(key) or "not open yet")
 end
 
 -- Trades arrive one at a time, in the order a company would actually take them

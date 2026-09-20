@@ -53,9 +53,13 @@ Data.PIPE_SIZES = {
   { key = "small",  name = "SMALL",  cap = 10,  tiein = 0.89, trench = 1.00, reach = 1.00 },
   { key = "medium", name = "MEDIUM", cap = 30,  tiein = 1.85, trench = 2.08, reach = 1.44 },
   { key = "large",  name = "LARGE",  cap = 50,  tiein = 2.60, trench = 2.92, reach = 1.71 },
-  -- A trunk. Twice a large main's flow for 1.59 times its dig, and it runs
-  -- 2.15 times as far off one pump. Nothing else in the ground carries 100.
   { key = "massive", name = "MASSIVE", cap = 100, tiein = 4.13, trench = 4.64, reach = 2.15, unlock = "massive" },
+  -- The rung the measurement asked for. A quarter of the widest mains in a
+  -- mature company were running full, and the flow arriving at them was 3.6
+  -- times what the mains below carried where the pipe ladder only stepped up
+  -- 1.9 times. Two hundred is what a works on a broad channel makes in a day,
+  -- so this is the main that carries a heart's whole output in one trench.
+  { key = "trunk", name = "TRUNK", cap = 200, tiein = 6.55, trench = 7.36, reach = 2.71, unlock = "trunk" },
 }
 
 Data.SIZE_LIMIT = {
