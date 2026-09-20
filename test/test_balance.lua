@@ -323,6 +323,59 @@ do
   end
 end
 
+print("a main reaches no further than it can still deliver")
+do
+  -- `reach` lets a wide main run further between pumps. The promise is only
+  -- honest if the water still arrives: City:waterRating throttles a main asked
+  -- to carry its rating too far, and a size that is legal to lay but arrives
+  -- short would be a lie told in the price list.
+  local c = fresh()
+  local D = require("data.infrastructure")
+  local a = c.g:nodesOfKind("source")[1]
+  for _, spec in ipairs(City.PIPE_SIZES) do
+    local run = D.pumpRange * spec.reach
+    local rated = c:waterRating({ a = a.id, b = a.id, cap = spec.cap,
+      capMax = spec.cap, size = spec.key })
+    ok(spec.key .. " mains deliver their full " .. spec.cap .. " at their longest run",
+      rated >= spec.cap, string.format("%d over %.0f m", rated, run))
+  end
+end
+
+print("the widest mains wait for a source that can fill one")
+do
+  local c = fresh()
+  local trunk = City.sizeOf("trunk")
+  ok("a trunk main is the widest there is", trunk.cap == 200 and trunk.unlock == "trunk")
+  ok("and a new company cannot lay one", not c:sizeAllowed(trunk))
+  ok("it says what is holding it up, and it is not the customers",
+    (c:unlockHint("trunk") or ""):find("works"), c:unlockHint("trunk"))
+
+  -- Customers alone never open it: the gate is a works on running water.
+  for _ = 1, 40 do
+    local house = assert(c:addClient("house"))
+    house.prospect, house.demand = nil, 2
+  end
+  c:refresh()
+  ok("forty customers drawing on wells still do not open it", not c:unlocked("trunk"))
+
+  local bank
+  for _, d in ipairs(c.districts) do
+    for x = d.x + 30, d.x + d.w - 30, 30 do
+      for y = d.y + 30, d.y + d.h - 30, 30 do
+        if not bank and select(2, c:intakeCap(x, y)) == "river"
+           and not c:sourceError("water", x, y) then bank = { x = x, y = y } end
+      end
+    end
+  end
+  if bank then
+    assert(c:buySource("water", bank.x, bank.y))
+    c:refresh()
+    ok("a works on the river opens it", c:unlocked("trunk"))
+    ok("and one trunk main carries a whole works' output",
+      trunk.cap >= City.INTAKE.riverBase + City.INTAKE.riverPerHalf * 60)
+  end
+end
+
 print("the heart is finite, and the channel decides how big")
 do
   local c = fresh()

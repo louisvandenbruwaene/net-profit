@@ -35,15 +35,20 @@ return {
   },
   voltageCost={low=1,medium=1.3,high=2}, -- multiplier on tie-ins, trench and bore
   -- Three-phase AC, unity power factor. One simulation unit is 5 kWh delivered over a 24-hour day.
-  amps={small=500,medium=1250,large=2500,massive=5000},
-  resistance={small=0.12,medium=0.06,large=0.03,massive=0.015}, -- ohm/km
+  amps={small=500,medium=1250,large=2500,massive=5000,trunk=10000},
+  resistance={small=0.12,medium=0.06,large=0.03,massive=0.015,trunk=0.0075}, -- ohm/km
   binderRange=95, pumpRange=950,
   -- Every well is the same well, wherever it is sunk: one outlet, twenty a
   -- day, fifty at the very most. An intake is the exception and keeps the
   -- ceiling the channel gives it, with a second outlet so a trunk and a spare
   -- can both leave the works.
   wellPorts=1, wellOutput=20, wellCap=50, intakePorts=2,
-  water={diameter={small=0.05,medium=0.08,large=0.12,massive=0.24},head=30,pumpHead=95,friction=0.025},
+  -- Bores. The four below TRUNK are wider than Murray's law alone would make
+  -- them, which is a deliberate kindness to big mains in the Darcy-Weisbach
+  -- rating: a wide main keeps its full flow a long way. TRUNK carries that
+  -- kindness no further and sits at Murray's own step above MASSIVE,
+  -- 0.24 x 2^(1/3), because it is already carrying a whole works.
+  water={diameter={small=0.05,medium=0.08,large=0.12,massive=0.24,trunk=0.30},head=30,pumpHead=95,friction=0.025},
   filterRisk=0.25,
   binderPrices={1800,5000,12000}, binderClients={12,20,30},
   pollution={stopAt=30,pipeFactor=0.7,shipRisk=0.035,shipFactor=0.45,

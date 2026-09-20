@@ -178,6 +178,11 @@ closing a day is final.
   more, because the coast is where a harbour goes and a harbour is the door to
   everything the city cannot make for itself. The frontier costs more again, and
   gives more.
+- **Five sizes, and the widest waits for a heart.** A TRUNK main carries 200,
+  which is a whole treatment works' output in one trench, and it does not open
+  for customers however many there are: it needs the works itself, because
+  nothing else in the game can fill one. It is the last rung on a ladder where
+  each size carries more cheaply per unit than the one below.
 - **Mains branch because branching is cheaper.** The four sizes are priced on
   Murray's law, the rule a real vascular network follows: minimising the power
   spent pumping against the cost of maintaining the fluid gives `Q ~ r^3`, so a

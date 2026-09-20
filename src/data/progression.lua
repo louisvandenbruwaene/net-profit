@@ -12,6 +12,10 @@ Data.UNLOCKS = {
   yard     = { haven = true, name = "Depot yards and bulk freight" },
   orders   = { clients = 6,  name = "Departments" },
   massive  = { clients = 15, name = "Massive mains" },
+  -- A trunk main is what a company lays when it has one source big enough to
+  -- fill one, so it waits for the works on running water as well as for the
+  -- customers. Sinking wells will never open it, however many there are.
+  trunk    = { clients = 30, intake = true, name = "Trunk mains" },
   -- The people network opens as there are people to move, and not before:
   -- nothing to toll, fuel or fly until somebody lives somewhere.
   roads    = { population = true, name = "Roads and stops" },
