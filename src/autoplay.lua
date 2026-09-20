@@ -572,10 +572,15 @@ local function areaHub(c)
     if commodity=='power' then
       if not connectPower(c,hub) then return nil end
     elseif commodity=='water' then
-      -- A hub is a neighbourhood's worth of demand: it gets a well of its own
-      -- where there is one to sink, rather than drawing on somebody else's.
+      -- A hub is a neighbourhood's worth of demand, and the network it is
+      -- joining was built to carry exactly that: a trunk out to it is one main
+      -- and two fittings, where a well of its own is a source on a ladder that
+      -- only gets steeper, a chamber, a route and a second lot of upkeep. So
+      -- it draws on the supply there is, and sinks something new only when
+      -- there is genuinely nothing left to draw on.
       local _,far=spring(c,hub)
-      if not (far and far<1300 and newWell(c,false,hub) or connectPipe(c,hub,0,commodity,'large','large')) then return nil end
+      if not (connectPipe(c,hub,0,commodity,'large','large')
+              or far and far<1300 and newWell(c,false,hub)) then return nil end
     elseif not connectPipe(c,hub,0,commodity,'large','large') then return nil end
   end
   -- The hub now answers for everyone it picked up, so its feed and its supply

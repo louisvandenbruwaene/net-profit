@@ -2123,6 +2123,60 @@ local function stats()
     if (v[2] or 0)>0 then row(v[1],string.format("$%.1f",v[2]),y); y=y+26 end
   end
   y=y+16
+  -- What shape the network has grown into. A company that follows the prices
+  -- ends up with a tree: many narrow mains into buildings, fewer and wider
+  -- ones carrying them, and a trunk under all of it. This is that tree,
+  -- counted, and it is the one panel that describes the network as a whole
+  -- rather than one piece of it.
+  local shape=E.anatomy(city,"water")
+  if shape and shape.top>1 then
+    heading("NETWORK SHAPE",y); y=y+28
+    local NAME={"stubs","feeders","trunks","the trunk"}
+    for o=1,shape.top do
+      local b=shape.band[o]
+      if b then
+        row("Order "..o..", "..(NAME[o] or "above"),
+          string.format("%d x %.0f m, carries %.0f",b.n,b.len/b.n,b.cap/b.n),y,
+          o==shape.top and P.energy or P.text,
+          "A main into a building is order 1. Where two of the same order meet, "..
+          "the main carrying them both is one order higher. That is how a river "..
+          "system and a set of blood vessels are both measured. This row is how "..
+          "many mains of this order there are, how long they run on average, and "..
+          "how much each one carries.")
+        y=y+26
+      end
+    end
+    if shape.RB then
+      row("Branching",string.format("%.1f to 1",shape.RB),y,P.text,
+        "How many mains of one order run into each main of the next. Rivers run three to five.")
+      y=y+26
+    end
+    if shape.RC and shape.RB then
+      local murray=shape.RC/shape.RB
+      row("Capacity step",string.format("%.1fx per order",shape.RC),y,
+        murray>0.85 and P.good or P.warn,
+        "How much more the main below carries. Murray's law wants this to match the "..
+        "branching, because every drop that goes into the branches came down the "..
+        "main below them. At "..string.format("%.0f%%",murray*100)..
+        " of it, the wide mains are "..(murray>0.85 and "carrying their share." or "narrower than the flow they take."))
+      y=y+26
+    end
+    if shape.RL and shape.wantLength then
+      row("Length step",string.format("%.2fx per order",shape.RL),y,
+        shape.RL>1.2 and P.good or P.warn,
+        "How much longer the main below is. A tree that fills its ground wants "..
+        string.format("%.2fx",shape.wantLength)..", because a main that supplies several "..
+        "times the ground has to reach across it. Below 1 means every main is about "..
+        "as long as every other, whatever it carries.")
+      y=y+26
+    end
+    row("Self-similar",shape.dimension and string.format("dimension %.2f",shape.dimension)
+      or "not yet",y,shape.dimension and P.good or P.textDim,
+      shape.dimension and "The same shape repeats at every scale. Two is a tree that fills a flat map."
+      or "The network has a hierarchy of capacities on a single length scale: the trunks "..
+         "are no longer than the stubs. Carry a wide main further before splitting it.")
+    y=y+36
+  end
   heading("MAP SUPPLIES",y); y=y+28
   local free,buried={water=0,oil=0},0
   for _,deposit in ipairs(city.deposits or {}) do

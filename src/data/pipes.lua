@@ -44,13 +44,18 @@ Data.FORMS = {
 -- so at each size's design flow it falls as Q^(-1/3): a trunk carries further
 -- between pumps than a stub does. That is what pays for the long run out to a
 -- distant heart instead of sinking a well next to every customer.
+-- Fittings are on the same curve as the dig, and for the same reason: a
+-- flange is a piece of pipe wall, and there is Q^(2/3) of wall to pay for.
+-- What makes a split cost something, and so stops a tree branching for ever,
+-- is the price of the junction or manifold standing at it, not a surcharge
+-- hidden in the fittings.
 Data.PIPE_SIZES = {
-  { key = "small",  name = "SMALL",  cap = 10,  tiein = 1.0, trench = 1.00, reach = 1.00 },
-  { key = "medium", name = "MEDIUM", cap = 30,  tiein = 1.6, trench = 2.08, reach = 1.44 },
-  { key = "large",  name = "LARGE",  cap = 50,  tiein = 2.6, trench = 2.92, reach = 1.71 },
+  { key = "small",  name = "SMALL",  cap = 10,  tiein = 0.89, trench = 1.00, reach = 1.00 },
+  { key = "medium", name = "MEDIUM", cap = 30,  tiein = 1.85, trench = 2.08, reach = 1.44 },
+  { key = "large",  name = "LARGE",  cap = 50,  tiein = 2.60, trench = 2.92, reach = 1.71 },
   -- A trunk. Twice a large main's flow for 1.59 times its dig, and it runs
   -- 2.15 times as far off one pump. Nothing else in the ground carries 100.
-  { key = "massive", name = "MASSIVE", cap = 100, tiein = 4.6, trench = 4.64, reach = 2.15, unlock = "massive" },
+  { key = "massive", name = "MASSIVE", cap = 100, tiein = 4.13, trench = 4.64, reach = 2.15, unlock = "massive" },
 }
 
 Data.SIZE_LIMIT = {

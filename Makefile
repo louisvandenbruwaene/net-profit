@@ -1,4 +1,4 @@
-.PHONY: run mac-run mac-install hooks test bench smoke soak tutorial audio shots dist install export clean
+.PHONY: run mac-run mac-install hooks test bench anatomy smoke soak tutorial audio shots dist install export clean
 
 # The headless suites are plain Lua and run under whatever interpreter is here:
 # 5.4 if it is installed, otherwise 5.3, plain lua, or LuaJIT.
@@ -48,6 +48,13 @@ test:
 # measurement and a loaded machine is not a regression, but watched in CI.
 bench:
 	@$(LUA) test/bench_flow.lua
+
+# The shape of the networks these prices actually produce: Horton-Strahler
+# orders, Horton's ratios and the self-similar dimension they imply. Also a
+# measurement rather than a test, and the thing to run after touching pipe
+# sizes, source ladders or the builder. DAYS=n plays longer companies.
+anatomy:
+	@$(LUA) test/anatomy.lua
 
 # Input paths, driven through the real love callbacks.
 smoke:

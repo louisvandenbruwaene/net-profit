@@ -177,6 +177,104 @@ local function displaced(before,after,except)
   end
   return count
 end
+--------------------------------------------------------------------------------
+-- The shape of the network
+--
+-- Horton-Strahler ordering, which is how a river system or a vascular tree is
+-- measured. A main that ends at a building is order 1. Where two mains of the
+-- same order meet, the main carrying them both is one order higher. What comes
+-- out is how many orders deep the network is, and three ratios that say
+-- whether the same shape repeats at every one of them:
+--
+--   branching, how many mains of an order feed each main of the next
+--   capacity,  how much more the main below carries, which is Murray's law
+--              holding if it matches the branching
+--   length,    how much longer the main below is, which in a tree that fills
+--              its ground would be the cube root of the branching
+--
+-- The last one is the hard one, and it is printed rather than promised.
+--------------------------------------------------------------------------------
+function E.anatomy(c,commodity)
+  return memo(c,"anatomy:"..tostring(commodity),function()
+    local adj,mains={},{}
+    for _,e in ipairs(c.g.edges) do
+      if e.alive and e.commodity==commodity and not e.bulk then
+        mains[#mains+1]=e
+        adj[e.a]=adj[e.a] or {}; adj[e.b]=adj[e.b] or {}
+        table.insert(adj[e.a],e); table.insert(adj[e.b],e)
+      end
+    end
+    -- Ratios taken over a handful of mains are noise, not shape. A company
+    -- with a well, a split and four houses has no anatomy worth describing.
+    if #mains<12 then return nil end
+    local roots={}
+    for _,n in ipairs(c.g:nodesOfKind("source")) do
+      if n.alive and n.commodity==commodity and adj[n.id] then roots[#roots+1]=n.id end
+    end
+    if #roots==0 then return nil end
+    -- Point every main away from the sources, so the tree has a direction.
+    local seen,queue,below={},{},{}
+    for _,r in ipairs(roots) do seen[r]=true; queue[#queue+1]=r end
+    local head=1
+    while head<=#queue do
+      local id=queue[head]; head=head+1
+      below[id]=below[id] or {}
+      for _,e in ipairs(adj[id] or {}) do
+        local other=(e.a==id) and e.b or e.a
+        if not seen[other] then
+          seen[other]=true; queue[#queue+1]=other
+          table.insert(below[id],{edge=e,to=other})
+        end
+      end
+    end
+    -- Walked with an explicit stack: a long thin network is deep enough that
+    -- recursing it would be a stack overflow on somebody's machine.
+    local ord,order,stack={},{},{}
+    for _,r in ipairs(roots) do stack[#stack+1]={id=r,done=false} end
+    while #stack>0 do
+      local frame=stack[#stack]
+      if frame.done then
+        stack[#stack]=nil
+        local best,count=0,0
+        for _,k in ipairs(below[frame.id] or {}) do
+          local o=math.max(1,order[k.to] or 0)
+          ord[k.edge]=o
+          if o>best then best,count=o,1 elseif o==best then count=count+1 end
+        end
+        order[frame.id]=count>1 and best+1 or best
+      else
+        frame.done=true
+        for _,k in ipairs(below[frame.id] or {}) do stack[#stack+1]={id=k.to,done=false} end
+      end
+    end
+    local band,top={},0
+    for _,e in ipairs(mains) do
+      local o=ord[e] or 1
+      band[o]=band[o] or {n=0,len=0,cap=0}
+      band[o].n=band[o].n+1
+      band[o].len=band[o].len+c:pipeLength(e)
+      band[o].cap=band[o].cap+(e.capMax or e.cap or 0)
+      if o>top then top=o end
+    end
+    local rb,rl,rc={},{},{}
+    for o=1,top-1 do
+      local lo,hi=band[o],band[o+1]
+      if lo and hi and hi.n>0 then
+        rb[#rb+1]=lo.n/hi.n
+        rl[#rl+1]=(hi.len/hi.n)/(lo.len/lo.n)
+        rc[#rc+1]=(hi.cap/hi.n)/(lo.cap/lo.n)
+      end
+    end
+    local function mean(t) local s=0; for _,v in ipairs(t) do s=s+v end; return #t>0 and s/#t or nil end
+    local RB,RL,RC=mean(rb),mean(rl),mean(rc)
+    return {band=band,top=top,mains=#mains,RB=RB,RL=RL,RC=RC,
+      -- The dimension only means anything once the mains lengthen with order.
+      dimension=(RB and RL and RL>1.02) and math.log(RB)/math.log(RL) or nil,
+      -- What a tree that filled its ground would want the length step to be.
+      wantLength=RB and RB^(1/3) or nil}
+  end)
+end
+
 function E.pipePreview(c,a,b,trade,capacity,rail,grade)
   return memo(c,table.concat({"pipe",a,b,trade,tostring(capacity),tostring(rail),tostring(grade),c.money},":"),function()
     local err=c:pipeError(a,b,trade,rail,not rail and capacity or nil)
