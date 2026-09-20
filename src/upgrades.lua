@@ -141,8 +141,8 @@ return function(City)
 
   -- Longer reach for the better buildings on either end.
   local plainRange = City.rangeBetween
-  function City:rangeBetween(a, b, rail, commodity)
-    local range = plainRange(self, a, b, rail, commodity)
+  function City:rangeBetween(a, b, rail, commodity, size)
+    local range = plainRange(self, a, b, rail, commodity, size)
     if rail then return range end
     local na, nb = self.g.nodes[a], self.g.nodes[b]
     if not (na and nb) then return range end

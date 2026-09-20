@@ -1269,7 +1269,7 @@ function Draw.world(city, cam, state)
       end
       if fine then
         -- Level pips: how far the well has been deepened.
-        local pips, gap = City.sourceMaxLevel, math.max(3.6, r * 0.25)
+        local pips, gap = city:maxLevel(n), math.max(3.6, r * 0.25)
         local pr = math.max(1, r * 0.085)
         for i = 1, pips do
           lg.setColor(i <= level and color or P.with(P.textFaint, 0.6))
@@ -1446,9 +1446,12 @@ function Draw.world(city, cam, state)
     local from = city.g.nodes[state.drag]
     local x,y = cam:toScreen(from.x,from.y)
     local target = state.hoverNode
-    local err = target and city:pipeError(from.id,target,state.commodity,state.rail)
+    -- The size in hand decides how far the drag may reach, so the ring and the
+    -- refusal both have to know which main is being drawn.
+    local drawn = not state.rail and state.size or nil
+    local err = target and city:pipeError(from.id,target,state.commodity,state.rail,drawn)
     lg.setColor(P.with(state.rail and P.accent or P.textDim,0.25)); lg.setLineWidth(1)
-    lg.circle("line",x,y,city:rangeBetween(from.id,from.id,state.rail,state.commodity)*cam.scale)
+    lg.circle("line",x,y,city:rangeBetween(from.id,from.id,state.rail,state.commodity,drawn)*cam.scale)
     lg.setColor(err and P.bad or P.good); lg.setLineWidth(2); lg.line(x,y,mx,my)
     if target and target~=from.id then
       if err then

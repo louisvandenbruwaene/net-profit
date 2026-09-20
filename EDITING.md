@@ -18,6 +18,20 @@ For example, change `startMoney = 750` to `startMoney = 1000` in `economy.lua`. 
 
 To make households pay more, change the `house` entry's `rate = 6` in `customers.lua`. Newly generated households use the new value; existing customers retain their saved contracts. Built pipes retain purchased capacities and sources retain their saved output. Factory recipe rates and inputs are read from the definitions, so those changes also affect existing factories after restarting. Use a new company for a clean balance comparison.
 
+## The shape of a network
+
+Four numbers decide whether a company grows a branching tree or a spiderweb of point-to-point mains, and they are worth understanding together before any of them is moved.
+
+`trench` in `pipes.lua` follows **Murray's law**, the small-vessel half of the West/Brown/Enquist model of vascular networks. Minimising pumping power against the cost of maintaining the fluid gives `Q ~ r^3`, so cross-section, and with it the dig, goes as `Q^(2/3)`. Keeping the four sizes on that curve (1.00, 2.08, 2.92, 4.64) is what makes one trunk that splits cheaper than two mains laid side by side. Flatten the curve and every rung above SMALL becomes a trap. Steepen it and nobody lays a trunk at all.
+
+`reach` in the same table is the other half of the physics. Pressure gradient goes as `Q/r^4`, so at each size's design flow it falls as `Q^(-1/3)`, and a trunk runs further between pumps than a stub does. These multipliers are checked against the Darcy-Weisbach model in `City:waterRating`, which throttles a main that is asked to carry its rating too far. Raise `reach` past the point where that model still delivers the full rating and mains will be legal to lay but quietly short on arrival.
+
+`upgradeGrowth` in `economy.lua` sits **below** `sourceGrowth` in every trade. That inversion is what makes growing a source the cheaper unit of supply at the margin, and it is the reason a company settles on one deep source and two or three shallow ones rather than a dozen identical wells. Put `upgradeGrowth` back above `sourceGrowth` and the sprawl returns immediately.
+
+`City.INTAKE` in `city.lua` is the heart. A water source standing within `reach` of the river or the coast is a treatment works rather than a well: its ceiling is `riverBase + riverPerHalf * halfWidth`, so a broad estuary hosts a city's whole supply and a headwater branch does not. It is finite, like every other source, and sized against what two MASSIVE mains can carry out of it. Ordinary wells stay capped at `wellCap` in `infrastructure.lua`, which is what keeps them accessory organs.
+
+Plants follow the same rule through `unitBase`, `unitGrowth`, `unitStep` and `maxUnits` in `production.lua`: another reactor on a commissioned site reuses the grid connection, the cooling and the crew, so it is always cheaper per megawatt than a second site.
+
 In recipes, `inputs` are **per output unit**: crop farm output `rate = 12` with `water = 3` consumes 36 water per day at full production. Costs are dollars; probabilities such as `leakBase = 0.07` mean 7%. Keep pipe sizes in ascending capacity order and recipe chains acyclic. Keep existing keys such as `water`, `house` and `turbine`: rules and old saves use those identifiers.
 
 Run `make test` after an edit. Some tests deliberately assert the current balance, so an intentional balance change may require updating those expectations after checking its effect. `make smoke` exercises the real interface with isolated test companies. `make run` runs source edits immediately; the installed app requires `make mac-install` to rebuild it.

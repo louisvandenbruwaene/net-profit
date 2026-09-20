@@ -80,15 +80,27 @@ Data.EXTRACTORS = {
                tip = "Only within 150m of the coast, or on an island." },
 }
 
+-- Generation grows by adding units to a station, not by scattering stations.
+-- A second reactor on a commissioned site reuses the grid connection, the
+-- cooling and the crew, so it is far cheaper per megawatt than a second
+-- site. `growth` on the station itself is steep enough that the second site
+-- waits until the first is full. `maxUnits` is the ceiling that keeps it
+-- honest: no site is infinite, it just holds a great deal more than one.
 Data.PLANTS = {
-  nuclear = { name = "NUCLEAR PLANT", base = 3600, growth = 1.35, output = 45,
+  nuclear = { name = "NUCLEAR PLANT", base = 3600, growth = 1.62, output = 45,
               upkeep = 52, fuel = 0.55, ground = "land",
-              blurb = "High build cost. Produces electricity." },
-  wind    = { name = "WIND PARK",     base = 1800, growth = 1.28, output = 12,
+              unitBase = 2200, unitGrowth = 1.22, unitStep = 45, maxUnits = 5,
+              unitName = "reactor",
+              blurb = "High build cost. Produces electricity. Takes up to five reactors." },
+  wind    = { name = "WIND PARK",     base = 1800, growth = 1.45, output = 12,
               upkeep = 14, fuel = 0,   ground = "island",
+              unitBase = 900, unitGrowth = 1.18, unitStep = 12, maxUnits = 6,
+              unitName = "turbine row",
               blurb = "Requires an island. Produces electricity. No fuel needed." },
 }
 
+-- How deep an ordinary well or rig goes. An intake is a different organ and
+-- has its own, far longer ladder in City.INTAKE.
 Data.sourceMaxLevel = 6
 
 Data.sourcePorts = 4

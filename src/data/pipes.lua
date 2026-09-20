@@ -31,13 +31,26 @@ Data.FORMS = {
   },
 }
 
+-- Sizes follow Murray's law, the small-vessel half of West/Brown/Enquist.
+-- Minimising pumping power plus the cost of maintaining the fluid gives
+-- Q ~ r^3, so cross-section, and with it the dig, the pipe and the fittings,
+-- goes as Q^(2/3). That exponent is the whole economic case for branching:
+-- doubling the flow costs 1.59 times the main, so one trunk that splits always
+-- beats two mains laid side by side. `large` was already sitting on the curve
+-- (2.90 against 2.924), so the ladder is anchored there. The price level
+-- barely moves. Only the shape does.
+--
+-- `reach` is the other half of the physics. Pressure gradient goes as Q/r^4,
+-- so at each size's design flow it falls as Q^(-1/3): a trunk carries further
+-- between pumps than a stub does. That is what pays for the long run out to a
+-- distant heart instead of sinking a well next to every customer.
 Data.PIPE_SIZES = {
-  { key = "small",  name = "SMALL",  cap = 10,  tiein = 1.0, trench = 1.0 },
-  { key = "medium", name = "MEDIUM", cap = 30, tiein = 1.6, trench = 1.7 },
-  { key = "large",  name = "LARGE",  cap = 50, tiein = 2.6, trench = 2.9 },
-  -- A trunk for a company that already runs hubs and havens. Four large mains'
-  -- worth of flow for well under four large mains' worth of digging.
-  { key = "massive", name = "MASSIVE", cap = 100, tiein = 6.5, trench = 7.5, unlock = "massive" },
+  { key = "small",  name = "SMALL",  cap = 10,  tiein = 1.0, trench = 1.00, reach = 1.00 },
+  { key = "medium", name = "MEDIUM", cap = 30,  tiein = 1.6, trench = 2.08, reach = 1.44 },
+  { key = "large",  name = "LARGE",  cap = 50,  tiein = 2.6, trench = 2.92, reach = 1.71 },
+  -- A trunk. Twice a large main's flow for 1.59 times its dig, and it runs
+  -- 2.15 times as far off one pump. Nothing else in the ground carries 100.
+  { key = "massive", name = "MASSIVE", cap = 100, tiein = 4.6, trench = 4.64, reach = 2.15, unlock = "massive" },
 }
 
 Data.SIZE_LIMIT = {

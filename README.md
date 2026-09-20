@@ -114,7 +114,7 @@ Requests expire after five days.
 | Show all buildings | F, or Show all |
 | See the whole city | Scroll out on the map |
 | Widen a selected main | U |
-| Put a bigger main in place of a selected one, or deepen a selected well | E |
+| Put a bigger main in place of a selected one, or grow a selected source | E |
 | Repair a selected main, or all of them | R |
 | Jump to the worst leaking main | L |
 | Demolish selection | Delete, or the inspector button |
@@ -178,6 +178,15 @@ closing a day is final.
   more, because the coast is where a harbour goes and a harbour is the door to
   everything the city cannot make for itself. The frontier costs more again, and
   gives more.
+- **Mains branch because branching is cheaper.** The four sizes are priced on
+  Murray's law, the rule a real vascular network follows: minimising the power
+  spent pumping against the cost of maintaining the fluid gives `Q ~ r^3`, so a
+  main's cross-section, and with it its dig, goes as `Q^(2/3)`. Doubling the
+  flow costs 1.59 times the main, which is why one trunk that splits always
+  beats two mains laid side by side, and why the network a company ends up with
+  looks like a tree rather than a spiderweb. A trunk also runs further between
+  pumps than a stub does, because pressure gradient falls as `Q^(-1/3)` at each
+  size's design flow.
 - **Ground has no edge.** Buy outward in any direction. Every district past the
   authored twelve is generated from the company seed and its own coordinates, so
   it is the same ground whoever surveys it first, and it is richer and dearer the
@@ -320,9 +329,16 @@ trunk is a standing liability and a garden stub is not.
 - **Crews:** $340 to hire, $14 a day each, up to four. At every close each crew
   repairs the worst leaking main on the books and bills you for the work. The
   wage is the price of not clicking.
-- **Wells:** deepen the one you have rather than sinking another. A deeper well
-  needs no new route, no tie-in, no new ground and no second lot of upkeep, which
-  makes it the cheap option until the levels get steep - and then it is not.
+- **Wells and intakes:** grow the source you have rather than sinking another.
+  Another stage needs no new route, no tie-in, no new ground and no second lot
+  of upkeep, and it is priced below a second source at the margin in every
+  trade, so a settled company runs one deep source and two or three shallow
+  ones rather than a dozen identical wells. A well sunk on a field tops out at
+  50 a day whatever you spend. A works standing on the river or the coast does
+  not: it is an intake rather than a well, it costs three times as much to
+  commission, and the channel's own width sets its ceiling. A broad estuary
+  will carry a whole city through one building, and a headwater branch will
+  carry about half of one.
 - **Closing a well:** a well with mains tied into it is never simply deleted.
   Demolishing it caps the wellhead: production stops and part of the money comes
   back, but a connection chamber is built in its place, out of the refund,
@@ -348,9 +364,12 @@ trunk is a standing liability and a garden stub is not.
 - **Forbidden ground:** parkland, rivers and bedrock block or tax every route.
   Three permits convert them from walls into tolls and let you build on them. The
   richest seams are under bedrock, which is what a blasting licence is really for.
-- **Deposits:** water and oil come out of the ground only where the survey
-  marked them. A well or a rig goes on the mark and nowhere else, costs less
-  than open ground would and yields half again as much. Some are buried under
+- **Deposits:** oil comes out of the ground only where the survey marked it,
+  and so does water away from the water's edge. A well or a rig goes on the
+  mark and nowhere else, costs less than open ground would and yields half
+  again as much. Running water is the exception and is its own deposit: an
+  intake sinks no shaft, it stands on the bank and lifts what is already going
+  past. Some are buried under
   obstacles and need the matching permit first. Everything else the city uses is
   landed at a haven.
 - **Gates:** a valve you set by hand. Tighten it to starve a cheap branch on

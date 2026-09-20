@@ -104,8 +104,8 @@ return function(City)
   return length(self,e)
  end
  local pipeError=City.pipeError
- function City:pipeError(a,b,commodity,rail)
-  if rail~='highway' then return pipeError(self,a,b,commodity,rail) end
+ function City:pipeError(a,b,commodity,rail,size)
+  if rail~='highway' then return pipeError(self,a,b,commodity,rail,size) end
   if not self:licensed(commodity) then return 'no licence for that' end
   if Graph.formOf(commodity)=='energy' or Graph.formOf(commodity)=='data' then return 'electricity and data cannot travel in containers' end
   local why=self:bulkError(a,b,'highway'); if why then return why end

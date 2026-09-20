@@ -230,6 +230,16 @@ function City.asSize(size)
   return (City.sizeOf(size))
 end
 
+-- How much further this size runs between pumps. Pressure gradient falls as
+-- Q^(-1/3) at each size's design flow, so a trunk covers ground a stub cannot.
+-- Callers that do not yet know the size get the smallest, which is the old
+-- flat behaviour and is never an overestimate.
+function City.reachFor(size)
+  if not size then return 1 end
+  local spec = City.asSize(size)
+  return (spec and spec.reach) or 1
+end
+
 function City.sizeOf(key)
   for i, spec in ipairs(City.PIPE_SIZES) do
     if spec.key == key then return spec, i end
@@ -344,6 +354,7 @@ function City.new(opts)
   self.links = {}
   self.permits = { park = false, river = false, bedrock = false }
   self.sourcesBought = 0
+  self.intakesBought = 0
   self.log = {}
   self.history = {}
   self.bankrupt = false
@@ -487,11 +498,70 @@ City.ARCHETYPES = {
 -- of it. This is the number that makes the map endless rather than merely
 -- large: a well reaches its cap and then the only way to more supply is more
 -- ground, further out.
+--
+-- These are set against the pipe ladder rather than in isolation. A source
+-- must answer to a LARGE main, so ground that tops out under 50 is ground
+-- that can only ever half-fill the trunk it is required to lay. Ordinary
+-- ground is deliberately left a little short of that, and reaching it, and
+-- then passing it, is what the river is for.
 City.DEPOSIT = {
-  water = { base = 24, perRing = 8 },
-  oil   = { base = 18, perRing = 7 },
+  water = { base = 34, perRing = 12 },
+  oil   = { base = 26, perRing = 10 },
   buried = 1.35,
 }
+
+-- What unmarked ground gives, as a multiple of a trade's opening output.
+City.groundYield = 1.9
+
+--------------------------------------------------------------------------------
+-- The intake
+--
+-- A well is a hole over a pocket of ground and it runs out. An intake is a
+-- treatment works standing on running water, and what limits it is not the
+-- water but the plant: how much can be lifted, settled and filtered in a day.
+-- So it is finite, like everything else, but its ceiling is set by the channel
+-- it stands on rather than by a constant. A wide estuary will carry a city's
+-- whole supply through one building. A headwater branch will not, and no
+-- amount of money will make it.
+--
+-- This is the organ the network is meant to grow around: one heart, deep
+-- rather than many, with the hierarchy of mains fanning out from it.
+--------------------------------------------------------------------------------
+City.INTAKE = {
+  -- Sized against what leaves the building rather than against a well. An
+  -- intake has two outlets, and the widest main is a MASSIVE at 100, so a
+  -- works on a broad estuary tops out at about what two trunks can carry away
+  -- and not a drop more. A headwater branch gives roughly half that.
+  riverBase = 60, riverPerHalf = 1.15,
+  sea = 150,
+  -- A works is commissioned bigger than a well is sunk, and every stage after
+  -- that adds more than a well's deepening does. Thirteen stages of fourteen
+  -- carry it to about two hundred, which is where two trunks stop it anyway.
+  output = 34, step = 14, maxLevel = 13,
+  -- How close to the water a works has to stand. Deliberately much tighter
+  -- than the reach a well on the bank draws from: an intake is a building
+  -- standing over the channel, not a shaft that happens to be near one, and
+  -- if half the map counted as bank then nothing about siting would matter.
+  reach = 110,
+}
+
+-- The ceiling on an intake at this spot, or nil if there is no running water
+-- and no sea here. `hw` is the river's half-width where it is tapped.
+function City:intakeCap(x, y)
+  local edge, hw = self:riverEdge(x, y)
+  if edge and edge >= 0 and edge <= City.INTAKE.reach then
+    return math.floor(City.INTAKE.riverBase + City.INTAKE.riverPerHalf * (hw or 0)), "river"
+  end
+  if self:onCoast(x, y) then return City.INTAKE.sea, "sea" end
+  return nil
+end
+
+-- How far a source of this kind can be pushed. An intake is a different organ
+-- from a well and goes a great deal deeper.
+function City:maxDepth(n)
+  if n and n.intake then return City.INTAKE.maxLevel end
+  return City.sourceMaxLevel
+end
 
 function City.depositCap(commodity, ring, buried)
   local spec = City.DEPOSIT[commodity] or City.DEPOSIT.water
@@ -1196,13 +1266,14 @@ function City:placementError(x, y)
   return nil
 end
 
-function City:rangeBetween(a, b, rail)
+function City:rangeBetween(a, b, rail, commodity, size)
   local ka, kb = self.g.nodes[a].kind, self.g.nodes[b].kind
   local mode = City.modeOf(rail)
   if mode then return City.MODES[mode].range end
   if rail then return City.rail.range end
-  if ka == "pump" or kb == "pump" then return City.rules.pumpRange end
-  return City.rules.linkRange
+  local reach = City.reachFor(size)
+  if ka == "pump" or kb == "pump" then return City.rules.pumpRange * reach end
+  return City.rules.linkRange * reach
 end
 
 -- `true` still means rail, because that is what the toggle used to be.
@@ -1243,7 +1314,7 @@ function City:licensed(commodity)
   return self.licences[commodity] and true or false
 end
 
-function City:pipeError(a, b, commodity, rail)
+function City:pipeError(a, b, commodity, rail, size)
   if not self:licensed(commodity) then return "no licence for that" end
   local mode = City.modeOf(rail)
   if rail and not mode then return "no such mode" end
@@ -1268,9 +1339,9 @@ function City:pipeError(a, b, commodity, rail)
 
   local na, nb = self.g.nodes[a], self.g.nodes[b]
   local d = math.sqrt((na.x - nb.x) ^ 2 + (na.y - nb.y) ^ 2)
-  if d > self:rangeBetween(a, b, rail) then
+  if d > self:rangeBetween(a, b, rail, commodity, size) then
     return mode and ("too far even for " .. string.lower(City.MODES[mode].name))
-      or "too far: use a pump"
+      or "too far: use a pump, or lay a bigger main"
   end
   local mult, blocker = self:crossingCost(na.x, na.y, nb.x, nb.y)
   if not mult then return "cannot cross " .. string.lower(City.OBSTACLES[blocker.kind].name) end
@@ -1383,6 +1454,13 @@ end
 function City:sourceCost(commodity, x, y, plant)
   if commodity == "power" then return self:plantCost(plant or "nuclear") end
   local trade = City.trade[commodity] or City.trade.water
+  -- An intake is counted, and charged, on a ladder of its own. A company that
+  -- has one and wants a second is asking for a second heart, and the price
+  -- says so. Wells carry on up their own gentler ladder beside it.
+  if x and commodity == "water" and trade.intakeMult and self:intakeCap(x, y) then
+    local built = self.intakesBought or 0
+    return math.ceil(trade.sourceBase * trade.intakeMult * (trade.intakeGrowth ^ built))
+  end
   local n = (commodity == "water") and self.sourcesBought or (self.premiumBought and self.premiumBought[commodity]) or 0
   local base = math.ceil(trade.sourceBase * (trade.sourceGrowth ^ n))
   if x then
@@ -1512,6 +1590,10 @@ function City:extractorError(commodity, x, y)
   local spec = key and City.EXTRACTORS[key]
   if not spec then return "that is not taken out of the ground" end
   if spec.on == "deposit" then
+    -- Running water is its own deposit, and the best one on the map. An intake
+    -- sinks no shaft: it stands on the bank, or on the coast, and lifts what is
+    -- already going past. Everything else still needs a seam under it.
+    if commodity == "water" and self:intakeCap(x, y) then return nil end
     local _, seam = self:sourceCost(commodity, x, y)
     if not seam then return "no " .. commodity .. " here: sink on a marked deposit" end
   elseif spec.on == "archetype" then
@@ -1556,31 +1638,74 @@ City.sourceMaxLevel = require("data.production").sourceMaxLevel
 -- route, never enough to fan out like a hub.
 City.sourcePorts = require("data.production").sourcePorts
 
+-- A station grows by taking another unit, a well or an intake by going down a
+-- level. Both are the same shape of ladder and both are deliberately gentler
+-- than the ladder for building a second one somewhere else.
 function City:sourceUpgradeCost(n)
-  local trade = City.trade[n.commodity] or City.trade.water
   local level = n.level or 1
+  if n.plant then
+    local spec = City.PLANTS[n.plant] or {}
+    if not spec.unitBase then return nil end
+    return math.ceil(spec.unitBase * (spec.unitGrowth ^ (level - 1)))
+  end
+  local trade = City.trade[n.commodity] or City.trade.water
   return math.ceil(trade.upgradeBase * (trade.upgradeGrowth ^ (level - 1)))
+end
+
+-- How much one more level adds, and what to call the thing being added.
+function City:upgradeStep(n)
+  if n.plant then
+    local spec = City.PLANTS[n.plant] or {}
+    return spec.unitStep or 0, spec.unitName or "unit"
+  end
+  if n.intake then return City.INTAKE.step, "stage" end
+  local trade = City.trade[n.commodity] or City.trade.water
+  return trade.upgradeStep, "level"
+end
+
+function City:maxLevel(n)
+  if n.plant then return (City.PLANTS[n.plant] or {}).maxUnits or 1 end
+  return self:maxDepth(n)
 end
 
 function City:upgradeSource(id)
   local n = self.g.nodes[id]
   if not (n and n.alive and n.kind == "source") then return nil, "no such source" end
   local level = n.level or 1
-  if n.plant then return nil, "a plant is built, not deepened" end
-  if level >= City.sourceMaxLevel then return nil, "well is at full yield" end
-  if n.cap and (n.output or 0) >= n.cap then
-    return nil, "this ground gives no more: " .. n.cap .. " a day is its limit"
-  end
   local cost = self:sourceUpgradeCost(n)
+  if not cost then return nil, "this station is built, not extended" end
+  if level >= self:maxLevel(n) then
+    return nil, n.plant and "the site is full" or "this source is at full yield"
+  end
+  if n.cap and (n.output or 0) >= n.cap then
+    return nil, (n.intake == "river" and "the channel gives no more: "
+      or n.intake and "the works cannot lift more: "
+      or "this ground gives no more: ") .. n.cap .. " a day is its limit"
+  end
   if cost > self.money then return nil, "not enough cash" end
+  -- Another unit on a station needs the same parts the first one did, so a
+  -- second solar array wants its own panels landed and in the yards.
+  local bill = n.plant and self:materialsFor("source", n.plant) or nil
+  local short = bill and self:materialError(bill)
+  if short then return nil, short end
+  local step = self:upgradeStep(n)
   local trade = City.trade[n.commodity] or City.trade.water
   self:spend(cost)
+  if bill then self:spendMaterials(bill) end
   n.level = level + 1
-  n.output = (n.output or trade.sourceOutput) + trade.upgradeStep
+  n.output = (n.output or trade.sourceOutput) + step
   if n.cap then n.output = math.min(n.output, n.cap) end
   n.paid = (n.paid or 0) + cost
-  self:note("%s well deepened to level %d: output now %d",
-    string.upper(n.commodity), n.level, n.output)
+  if n.plant then
+    local spec = City.PLANTS[n.plant] or {}
+    n.upkeep = (n.upkeep or 0) + (spec.upkeep or 0)
+    self:note("%s takes a %s: %d units a day from one site",
+      spec.name or "STATION", spec.unitName or "unit", n.output)
+  else
+    self:note("%s %s to %s %d: output now %d",
+      string.upper(n.commodity), n.intake and "works extended" or "well deepened",
+      n.intake and "stage" or "level", n.level, n.output)
+  end
   self:refresh()
   return n
 end
@@ -1961,7 +2086,7 @@ function City:layPipe(a, b, commodity, size, rail, grade)
   local mode = City.modeOf(rail)
   local wagons = mode and math.max(1, math.min(8, math.floor(tonumber(size) or 1))) or nil
   grade = math.max(1, math.min(self.lining or 1, grade or self.lining or 1))
-  local err = self:pipeError(a, b, commodity, rail)
+  local err = self:pipeError(a, b, commodity, rail, not rail and size or nil)
   if err then return nil, err end
   if not mode then
     local spec = City.asSize(size)
@@ -2482,28 +2607,34 @@ function City:buySource(commodity, px, py, plant)
     -- deepened up to what the deposit gives in a day and not one unit past it.
     if plant then
       local spec = City.PLANTS[plant]
-      s.plant, s.output, s.cap = plant, spec.output, spec.output
+      -- A station is commissioned with one unit in it and room for the rest.
+      -- Its ceiling is the site, not the first machine on it.
+      s.plant, s.output = plant, spec.output
+      s.cap = spec.output * (spec.maxUnits or 1)
       s.upkeep, s.fuel = spec.upkeep, spec.fuel
       self.plantsBuilt = self.plantsBuilt or {}
       self.plantsBuilt[plant] = (self.plantsBuilt[plant] or 0) + 1
+    elseif commodity == "water" and self:intakeCap(px, py) then
+      -- Running water, so this is a treatment works and not a well. The
+      -- channel sets the ceiling and the ladder runs twice as deep. See
+      -- City.INTAKE.
+      local cap, fed = self:intakeCap(px, py)
+      s.intake, s.cap = fed, cap
+      s.output = math.min(cap, City.INTAKE.output)
     elseif seam then
       local d = self:districtAt(px, py)
-      if commodity == "water" and self:nearRiver(px, py) then
-        -- A well sunk on the bank never runs dry: the river behind it is the
-        -- one ceiling in the game that upgrading can never reach.
-        s.cap = Graph.INF
-      else
-        s.cap = seam.cap or City.depositCap(commodity, (d and d.ring) or 0, false)
-      end
+      s.cap = seam.cap or City.depositCap(commodity, (d and d.ring) or 0, false)
       s.output = math.min(s.cap, math.floor(trade.sourceOutput * (seam.yield or 1)))
     else
       -- Ground that is not a marked deposit still has a ceiling, and it is the
       -- ground that sets it: a bigger wood gives more timber, a deeper quarry
-      -- more rock, and everything gives more the further out it is.
+      -- more rock, and everything gives more the further out it is. It stays
+      -- short of what a LARGE main carries, so ordinary ground never becomes
+      -- a substitute for the intake.
       local d = self:districtAt(px, py)
       local o = self:obstacleAt(px, py)
       local scale = 1 + 0.3 * ((d and d.ring) or 0) + (o and math.max(0, (o.r - 70) / 180) or 0)
-      s.cap = math.floor(trade.sourceOutput * scale * 1.6)
+      s.cap = math.floor(trade.sourceOutput * scale * City.groundYield)
       s.output = math.min(s.cap, trade.sourceOutput)
     end
     if seam then
@@ -2519,7 +2650,8 @@ function City:buySource(commodity, px, py, plant)
         spec.name or "WORKS", cost, s.output, commodity)
     end
     self.premiumBought = self.premiumBought or {}
-    if commodity == "water" then self.sourcesBought = self.sourcesBought + 1
+    if s.intake then self.intakesBought = (self.intakesBought or 0) + 1
+    elseif commodity == "water" then self.sourcesBought = self.sourcesBought + 1
     else self.premiumBought[commodity] = (self.premiumBought[commodity] or 0) + 1 end
     self:refresh()
     return s
@@ -3474,6 +3606,32 @@ function City:migrate()
       local d = self:districtAt(n.x, n.y)
       n.cap = math.max(n.output or 0,
         City.depositCap(n.commodity or "water", d and d.ring or 0, false))
+    end
+  end
+
+  -- A well on the bank used to draw without limit. It becomes the intake it
+  -- always was: a ceiling the channel sets, a ladder that runs twice as deep,
+  -- and never less than it is already producing, because a company does not
+  -- lose output to a rule change.
+  for _, n in ipairs(self.g:nodesOfKind("source")) do
+    if (n.commodity or "water") == "water" and not n.plant and not n.intake then
+      local cap, fed = self:intakeCap(n.x, n.y)
+      if cap then
+        n.intake, n.cap = fed, math.max(n.output or 0, cap)
+        self.intakesBought = (self.intakesBought or 0) + 1
+        self.sourcesBought = math.max(0, (self.sourcesBought or 1) - 1)
+      end
+    end
+  end
+  self.intakesBought = self.intakesBought or 0
+
+  -- A station used to be one machine and its ceiling was that machine. It can
+  -- now take further units, so an existing one is given the room the site has
+  -- always had rather than being left as the only plant nobody can extend.
+  for _, n in ipairs(self.g:nodesOfKind("source")) do
+    if n.plant then
+      local spec = City.PLANTS[n.plant] or {}
+      n.cap = math.max(n.cap or 0, (spec.output or 0) * (spec.maxUnits or 1))
     end
   end
   self:survey()

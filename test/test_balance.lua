@@ -257,5 +257,165 @@ do
   end
 end
 
+--------------------------------------------------------------------------------
+-- The shape of a network
+--
+-- These are the promises that make a company grow a branching tree with a
+-- heart in it rather than a field of identical stubs. Every one of them is a
+-- direction, not a magic number: break one and the game still runs, and the
+-- networks people build stop looking like networks.
+--------------------------------------------------------------------------------
+print("a branching tree with one heart in it")
+do
+  -- Murray's law: cost per unit carried has to fall all the way up the ladder,
+  -- or the rung above is a trap nobody should ever buy.
+  local previous
+  for _, spec in ipairs(City.PIPE_SIZES) do
+    local perUnit = spec.trench / spec.cap
+    if previous then
+      ok("a " .. spec.key .. " main carries more cheaply than the size below",
+        perUnit < previous, string.format("%.4f vs %.4f", perUnit, previous))
+    end
+    previous = perUnit
+  end
+
+  -- And the exponent is the one the physics gives, within a few per cent:
+  -- cross-section, and with it the dig, goes as Q^(2/3).
+  local small = City.PIPE_SIZES[1]
+  for i = 2, #City.PIPE_SIZES do
+    local spec = City.PIPE_SIZES[i]
+    local murray = (spec.cap / small.cap) ^ (2 / 3) * small.trench
+    ok("a " .. spec.key .. " main is priced on Murray's law",
+      math.abs(spec.trench - murray) / murray < 0.05,
+      string.format("%.2f against %.2f", spec.trench, murray))
+    ok("and a " .. spec.key .. " main runs further between pumps",
+      spec.reach > City.PIPE_SIZES[i - 1].reach)
+  end
+
+  -- One trunk that splits has to beat mains laid side by side for the same
+  -- flow, which is the entire economic argument for a hierarchy.
+  local function trench(key) return (City.sizeOf(key)).trench end
+  local sideBySide = 3 * 800 * trench("medium")
+  local branched = 600 * trench("massive") + 3 * 200 * trench("medium")
+  ok("one trunk that branches beats three mains laid side by side",
+    branched < sideBySide, string.format("%.0f against %.0f", branched, sideBySide))
+
+  -- Growing a source has to be cheaper at the margin than commissioning
+  -- another one, in every trade. This is the inversion that stops sprawl.
+  for _, key in ipairs({ "water", "beer", "oil" }) do
+    local t = City.trade[key]
+    ok(key .. " rewards growing a source over sinking another",
+      t.upgradeGrowth < t.sourceGrowth,
+      string.format("%.2f against %.2f", t.upgradeGrowth, t.sourceGrowth))
+  end
+
+  -- A station takes further units, and every one of them is cheaper per unit
+  -- than a second station would be.
+  for name, spec in pairs(City.PLANTS) do
+    if spec.unitBase then
+      local second = spec.base * spec.growth / spec.output
+      for u = 1, (spec.maxUnits or 1) - 1 do
+        local unit = spec.unitBase * spec.unitGrowth ^ (u - 1) / spec.unitStep
+        ok(name .. " unit " .. (u + 1) .. " beats a second station",
+          unit < second, string.format("%.0f against %.0f per unit", unit, second))
+      end
+    end
+  end
+end
+
+print("the heart is finite, and the channel decides how big")
+do
+  local c = fresh()
+  -- Somewhere on the bank, and somewhere well away from it.
+  local bank, inland
+  for _, d in ipairs(c.districts) do
+    for x = d.x + 30, d.x + d.w - 30, 30 do
+      for y = d.y + 30, d.y + d.h - 30, 30 do
+        local cap, fed = c:intakeCap(x, y)
+        if cap and fed == "river" and not bank then bank = { x = x, y = y, cap = cap } end
+        if not cap and not inland then inland = { x = x, y = y } end
+      end
+    end
+  end
+  ok("there is bank to build an intake on", bank ~= nil)
+  if bank then
+    ok("an intake has a finite ceiling", bank.cap < Graph.INF and bank.cap > 0, tostring(bank.cap))
+    ok("and it carries more than any well ever does",
+      bank.cap > require("data.infrastructure").wellCap, tostring(bank.cap))
+    ok("but no more than two trunks can take away from it",
+      bank.cap <= 2 * City.sizeOf("massive").cap, tostring(bank.cap))
+    ok("running water needs no marked deposit under it",
+      c:sourceError("water", bank.x, bank.y) == nil,
+      c:sourceError("water", bank.x, bank.y))
+    ok("an intake costs several times what sinking a well costs",
+      c:sourceCost("water", bank.x, bank.y) > 2 * City.trade.water.sourceBase,
+      c:sourceCost("water", bank.x, bank.y) .. " against " .. City.trade.water.sourceBase)
+
+    local works = assert(c:buySource("water", bank.x, bank.y))
+    ok("it is an intake and not a well", works.intake == "river")
+    ok("it goes deeper than a well does", c:maxLevel(works) > City.sourceMaxLevel)
+    ok("and a second one costs a great deal more than the first",
+      c:sourceCost("water", bank.x, bank.y) > 2 * works.paid)
+
+    -- It grows, and then it stops, because the channel stops it.
+    while c:upgradeSource(works.id) do end
+    ok("an intake grows until the channel stops it",
+      works.output >= works.cap or (works.level or 1) >= c:maxLevel(works),
+      works.output .. " of " .. works.cap)
+    ok("and it never passes its ceiling", works.output <= works.cap)
+    ok("a grown intake outgrows a well many times over",
+      works.output > 2 * require("data.infrastructure").wellCap,
+      tostring(works.output))
+  end
+end
+
+print("a station grows rather than spreading")
+do
+  local c = fresh()
+  assert(c:buyLicence("power"))
+  -- A reactor is built out of landed materials, which is a different promise
+  -- from this one. The yards are filled so the question here is only price.
+  c.stock = c.stock or {}
+  for _, material in ipairs(Graph.ALL) do c.stock[material] = 9999 end
+  local spot
+  for _, d in ipairs(c.districts) do
+    if not spot and not d.island then
+      local x, y = d.x + d.w / 2, d.y + d.h / 2
+      if not c:sourceError("power", x, y, "nuclear") then spot = { x = x, y = y } end
+    end
+  end
+  ok("there is room for a station", spot ~= nil)
+  if spot then
+    local plant = assert(c:buySource("power", spot.x, spot.y, "nuclear"))
+    local first = plant.output
+    ok("a station is commissioned with room for more", plant.cap > first)
+    local unit = c:sourceUpgradeCost(plant)
+    ok("another reactor is cheaper than another station",
+      unit / select(1, c:upgradeStep(plant)) < c:plantCost("nuclear") / first,
+      unit .. " for " .. select(1, c:upgradeStep(plant)))
+    assert(c:upgradeSource(plant.id))
+    ok("and the site carries both", plant.output > first)
+    while c:upgradeSource(plant.id) do end
+    ok("the site fills and then refuses", plant.level == c:maxLevel(plant))
+    ok("one site carries several stations' worth",
+      plant.output >= 3 * first, tostring(plant.output))
+  end
+end
+
+print("a bigger main reaches further")
+do
+  local c = fresh()
+  local a = c.g:nodesOfKind("source")[1]
+  ok("the widest main reaches further than the narrowest",
+    City.reachFor("massive") > City.reachFor("small"))
+  if a then
+    local far = c:rangeBetween(a.id, a.id, nil, "water", "massive")
+    local near = c:rangeBetween(a.id, a.id, nil, "water", "small")
+    ok("and the range check knows it", far > near, string.format("%.0f against %.0f", far, near))
+    ok("a caller that does not name a size gets the narrowest",
+      math.abs(c:rangeBetween(a.id, a.id, nil, "water") - near) < 0.001)
+  end
+end
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)
