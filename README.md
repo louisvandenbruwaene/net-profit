@@ -187,6 +187,14 @@ closing a day is final.
   looks like a tree rather than a spiderweb. A trunk also runs further between
   pumps than a stub does, because pressure gradient falls as `Q^(-1/3)` at each
   size's design flow.
+- **The network can be measured.** Stats prints the shape of your own water
+  network the way a river system or a set of blood vessels is measured: a main
+  into a building is order 1, and where two of the same order meet, the main
+  carrying them both is one order higher. Under that are the three numbers that
+  say whether the same shape repeats at every scale: how many mains feed each
+  one below, how much more that one carries, and how much longer it runs.
+  Capacity keeping up with branching is Murray's law holding. Length keeping up
+  is the harder one, and the panel says plainly when it is not.
 - **Ground has no edge.** Buy outward in any direction. Every district past the
   authored twelve is generated from the company seed and its own coordinates, so
   it is the same ground whoever surveys it first, and it is richer and dearer the

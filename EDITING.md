@@ -30,6 +30,12 @@ Four numbers decide whether a company grows a branching tree or a spiderweb of p
 
 `City.INTAKE` in `city.lua` is the heart. A water source standing within `reach` of the river or the coast is a treatment works rather than a well: its ceiling is `riverBase + riverPerHalf * halfWidth`, so a broad estuary hosts a city's whole supply and a headwater branch does not. It is finite, like every other source, and sized against what two MASSIVE mains can carry out of it. Ordinary wells stay capped at `wellCap` in `infrastructure.lua`, which is what keeps them accessory organs.
 
+The one thing the prices cannot buy is **self-similarity in space**. `make anatomy` measures what the networks actually come out as: Horton-Strahler orders, and the three ratios that describe a tree. Branching runs about 3.6 mains into each one below, and capacity follows it at about 70%, so Murray's law holds reasonably well. The length ratio is about 0.94, where a tree filling its ground would want `3.6^(1/3)` = 1.54. In other words the networks have a hierarchy of capacities laid over a geometry with a single length scale: a trunk is about as long as a stub, whatever it carries.
+
+That is a property of how a network grows, not of what it costs. Each new customer joins the nearest fitting with a spare port, which builds a dense blob outward rather than a trunk to a distant district. A trunk only pays past about 850 m, and a growing company rarely has a reason to cross that much ground at once. The Stats panel prints the same numbers for the player's own network, so it is at least visible and aimable at.
+
+Do not try to fix it in `N.chain`. The `240` in `src/network_builder.lua` is not a pipe length: it is how fast the network grows its own attachment points, and it has been measured. The comment there records what happens either side of it.
+
 Plants follow the same rule through `unitBase`, `unitGrowth`, `unitStep` and `maxUnits` in `production.lua`: another reactor on a commissioned site reuses the grid connection, the cooling and the crew, so it is always cheaper per megawatt than a second site.
 
 In recipes, `inputs` are **per output unit**: crop farm output `rate = 12` with `water = 3` consumes 36 water per day at full production. Costs are dollars; probabilities such as `leakBase = 0.07` mean 7%. Keep pipe sizes in ascending capacity order and recipe chains acyclic. Keep existing keys such as `water`, `house` and `turbine`: rules and old saves use those identifiers.

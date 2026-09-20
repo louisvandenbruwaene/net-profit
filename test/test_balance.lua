@@ -417,5 +417,63 @@ do
   end
 end
 
+print("the network can be measured for its own shape")
+do
+  local E = require("experience")
+  local c = fresh()
+  ok("a company with a handful of mains has no anatomy worth describing",
+    E.anatomy(c, "water") == nil)
+
+  -- A tree built by hand, four levels deep and branching two: a trunk off the
+  -- source into a manifold, two mains off that, four off those, and eight
+  -- stubs into houses. Every ratio is then known in advance, which is the only
+  -- way to tell whether the measurement is measuring anything.
+  local src = c.g:nodesOfKind("source")[1]
+  local root = assert(c:build(src.x + 140, src.y, "manifold"))
+  assert(c:layPipe(src.id, root.id, "water", "large", nil, 1))
+  local stubs, feeders, mains = 0, 0, 0
+  for a = -1, 1, 2 do
+    local one = assert(c:build(root.x + 300, root.y + a * 320, "manifold"))
+    assert(c:layPipe(root.id, one.id, "water", "large", nil, 1))
+    mains = mains + 1
+    for b = -1, 1, 2 do
+      local two = assert(c:build(one.x + 280, one.y + b * 150, "manifold"))
+      assert(c:layPipe(one.id, two.id, "water", "medium", nil, 1))
+      feeders = feeders + 1
+      for d = -1, 1, 2 do
+        local house = assert(c:addClient("house"))
+        house.x, house.y = two.x + 230, two.y + d * 70
+        house.demand, house.prospect = 3, nil
+        assert(c:layPipe(two.id, house.id, "water", "small", nil, 1))
+        stubs = stubs + 1
+      end
+    end
+  end
+  c:refresh()
+
+  local a = E.anatomy(c, "water")
+  ok("a tree four levels deep is measured as four orders", a and a.top == 4,
+    a and ("top order " .. a.top) or "nothing measured")
+  if a and a.top == 4 then
+    ok("every stub into a building is order one", a.band[1].n == stubs,
+      a.band[1].n .. " against " .. stubs)
+    ok("the mains carrying those are order two", a.band[2].n == feeders)
+    ok("the mains carrying those are order three", a.band[3].n == mains)
+    ok("and the trunk under all of it is order four", a.band[4].n == 1)
+    local carried = true
+    for o = 2, a.top do
+      carried = carried and a.band[o].cap / a.band[o].n >= a.band[o - 1].cap / a.band[o - 1].n
+    end
+    ok("no main carries less than the ones it feeds", carried)
+    ok("two mains feed each one below, which is what was built",
+      math.abs(a.RB - 2) < 0.001, string.format("%.3f", a.RB))
+    ok("a tree filling its ground would want mains the cube root longer",
+      math.abs(a.wantLength - 2 ^ (1 / 3)) < 0.001,
+      string.format("%.3f", a.wantLength))
+    ok("and the dimension is withheld until the mains lengthen with order",
+      (a.RL > 1.02) == (a.dimension ~= nil))
+  end
+end
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

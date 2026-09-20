@@ -61,6 +61,23 @@ end
 
 -- A chain of T splits from a fitting towards a building, finishing with a main
 -- into it. True only if every link went in.
+--
+-- The 240 is not a pipe length and it is not physics. It is how fast the
+-- network grows its own attachment points, and that is what it has to be
+-- tuned for: a T split has three ports, so every one this puts in is two more
+-- places a later customer can be joined on. Measured over nine seeded
+-- companies at sixty days, a hop of 180 m serves 68 customers, 240 m serves
+-- 71, and 300 m serves 49, because past that the run starts connecting
+-- buildings with no split at all, the ports run out, and a company with money
+-- in the bank sits there declining work it has nowhere to put.
+--
+-- Striding out at what the main in hand could actually carry was tried, which
+-- is the shape a vascular tree has and what `reach` in data/pipes.lua exists
+-- for. It builds a leaner network -- 45% fewer chambers, mains a quarter
+-- longer -- and serves 22% fewer customers, for the same reason. Putting a
+-- pump at the far chambers instead, which would carry the next main three
+-- times as far again, costs another 7% on top: a pump has no spare port at
+-- all. See test/anatomy.lua for the measurement this keeps failing.
 function N.chain(c, from, target, commodity, last, mid)
   local hops = math.max(1, math.ceil(N.dist(from, target) / 240))
   if hops > 6 then return false end
