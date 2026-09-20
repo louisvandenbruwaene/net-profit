@@ -172,7 +172,14 @@ return function(City)
   local upgradeSource=City.upgradeSource
   function City:upgradeSource(id)
     local n=self.g.nodes[id]
-    if n and n.commodity=='water' and (n.level or 1)>=4 then return nil,'maximum well output: 50' end
+    -- A well gives what a well gives, however deep it is sunk, and nothing
+    -- about the money changes that. An intake is not a well: it is a works on
+    -- running water, and its ceiling is the channel's, checked where every
+    -- other ceiling in the game is checked.
+    if n and n.commodity=='water' and not n.intake and not n.plant
+       and (n.output or 0)>=(n.cap or 50) then
+      return nil,'maximum well output: '..(n.cap or 50)
+    end
     return upgradeSource(self,id)
   end
   function City:loadDepot(id)

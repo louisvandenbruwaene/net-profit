@@ -6,8 +6,16 @@ return function(City)
   for key,spec in pairs(D.kinds) do City.price[key]=spec.cost; City.BUILDABLE[key]=(not spec.legacy) or nil end
   City.PLANTS.wind.ground='any'
   City.PLANTS.wind.blurb='Wind generation on owned land or an island.'
-  City.PLANTS.hydro={name='RIVER TURBINE',base=850,growth=1.3,output=8,upkeep=14,fuel=0,ground='river',blurb='Uses river flow. Must stand beside a river.'}
-  City.PLANTS.solar={name='SOLAR ARRAY',base=1200,growth=1.3,output=10,upkeep=5,fuel=0,ground='land',blurb='Daily-average solar output. Requires 12 imported solar panels.'}
+  -- Every station grows by taking further units on the one site rather than
+  -- by a second site elsewhere: a weir holds more turbines, a field holds more
+  -- arrays. `growth` on the site itself is steep enough that the second site
+  -- waits until the first is full, and `maxUnits` stops any of it running away.
+  City.PLANTS.hydro={name='RIVER TURBINE',base=850,growth=1.5,output=8,upkeep=14,fuel=0,ground='river',
+    unitBase=520,unitGrowth=1.20,unitStep=8,maxUnits=5,unitName='turbine',
+    blurb='Uses river flow. Must stand beside a river. The weir takes five turbines.'}
+  City.PLANTS.solar={name='SOLAR ARRAY',base=1200,growth=1.48,output=10,upkeep=5,fuel=0,ground='land',
+    unitBase=760,unitGrowth=1.16,unitStep=10,maxUnits=6,unitName='array',
+    blurb='Daily-average solar output. Requires 12 imported solar panels per array.'}
   City.PLANT_ORDER={'nuclear','hydro','wind','solar'}
   City.MATERIALS.solar={panels=12}
   City.trade.panels={importCost=22,wholesale=0,wholesalePerUnit=0,sourceUpkeep=0,form='solid'}
@@ -77,7 +85,14 @@ return function(City)
   function City:buySource(commodity,x,y,plant)
     local n,err=base.buySource(self,commodity,x,y,plant)
     if n then
-      if commodity=='water' then n.ports=1; n.output=20; n.cap=50; n.level=1 end
+      if commodity=='water' then
+        n.output,n.level=n.intake and City.INTAKE.output or D.wellOutput,1
+        -- A well answers through one outlet, which is what stops a source
+        -- being a distribution point in its own right. An intake gets a
+        -- second, and keeps the ceiling the channel gave it.
+        n.ports=n.intake and D.intakePorts or D.wellPorts
+        n.cap=n.intake and n.cap or D.wellCap
+      end
       if commodity=='power' then n.voltage='high' end
       if plant=='wind' and y and y<0 and not self:districtAt(x,y) then n.offshore=true; n.upkeep=math.ceil(n.upkeep*1.5) end
       self:refresh()
@@ -233,9 +248,11 @@ return function(City)
     if na and nb and (D.towers[na.kind] or D.towers[nb.kind]) then return 1,#City.PIPE_SIZES end
     return base.sizeRange(self,a,b)
   end
-  function City:rangeBetween(a,b,rail,commodity)
+  function City:rangeBetween(a,b,rail,commodity,size)
     if rail then return base.rangeBetween(self,a,b,rail) end
     local na,nb=self.g.nodes[a],self.g.nodes[b]
+    -- Electricity has a size ladder of its own in the voltages, so the pipe
+    -- sizes do not reach any further on a cable than they already do in kV.
     if commodity=='power' then
       if na.kind=='transformer' or nb.kind=='transformer' then return 95 end
       local voltage=a~=b and self:cableVoltage(a,b)
@@ -246,11 +263,13 @@ return function(City)
       -- Farms connect at the field boundary, not at the central map badge.
       return D.voltages[voltage or 'low'].span+((farm(na) or farm(nb)) and D.farmRadius or 0)
     end
+    -- An attachment to a binder is a short spur by design, so it does not get
+    -- the trunk's reach however wide it is.
     if (na.kind=='binder')~=(nb.kind=='binder') then return D.binderRange end
-    if na.kind=='pump' or nb.kind=='pump' then return D.pumpRange end
-    return base.rangeBetween(self,a,b,rail)
+    if na.kind=='pump' or nb.kind=='pump' then return D.pumpRange*City.reachFor(size) end
+    return base.rangeBetween(self,a,b,rail,commodity,size)
   end
-  function City:pipeError(a,b,commodity,rail)
+  function City:pipeError(a,b,commodity,rail,size)
     if rail then return base.pipeError(self,a,b,commodity,rail) end
     local na,nb=self.g.nodes[a],self.g.nodes[b]
     if not na or not nb or not na.alive or not nb.alive or a==b then return 'choose two different live buildings' end
@@ -272,9 +291,10 @@ return function(City)
     for _,id in ipairs({a,b}) do
       if count==0 and self:connectionPorts(id)>=self.g.nodes[id].ports then return 'no free connections there' end
     end
-    local reach=self:rangeBetween(a,b,nil,commodity)
+    local reach=self:rangeBetween(a,b,nil,commodity,size)
     if dist(na,nb)>reach then
-      return voltage and ('too long at '..D.voltages[voltage].kv..' kV: a tower every '..reach..' m') or 'too far: use a pump; binder attachments must be short'
+      return voltage and ('too long at '..D.voltages[voltage].kv..' kV: a tower every '..reach..' m')
+        or 'too far: use a pump, lay a bigger main, or keep binder spurs short'
     end
     local mult,blocker=self:crossingCost(na.x,na.y,nb.x,nb.y)
     if not mult then return 'cannot cross '..string.lower(City.OBSTACLES[blocker.kind].name) end

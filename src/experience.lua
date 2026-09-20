@@ -179,14 +179,14 @@ local function displaced(before,after,except)
 end
 function E.pipePreview(c,a,b,trade,capacity,rail,grade)
   return memo(c,table.concat({"pipe",a,b,trade,tostring(capacity),tostring(rail),tostring(grade),c.money},":"),function()
-    local err=c:pipeError(a,b,trade,rail)
+    local err=c:pipeError(a,b,trade,rail,not rail and capacity or nil)
     if err then return {error=err} end
     local q=c:pipeQuote(a,b,trade,capacity,rail,grade)
     local copy=assert(Save.unpack(Save.pack(c)))
     copy.money=math.max(copy.money,q.total)
     local before=c:dailyRevenue()-c:dailyExpenses()
-    -- pipeError does not know the size being asked for, so a size either end
-    -- refuses only shows up here.
+    -- pipeError is told the size, but only layPipe knows whether the two ends
+    -- will accept it, so a size either end refuses still shows up here.
     local laid,why=copy:layPipe(a,b,trade,capacity,rail,grade)
     if not laid then return {error=why} end
     local target=copy.g.nodes[b]
@@ -269,8 +269,11 @@ function E.replacePreview(c,id,size,grade)
 end
 function E.sourcePreview(c,id)
   local n=c.g.nodes[id]
-  if not n then return {error="no such well"} end
-  return trial(c,"source:"..id,c:sourceUpgradeCost(n),function(copy) return copy:upgradeSource(id) end)
+  if not n then return {error="no such source"} end
+  -- A station with no unit ladder of its own has no next step to price.
+  local cost=c:sourceUpgradeCost(n)
+  if not cost then return {error="this station is built, not extended"} end
+  return trial(c,"source:"..id,cost,function(copy) return copy:upgradeSource(id) end)
 end
 function E.levelPreview(c,id)
   local spec=c:levelNext(id)
@@ -299,7 +302,7 @@ function E.advise(c)
       end
     end
     for _,n in ipairs(c.g:aliveNodes()) do
-      if n.kind=="source" and not n.plant and (n.level or 1)<City.sourceMaxLevel
+      if n.kind=="source" and not n.plant and (n.level or 1)<c:maxLevel(n)
          and (c.produced[n.id] or 0)>=(n.effectiveOutput or n.output or 0) and (c.spare[n.commodity] or 0)<=0
          and c.unserved>0 then
         found[#found+1]={kind="source",id=n.id,flow=c.produced[n.id] or 0}

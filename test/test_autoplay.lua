@@ -76,15 +76,23 @@ do
   -- Somewhere on owned ground a short way from the water network, clear enough
   -- for four houses and a hub between them.
   local cx, cy
+  -- A company that grows one deep source rather than many shallow ones keeps
+  -- its fittings closer together, so the open ground a neighbourhood needs is
+  -- not always exactly 480 m off a manifold. The fixture sweeps a band of
+  -- distances instead of one ring. What is being tested is the hub, not the
+  -- fixture's luck in finding a field.
   for _, f in ipairs(c.g:nodesOfKind("manifold")) do
-    for a = 0, 11 do
-      local x, y = f.x + math.cos(a * math.pi / 6) * 480, f.y + math.sin(a * math.pi / 6) * 480
-      local clear = true
-      for i = 0, 4 do
-        local px, py = x + (i == 0 and 0 or math.cos(i * 1.57) * 140), y + (i == 0 and 0 or math.sin(i * 1.57) * 110)
-        clear = clear and c:placementError(px, py) == nil
+    for _, r in ipairs({ 480, 560, 640, 420, 720 }) do
+      for a = 0, 15 do
+        local x, y = f.x + math.cos(a * math.pi / 8) * r, f.y + math.sin(a * math.pi / 8) * r
+        local clear = true
+        for i = 0, 4 do
+          local px, py = x + (i == 0 and 0 or math.cos(i * 1.57) * 140), y + (i == 0 and 0 or math.sin(i * 1.57) * 110)
+          clear = clear and c:placementError(px, py) == nil
+        end
+        if clear then cx, cy = x, y; break end
       end
-      if clear then cx, cy = x, y; break end
+      if cx then break end
     end
     if cx then break end
   end

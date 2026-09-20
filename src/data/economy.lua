@@ -15,14 +15,24 @@ Data.price = {
   ads = 90,
 }
 
+-- Supply is priced so that a company grows one organ rather than scattering
+-- many. `upgradeGrowth` now sits below `sourceGrowth` in every trade, which is
+-- the inversion that makes deepening the cheaper unit of supply at the margin.
+-- The two ladders interleave rather than one dominating outright, so the
+-- settled answer is one deep source and two or three shallow ones, the way an
+-- animal runs one heart and a pair of kidneys and not thirty of anything.
 Data.trade = {
   water = {
     tiein = 14, trench = 0.11, bore = 7, borePerM = 0.028,
     repairBase = 14, repairPerLost = 6, repairPerM = 0.030,
     liningRate = 0.40, armourRate = 0.72,
     upkeep = 0.30, upkeepPerM = 0.0016,
-    sourceBase = 260, sourceGrowth = 1.55, sourceOutput = 20,
-    upgradeBase = 140, upgradeGrowth = 1.8, upgradeStep = 10,
+    sourceBase = 260, sourceGrowth = 1.85, sourceOutput = 20,
+    upgradeBase = 120, upgradeGrowth = 1.26, upgradeStep = 10,
+    -- An intake is a treatment works, not a hole in a field: it costs three
+    -- times a well to commission and its own ladder is steeper again, so the
+    -- second one is a late luxury and the third is never the answer.
+    intakeMult = 3.2, intakeGrowth = 2.6,
     wholesale = 12, wholesalePerUnit = 0.55, sourceUpkeep = 6,
     importCost = 1.2,
   },
@@ -49,8 +59,8 @@ Data.trade = {
     repairBase = 30, repairPerLost = 13, repairPerM = 0.060,
     liningRate = 0.40, armourRate = 0.72,
     upkeep = 0.60, upkeepPerM = 0.0030,
-    sourceBase = 420, sourceGrowth = 1.38, sourceOutput = 10,
-    upgradeBase = 300, upgradeGrowth = 1.50, upgradeStep = 3,
+    sourceBase = 420, sourceGrowth = 1.55, sourceOutput = 10,
+    upgradeBase = 210, upgradeGrowth = 1.22, upgradeStep = 4,
     wholesale = 26, wholesalePerUnit = 1.30, sourceUpkeep = 11,
     importCost = 5.5,
   },
@@ -59,8 +69,8 @@ Data.trade = {
     repairBase = 52, repairPerLost = 21, repairPerM = 0.105,
     liningRate = 0.40, armourRate = 0.72,
     upkeep = 1.00, upkeepPerM = 0.0050,
-    sourceBase = 900, sourceGrowth = 1.38, sourceOutput = 10,
-    upgradeBase = 620, upgradeGrowth = 1.50, upgradeStep = 3,
+    sourceBase = 900, sourceGrowth = 1.55, sourceOutput = 10,
+    upgradeBase = 430, upgradeGrowth = 1.22, upgradeStep = 4,
     wholesale = 44, wholesalePerUnit = 2.20, sourceUpkeep = 17,
     importCost = 9.0,
   },

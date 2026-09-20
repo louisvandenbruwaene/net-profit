@@ -38,6 +38,11 @@ return {
   amps={small=500,medium=1250,large=2500,massive=5000},
   resistance={small=0.12,medium=0.06,large=0.03,massive=0.015}, -- ohm/km
   binderRange=95, pumpRange=950,
+  -- Every well is the same well, wherever it is sunk: one outlet, twenty a
+  -- day, fifty at the very most. An intake is the exception and keeps the
+  -- ceiling the channel gives it, with a second outlet so a trunk and a spare
+  -- can both leave the works.
+  wellPorts=1, wellOutput=20, wellCap=50, intakePorts=2,
   water={diameter={small=0.05,medium=0.08,large=0.12,massive=0.24},head=30,pumpHead=95,friction=0.025},
   filterRisk=0.25,
   binderPrices={1800,5000,12000}, binderClients={12,20,30},

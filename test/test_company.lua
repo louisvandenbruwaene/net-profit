@@ -921,6 +921,43 @@ do
   check(bare.firstSource~=nil,"a company with no wells still loads")
 end
 
+print("a riverside well from an older save becomes the intake it always was")
+do
+  local Graph = require("graph")
+  local c = fresh(31)
+  c.money = 1e9
+  for _, d in ipairs(c.districts) do d.owned = true end
+  local bank
+  for _, d in ipairs(c.districts) do
+    for x = d.x + 30, d.x + d.w - 30, 30 do
+      for y = d.y + 30, d.y + d.h - 30, 30 do
+        if not bank and select(2, c:intakeCap(x, y)) == "river"
+           and not c:sourceError("water", x, y) then bank = { x = x, y = y } end
+      end
+    end
+  end
+  check(bank ~= nil, "the fixture map has a bank to build on")
+  local works = assert(c:buySource("water", bank.x, bank.y))
+  for _ = 1, 5 do c:upgradeSource(works.id) end
+  local id, produced = works.id, works.output
+  check(produced > 50, "an intake grows past what any well gives")
+
+  -- Wound back to exactly what an older save held: no intake flag on the node
+  -- and the bottomless ceiling a well on the bank used to be given.
+  works.intake, works.cap = nil, Graph.INF
+  c.intakesBought = nil
+  c.sourcesBought = (c.sourcesBought or 0) + 1
+  local text = Save.pack(c)
+  check(not text:find('"intake"'), "the older save really carries no intake flag")
+  local loaded = assert(Save.unpack(text))
+  local n = loaded.g.nodes[id]
+  check(n.intake == "river", "a well on the bank loads as an intake")
+  check(n.cap < Graph.INF, "the bottomless ceiling is gone")
+  check(n.output >= produced, "and no output is lost to the rule change")
+  check(loaded.intakesBought == 1, "it is counted on the intake ladder now")
+  check(loaded:upgradeSource(id) ~= nil, "and it can still be grown after the load")
+end
+
 print("replacing a structure keeps its mains")
 do
   local c=fresh()

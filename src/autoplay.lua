@@ -109,18 +109,46 @@ local function connectPipe(c,target,want,commodity,last,mid)
   return NB.connectPipe(c,target,want,commodity,last,mid)
 end
 
--- The cheapest well worth deepening, deepened.
-local function deepenWell(c)
-  local best
+-- Another unit on a source the company already has, taken whenever that is
+-- cheaper per unit of supply than commissioning a fresh one somewhere else.
+--
+-- This is the single rule that decides the shape of the whole network. A unit
+-- added here needs no new ground, no new route and no new tie-ins, so a
+-- company that follows it grows a few deep sources feeding a tree of mains
+-- rather than a field of half-used stubs each on its own stub of pipe.
+local function extendSource(c,commodity)
+  local best,bestRate
   for _,w in ipairs(c.g:nodesOfKind('source')) do
-    if w.commodity=='water' and (w.level or 1)<4 and (not best or c:sourceUpgradeCost(w)<c:sourceUpgradeCost(best)) then best=w end
+    if w.alive and (w.commodity or 'water')==commodity
+       and (w.level or 1)<c:maxLevel(w) and (w.output or 0)<(w.cap or math.huge) then
+      local cost=c:sourceUpgradeCost(w)
+      local step=c:upgradeStep(w)
+      if cost and step and step>0 and (not bestRate or cost/step<bestRate) then
+        best,bestRate=w,cost/step
+      end
+    end
   end
-  return best and c:sourceUpgradeCost(best)<c:sourceCost('water')*1.2 and spendable(c)>=c:sourceUpgradeCost(best)
-    and c:upgradeSource(best.id)~=nil
+  if not best then return nil end
+  local cost=c:sourceUpgradeCost(best)
+  if spendable(c)<cost then return nil end
+  -- The alternative, priced the same way: what a second source of the same
+  -- kind costs for the supply it brings, before any of the mains out to it.
+  local fresh,step
+  if commodity=='power' then
+    local kind=best.plant or 'hydro'
+    fresh,step=c:plantCost(kind),(City.PLANTS[kind] or {}).output
+  else
+    fresh,step=c:sourceCost(commodity),(City.trade[commodity] or City.trade.water).sourceOutput
+  end
+  if step and step>0 and bestRate>fresh/step then return nil end
+  return c:upgradeSource(best.id)~=nil
 end
 
--- A new well on owned ground with a hub beside it, joined to the nearest
--- network when `join` asks for it so its water is not stranded.
+-- Where the heart goes: a stretch of bank the company owns, with room on it
+-- for a treatment works. Filled in below, once the bank walker exists.
+local intakeSite
+
+-- The nearest untaken water deposit on owned ground, and how far off it is.
 local function spring(c,to)
   local best,far
   for _,d in ipairs(c.deposits) do
@@ -133,9 +161,20 @@ local function spring(c,to)
   end
   return best,far
 end
+-- A new source on owned ground with a hub beside it, joined to the nearest
+-- network when `join` asks for it so its water is not stranded.
 local function newWell(c,join,to)
-  local best=spring(c,to)
-  if not best or spendable(c)<c:sourceCost('water')+120 then return nil end
+  -- One intake, sited on running water, before any well is sunk on a field.
+  -- After that the cost ladder makes the second one a bad idea on its own.
+  -- A caller asking for supply next to something specific still gets it there:
+  -- an intake on the far bank is no use to a hub that has to reach it.
+  local best
+  if (c.intakesBought or 0)==0 then
+    local site=intakeSite(c)
+    if site and (not to or dist(site,to)<1300) then best=site end
+  end
+  best=best or spring(c,to)
+  if not best or spendable(c)<c:sourceCost('water',best.x,best.y)+120 then return nil end
   local well=c:buySource('water',best.x,best.y)
   if not well then return nil end
   local hub=place(c,'manifold',well.x+80,well.y+60)
@@ -267,6 +306,30 @@ local function riverbank(c,d)
   return banks[id]
 end
 
+-- The heart's site, from the banks the company already owns. A works needs
+-- room around it the way any structure does, so the first stretch of bank that
+-- will take one is the answer and the search stops there.
+local sites={}
+function intakeSite(c)
+  local id=tostring(c.seed)..':'..(c.districtsBought or 0)
+  -- A site only stops being a site because something was built on top of it,
+  -- so the cached one is re-checked and the bank is only walked again when it
+  -- has actually gone. Walking it costs a spacing test against every structure
+  -- on the map, which is not a thing to do once per plan.
+  local held=sites[id]
+  if held and not c:sourceError('water',held.x,held.y) then return held end
+  if held==false then return nil end
+  sites[id]=false
+  for _,d in ipairs(c:ownedDistricts()) do
+    for _,p in ipairs(riverbank(c,d)) do
+      if sites[id]==false and c:intakeCap(p.x,p.y) and not c:sourceError('water',p.x,p.y) then
+        sites[id]=p
+      end
+    end
+  end
+  return sites[id] or nil
+end
+
 -- Another power station, whichever is cheaper per unit of electricity: a river
 -- turbine on owned riverbank, or a wind park built from landed steel and
 -- concrete. It ties into the grid there is by a high voltage line, or starts
@@ -356,7 +419,7 @@ local function serve(c,n)
       if not (bigger and c:replacePipe(e.id,bigger,e.grade))
         and not (commodity=='power' and connectPower(c,n) or commodity~='power' and connectPipe(c,n,want,commodity)) then return false end
     elseif why=='output' and commodity=='water' then
-      if not deepenWell(c) and not newWell(c,true) then return false end
+      if not extendSource(c,'water') and not newWell(c,true) then return false end
     elseif why=='output' and commodity=='power' then
       if not newGenerator(c) then return false end
     elseif commodity=='power' then
@@ -528,7 +591,7 @@ local function areaHub(c)
     local bigger=feed and not feed.bulk and c:biggerSize(feed)
     if not (bigger and c:replacePipe(feed.id,bigger,feed.grade)) then
       if shortfall=='water' then
-        if not deepenWell(c) and not newWell(c,true) then return nil end
+        if not extendSource(c,'water') and not newWell(c,true) then return nil end
       elseif shortfall=='power' then
         if not newGenerator(c) then return nil end
       else return nil end
@@ -753,6 +816,10 @@ local function buyLand(c,reason)
           if dep.commodity=='water' and not dep.taken and c:districtAt(dep.x,dep.y)==d then s=s+2 end
         end
       end
+      -- A company with no intake is looking for one thing above all others: a
+      -- stretch of bank. One works on running water outgrows every well on the
+      -- map, so the ground it stands on is worth more than a deposit is.
+      if reason=='water' and (c.intakesBought or 0)==0 and #riverbank(c,d)>0 then s=s+14 end
       if reason=='river' and #riverbank(c,d)>0 then s=s+10 end
       s=s-c:districtCost(d)/1000
       if not best or s>score then best,score=d,s end
@@ -855,7 +922,7 @@ function A.step(city)
   for _,n in ipairs(c:clientList(true)) do if n.commodity=='water' then thirst=thirst+n.demand end end
   for _,n in ipairs(waiting) do thirst=thirst+(need(c,n).water or 0) end
   if (c.spare.water or 0)<math.max(6,thirst) then
-    if try('deepen',function(t) return deepenWell(t) and 'Deepened a well' end)
+    if try('deepen',function(t) return extendSource(t,'water') and 'Added supply at a source it already owns' end)
       or try('well-join',function(t) return newWell(t,true) end)
       or try('well',function(t) return newWell(t,false) end)
       or try('land-water',function(t) return buyLand(t,'water') end) then return out(done,msg) end
@@ -866,7 +933,8 @@ function A.step(city)
     elseif n.commodity=='power' then power=power+n.demand end
   end
   if c.licences.power and power>0 and powerSpare(c)<math.min(power,16) and spendable(c)>=c:plantCost('hydro')+1500 then
-    if try('generator',newGenerator) or try('land-river',function(t) return buyLand(t,'river') end) then return out(done,msg) end
+    if try('extend-plant',function(t) return extendSource(t,'power') and 'Added a unit to a station it already owns' end)
+      or try('generator',newGenerator) or try('land-river',function(t) return buyLand(t,'river') end) then return out(done,msg) end
   end
 
   -- 5. Growing the company once today's work is done, in the order the game

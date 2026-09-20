@@ -368,11 +368,12 @@ local function inspectClient(n,y)
           M,dy,"small",P.warn,CW)
         local src
         for _,w in ipairs(city.g:nodesOfKind("source")) do
-          if w.commodity==n.commodity and (w.level or 1)<City.sourceMaxLevel then src=w; break end
+          if w.commodity==n.commodity and (w.level or 1)<city:maxLevel(w)
+             and city:sourceUpgradeCost(w) then src=w; break end
         end
         if src then
           local cost=city:sourceUpgradeCost(src)
-          button("deepen-for-client","Deepen "..string.upper(n.commodity).." well "..src.id.."   $"..cost,
+          button("deepen-for-client","Extend "..string.upper(n.commodity).." source "..src.id.."   $"..cost,
             M,dy+52,CW,36,function() act("upgradeSource",src.id) end,city.money>=cost,
             "Adds output at the well, with no new route to pay for."..gainText(E.sourcePreview(city,src.id)),false,P.good,true)
         end
@@ -417,34 +418,49 @@ local function inspectSource(n,y)
   if n.plant then
     local spec=City.PLANTS[n.plant] or {}
     row("Plant",spec.name or "PLANT",y+116,P.energy,spec.blurb)
+    row((spec.unitName or "unit").."s",level.." / "..city:maxLevel(n),y+142,P.energy,
+      "A station takes further units on the one site. That is always cheaper "..
+      "per unit than commissioning a second station somewhere else.")
     row("Fuel",(n.fuel or 0)>0 and ("-$"..string.format("%.2f",n.fuel).." / unit made")
-      or "none at all",y+142,(n.fuel or 0)>0 and P.warn or P.good,
+      or "none at all",y+168,(n.fuel or 0)>0 and P.warn or P.good,
       "Reactors use fuel. Wind parks do not.")
+    y=y+26
   else
     -- The ground's own ceiling, which no amount of money moves. It is the reason
     -- the map has to keep going: more supply means further out.
-    row("What this ground gives",ceiling.." / day",y+116,
+    row(n.intake=="river" and "What this channel gives"
+      or n.intake and "What the works can lift"
+      or "What this ground gives",ceiling.." / day",y+116,
       capacity>=ceiling and P.warn or P.textDim,
-      "Maximum supply from this spot. Distant deposits give more.")
-    row("Well depth","level "..level.." / "..(n.commodity=="water" and 4 or City.sourceMaxLevel),y+142)
+      n.intake=="river" and "The river's width here sets the ceiling. A wider reach gives more."
+      or n.intake and "A sea intake is limited by the treatment works, not the water."
+      or "Maximum supply from this spot. Distant deposits give more.")
+    row(n.intake and "Treatment stages" or "Well depth",
+      "level "..level.." / "..city:maxLevel(n),y+142)
   end
   row("Wholesale income","+$"..city:sourceIncome(n).." / day",y+168,P.good)
   row("Upkeep","-$"..((n.upkeep or trade.sourceUpkeep)+(level-1)*2).." / day",y+194,P.warn)
   row("Connections",city:connectionPorts(n.id).." / "..n.ports,y+220)
-  if not n.plant and level<City.sourceMaxLevel and capacity<ceiling then
-    local cost=city:sourceUpgradeCost(n)
-    button("upgrade-source","Deepen well   +"..trade.upgradeStep.." output   $"..cost,
-      M,y+258,CW,38,function() act("upgradeSource",n.id) end,city.money>=cost,
-      "Adds "..trade.upgradeStep.." supply per day. Keeps existing pipes."..
+  local step,unit=city:upgradeStep(n)
+  local upCost=city:sourceUpgradeCost(n)
+  if upCost and level<city:maxLevel(n) and capacity<ceiling then
+    local verb=n.plant and ("Add a "..unit) or n.intake and "Add a stage" or "Deepen well"
+    button("upgrade-source",verb.."   +"..step.." output   $"..upCost,
+      M,y+258,CW,38,function() act("upgradeSource",n.id) end,city.money>=upCost,
+      "Adds "..step.." supply per day. Keeps existing pipes, needs no new route."..
       (maxed and gainText(E.sourcePreview(city,n.id)) or ""),
-      false,P.good,maxed and city.money>=cost)
-    text("A new "..n.commodity.." well costs $"..city:sourceCost(n.commodity)..
+      false,P.good,maxed and city.money>=upCost)
+    -- The comparison that decides the shape of the whole network: another unit
+    -- here, against another source somewhere else that needs its own mains.
+    text("A second "..(n.plant and ((City.PLANTS[n.plant] or {}).name or "station"):lower()
+         or n.commodity.." source").." costs $"..city:sourceCost(n.commodity,nil,nil,n.plant)..
          " plus the route to reach it.",M,y+304,"small",P.textDim,CW)
     y=y+336
   else
-    local description=n.plant and ((City.PLANTS[n.plant] or {}).blurb or "")
-      or capacity>=ceiling and ("Limit: "..ceiling.." per day. Build another source for more.")
-      or "Fully upgraded. Build another well for more supply."
+    local description=capacity>=ceiling
+        and ("Limit: "..ceiling.." per day. Build another source for more.")
+      or n.plant and ((City.PLANTS[n.plant] or {}).blurb or "")
+      or "Fully upgraded. Build another source for more supply."
     local _,lines=R.fonts.body:getWrap(description,CW)
     text(description,M,y+262,"body",P.textDim,CW)
     y=y+262+#lines*R.fonts.body:getHeight()*R.fonts.body:getLineHeight()+14
@@ -1829,7 +1845,7 @@ local function adviceLabel(item)
     return "Widen "..string.lower(city:describeElement("edge",item.id)).." to "..item.size
   elseif item.kind=="source" then
     local n=city.g.nodes[item.id]
-    return "Deepen "..string.lower(n.commodity).." well "..item.id
+    return "Extend "..string.lower(n.commodity).." source "..item.id
   end
   local n=city.g.nodes[item.id]
   local nxt=city:levelNext(item.id)
