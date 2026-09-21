@@ -2408,11 +2408,14 @@ function UI.draw(c,s,action)
   button("companies","Companies",272,H-44,112,32,
     function() act("openSlots") end,true,
     "Six companies, kept side by side. Switch, start another, or delete one.")
+  button("rounds","Rounds",390,H-44,80,32,
+    function() act("rounds") end,true,
+    "Rounds mode: build a network, then survive forty rounds of houses. Your companies are saved and untouched.")
   local message=state.toast or (state.tool and (string.upper(state.tool).." selected: click the map to place, right-click or Esc to put it down")
     or (state.node or state.edge) and "Click it again, right-click or press Esc to deselect" or "")
   -- Clear of the last footer button on its left and the day button on its
   -- right: the message used to start 20 points inside "Companies".
-  single(message,396,H-34,"small",state.toastBad and P.bad or P.textDim,math.max(100,W-601))
+  single(message,482,H-34,"small",state.toastBad and P.bad or P.textDim,math.max(100,W-687))
   button("end-day","End day "..city.day.."   >",W-193,H-46,173,36,function() act("endDay") end,
     not city.bankrupt,"Settle revenue, expenses, investments and pipe wear (Enter)",true,P.good)
 

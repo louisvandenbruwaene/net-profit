@@ -1,4 +1,4 @@
-.PHONY: run mac-run mac-install hooks test bench anatomy layout smoke soak tutorial audio shots dist install export clean
+.PHONY: run rounds mac-run mac-install hooks test bench anatomy layout smoke soak tutorial audio shots rounds-smoke rounds-shots dist install export clean
 
 # The headless suites are plain Lua and run under whatever interpreter is here:
 # 5.4 if it is installed, otherwise 5.3, plain lua, or LuaJIT.
@@ -13,6 +13,9 @@ TESTENV := SDL_AUDIODRIVER=dummy
 
 run:
 	@$(LOVE) .
+
+rounds:
+	@$(LOVE) . --rounds
 
 mac-run:
 	@open -a "LOVE" "$(CURDIR)"
@@ -43,6 +46,7 @@ test:
 	@$(LUA) test/test_resilience.lua
 	@$(LUA) test/test_ideas.lua
 	@$(LUA) test/test_autoplay.lua
+	@$(LUA) test/test_rounds.lua
 
 # What an endless map costs to solve. Kept out of `test` because it is a timing
 # measurement and a loaded machine is not a regression, but watched in CI.
@@ -80,6 +84,14 @@ layout:
 
 shots:
 	@$(TESTENV) timeout -k 5 120 $(LOVE) . --shot
+
+# Rounds mode through the real callbacks: build, lay a main, play rounds, save.
+rounds-smoke:
+	@$(TESTENV) timeout -k 5 90 $(LOVE) . --rounds --smoke
+
+# Rounds screenshots. ROUNDS_SHOTS=dir writes them there instead of the save folder.
+rounds-shots:
+	@$(TESTENV) timeout -k 5 90 $(LOVE) . --rounds --shot
 
 dist:
 	@mkdir -p dist
