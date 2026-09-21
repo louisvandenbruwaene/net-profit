@@ -13,6 +13,10 @@ local App = {}
 local city,cam
 local state={commodity="water",havenKind="port",plant="nuclear",recipe="turbine",size="small",recentSizes={"small"},grade=1,capacity=1,invest=100,borrow=500,tab="network",scroll=0,undo={}}
 local testMode, frames = nil,0
+-- Rounds mode lives in the same window, on a City of its own, saved beside the
+-- companies and never in one of their slots.
+local ROUND_FILE,RECORD_FILE,MODE_FILE="rounds_city.lua","rounds_records.lua","mode.txt"
+local roundsTest=false
 local walkthroughRunning=false
 local saveBlocked=false
 
@@ -20,7 +24,31 @@ local function toast(message,bad)
   state.toast,state.toastBad,state.toastTime=tostring(message),bad,5
 end
 
+local function saveRounds()
+  if testMode then return true end
+  -- A round in progress is never written: the break before it is what a
+  -- reload comes back to, so a round cannot be replayed by quitting.
+  if city.rounds.phase=="round" then return true end
+  local ok,err=love.filesystem.write(ROUND_FILE,Save.pack(city))
+  if not ok then toast("Save failed: "..tostring(err),true) end
+  return ok
+end
+
+local function saveRecords()
+  if testMode then return end
+  love.filesystem.write(RECORD_FILE,require("rounds_io").encode(state.records))
+end
+
+local function noteRecord()
+  local rs=city.rounds
+  local rec=state.records
+  if rs.strict then rec.bestStrict=math.max(rec.bestStrict or 0,rs.round)
+  else rec.best=math.max(rec.best or 0,rs.round) end
+  saveRecords()
+end
+
 local function save()
+  if city.rounds then return saveRounds() end
   if testMode then return true end
   if saveBlocked then
     toast("Saved company is damaged. Choose another company slot; the original file is protected.",true)
@@ -72,6 +100,7 @@ end
 -- player, reset when a different company is opened.
 local function resetSession()
   clear()
+  state.play,state.roundResult,state.roundSpeed,state.flashEdge=nil,nil,nil,nil
   state.undo={}
   state.modal,state.slotConfirm=nil,nil
   state.scroll=0
@@ -123,18 +152,120 @@ local function slotSummaries()
   return t
 end
 
+local function writeMode(mode)
+  if not testMode then love.filesystem.write(MODE_FILE,mode) end
+end
+
+-- The run saved beside the companies, or a new one.
+local function loadRounds()
+  if not testMode and love.filesystem.getInfo(ROUND_FILE) then
+    local loaded=Save.unpack(love.filesystem.read(ROUND_FILE))
+    if loaded and loaded.rounds then return loaded end
+  end
+  return City.newRounds({seed=testMode and 3 or nil})
+end
+
+local function roundsEffects(n)
+  if not n then return end
+  if n.roundServed then
+    R.ring(n.x,n.y,P.flow)
+    A.play("click",0.35,0.9+math.min(0.6,(city.rounds.arrived or 0)/60))
+  else
+    R.burst(n.x,n.y,P.bad,18)
+    R.floatText(n.x,n.y-30,"-"..n.demand..(n.demand==1 and " life" or " lives"),P.bad)
+    cam:shakeBy(0.12+math.min(0.3,n.demand*0.02))
+    A.play("sever",0.7)
+    toast(City.ROUND_HOUSE[n.roundKind].name.." went dry: "..(n.dryReason or ""),true)
+    if n.dryEdge then state.flashEdge,state.flashTime=n.dryEdge,1.6 end
+  end
+end
+
+local function finishRound()
+  local result=city:finishRound()
+  state.play=nil
+  if not result then return end
+  state.roundResult=result
+  state.modal=result.won and "roundWon" or "roundResult"
+  if result.won then
+    state.records.wins=(state.records.wins or 0)+1
+    if city.rounds.strict then state.records.strictWins=(state.records.strictWins or 0)+1 end
+    A.play("unlock",0.8)
+  else
+    A.play(result.log.dry==0 and "held" or "step",0.7)
+  end
+  noteRecord()
+  save()
+end
+
 local function action(name,...)
   if name=="fit" then fit(); return end
-  if name=="fitWorld" then fitWorld(); return end
-  -- Rounds is a separate game in the same window. The company is saved on the
-  -- way out and the next launch reopens whichever of the two was open.
   if name=="rounds" then
-    if testMode then return end
-    save()
-    love.filesystem.write("mode.txt","rounds")
-    App.switchTo("rounds_app")
+    if not testMode and not roundsTest then
+      if not saveBlocked and not save() then return end
+    end
+    state.companySlot=city.slot
+    city=loadRounds()
+    resetSession(); writeMode("rounds"); fit()
+    if city.rounds.phase=="lost" then state.modal="roundLost"
+    elseif (state.records.runs or 0)==0 then state.modal="roundsHelp" end
+    state.records.runs=math.max(1,state.records.runs or 0); saveRecords()
+    state.tab="round"
     return
   end
+  if name=="leaveRounds" then
+    if city.rounds and city.rounds.phase=="round" then toast("Finish the round first",true); return end
+    save()
+    local loaded=not testMode and Save.read()
+    city=loaded or City.new(testMode and {seed=24,obstacles=4} or nil)
+    city.slot=city.slot or state.companySlot or Save.readCurrent()
+    resetSession(); writeMode("company"); fit()
+    toast("Back to your company. The run is saved.")
+    return
+  end
+  if name=="newRun" then
+    local strict=...
+    city=City.newRounds({strict=strict,seed=testMode and 3 or nil})
+    state.records.runs=(state.records.runs or 0)+1; saveRecords()
+    resetSession(); save(); fit()
+    state.tab="round"
+    toast(strict and "Strict run: one dry house ends it" or "New run on a new map")
+    return
+  end
+  if name=="focusZone" then
+    local d=city.districts[...]
+    if d then
+      layout()
+      cam.x,cam.y=d.x+d.w/2,d.y+d.h/2
+      cam.targetScale=math.max(0.2,math.min(1.2,cam.vw/(d.w*1.25),cam.vh/(d.h*1.25)))
+    end
+    return
+  end
+  if name=="roundSpeed" then state.roundSpeed=(state.roundSpeed or 1)>1 and 1 or 3; return end
+  if name=="startRound" then
+    if state.modal then return end
+    local plan,bursts=city:startRound()
+    if not plan then return end
+    state.undo={}; clear(); state.rename=nil
+    state.play={t=0,wait=0,interval=math.max(0.08,math.min(0.45,6/math.max(1,#plan.houses)))}
+    A.play("resolve",0.8)
+    for _,e in ipairs(bursts or {}) do
+      local a,b=city.g.nodes[e.a],city.g.nodes[e.b]
+      R.burst((a.x+b.x)/2,(a.y+b.y)/2,P.bad,24)
+    end
+    if bursts and #bursts>0 then
+      A.play("sever",0.8); cam:shakeBy(0.35)
+      toast(#bursts==1 and "A main has burst. Repair it after the round." or (#bursts.." mains have burst. Repair them after the round."),true)
+    end
+    return
+  end
+  -- Nothing is built, sold or undone while houses are arriving.
+  if city.rounds and city.rounds.phase~="build" and name~="focusNode" and name~="focusEdge"
+     and name~="focusLink" and name~="focusDistrict" and name~="nextLeak" and name~="mute" and name~="solo"
+     and name~="fitWorld" and name~="openSlots" then
+    toast(city.rounds.phase=="lost" and "This run is over. Start a new one." or "Building opens again when the round ends",true)
+    return
+  end
+  if name=="fitWorld" then fitWorld(); return end
   if name=="mute" then state.muted=not state.muted; A.setEnabled(not state.muted); return end
   if name=="solo" then city.hideUnfocusedNetworks=not city.hideUnfocusedNetworks; return end
   if name=="focusNode" then
@@ -300,7 +431,8 @@ local function action(name,...)
     elseif name=="buyDistrict" then
       toast(result.name.." acquired")
     elseif name=="layPipe" then
-      toast(city.unserved==0 and "Everyone supplied! Close the day to collect your earnings." or "Connection built. Keep the supply flowing.")
+      toast(city.rounds and ("Main laid for $"..(result.paid or 0))
+        or city.unserved==0 and "Everyone supplied! Close the day to collect your earnings." or "Connection built. Keep the supply flowing.")
     else
       toast(({repairPipe="Pipe repaired",replacePipe="Main replaced",buyAds="Advertising booked",
         invest="Investment placed",upgradeQuality="Treatment upgraded",buyLicence="Trade licence acquired",
@@ -390,6 +522,12 @@ function love.load(args)
     pcall(love.window.setPosition, -5000, -5000)
     pcall(love.window.minimize)
   end
+  state.records={best=0,bestStrict=0,wins=0,strictWins=0,runs=0}
+  local fs=love.filesystem
+  if not testMode and fs and fs.getInfo(RECORD_FILE) then
+    state.records=require("rounds_io").decode(love.filesystem.read(RECORD_FILE)) or state.records
+  end
+  for _,a in ipairs(args or {}) do if a=="--rounds" then roundsTest=true end end
   local err
   if not testMode then city,err=Save.read() end
   city=city or City.new(testMode and {seed=24,obstacles=4} or nil)
@@ -401,6 +539,15 @@ function love.load(args)
     state.modal="slots"; state.slots=slotSummaries()
   end
   if city.bankrupt then state.modal="report" end
+  -- Whichever of the two was open when the window closed opens again.
+  local mode=not testMode and fs and fs.getInfo(MODE_FILE) and fs.read(MODE_FILE) or ""
+  if roundsTest or (mode:match("^rounds") and not err) then
+    local slot=city.slot
+    city=loadRounds(); state.companySlot=slot
+    resetSession(); fit()
+    state.tab="round"
+    if city.rounds.phase=="lost" then state.modal="roundLost" end
+  end
   if testMode=="--audio" then
     local report=A.report()
     assert(#report>0,"no audio generated")
@@ -413,6 +560,7 @@ function love.load(args)
     return
   end
   App.state,App.action,App.hit=state,action,hit
+  App.finishRound=finishRound
   App.city=function() return city end
   App.camera=function() return cam end
   App.setTestCity=function(value)
@@ -432,6 +580,28 @@ function love.update(dt)
       local nextCity,message,stop=require("autoplay").step(city)
       city=nextCity; state.undo={}; toast(message); save()
       if stop then state.autoRemaining=nil end
+    end
+  end
+  if state.flashTime then
+    state.flashTime=state.flashTime-dt
+    if state.flashTime<=0 then state.flashTime,state.flashEdge=nil,nil end
+  end
+  if city.rounds and city.rounds.phase=="round" and state.play then
+    local play=state.play
+    if city:pendingHouses()>0 then
+      play.t=play.t+dt*(state.roundSpeed or 1)
+      while play.t>=play.interval and city:pendingHouses()>0 and city.rounds.phase=="round" do
+        play.t=play.t-play.interval
+        roundsEffects(city:roundArrive())
+      end
+      if city.rounds.phase=="lost" then
+        state.play=nil; state.modal="roundLost"
+        A.play("collapse",0.9); noteRecord()
+        city:clearRoundHouses(); city:refresh(); save()
+      end
+    else
+      play.wait=play.wait+dt*(state.roundSpeed or 1)
+      if play.wait>0.9 then finishRound() end
     end
   end
   state.hoverNode,state.hoverEdge,state.hoverLink=hit(love.mouse.getPosition())
@@ -454,10 +624,10 @@ function love.update(dt)
     frames=frames+1
     if frames==3 then
       walkthroughRunning=true
-      require("company_walkthrough").start(App,testMode)
+      require(roundsTest and "rounds_walkthrough" or "company_walkthrough").start(App,testMode)
       walkthroughRunning=false
     end
-    if frames>3 then require("company_walkthrough").update(App,testMode,frames) end
+    if frames>3 then require(roundsTest and "rounds_walkthrough" or "company_walkthrough").update(App,testMode,frames,dt) end
   end
 end
 
@@ -588,9 +758,14 @@ function love.keypressed(key)
     return
   end
   if state.modal then
-    if key=="escape" or key=="return" then
+    if state.modal=="roundLost" then return end
+    if key=="escape" or key=="return" or (key=="space" and city.rounds) then
       if not city.bankrupt or state.modal=="slots" then state.modal=nil end
     end
+    return
+  end
+  if city.rounds and (key=="return" or key=="space") then
+    if city.rounds.phase=="round" then action("roundSpeed") elseif city.rounds.phase=="build" then action("startRound") end
     return
   end
   if key=="escape" then clear()
@@ -626,6 +801,10 @@ end
 function love.resize() R.retune(); fit() end
 function love.quit()
   Audit.report()
+  if city.rounds and city.rounds.phase=="round" then
+    city:finishRound()
+    if city.rounds.phase=="lost" then city:clearRoundHouses(); city:refresh() end
+  end
   if saveBlocked then return end
   if not save() then return true end
 end

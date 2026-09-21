@@ -975,6 +975,40 @@ local function drawLinks(city, cam, state)
   end
 end
 
+-- Rounds zones. An open zone is ground the houses land on, so it is framed in
+-- its own colour with how much of it the hubs reach. A zone opening this round
+-- pulses. A closed one says when it opens.
+function Draw.zones(city, cam, state)
+  local rs = city.rounds
+  for _, d in ipairs(city.districts) do
+    if d.zoneOpens and cam:seesBox(d.x, d.y, d.x + d.w, d.y + d.h) then
+      local x, y = cam:toScreen(d.x, d.y)
+      local w, h = d.w * cam.scale, d.h * cam.scale
+      local open = d.zoneOpens <= rs.round
+      local fresh = open and d.zoneOpens == rs.round and rs.phase == "build"
+      if open then
+        local c = fresh and P.energy or P.accent
+        local pulse = fresh and (0.5 + 0.5 * math.sin(R.t * 3)) or 0
+        lg.setColor(P.with(c, 0.05 + 0.05 * pulse)); lg.rectangle("fill", x + 3, y + 3, w - 6, h - 6, 5)
+        lg.setColor(P.with(c, 0.5 + 0.3 * pulse)); lg.setLineWidth(fresh and 2.5 or 1.5)
+        lg.rectangle("line", x + 3, y + 3, w - 6, h - 6, 5)
+        -- The company hides an owned district's name when zoomed out. A zone
+        -- is what the Round tab talks about, so it keeps its name.
+        if cam.scale > 0.14 and cam.scale <= 0.34 then
+          label(string.upper(d.name), x + w / 2, y + 16, fresh and P.energy or P.accent, R.fonts.small)
+        end
+        if cam.scale > 0.14 and rs.phase ~= "round" then
+          local cov = city:zoneCoverage(d)
+          label((fresh and "NEW ZONE  /  " or "") .. math.floor(cov * 100 + 0.5) .. "% IN REACH OF A HUB",
+            x + w / 2, y + h - 22, cov >= 0.995 and P.good or cov >= 0.8 and P.warn or P.bad, R.fonts.tiny)
+        end
+      elseif cam.scale > 0.14 then
+        label("ZONE OPENS ROUND " .. d.zoneOpens, x + w / 2, y + h / 2 + 30, P.textDim, R.fonts.small)
+      end
+    end
+  end
+end
+
 function Draw.world(city, cam, state)
   UNFOCUSED_ALPHA = city.hideUnfocusedNetworks and 0 or 0.4
   labels,occupied,segments={},{},{}; labelPriority=0
@@ -1028,15 +1062,19 @@ function Draw.world(city, cam, state)
     end
   end
   drawDistrictChrome(city, cam, state)
+  if city.rounds then Draw.zones(city, cam, state) end
   drawSeams(city, cam, state)
 
   -- What each hub covers. Drawn faintly all the time, because the radius is the
   -- thing the player is actually placing, and drawn with its spokes when the
   -- hub is picked up, because that is when you want to see who is on it.
   for _, h in ipairs(city.g:nodesOfKind("exchange")) do
-    if cam:sees(h.x, h.y, City.hub.radius * cam.scale + 40) then
+    -- The radius the hub actually serves, which is its level's: drawing the
+    -- default here showed a level-one hub reaching 700 m when it serves 450.
+    local radius = city:hubRadius(h)
+    if cam:sees(h.x, h.y, radius * cam.scale + 40) then
     local hx, hy = cam:toScreen(h.x, h.y)
-    local r = City.hub.radius * cam.scale
+    local r = radius * cam.scale
     local live = state.node == h.id or state.hoverNode == h.id or state.tool == "exchange"
     local colour = Graph.KINDS.exchange.color
     lg.setColor(P.with(colour, live and 0.10 or 0.05)); lg.circle("fill", hx, hy, r)
@@ -1159,6 +1197,11 @@ function Draw.world(city, cam, state)
           lg.circle("fill", ax+(bx-ax)*t, ay+(by-ay)*t, math.max(1, R.sym(2.8, cam.scale)))
         end
       end
+      -- The main a dry house was blamed on, flashing for a moment.
+      if state.flashEdge == e.id then
+        lg.setColor(P.with(P.bad, 0.5 + 0.5 * math.sin(R.t * 18)))
+        lg.setLineWidth(width + 4); lg.line(ax,ay,bx,by)
+      end
       if e.leaking then
         local x,y = (ax+bx)/2,(ay+by)/2
         lg.setColor(P.with(P.bad,0.6+0.3*math.sin(R.t*5)))
@@ -1196,12 +1239,13 @@ function Draw.world(city, cam, state)
     local color = spec and spec.color or Graph.KINDS[n.kind].color
     local served = city.served[n.id] or 0
     if n.prospect then color = P.textDim end
+    if n.roundHouse and n.dry then color = P.bad end
     local supplied = not n.prospect and (n.kind=="client" and city:fullyServed(n) or n.kind~="client" and served >= (n.demand or 0))
     if state.node == n.id or state.hoverNode == n.id then
       lg.setColor(P.text); lg.setLineWidth(math.max(1, r * 0.09))
       lg.circle("line", x, y, r + math.max(4, r * 0.5))
     end
-    if n.kind == "client" and not n.prospect and not city:fullyServed(n) then
+    if n.kind == "client" and not n.prospect and not n.roundHouse and not city:fullyServed(n) then
       lg.setColor(P.with(n.grace == 1 and P.bad or P.warn,0.65))
       lg.setLineWidth(math.max(1.3, r * 0.13))
       lg.arc("line","open",x,y,r + math.max(3, r * 0.3),
@@ -1216,7 +1260,7 @@ function Draw.world(city, cam, state)
       lg.setColor(color)
       Draw.clientGlyph(n.clientType, x, y + r * 0.06, r / 15)
       if r>=7.5 and (focused or (not n.prospect and (n.supplyClosed or not city:fullyServed(n)))) then
-        local title = n.prospect and "OFFER" or n.supplyClosed and "SHUT"
+        local title = n.prospect and "OFFER" or n.dry and "DRY" or n.supplyClosed and "SHUT"
           or n.demands and n.demands.water and n.demands.power and (city:fullyServed(n) and "Water + electricity supplied" or "Water / electricity short")
           or city:quantityPair(n.commodity,served,n.demand)
         label(title,x,y+r*1.5+8,n.prospect and P.energy or (city:fullyServed(n) and P.good or P.warn))
@@ -1533,7 +1577,8 @@ function Draw.world(city, cam, state)
     lg.setColor(P.with(color,0.3)); lg.setLineWidth(1)
     local carries = City.INFRA.towers[state.tool=="grid" and City.INFRA.voltages[state.voltage or "low"].tower or state.tool]
     local range = state.tool=="pump" and City.INFRA.pumpRange or carries and City.INFRA.voltages[carries].span
-      or state.tool=="binder" and City.INFRA.binderRange or state.tool=="tower" and 220 or 300
+      or state.tool=="binder" and City.INFRA.binderRange or state.tool=="tower" and 220
+      or state.tool=="exchange" and City.LEVELS.LEVELS.hub[1].radius or 300
     lg.circle("line",mx,my,range*cam.scale)
     if state.tool=='works' and (City.RECIPES[state.recipe or ''] or {}).farm then
       local r=City.INFRA.farmRadius*cam.scale

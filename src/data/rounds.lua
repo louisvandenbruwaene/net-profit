@@ -1,100 +1,60 @@
 -- Rounds mode: every number the mode is balanced on. Edit, then restart the
--- game. See src/rounds.lua for what each one does.
+-- game. Building prices are the company game's own (data/economy.lua,
+-- data/pipes.lua, data/upgrades.lua); only what a round pays and demands lives
+-- here. See src/rounds.lua for what each one does.
 local D = {}
 
-D.MAP = { w = 2600, h = 1600 }
-
-D.START = { money = 700, lives = 40, strictLives = 1 }
+D.START = { money = 2600, lives = 100, strictLives = 1 }
 D.FINAL_ROUND = 40
 
--- What the player can build. Each building has four levels, bought in place.
--- `output` is water a day, `radius` is how far a service drop reaches from it,
--- `throughput` is what may pass through it, `ports` counts mains only.
-D.BUILDINGS = {
-  well = {
-    name = "WELL", key = "1", onSpring = true,
-    cost = { 150, 170, 300, 520 },
-    output = { 12, 24, 40, 64 },
-    ports = { 3, 4, 5, 6 },
-    radius = { 70, 80, 90, 100 },
-    blurb = "Sinks onto a spring. The only cheap water there is.",
-  },
-  junction = {
-    name = "JUNCTION", key = "2",
-    cost = { 60, 70, 130, 240 },
-    throughput = { 14, 28, 50, 90 },
-    ports = { 3, 4, 6, 8 },
-    radius = { 125, 160, 200, 250 },
-    blurb = "Serves every house inside its ring, and splits mains.",
-  },
-  tower = {
-    name = "WATER TOWER", key = "3",
-    cost = { 420, 300, 480, 760 },
-    output = { 10, 20, 34, 52 },
-    ports = { 2, 3, 3, 4 },
-    radius = { 150, 170, 190, 210 },
-    blurb = "Water anywhere, no spring needed, at four times the price.",
-  },
-}
-D.ORDER = { "well", "junction", "tower" }
+-- Districts open as zones in this order, the first in round one. Houses only
+-- ever land in an open zone. Ids are the authored districts of the company map
+-- (4 by 3, Millbrook in the middle at 6), walked outward from the start.
+D.ZONE_ORDER = { 6, 7, 2, 5, 10, 3, 11, 1, 8, 9, 12, 4 }
+D.ZONE_OPENS = { 1, 4, 8, 12, 16, 20, 24, 28, 32, 35, 38, 40 }
 
--- Mains. Capacity against price, with a reach past which a junction is needed.
-D.PIPES = {
-  { key = "small",   name = "SMALL",   cap = 6,  base = 18, perM = 0.10, reach = 330 },
-  { key = "medium",  name = "MEDIUM",  cap = 15, base = 30, perM = 0.19, reach = 420 },
-  { key = "large",   name = "LARGE",   cap = 30, base = 52, perM = 0.32, reach = 520 },
-  { key = "massive", name = "MASSIVE", cap = 60, base = 95, perM = 0.55, reach = 620 },
-}
--- Crossing the river is a bored crossing, priced per crossing and per size step.
-D.RIVER_CROSSING = 110
-
--- Selling returns this share of everything a building or main has cost.
-D.SELL_BACK = 0.7
-
--- Houses. `demand` is water a day, and a dry house costs that many lives.
+-- Houses. The kinds are the company's own customers; `demand` overrides theirs
+-- so a round reads the same every time, and a dry house costs that many lives.
 D.HOUSES = {
-  cottage = { name = "COTTAGE", demand = 1, from = 1 },
-  house   = { name = "HOUSE",   demand = 2, from = 4 },
-  terrace = { name = "TERRACE", demand = 3, from = 11 },
-  estate  = { name = "ESTATE",  demand = 5, from = 18 },
-  -- The boss: one block every tenth round, big enough to need its own main.
-  block   = { name = "TOWER BLOCK", demand = 14 },
+  { key = "cottage", client = "house",  name = "COTTAGE",     demand = 2, from = 1 },
+  { key = "house",   client = "house",  name = "HOUSE",       demand = 3, from = 3 },
+  { key = "terrace", client = "house",  name = "TERRACE",     demand = 4, from = 9 },
+  { key = "estate",  client = "estate", name = "ESTATE",      demand = 6, from = 15 },
+  -- The boss: a block every tenth round, big enough to need a main of its own.
+  { key = "block",   client = "estate", name = "TOWER BLOCK", demand = 24, boss = true },
 }
-D.HOUSE_ORDER = { "cottage", "house", "terrace", "estate", "block" }
 D.BOSS_EVERY = 10
+-- A house keeps clear of the district's edge by this much.
+D.EDGE = 50
+-- The share of houses that land anywhere in their zone. The rest gather
+-- towards the middle.
+D.SPREAD = 0.5
 
--- Money. Paid at the end of a round, never during one.
+-- Money, paid at the end of a round. A round is worth a few company days: the
+-- houses only stay for one.
 D.PAY = {
-  base = 120, perRound = 8,      -- the round's own cheque
-  perUnit = 7,                   -- for every unit delivered
-  sparePerUnit = 2,              -- for supply left over at the end
-  spareCap = { base = 60, perRound = 6 },
-  streak = 20, streakMax = 5,    -- per dry-free round in a row
+  base = 320, perRound = 40,     -- the round's own cheque
+  perUnit = 16,                  -- per unit of water delivered
+  sparePerUnit = 4,              -- per unit of supply left over
+  spareCap = { base = 80, perRound = 12 },
+  streak = 40, streakMax = 5,    -- per clean round in a row
+  upkeep = 1.0,                  -- rounds of company upkeep charged per round
 }
 
 -- Shocks, announced a round ahead. None before `from`.
 D.SHOCKS = {
-  drought  = { name = "DROUGHT",   from = 6,  chance = 0.16, factor = 0.7,
-               blurb = "Wells give 70% of their output" },
-  heatwave = { name = "HEATWAVE",  from = 9,  chance = 0.14, factor = 1.5,
+  drought  = { name = "DROUGHT",     from = 6,  chance = 0.16, output = 0.6,
+               blurb = "Wells give 60% of their yield this round" },
+  heatwave = { name = "HEATWAVE",    from = 9,  chance = 0.14, factor = 1.5,
                blurb = "Every house wants half as much again" },
-  burst    = { name = "BURST MAINS", from = 8, chance = 0.18,
-               blurb = "Mains break at the start of the round" },
+  burst    = { name = "BURST MAINS", from = 7,  chance = 0.20,
+               blurb = "Mains break when the round starts and stay broken until repaired" },
 }
 D.SHOCK_ORDER = { "drought", "heatwave", "burst" }
 
--- Zones, in the order they open. Houses only ever spawn inside an open zone.
-D.ZONES = {
-  { name = "MILLBROOK",  opens = 1 },
-  { name = "OLD TOWN",   opens = 3 },
-  { name = "HILLCREST",  opens = 7 },
-  { name = "THE FLATS",  opens = 12 },
-  { name = "CANALSIDE",  opens = 17 },
-  { name = "NORTHGATE",  opens = 23 },
-  { name = "DEEPCUT",    opens = 30 },
-}
-
-D.SPRINGS = 8
-D.ROCKS = 9
+-- What the company game gates on customer count, Rounds gates on the most
+-- houses served in one round. Automation hubs are the tool Rounds is played
+-- with, so they are open from the start.
+D.ALWAYS_OPEN = { hub = true }
 
 return D
