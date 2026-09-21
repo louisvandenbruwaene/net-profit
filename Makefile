@@ -1,4 +1,4 @@
-.PHONY: run mac-run mac-install hooks test bench anatomy smoke soak tutorial audio shots dist install export clean
+.PHONY: run mac-run mac-install hooks test bench anatomy layout smoke soak tutorial audio shots dist install export clean
 
 # The headless suites are plain Lua and run under whatever interpreter is here:
 # 5.4 if it is installed, otherwise 5.3, plain lua, or LuaJIT.
@@ -71,6 +71,12 @@ tutorial:
 # Peak and RMS of every synthesised sound.
 audio:
 	@$(TESTENV) timeout -k 5 120 $(LOVE) . --audio
+
+# Every string the interface draws, and any two that land on the same pixels.
+# A measurement like `anatomy`, not a test: read the list and fix what is real.
+layout:
+	@$(TESTENV) timeout -k 5 180 $(LOVE) . --shot --audit 2>&1 | sed -n '/^layout:/,$$p'
+	@$(TESTENV) timeout -k 5 180 $(LOVE) . --smoke --audit 2>&1 | sed -n '/^layout:/,$$p'
 
 shots:
 	@$(TESTENV) timeout -k 5 120 $(LOVE) . --shot

@@ -118,6 +118,21 @@ local function capture(name,app,width,height,keepCamera)
     data:release()
 end
 
+-- The same frame as `capture`, without the PNG. The stress sweep draws a
+-- hundred screens and none of them is worth looking at: what reads them is the
+-- layout recorder, one frame at a time.
+local function render(name,app,width,height,keepCamera)
+  width,height=width or 1440,height or 880
+  local canvas=love.graphics.newCanvas(width,height)
+  R.viewportOverride={width,height}
+  if keepCamera then app.camera():setViewport(UI.width,84,width-UI.width,height-142) end
+  love.graphics.setCanvas(canvas)
+  love.draw()
+  love.graphics.setCanvas()
+  R.viewportOverride=nil
+  canvas:release()
+end
+
 function Walk.start(app,mode)
   print("Net Profit: "..mode)
   if mode=="--shot" then capture("net-profit-01-opening",app); return end
@@ -812,6 +827,12 @@ function Walk.start(app,mode)
     require("infrastructure_walkthrough")(app,capture,click,scrollTo,check)
     require("ideas_walkthrough")(app,capture,click,scrollTo,check)
     require("resilience_walkthrough")(app,capture,click,scrollTo,check)
+    -- Only under `make layout`. A hundred screens of a company nobody played
+    -- are for measuring text against, and rendering them all would double an
+    -- ordinary smoke run for nothing.
+    if require("layout_audit").on then
+      require("stress_walkthrough")(app,render,click,scrollTo,check)
+    end
   end
 end
 

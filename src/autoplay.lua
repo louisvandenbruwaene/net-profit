@@ -408,10 +408,14 @@ local function serve(c,n)
   for _=1,6 do
     local commodity,want=next(need(c,n))
     if not commodity then return true end
-    local why=c:constraintFor(n.id)
+    local why,eid=c:constraintFor(n.id)
     local e=why=='main' and bottleneck(c,n,commodity)
     if why=='main' and not e then why='output' end
     if why=='valve' then c:toggleSupply(n.id)
+    elseif why=='repair' then
+      -- The main feeding them is burst, not narrow. Mend it before laying
+      -- anything: a second route around a hole is an expensive way to patch.
+      if not c:repairPipe(eid) then return false end
     elseif why=='main' then
       -- Widen the full main, or when it cannot be widened (a customer only
       -- takes a small one) bring in a second route beside it.

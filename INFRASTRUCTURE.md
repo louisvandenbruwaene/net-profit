@@ -63,7 +63,9 @@ From two regions away, ordinary parks and bedrock vary from small patches to bro
 
 An ampere (A) measures electric current through a cable. A kilowatt (kW) measures power, while a kilowatt-hour (kWh) measures energy: a 1 kW appliance running all day uses 24 kWh. The interface displays electricity in kWh/day, including household requests, generation, factory inputs and cable capacity. Cable energy limits use three-phase power, `sqrt(3) × kV × A × 24 hours`, reduced for resistance.
 
-New houses and estates can request both licensed utilities together. Existing signed water households receive separate electricity requests when the power licence is bought; accepting adds the second utility. A typical house requests 10 kWh/day. Each utility has its own delivery and billing; both must be supplied for the household to be satisfied. Hubs aggregate both demands. Generator sizes and prices remain scaled for game balance.
+A household signs for one utility. A second one is a possibility rather than a condition: about a third of houses and estates ever want electricity as well, decided once per building from the company's seed, and one of those asks on any given day the licence is held. Buying the power licence puts the question to the ones that want it; the rest are never asked and are fully supplied by their water alone. The share and the daily rate are `DUAL` in `src/data/customers.lua`.
+
+An electricity request is a separate offer with its own rate, accepted or declined like any other, and only then does the household demand both. A typical house requests 10 kWh/day. Each utility has its own delivery and billing; both must be supplied for a dual household to be satisfied. Hubs aggregate both demands. Generator sizes and prices remain scaled for game balance.
 
 ## Roads and daily destinations
 

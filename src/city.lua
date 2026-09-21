@@ -299,6 +299,7 @@ City.rules = require("data.economy").rules
 -- Customers. Rich ones pay far more and forgive far less, which is the whole
 -- reason to lay a beer main instead of another row of houses.
 City.CLIENTS = require("data.customers").CLIENTS
+City.DUAL = require("data.customers").DUAL
 
 City.OBSTACLES = {
   bedrock = { name = "BEDROCK", cross = nil, color = {0.30, 0.28, 0.34} },
@@ -1897,11 +1898,11 @@ function City:widenHubFeeds()
           local best, bestCost
           for _, e in ipairs(self.g:edgesAt(h.id)) do
             local flow = math.abs((self.detail.edge or {})[e.id] or 0)
-            if e.commodity == name and flow >= e.cap and (e.capMax or e.cap) < 24 then
+            if e.commodity == name and flow >= e.cap and (e.capMax or e.cap) < City.autoWidenCap() then
               local cost = self:boreCost(e, 1)
-              -- A main already at the top size short of massive has nothing
-              -- to bore up to until massive is unlocked: boreCost says so
-              -- with nil, not with a price, and this is not a bill to skip.
+              -- A main already at the top size the company may lay has
+              -- nothing to widen into: boreCost says so with nil, not with a
+              -- price, and this is not a bill to skip.
               if cost and cost <= self.money and (not bestCost or cost < bestCost) then
                 best, bestCost = e, cost
               end
@@ -2200,11 +2201,25 @@ function City:replacePipe(id, size, grade)
   return e
 end
 
--- The next size up, for the departments and for the hub feeds.
+-- The widest a main gets without the player deciding it. A hub wires the last
+-- mile and the engineers keep it flowing; laying a trunk across the city is a
+-- decision, not maintenance. Read off the ladder, which has grown a rung
+-- twice, rather than written down as a number that goes stale.
+function City.autoWidenCap()
+  return City.sizeOf("large").cap
+end
+
+-- The next size up, for the departments and for the hub feeds. It answers nil
+-- where a wider main could not be laid by hand either: a customer takes a
+-- small main and nothing else, so a run of houses chained to each other has
+-- no next size, and the honest answer is a junction rather than a bore.
 function City:biggerSize(e)
   local _, index = City.sizeOf(e.size or City.sizeFor(e.capMax or e.cap).key)
   local nextSpec = City.PIPE_SIZES[index + 1]
-  return nextSpec and self:sizeAllowed(nextSpec) and nextSpec.key or nil
+  if not nextSpec or not self:sizeAllowed(nextSpec) then return nil end
+  local _, hi = self:sizeRange(e.a, e.b)
+  if not hi or index + 1 > hi then return nil end
+  return nextSpec.key
 end
 
 -- Wagons, holds and aircraft. A bulk line carries as many commodities as it has
@@ -2255,18 +2270,22 @@ function City:addWagon(id, commodity)
   return e
 end
 
+-- Widening a main is replacing it with the next size up, which is what
+-- `boreCost` has always quoted for it.
+--
+-- It used to charge that whole quote and then add one single unit of
+-- capacity, and stop at 24. Both numbers are from the version of this game
+-- where capacity was a dial rather than a ladder of five discrete sizes, and
+-- they survived every change to the ladder since. A main widened this way now
+-- ends up as the size that was paid for, and answers to the same endpoint
+-- limits as one laid by hand: a garden stub to a house stays a garden stub.
 function City:upgradePipe(id)
   local e = self.g.edges[id]
   if not (e and e.alive) then return nil, "no such pipe" end
-  if e.capMax >= 24 then return nil, "maximum capacity reached" end
-  local cost = self:boreCost(e, 1)
-  if cost > self.money then return nil, "not enough cash" end
-  self:spend(cost)
-  e.paid = (e.paid or self:pipeCost(e.a, e.b, e.commodity, e.capMax)) + cost
-  e.cap = e.cap + 1
-  e.capMax = (e.capMax or e.cap) + 1
-  self:refresh()
-  return e
+  if e.bulk then return nil, "a freight line is fitted with wagons, not widened" end
+  local bigger = self:biggerSize(e)
+  if not bigger then return nil, "maximum capacity reached" end
+  return self:replacePipe(id, bigger, e.grade)
 end
 
 -- Every leak the company can afford, cheapest first, in one decision. The
@@ -3140,7 +3159,11 @@ function City:constraintFor(id)
     if ((self.servedBy[c.id] or {})[key] or 0)<want then com=key; break end
   end
   local seen, queue, head = { [id] = true }, { id }, 1
-  local saturated, sawFeed = nil, false
+  -- Two answers: the first full main on the way here, and the first one that
+  -- could actually be made wider. The advice points at the second where there
+  -- is one, because pointing at a garden stub that may never be more than a
+  -- garden stub is advice nobody can act on.
+  local saturated, widenable, damaged, sawFeed = nil, nil, nil, false
   while head <= #queue do
     local u = queue[head]; head = head + 1
     local node = self.g.nodes[u]
@@ -3149,7 +3172,15 @@ function City:constraintFor(id)
     for _, ei in ipairs(self.g.adj[u] or {}) do
       local e = self.g.edges[ei]
       if e.alive and e.commodity == com then
-        if not saturated and math.abs(self.detail.edge[ei] or 0) >= e.cap then saturated = ei end
+        if math.abs(self.detail.edge[ei] or 0) >= e.cap then
+          saturated = saturated or ei
+          -- A main that is full because it is burst is not a main that is too
+          -- small. It was reported as one, and the only fix offered was to
+          -- lay a wider one, which is a strange thing to be told about a pipe
+          -- with a hole in it.
+          if not damaged and (e.leaking or e.cap < (e.capMax or e.cap)) then damaged = ei end
+          if not widenable and self:biggerSize(e) then widenable = ei end
+        end
         local v = (e.a == u) and e.b or e.a
         if not seen[v] and self.g.nodes[v] and self.g.nodes[v].alive then
           seen[v] = true
@@ -3160,9 +3191,10 @@ function City:constraintFor(id)
   end
 
   if not sawFeed then return "unconnected" end
+  if damaged then return "repair", damaged end
   -- If every well is already pumping flat out, a wider pipe changes nothing.
   if (self.spare[com] or 0) <= 0 then return "output" end
-  if saturated then return "main", saturated end
+  if widenable or saturated then return "main", widenable or saturated end
   return "output"
 end
 
@@ -4139,7 +4171,7 @@ function City:runOrders(report)
         else
           e.fullFor = 0
         end
-        if (e.fullFor or 0) >= 3 and (e.capMax or e.cap) < 24 then
+        if (e.fullFor or 0) >= 3 and (e.capMax or e.cap) < City.autoWidenCap() then
           local cost = self:boreCost(e, 1)
           if cost <= self.money then
             self:upgradePipe(e.id)

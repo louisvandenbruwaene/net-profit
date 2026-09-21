@@ -20,4 +20,14 @@ Data.CLIENTS = {
                  weight = 5, follows = "house" },
 }
 
+-- A household signs for one utility. Some of them, later, also want the other
+-- one, and that is an offer they make rather than a condition of the first
+-- contract: `share` is the fraction of households that ever ask, decided once
+-- per building from the company's seed, and `daily` is how likely one of those
+-- asks on any given day once the licence is held.
+--
+-- It was every household, every day, which made "a house" mean "a water main
+-- and a cable" and made the second utility a chore rather than a decision.
+Data.DUAL = { share = 0.35, daily = 0.22 }
+
 return Data

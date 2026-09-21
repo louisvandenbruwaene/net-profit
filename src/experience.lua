@@ -1,6 +1,7 @@
 -- Presentation helpers and planning simulations. Previews never mutate a company.
 local E = {}
 local City = require("city")
+local Graph = require("graph")
 local Save = require("company_save")
 
 -- The main a drag out of `a` lays, into `b` once it has a target: the most
@@ -20,6 +21,54 @@ function E.dragSize(c,a,b,state)
   return City.PIPE_SIZES[math.max(lo,math.min(hi,i))].key
 end
 
+-- A structure that answers to one commodity and refuses every other. A power
+-- tower is the whole of this list: it carries electricity or it carries
+-- nothing, and picking one up with water in hand is never a request for a
+-- water main out of a pylon.
+function E.soleTrade(c,n)
+  if not n then return nil end
+  local D=City.INFRA
+  if D and (D.towers[n.kind] or n.kind=="transformer") then
+    return c:licensed("power") and "power" or nil
+  end
+  return nil
+end
+
+-- What a drag out of `a` is carrying. The trade in hand while both ends take
+-- it; otherwise the one the ends themselves ask for.
+--
+-- Only commodities already standing at one of the two structures are
+-- considered -- what they produce, what they want, what is already tied into
+-- them -- and only when exactly one of those fits. A drag whose refusal has
+-- more than one cure keeps the trade in hand and says why it refused, because
+-- guessing between two answers is worse than asking.
+function E.dragTrade(c,a,b,state)
+  local want=state.commodity
+  local na=c.g.nodes[a]
+  local sole=E.soleTrade(c,na)
+  if not b then return sole or want end
+  local nb=c.g.nodes[b]
+  if not c:pipeError(a,b,want,state.rail) then return want end
+  sole=sole or E.soleTrade(c,nb)
+  if sole and sole~=want and not c:pipeError(a,b,sole,state.rail) then return sole end
+  local here={}
+  for _,n in ipairs({na,nb}) do
+    if n.commodity then here[n.commodity]=true end
+    for key in pairs(n.demands or {}) do here[key]=true end
+    for _,e in ipairs(c.g:edgesAt(n.id)) do
+      if e.alive and e.commodity then here[e.commodity]=true end
+    end
+  end
+  local found
+  for _,key in ipairs(Graph.ALL) do
+    if here[key] and key~=want and c:licensed(key) and not c:pipeError(a,b,key,state.rail) then
+      if found then return want end
+      found=key
+    end
+  end
+  return found or want
+end
+
 function E.useSize(state,key)
   local recent={key}
   for _,k in ipairs(state.recentSizes or {}) do
@@ -27,6 +76,50 @@ function E.useSize(state,key)
   end
   state.recentSizes=recent
 end
+-- What a trade costs after its licence. A licence is a piece of paper: the
+-- money is in the first thing that can actually make the commodity, and in
+-- the last hundred metres to the first customer. Quoting the paper alone is
+-- how a company ends up holding a licence it cannot use.
+function E.tradeEntry(c,name)
+  if name=="power" then
+    local cost,who
+    for _,key in ipairs(City.PLANT_ORDER) do
+      local price=c:plantCost(key)
+      if not cost or price<cost then cost,who=price,string.lower(City.PLANTS[key].name) end
+    end
+    -- A household connects to a pole with a transformer on it, and nothing
+    -- else, so that pole is part of the price of the first customer.
+    local pole=(City.INFRA.kinds.pole or {}).cost or 0
+    local fitting=(City.INFRA.upgrades.transformer.cost or {}).pole or 0
+    return cost+pole+fitting,
+      string.format("the cheapest generator is a %s at $%d, and a household connects through a pole with a transformer ($%d)",
+        who,cost,pole+fitting)
+  end
+  local extractor=City.EXTRACTOR_OF[name]
+  if extractor then
+    local cost=c:sourceCost(name)
+    return cost,string.format("a %s costs about $%d, and it needs a marked deposit",
+      string.lower(City.EXTRACTORS[extractor].name),cost)
+  end
+  local recipe=City.RECIPES[City.MADE_BY[name] or ""]
+  if recipe then
+    return recipe.cost,string.format("a %s costs $%d and eats %s",
+      string.lower(recipe.name),recipe.cost,E.recipeInputs(recipe))
+  end
+  local haven=City.price.terminal
+  return haven,string.format("it is landed at a haven ($%d) and hauled inland",haven)
+end
+
+-- The inputs of a recipe, written out.
+function E.recipeInputs(r)
+  local parts={}
+  for _,name in ipairs(Graph.ALL) do
+    if (r.inputs or {})[name] then parts[#parts+1]=r.inputs[name].." "..name end
+  end
+  if #parts==0 then return "nothing" end
+  return table.concat(parts,", ")
+end
+
 function E.recipeSummary(r)
   local G=require("graph")
   local needs,materials={},{}

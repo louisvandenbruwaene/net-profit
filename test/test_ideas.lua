@@ -127,9 +127,24 @@ end
 do
  local c=fresh(); local h=c:clientList(true)[1]; c:acceptClient(h.id)
  c.unlocked=function() return true end
+ -- Only the households that want a second utility are ever asked, and which
+ -- ones those are comes from the company's seed. Both answers are pinned here.
+ c.wantsSecondUtility=function() return false end
  assert(c:buyLicence('power'))
- check(h.powerRequest and not h.demands.power,'licence queues electricity for the existing household')
+ check(not h.powerRequest and not (h.demands or {}).power,'a household that wants only water is never asked for more')
+ c.licences.power=false; c.wantsSecondUtility=function() return true end
+ assert(c:buyLicence('power'))
+ check(h.powerRequest and not h.demands.power,'licence queues electricity for a household that wants it')
  assert(c:acceptClient(h.id)); check(h.demands.power==2,'acceptance activates a 10 kWh/day demand')
+ -- Which households want a second utility comes from the company and the
+ -- building, so it is the same share every time and the same answer after a
+ -- reload. It is a possibility, not a rule: roughly a third.
+ local d=fresh(); local want=0
+ for id=1,3000 do if d:unit(id,29)<City.DUAL.share then want=want+1 end end
+ check(math.abs(want/3000-City.DUAL.share)<0.04,'about a third of households ever ask for the second utility')
+ local kept=Save.unpack(Save.pack(c))
+ check(kept:wantsSecondUtility(kept.g.nodes[h.id])==c:wantsSecondUtility(h),
+   'and the same households still want it after a reload')
  local transformer=assert(c:build(1400,1100,'transformer'))
  local set=c:voltagesAt(transformer)
  check(set.low and set.medium and set.high and transformer.ports==6,'standalone transformer changes any voltage')

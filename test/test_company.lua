@@ -565,10 +565,14 @@ do
   end
   check(c:unlocked("massive"),"enough customers to bore the trunk past large")
   hub.autoWiden=true
-  local cash=c.money
+  local before=narrow.capMax
   local report=c:endDay()
-  check(report.widened>=1 and c.money<cash,"the standing order widens the feed and bills for it")
-  check(narrow.capMax>3,"the main into the hub is wider than it was")
+  -- The bill is the thing to check, not the closing balance: widening the
+  -- feed also un-starves the hub, so the day it happens can easily earn more
+  -- than the work cost.
+  check(report.widened>=1 and (report.widenCost or 0)>0,"the standing order widens the feed and bills for it")
+  check(narrow.capMax>before and narrow.size=="massive",
+    "the main into the hub is the next size up, which is what was paid for")
 end
 
 print("a chain of works turns ground into something worth selling")
@@ -745,6 +749,28 @@ do
   local stranded=assert(c:addClient("house")); stranded.demand=3; c:refresh()
   check(c:constraintFor(stranded.id)=="unconnected","an unconnected customer is told so")
   c.g:killNode(stranded.id)
+  -- A main that is full because it burst is a repair, not a narrow main, and
+  -- the answer offered has to be the one that works.
+  narrow.leaking=true; narrow.cap=0; c:refresh()
+  local burst,burstId=c:constraintFor(b.id)
+  check(burst=="repair" and burstId==narrow.id,"a burst main is named as a repair, not as a main that is too small")
+  assert(c:repairPipe(narrow.id)); c:refresh()
+  check(c:constraintFor(b.id)~="repair","and mending it answers the question")
+  -- Boring a main up is replacing it with the next size, charged and
+  -- delivered as one thing. It used to charge that whole quote for a single
+  -- unit of capacity.
+  local wide=narrow.cap
+  local quote,cash=c:boreCost(narrow,1),c.money
+  assert(c:upgradePipe(narrow.id))
+  check(narrow.cap>wide and narrow.cap==City.sizeOf(narrow.size).cap,
+    "boring a main up delivers the whole size it quoted for")
+  check(cash-c.money==quote,"and charges exactly that quote, once")
+  -- And a stub into a house has no next size, because a house never takes
+  -- more than the smallest main there is.
+  local stub=c.g.edges[assert(c:pipeBetween(relay.id,a.id,"water"))]
+  check(c:biggerSize(stub)==nil,"a customer's own main has no next size up")
+  check(select(2,c:upgradePipe(stub.id))=="maximum capacity reached",
+    "so boring it is refused rather than quietly breaking the rule")
   -- With the wells flat out, a bigger main is not the answer and the game says so.
   c.firstSource.output,c.firstSource.cap=14,14
   a.demand,b.demand=7,7
@@ -772,14 +798,61 @@ for _,seed in ipairs({4,17,31,52}) do
       assert(c:layPipe(trunk.id,n.id,"water",n.demand))
     end
   end
+  -- Off a fitting where there is one. A house chained to a house is legal and
+  -- cheap and is also a small main for ever, so a run that has to carry more
+  -- needs a fitting in it: this connects the way that leaves room to grow, and
+  -- chains to another customer only when nothing else will reach.
+  local function feed(target,commodity,size,allowChain)
+    local best,cost
+    for _,n in ipairs(c.g:aliveNodes()) do
+      local chain=n.kind=="client"
+      if n.id~=target.id and (allowChain or not chain) and not (chain and n.prospect)
+         and not c:pipeError(n.id,target.id,commodity,nil,size) then
+        local q=c:pipeCost(n.id,target.id,commodity,size)
+        if not best or q<cost then best,cost=n,q end
+      end
+    end
+    if best and c.money>=cost+150 then
+      return c:layPipe(best.id,target.id,commodity,size)~=nil
+    end
+    return false
+  end
+  -- What the game says to do when a run of houses is full and a house takes
+  -- only the smallest main there is: put a fitting in the run. A junction
+  -- beside the customer, a main into it that can be made wider later, and a
+  -- stub across.
+  local function junctionFeed(target)
+    for _,off in ipairs({{-90,0},{90,0},{0,-90},{0,90},{-90,-90},{90,90}}) do
+      local j=c:build(target.x+off[1],target.y+off[2],"junction")
+      if j then
+        if feed(j,target.commodity,"large",false)
+           and not c:pipeError(j.id,target.id,target.commodity,nil,target.demand) then
+          return c:layPipe(j.id,target.id,target.commodity,target.demand)~=nil
+        end
+        c:demolishNode(j.id)
+        return false
+      end
+    end
+    return false
+  end
   for _=1,120 do
     for _,e in ipairs(c.g.edges) do
       if e.alive and e.leaking and c.money>=c:repairCost(e)+60 then c:repairPipe(e.id) end
     end
     for _,short in ipairs(c:shortCustomers()) do
       local why,eid=c:constraintFor(short.id)
-      if why=="main" and c.money>c:boreCost(c.g.edges[eid],1)+60 then
+      -- A main with nothing wider to become -- a stub into a house is a small
+      -- main by rule -- has no price, and the answer to it is not money.
+      local bore=why=="main" and c:boreCost(c.g.edges[eid],1) or nil
+      if why=="repair" then
+        if c.money>=c:repairCost(c.g.edges[eid]) then c:repairPipe(eid) end
+      elseif bore and c.money>bore+60 then
         c:upgradePipe(eid)
+      elseif why=="main" then
+        -- The main named cannot be made any wider, which is what the game
+        -- says about a stub into a house. A second feed off a fitting is the
+        -- move, the same one the inspector recommends.
+        if not feed(short,short.commodity,short.demand,false) then junctionFeed(short) end
       elseif why=="output" then
         for _,w in ipairs(c.g:nodesOfKind("source")) do
           if w.commodity==short.commodity and (w.level or 1)<City.sourceMaxLevel
@@ -788,15 +861,8 @@ for _,seed in ipairs({4,17,31,52}) do
       end
     end
     for _,o in ipairs(c:clientList(true)) do
-      local best,cost
-      for _,n in ipairs(c.g:aliveNodes()) do
-        if not (n.kind=="client" and n.prospect) and not c:pipeError(n.id,o.id,o.commodity) then
-          local q=c:pipeCost(n.id,o.id,o.commodity,o.demand)
-          if not best or q<cost then best,cost=n,q end
-        end
-      end
-      if best and c.money>=cost+150 and (c.spare[o.commodity] or 0)>=o.demand then
-        assert(c:layPipe(best.id,o.id,o.commodity,o.demand))
+      if (c.spare[o.commodity] or 0)>=o.demand
+         and (feed(o,o.commodity,o.demand,false) or junctionFeed(o) or feed(o,o.commodity,o.demand,true)) then
         assert(c:acceptClient(o.id))
       end
     end
