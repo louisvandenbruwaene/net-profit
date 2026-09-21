@@ -8,7 +8,7 @@ Most everyday balance changes now live in `src/data/`. These files contain value
 | Pipes and connections | `src/data/pipes.lua` | capacities, lining costs, leakage modifiers, endpoint size limits |
 | Engineering, farms and environment | `src/data/infrastructure.lua` | tower spacing, booster distances, upgrade prices, customer voltages, amperage, pump head, filtration, pollution, cleanup and farm recipes |
 | Terrain size and frequency | `src/data/terrain.lua` | park and mountain size ranges, massive obstacle chance and distance from the start |
-| Customers | `src/data/customers.lua` | daily rates, demand ranges, patience, spawn weights |
+| Customers | `src/data/customers.lua` | daily rates, demand ranges, patience, spawn weights, `DUAL` (how many households ever want a second utility) |
 | Factories and sources | `src/data/production.lua` | recipes, inputs, output, construction cost, extractors and power plants |
 | Freight and storage | `src/data/freight.lua` | transport modes, hubs, havens, material bills and warehouse limits |
 | Unlocks and rewards | `src/data/progression.lua` | customer thresholds, municipal grants, departments and permits |
@@ -43,6 +43,39 @@ Do not try to fix it in `N.chain`. The `240` in `src/network_builder.lua` is not
 Plants follow the same rule through `unitBase`, `unitGrowth`, `unitStep` and `maxUnits` in `production.lua`: another reactor on a commissioned site reuses the grid connection, the cooling and the crew, so it is always cheaper per megawatt than a second site.
 
 In recipes, `inputs` are **per output unit**: crop farm output `rate = 12` with `water = 3` consumes 36 water per day at full production. Costs are dollars; probabilities such as `leakBase = 0.07` mean 7%. Keep pipe sizes in ascending capacity order and recipe chains acyclic. Keep existing keys such as `water`, `house` and `turbine`: rules and old saves use those identifiers.
+
+## What a licence is worth
+
+`powerLicence` and the rest in `economy.lua` are free to type but not free to
+choose. The panel that sells one quotes the rest of the bill beside it, from
+`E.tradeEntry`: the cheapest generator, the well and its deposit, or the works
+and what it eats. A licence priced far below that reads as a cheap trinket in
+front of a bill the player cannot pay, which is what $340 in front of an $850
+river turbine and a transformer pole was. Move a source price and the licence
+in front of it is worth looking at again.
+
+## Text that fits
+
+`make layout` renders every panel and reports any two strings that land on the
+same pixels. It is a measurement like `make anatomy`, not a test: it plays the
+smoke walkthrough with `src/layout_audit.lua` recording the box every string
+actually occupies, then does the same over a company built for the purpose in
+`src/stress_walkthrough.lua` -- seven figures of cash, a long company name,
+every building, every inspector, every tab, at both window sizes and scrolled
+to both ends. Around 560 frames, and it reports three things:
+
+- **overlapping pairs**, by region. `panel`, `header` and `footer` are layout
+  faults. `map` is two labels on the city itself, which is what zoom is for.
+- **squeezed**, a label drawn below full size because it did not fit the space
+  it was given. `single` and `button` shrink rather than collide, so this is
+  the same fault caught a moment earlier. Below about 0.85 it is worth fixing;
+  a deliberately long company name sitting at 0.68 is the mechanism working.
+- **broken words**, where a word too long for its column was cut in the middle
+  rather than wrapped. "Automation hub" in a 64 point tile read "Automati / on
+  hub" until the tile gave the name its full width.
+
+Text hidden under an opaque panel is not reported, so a tooltip or a lesson
+box over the map is not a finding. Run it after moving anything in a panel.
 
 Run `make test` after an edit. Some tests deliberately assert the current balance, so an intentional balance change may require updating those expectations after checking its effect. `make smoke` exercises the real interface with isolated test companies. `make run` runs source edits immediately; the installed app requires `make mac-install` to rebuild it.
 

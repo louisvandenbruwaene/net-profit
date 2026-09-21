@@ -11,6 +11,11 @@ jobs:
       - run: xvfb-run -a make smoke soak
         env:
           ALSOFT_DRIVERS: "null"
+      # A measurement rather than a test, like `bench`: it prints what the
+      # interface draws on top of itself and does not fail the build for it.
+      - run: xvfb-run -a make layout
+        env:
+          ALSOFT_DRIVERS: "null"
       - run: make dist
       - uses: actions/upload-artifact@v4
         with:

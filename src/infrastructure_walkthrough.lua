@@ -29,6 +29,23 @@ return function(app,capture,click,scrollTo,check)
   app.action('layPipe',tower.id,customer.id,'power','medium')
   app.action('acceptClient',customer.id)
   check(c.served[customer.id]==5,'application actions deliver power through towers with transformers')
+  -- A drag out of a power tower is a cable, whatever the panel had in hand.
+  -- The panel follows the two structures rather than the other way round, so
+  -- picking up a pylon with water selected does not have to be undone first.
+  local E=require('experience')
+  app.state.commodity='water'; app.state.rail=nil; app.state.tool=nil
+  check(E.dragTrade(c,tower.id,nil,app.state)=='power','a tower in hand asks for electricity')
+  app.action('build',1530,1060,'pylon'); local spare=c.g.nodes[app.state.node]
+  check(E.dragTrade(c,tower.id,spare.id,app.state)=='power','and so does a drag from one tower to another')
+  local cam=app.camera()
+  cam.scale,cam.targetScale=1,1
+  cam:centerOn(tower.x,tower.y)
+  local sx,sy=cam:toScreen(tower.x,tower.y)
+  love.mousepressed(sx,sy,1)
+  check(app.state.drag==tower.id,'pressing a tower starts a drag out of it')
+  check(app.state.commodity=='power','and switches the trade in hand to electricity')
+  love.mousereleased(sx,sy,1)
+  check(E.dragTrade(c,source.id,hv.id,app.state)=='power','a generator and a tower still agree on electricity')
   app.action('focusNode',tower.id)
   capture('net-profit-27-transformer',app,1100,700)
   click('back-to-build')

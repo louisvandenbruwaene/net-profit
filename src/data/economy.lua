@@ -9,7 +9,11 @@ Data.price = {
   exchange = 1400, dc = 1500,
   terminal = 2200,
   stop = 120, station = 260, resort = 4800,
-  powerLicence = 340, beerLicence = 600, oilLicence = 1500, foodLicence = 900,
+  -- A licence is priced against what the trade costs to enter, not against
+  -- the paper it is written on. Electricity was $340 in front of a $850
+  -- generator and a transformer pole, which made it read as a cheap trinket
+  -- and left companies holding a licence they could not yet use.
+  powerLicence = 900, beerLicence = 600, oilLicence = 1500, foodLicence = 900,
   internetLicence = 2400,
   qualityBase = 140,
   ads = 90,

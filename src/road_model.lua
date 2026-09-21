@@ -15,6 +15,12 @@ return function(City)
  City.MODES.highway.blurb='Container trucks use connected normal roads and highways.'
  local household={house=true,home=true,estate=true,subscriber=true}
  function City:quantity(key,value) return key=='power' and string.format('%g kWh/day',value*5) or string.format('%g %s',value,require('symbols').get(key)) end
+ -- Two figures in one unit. Spelling the unit out twice -- "0 kWh/day / 10
+ -- kWh/day" -- is half again as wide as the column it is read in.
+ function City:quantityPair(key,a,b)
+  if key=='power' then return string.format('%g / %g kWh/day',a*5,b*5) end
+  return string.format('%g / %g %s',a,b,require('symbols').get(key))
+ end
  function City:fullyServed(c)
   for key,want in pairs(c.demands or {}) do if (key==c.commodity and (self.served[c.id] or 0) or (((self.servedBy or {})[c.id] or {})[key] or 0))<want then return false end end
   return (self.served[c.id] or 0)>=c.demand
@@ -153,8 +159,16 @@ return function(City)
   for _,n in ipairs(self.g:aliveNodes()) do
    if n.kind=='client' and household[n.clientType] then
     n.utilityRates=n.utilityRates or {water=4,power=6}; n.demands=n.demands or {[n.commodity]=n.demand}; n.demands[n.commodity]=n.demand
-    if self:licensed('water') then n.demands.water=n.demands.water or (n.clientType=='estate' and 6 or 3) end
-    if self:licensed('power') and (n.prospect or n.powerAccepted or n.demands.power) then n.demands.power=n.demands.power or (n.clientType=='estate' and 4 or 2) end
+    -- A household takes what it signed for. A second utility is a separate
+    -- offer with its own rate, so it appears here only once that offer has
+    -- been accepted -- and a saved company that was given one by the old rule
+    -- has it taken back off, because nobody ever agreed to it.
+    if n.powerAccepted and self:licensed('power') then
+     n.demands.power=n.demands.power or (n.clientType=='estate' and 4 or 2)
+    end
+    for key in pairs(n.demands) do
+     if key~=n.commodity and not (key=='power' and n.powerAccepted and self:licensed('power')) then n.demands[key]=nil end
+    end
    end
   end
   for _,n in ipairs(self.g:nodesOfKind('depot')) do

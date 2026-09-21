@@ -254,6 +254,17 @@ return function(City)
     if c.powerRequest and not c.prospect then return (c.powerOfferRate or 6)/6-1 end
     return self:ratePremium(c)
   end
+  -- Whether this household would ever take a second utility. Decided from a
+  -- hash of the company and the building rather than from City:random(), so it
+  -- neither reshuffles the stream a save shares with its leaks and offers nor
+  -- changes when the company is reloaded.
+  --
+  -- A house wants water. Some houses also want electricity, and those are the
+  -- only ones ever asked: a household is not two contracts by definition.
+  function City:wantsSecondUtility(c)
+    if c.clientType~='house' and c.clientType~='estate' then return false end
+    return self:unit(c.id,29)<City.DUAL.share
+  end
   function City:offerElectricity(c)
     c.powerRequest=true; c.powerOfferRate=self:offerRate(6)
   end
@@ -285,7 +296,9 @@ return function(City)
   function City:buyLicence(key)
     local ok,why=buyLicence(self,key)
     if ok and key=='power' then
-      for _,c in ipairs(self:clientList()) do if c.commodity=='water' and (c.clientType=='house' or c.clientType=='estate') then self:offerElectricity(c) end end
+      for _,c in ipairs(self:clientList()) do
+        if c.commodity=='water' and self:wantsSecondUtility(c) then self:offerElectricity(c) end
+      end
       self:refresh()
     end
     return ok,why
@@ -319,8 +332,9 @@ return function(City)
     local report=endDay(self)
     if report then
       for _,c in ipairs(self:clientList()) do
-        if self.licences.power and c.commodity=='water' and (c.clientType=='house' or c.clientType=='estate') and not (c.demands or {}).power
-          and not c.powerRequest and (not c.powerDeclined or self.day-c.powerDeclined>=7) and self:random()<math.min(1,3*(City.rules.arriveBase+self.reputation/500+(self.adDaysLeft>0 and City.rules.adBoost or 0))) then self:offerElectricity(c) end
+        if self.licences.power and c.commodity=='water' and self:wantsSecondUtility(c) and not (c.demands or {}).power
+          and not c.powerRequest and (not c.powerDeclined or self.day-c.powerDeclined>=7)
+          and self:random()<City.DUAL.daily then self:offerElectricity(c) end
       end
       self:refresh()
     end

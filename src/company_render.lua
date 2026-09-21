@@ -1167,7 +1167,7 @@ function Draw.world(city, cam, state)
       if e.unboosted then
         label("NO BOOSTER",(ax+bx)/2,(ay+by)/2-22,P.bad,R.fonts.tiny)
       elseif e.leaking or state.edge == e.id or state.hoverEdge == e.id or state.bottlenecks then
-        label((e.commodity=="power" and (city:quantity("power",math.abs(flow)).." / "..city:quantity("power",e.effectiveCap or e.cap)) or (city:quantity(e.commodity,math.abs(flow)).." / "..city:quantity(e.commodity,e.effectiveCap or e.cap)))..(e.voltage and ("  "..City.INFRA.voltages[e.voltage].kv.." kV") or ""),(ax+bx)/2,(ay+by)/2-22,e.leaking and P.bad or P.textDim,R.fonts.tiny)
+        label(city:quantityPair(e.commodity,math.abs(flow),e.effectiveCap or e.cap)..(e.voltage and ("  "..City.INFRA.voltages[e.voltage].kv.." kV") or ""),(ax+bx)/2,(ay+by)/2-22,e.leaking and P.bad or P.textDim,R.fonts.tiny)
       end
       fading(false)
     end
@@ -1218,7 +1218,7 @@ function Draw.world(city, cam, state)
       if r>=7.5 and (focused or (not n.prospect and (n.supplyClosed or not city:fullyServed(n)))) then
         local title = n.prospect and "OFFER" or n.supplyClosed and "SHUT"
           or n.demands and n.demands.water and n.demands.power and (city:fullyServed(n) and "Water + electricity supplied" or "Water / electricity short")
-          or city:quantity(n.commodity,served).." / "..city:quantity(n.commodity,n.demand)
+          or city:quantityPair(n.commodity,served,n.demand)
         label(title,x,y+r*1.5+8,n.prospect and P.energy or (city:fullyServed(n) and P.good or P.warn))
       end
       if focused then

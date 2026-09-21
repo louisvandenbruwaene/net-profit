@@ -96,10 +96,10 @@ Requests expire after five days.
 | Action | Control |
 | --- | --- |
 | Lay a pipe or cable | Drag from one structure to another |
-| Choose the trade | Water / Power / Beer / Oil in Build |
+| Choose the trade | Water / Power / Beer / Oil in Build, or drag: two structures that only take one trade put it in hand themselves |
 | Choose the size of main | Pipe options in Build; connections fit their endpoints automatically |
 | Choose the lining | Pipe options → Bare / Lined / Armoured / Sealed, up to what the company can lay |
-| Replace a main | Select it, then a size under "Dig it out and replace it with" |
+| Replace a main | Select it, then a size under "Replace pipe" - or U to go up one size |
 | Choose how it is carried | MAIN / RAIL / HWY / SEA / AIR under the capacity row, or T |
 | Inspect | Click a structure, a customer, a main, or empty ground |
 | Build a structure | Toolbar or keys 1-9, then place |
@@ -142,6 +142,12 @@ quarry goes, so the permits that make them passable are an investment rather
 than a toll. Only badged structures and customers are interactive. Terrain boundaries still show the exact area used by construction
 rules. Supplied houses light their windows; supplied industry becomes active.
 District landmarks and stories explain the character of each area.
+
+A power tower carries electricity and nothing else, so picking one up puts
+electricity in hand whatever the panel had selected, and the preview, the price
+and the main that gets laid all agree with it. The same happens when a drag
+lands on a structure that leaves only one possible answer. Where two answers
+would fit, the trade in hand is kept and the usual refusal says why.
 
 While dragging a line, the quote shows the projected supply, change in daily net
 income (including upkeep), and remaining cash. Offer inspectors estimate the
@@ -210,8 +216,10 @@ closing a day is final.
   the rate you set, offers in range signing themselves, and wires each one up itself:
   a real chain of pipe, splits and pumps built and paid for exactly like you had drawn
   it by hand. Raise the floor and the cheap houses drop off. When a hub is short, what
-  it landed goes to the best payers first. Its feed widens itself at the usual price
-  until you switch that off.
+  it landed goes to the best payers first. Its feed replaces itself with the next
+  size up, at the price that size costs, until you switch that off - and never
+  past a large main, because a trunk across the city is your decision and not
+  a standing order.
 - **The sea.** North of the first row is water that does not end. Islands in it
   are bought outright rather than next door, and need a harbour to reach. What
   they are for is the wind: a wind park burns nothing at all and will stand
@@ -222,8 +230,8 @@ closing a day is final.
   the cheapest freight there is and only calls at the coast; air costs more than
   most freight is worth and flies one aircraft type per route. Beer, oil and
   water need three different mains and share one train, each in its own wagon.
-- **Mains have fixed sizes and nothing widens them.** Small carries 7, medium
-  15, large 25; massive mains carry 100 once unlocked. If the small main you laid last year is too small now, it comes
+- **Mains have fixed sizes and nothing widens them.** Small carries 10, medium
+  30, large 50; massive carries 100 and trunk 200, each once unlocked. If the small main you laid last year is too small now, it comes
   out of the ground and a bigger one goes in, and the old pipe is worth about a
   third of what it cost as scrap. One large main costs less than the four small
   ones it replaces, which is why a trunk into a hub beats a stub to every house.
@@ -242,7 +250,12 @@ closing a day is final.
 - **Works.** Ten of them, one output each, and a works missing any one of its
   inputs makes nothing at all. There is no half recipe. The inspector names
   whichever input is holding it back, which is the same question the game
-  already answers for a short customer.
+  already answers for a short customer. That answer is one of five: a shut
+  valve, nothing connected, a burst main to mend, a main to widen, or wells
+  already pumping flat out. It names a main that can actually be made wider,
+  and where none can - a customer takes a small main and nothing else, however
+  long the run of houses behind it - it says to put a fitting in the run
+  instead.
 - **Design is rewarded.** A main twice as wide is nothing like twice as dear to
   lay, so one big trunk into a hub with short spurs out of it beats a separate
   main to every house from about nine customers on, and beats it on upkeep from
@@ -252,8 +265,8 @@ closing a day is final.
   taken in at the yards, and spent from there. A highway needs none, which is
   how the first steel ever reaches the city.
 - **Departments.** Surveyors report on ground you have not bought. Dispatchers
-  sign any offer over a rate you set. Engineers widen any main that has run full
-  for three days. Estates buy ground when cash is over your reserve. Each is
+  sign any offer over a rate you set. Engineers replace any main that has run
+  full for three days with the next size up, to a large main at most. Estates buy ground when cash is over your reserve. Each is
   hired once, paid daily, and unlocks at a company size where doing it by hand
   has become clerical work.
 
@@ -316,12 +329,22 @@ trunk is a standing liability and a garden stub is not.
 | Pays | $4 - $6 / unit | $10 / unit | $16 / unit | $26 / unit |
 | Tie-in, each end | $14 | $20 | $26 | $44 |
 | Trench, per metre | $0.11 | $0.16 | $0.21 | $0.34 |
-| Licence | held | $340 | $600 | $1500 |
+| Licence | held | $900 | $600 | $1500 |
+
+A licence is priced against what the trade costs to enter rather than against
+the paper it is written on, and the panel that sells one says what the rest of
+the bill is: the cheapest generator, the well and its deposit, the works and
+what it eats. Electricity was $340 in front of an $850 river turbine and a
+transformer pole, which read as a cheap trinket and left companies holding a
+licence they could not yet use.
 
 ## Company Decisions
 
 - **Connections:** new customers appear as offers, and every one negotiates its
-  own price. Early on the spread is almost nothing, so a small company cannot be
+  own price. A household signs for one utility. Some houses and estates -- about
+  a third of them, fixed per building -- also want electricity, and that arrives
+  later as its own offer at its own rate. The rest are content with water, so a
+  house is one contract unless it asks for two. Early on the spread is almost nothing, so a small company cannot be
   killed by three unlucky draws; as the company grows the spread widens until a
   lowball house is worth refusing outright and a premium factory is worth
   rerouting the map for. Declining costs nothing. Offers expire after several
@@ -488,6 +511,8 @@ make smoke         # real input callbacks, company screens, save checks
 make soak          # 60+ rendered company days
 make tutorial      # the opening input walkthrough
 make shots         # exact 1440x880 and 1100x700 rendered screenshots
+make anatomy       # the shape of the networks these prices produce
+make layout        # every string the interface draws, and any two that collide
 make audio         # synthesized audio report
 make dist          # package the game
 ```
@@ -509,6 +534,8 @@ and window tests under Xvfb and uploads the packaged game.
 | `src/company_save.lua` | Six save slots, versioned saves, random-state persistence |
 | `src/experience.lua` | Isolated planning previews, ambitions, names, district stories and route overlays |
 | `src/company_walkthrough.lua` | Rendered input and screenshot checks |
+| `src/layout_audit.lua` | Records the box every drawn string occupies, and reports collisions |
+| `src/stress_walkthrough.lua` | Every panel of a large company, drawn for `make layout` to measure |
 | `test/test_company.lua` | Regression and multi-company economy tests |
 | `test/test_people.lua` | Population, trips, tolls, routes, petrol, resorts, cars and the internet |
 | `test/test_save_location.lua` | Save slots, and finding a company either build wrote |

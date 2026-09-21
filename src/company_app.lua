@@ -7,6 +7,8 @@ local UI = require("company_ui")
 local R = require("render")
 local A = require("audio")
 local P = require("palette")
+local Audit = require("layout_audit")
+local Graph = require("graph")
 local App = {}
 local city,cam
 local state={commodity="water",havenKind="port",plant="nuclear",recipe="turbine",size="small",recentSizes={"small"},grade=1,capacity=1,invest=100,borrow=500,tab="network",scroll=0,undo={}}
@@ -81,6 +83,19 @@ local function resetSession()
   state.invest=100
   state.rail=nil; state.transit=nil
   state.filter=nil; state.bottlenecks=nil; state.spof=nil; state.advisorFocus=nil; state.job=nil; state.rename=nil; state.advanced=nil; state.lineOptions=nil; state.showPermits=nil
+end
+
+-- Putting a different trade in hand. Used when the structures being joined
+-- only accept one, so the panel, the preview and the main that gets laid all
+-- agree without the player having to go back and press the trade first.
+local function setTrade(key)
+  if not key or key==state.commodity then return end
+  state.commodity=key
+  state.people=nil
+  -- Electricity and fibre have no bulk mode: nothing is landed at a haven.
+  if Graph.formOf(key)=="energy" or Graph.formOf(key)=="data" then state.rail=nil end
+  state.filter=nil
+  toast(string.upper(key).." selected")
 end
 
 -- Selecting anything on the map is a question, and the sidebar is the answer.
@@ -327,11 +342,16 @@ local function hit(x,y)
 end
 
 function love.load(args)
+  local audit=false
   for _,a in ipairs(args or {}) do
     if a=="--smoke" or a=="--soak" or a=="--shot" or a=="--tut" or a=="--audio"
        or a=="--probe" then testMode=a end
+    if a=="--audit" then audit=true end
   end
   R.init(); A.init()
+  -- After R.init, so the recorder wraps the symbol-aware print rather than
+  -- being wrapped by it.
+  if audit then Audit.enable(true) end
   if love.window and love.window.setIcon and love.image then love.window.setIcon(love.image.newImageData("assets/net-profit.png")) end
   -- Reports where this build keeps its company and what it found there, then
   -- quits. The one question that is genuinely hard to answer any other way,
@@ -411,6 +431,9 @@ function love.update(dt)
   -- either end would refuse.
   if state.drag and not state.rail and not state.transit then
     local target=state.hoverNode~=state.drag and state.hoverNode or nil
+    -- A cable dragged out of a tower is a cable whatever was selected in the
+    -- panel: the trade follows the two structures, and the panel follows it.
+    if target then setTrade(E.dragTrade(city,state.drag,target,state)) end
     state.size=E.dragSize(city,state.drag,target,state)
   end
   if state.toastTime then
@@ -430,9 +453,11 @@ function love.update(dt)
 end
 
 function love.draw()
+  Audit.begin(state.modal and ("modal:"..state.modal) or state.tab)
   love.graphics.clear(P.bg)
   Draw.world(city,cam,state)
   UI.draw(city,state,action)
+  Audit.finish()
 end
 
 function love.mousepressed(x,y,button)
@@ -470,7 +495,10 @@ function love.mousepressed(x,y,button)
     if node then
       if state.people then state.transit=state.transit or "road"; state.rail=nil end
       state.drag=node
-      if not state.rail and not state.transit then state.size=E.dragSize(city,node,nil,state) end
+      if not state.rail and not state.transit then
+        setTrade(E.dragTrade(city,node,nil,state))
+        state.size=E.dragSize(city,node,nil,state)
+      end
     end
     return
   end
@@ -498,6 +526,7 @@ function love.mousereleased(x,y,button)
     if target and target~=state.drag and state.transit then
       action("layLink",state.drag,target,state.transit)
     elseif target and target~=state.drag and not state.people then
+      if not state.rail then setTrade(E.dragTrade(city,state.drag,target,state)) end
       local size=not state.rail and E.dragSize(city,state.drag,target,state) or nil
       if size then state.size=size end
       if action("layPipe",state.drag,target,state.commodity,
@@ -587,6 +616,7 @@ end
 
 function love.resize() R.retune(); fit() end
 function love.quit()
+  Audit.report()
   if saveBlocked then return end
   if not save() then return true end
 end
