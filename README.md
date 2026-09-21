@@ -505,34 +505,41 @@ the company, so loading preserves future outcomes.
 
 ## Rounds Mode
 
-A second game in the same window. **Rounds** in the company footer opens it,
-**Company** in its sidebar goes back, and the next launch reopens whichever was
-open. `make rounds` (or `love . --rounds`) starts straight in it. The run is
-saved to `rounds_run.lua` beside the companies and never touches them.
+A tower-defence game played on the company game itself. **Rounds** in the
+footer opens it and **Company** goes back. The next launch reopens whichever was
+open, and `make rounds` (or `love . --rounds`) starts straight in it. The run is
+saved to `rounds_city.lua` beside the companies and never touches a slot.
 
-Forty rounds on one map. Between rounds you build wells on springs, junctions,
-water towers and mains. A round then drops houses into the open zones one at a
-time, and each house gets its whole demand or goes dry. Every round has more
-houses than the last.
+A run is an ordinary company city with rounds instead of days, so everything
+carries over: the map and its springs, every building and main, pipe sizes,
+levels, repairs, undo, the inspector and the drawing. Only time is different.
+In a break you build. In a round, houses arrive one at a time in the open zones,
+and each one gets its whole demand or goes dry. Every round has more houses than
+the last.
 
-- A house is served only inside the ring of a building. The preview shows, zone
-  by zone, what is coming and how much of each zone your rings reach.
-- A served house keeps its water for the rest of the round, so later arrivals
-  only get what is left. Each arrival is one max-flow solve.
-- A dry house costs as many lives as it wanted water. Standard runs have 40
+- Houses are served by **automation hubs**: a hub serves every house inside its
+  radius, and its level sets that radius. The Round tab and the map show how
+  much of each zone your hubs reach.
+- A house is accepted only if the network can serve it on top of every house
+  already accepted, so a round is lost house by house. When one goes dry, the
+  toast says why (no hub, no water behind the hub, a full main, spent wells)
+  and the main to blame flashes.
+- A dry house costs as many lives as it wanted water. Standard runs have 100
   lives. Strict runs end on the first dry house.
 - Pay comes at the end of a round: a cheque for the round, money per unit
-  delivered, a bonus for spare supply and a streak bonus for clean rounds.
-  Anything bought in the current break sells back in full. Older things sell
-  back at 70%.
-- Zones open on a fixed schedule, and a new zone gets twice the houses in its
-  first round. From round 6 there are announced shocks: drought, heatwave and
-  burst mains, which break the widest mains most often. Every tenth round
-  brings tower blocks.
-- After round 40 the run carries on as freeplay.
+  delivered, a bonus for spare supply and a streak bonus for clean rounds,
+  less a round of the network's upkeep. Building is closed while houses arrive.
+- Districts open as zones on a fixed schedule, and a new zone gets twice the
+  houses in its first round. Other districts can still be bought for their
+  springs. The company's customer-count gates read "most houses served in one
+  round" instead. Materials are waived, and hubs are open from the start.
+- From round 6 there are announced shocks: drought, heatwave and burst mains.
+  A burst main stays broken until you repair it, and lined mains burst less.
+  Every tenth round brings tower blocks. After round 40 the run carries on as
+  freeplay.
 
-All numbers are in `src/data/rounds.lua`. `src/rounds_bot.lua` is a plain player
-the tests use to check a run can still be won after a change.
+The numbers are in `src/data/rounds.lua`. `src/rounds_bot.lua` is a plain player
+the tests use to check that a run still goes deep after a change.
 
 ## Verification
 
@@ -572,10 +579,9 @@ and window tests under Xvfb and uploads the packaged game.
 | `test/test_company.lua` | Regression and multi-company economy tests |
 | `test/test_people.lua` | Population, trips, tolls, routes, petrol, resorts, cars and the internet |
 | `test/test_save_location.lua` | Save slots, and finding a company either build wrote |
-| `src/rounds.lua` | Rounds mode: map, building, round plans, the per-house solve, saves |
-| `src/rounds_app.lua` | Rounds mode screen, input and playback |
+| `src/rounds.lua` | Rounds mode on a City: zones, round plans, the per-house solve, payouts |
 | `src/rounds_bot.lua` | A plain Rounds player used to check balance |
-| `test/test_rounds.lua` | Rounds rules, determinism, saves and winnability |
+| `test/test_rounds.lua` | Rounds rules, determinism, saves and how deep a run goes |
 
 The previous contract game is retained for comparison with
 `love . --contracts`. Its graph and generation tests remain part of the suite.

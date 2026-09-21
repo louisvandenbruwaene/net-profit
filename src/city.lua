@@ -4109,7 +4109,7 @@ City.ORDER_LIST = { "surveyors", "dispatchers", "engineers", "estates" }
 function City:orderAvailable(key)
   local spec = City.ORDERS[key]
   if not spec then return false end
-  return #self:clientList() >= spec.clients
+  return self:progress() >= spec.clients
 end
 
 function City:hireOrder(key)
@@ -4345,5 +4345,6 @@ require("road_model")(City)
 require("ideas")(City)
 require("resilience")(City)
 require("upgrades")(City)
+require("rounds")(City)
 
 return City

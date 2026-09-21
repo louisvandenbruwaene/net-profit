@@ -27,10 +27,13 @@ local function text(s,x,y,font,color,width,align)
   if width then lg.printf(tostring(s),x,y,width,align) else lg.print(tostring(s),x,y) end
 end
 
-local function single(s,x,y,font,color,width)
+local function single(s,x,y,font,color,width,align)
   s=tostring(s)
   local f=R.fonts[font or "body"]
-  local scale=math.min(1,width/math.max(1,SF.width(s,f)))
+  local natural=SF.width(s,f)
+  local scale=math.min(1,width/math.max(1,natural))
+  if align=="right" then x=x+width-natural*scale
+  elseif align=="center" then x=x+(width-natural*scale)/2 end
   lg.setFont(f); lg.setColor(color or P.text)
   lg.print(s,x,y,0,scale,scale)
 end
@@ -949,7 +952,7 @@ local function buildPanel()
   for _,name in ipairs(Graph.TRADES) do
     if city.licences[name] then trades[#trades+1]=name end
   end
-  local nextTrade=city:nextLicence()
+  local nextTrade=not city.rounds and city:nextLicence()
   if nextTrade then trades[#trades+1]=nextTrade end
   for i,name in ipairs(trades) do
     local spec=Graph.COMMODITIES[name]
@@ -963,10 +966,13 @@ local function buildPanel()
       not state.people and state.commodity==name,spec.color)
   end
   local pi=#trades
-  button("people",S.get("roads"),M+(pi%4)*76,y+math.floor(pi/4)*40,72,36,
-    function() selectService("people") end,city:unlocked("roads"),
-    "Roads carry people and commodities. Available once people settle here.",state.people,P.energy)
-  y=y+math.ceil((#trades+1)/4)*40+2
+  if not city.rounds then
+    button("people",S.get("roads"),M+(pi%4)*76,y+math.floor(pi/4)*40,72,36,
+      function() selectService("people") end,city:unlocked("roads"),
+      "Roads carry people and commodities. Available once people settle here.",state.people,P.energy)
+    pi=pi+1
+  end
+  y=y+math.ceil(pi/4)*40+2
   -- Everything else the company moves. A commodity appears here once there is
   -- somewhere for it to come from, so the panel is four buttons on day one and
   -- fills up as the empire does.
@@ -2246,7 +2252,220 @@ local function stats()
   end
   UI.contentBottom=y+24+state.scroll
 end
+--------------------------------------------------------------------------------
+-- Rounds
+--------------------------------------------------------------------------------
+
+local function plural(n,word)
+  word=string.lower(word)
+  return n.." "..word..(n==1 and "" or "s")
+end
+
+-- A card with a coloured edge: a shock, a boss, anything the round is about.
+local function card(title,body,y,color)
+  local _,lines=R.fonts.small:getWrap(body,CW-20)
+  local h=30+#lines*R.fonts.small:getHeight()
+  lg.setColor(P.with(color,0.12)); lg.rectangle("fill",M,y,CW,h,5)
+  lg.setColor(P.with(color,0.6)); lg.setLineWidth(1); lg.rectangle("line",M+0.5,y+0.5,CW-1,h-1,5)
+  single(title,M+10,y+6,"small",color,CW-20)
+  text(body,M+10,y+24,"small",P.textDim,CW-20)
+  return h+8
+end
+
+local function roundTab()
+  local y=TOP-state.scroll
+  local rs=city.rounds
+  local D=City.ROUNDS
+  if rs.phase=="round" then
+    heading("ROUND "..rs.round.." RUNNING",y); y=y+28
+    single(rs.arrived.." of "..#rs.queue.." houses",M,y,"mid",P.text,CW); y=y+30
+    lg.setColor(P.surface); lg.rectangle("fill",M,y,CW,6,3)
+    lg.setColor(P.flow); lg.rectangle("fill",M,y,CW*rs.arrived/math.max(1,#rs.queue),6,3)
+    y=y+18
+    row("Served",rs.log.served,y,P.good); y=y+26
+    row("Dry",rs.log.dry,y,rs.log.dry>0 and P.bad or P.textDim); y=y+26
+    row("Lives lost",rs.log.lost,y,rs.log.lost>0 and P.bad or P.textDim); y=y+34
+    local dry={}
+    for _,n in ipairs(city:roundHouses()) do if n.dry then dry[#dry+1]=n end end
+    if #dry>0 then
+      heading("WENT DRY",y); y=y+26
+      for i=#dry,math.max(1,#dry-7),-1 do
+        local n=dry[i]
+        button("dry-"..n.id,"",M,y,CW,44,function() act("focusNode",n.id) end,true,"Show this house",false,P.bad)
+        single(City.ROUND_HOUSE[n.roundKind].name.."  -"..n.demand,M+12,y+6,"small",P.bad,CW-24)
+        single(n.dryReason or "",M+12,y+24,"tiny",P.textDim,CW-24)
+        y=y+50
+      end
+    end
+    UI.contentBottom=y+state.scroll
+    return
+  end
+  local plan=city:roundPlan()
+  heading(rs.phase=="lost" and "RUN OVER" or ("NEXT: ROUND "..rs.round),y); y=y+28
+  single(#plan.houses.." houses",M,y,"mid",P.text,150)
+  single(plan.demand.." water",M+150,y+4,"body",P.textDim,CW-150,"right"); y=y+32
+  local supply=city:roundSupply(plan)
+  local short=supply<plan.demand
+  single("Wells give "..supply.." of "..plan.demand..(plan.shocks.drought and " in the drought" or ""),M,y,"small",short and P.bad or P.good,CW)
+  y=y+18
+  lg.setColor(P.surface); lg.rectangle("fill",M,y,CW,6,3)
+  if supply>0 then
+    lg.setColor(short and P.bad or P.good)
+    lg.rectangle("fill",M,y,math.max(6,CW*math.min(1,supply/math.max(1,plan.demand))),6,3)
+  end
+  y=y+18
+  for _,key in ipairs(D.SHOCK_ORDER) do
+    if plan.shocks[key] then
+      local sh=D.SHOCKS[key]
+      local body=sh.blurb
+      if key=="burst" then
+        body=(plan.bursts==1 and "One main breaks" or (plan.bursts.." mains break")).." as the round starts, the widest likeliest, and stays broken until repaired. A zone fed by two mains rides it out."
+      end
+      y=y+card(sh.name,body,y,P.warn)
+    end
+  end
+  if plan.boss then
+    local block=City.ROUND_HOUSE.block
+    y=y+card("TOWER BLOCK","Wants "..math.ceil(block.demand*(plan.shocks.heatwave and D.SHOCKS.heatwave.factor or 1))
+      .." water on its own, somewhere in the second half of the round.",y,P.bad)
+  end
+  y=y+6
+  heading("ZONES",y); y=y+26
+  for _,d in ipairs(city:zones()) do
+    local counts=plan.byZone[d.id] or {}
+    local parts={}
+    for _,h in ipairs(D.HOUSES) do
+      if counts[h.key] then parts[#parts+1]=plural(counts[h.key],h.name) end
+    end
+    local cov=city:zoneCoverage(d)
+    local fresh=d.zoneOpens==rs.round
+    local _,lines=R.fonts.tiny:getWrap(#parts>0 and table.concat(parts,", ") or "no houses this round",CW-90)
+    local h=42+#lines*R.fonts.tiny:getHeight()
+    button("zone-"..d.id,"",M,y,CW,h,function() act("focusZone",d.id) end,true,"Show this zone",false,fresh and P.energy or P.accent)
+    single(d.name..(fresh and "  NEW" or ""),M+12,y+6,"body",fresh and P.energy or P.text,CW-130)
+    single(math.floor(cov*100+0.5).."% in reach",M+12,y+8,"small",cov>=0.995 and P.good or cov>=0.8 and P.warn or P.bad,CW-24,"right")
+    text(#parts>0 and table.concat(parts,", ") or "no houses this round",M+12,y+28,"tiny",P.textDim,CW-90)
+    single((counts.demand or 0).." water",M+12,y+28,"tiny",P.textDim,CW-24,"right")
+    y=y+h+6
+  end
+  local nextZone=city:nextZone()
+  if nextZone then
+    y=y+4
+    button("zone-next","",M,y,CW,40,function() act("focusZone",nextZone.id) end,true,"Show where it opens",false,P.textDim)
+    single("Next zone: "..nextZone.name,M+12,y+5,"small",P.text,CW-24)
+    single("opens round "..nextZone.zoneOpens,M+12,y+21,"tiny",P.textDim,CW-24)
+    y=y+48
+  end
+  y=y+8
+  heading("HOW TO PLAY",y); y=y+24
+  y=y+paragraph("Houses land anywhere in an open zone and are served only inside an automation hub's radius. Build hubs, feed them from wells on springs with mains, and level them for reach. A dry house costs lives equal to the water it wanted.",y)+10
+  button("rounds-help","The whole rulebook",M,y,CW,30,function() state.modal="roundsHelp" end,true)
+  y=y+40
+  UI.contentBottom=y+state.scroll
+end
+
+local function historyTab()
+  local y=TOP-state.scroll
+  local rs=city.rounds
+  local rec=state.records or {}
+  heading("RECORDS",y); y=y+28
+  row("Best round",rec.best or 0,y); y=y+26
+  row("Best strict round",rec.bestStrict or 0,y); y=y+26
+  row("Runs won",rec.wins or 0,y); y=y+26
+  row("Most served in a round",rs.best or 0,y); y=y+36
+  heading("THIS RUN",y); y=y+28
+  row("Mode",rs.strict and "Strict: one life" or "Standard",y,rs.strict and P.bad or P.text); y=y+26
+  row("Clean rounds in a row",rs.streak,y,rs.streak>0 and P.good or P.textDim); y=y+34
+  if #rs.history>0 then
+    text("ROUND",M,y,"tiny",P.textFaint); text("HOUSES",M+64,y,"tiny",P.textFaint)
+    text("DRY",M+136,y,"tiny",P.textFaint); text("PAID",M+180,y,"tiny",P.textFaint,CW-180,"right")
+    y=y+18
+    for i=#rs.history,1,-1 do
+      local r=rs.history[i]
+      text(r.round,M,y,"small",P.text); text(r.houses or "-",M+64,y,"small",P.textDim)
+      text(r.dry,M+136,y,"small",r.dry>0 and P.bad or P.good)
+      text(((r.income or 0)<0 and "-$" or "+$")..math.abs(r.income or 0),M+180,y,"small",(r.income or 0)>=0 and P.energy or P.bad,CW-180,"right")
+      y=y+22
+    end
+  end
+  UI.contentBottom=y+state.scroll
+end
+
+local ROUND_MODALS={roundResult=true,roundLost=true,roundWon=true,newRun=true,roundsHelp=true}
+
+local function roundsModal()
+  local rs=city.rounds
+  local res=state.roundResult
+  local w,h=520,300
+  if state.modal=="roundResult" or state.modal=="roundWon" then h=236+#res.items*26+(state.modal=="roundWon" and 40 or 0)
+  elseif state.modal=="roundsHelp" then w,h=600,520
+  elseif state.modal=="roundLost" then h=330 end
+  local x,y=(W-w)/2,(H-h)/2
+  lg.setColor(0,0,0,0.6); lg.rectangle("fill",0,0,W,H)
+  lg.setColor(P.panel); lg.rectangle("fill",x,y,w,h,6)
+  lg.setColor(P.panelEdge); lg.rectangle("line",x,y,w,h,6)
+  if state.modal=="roundResult" or state.modal=="roundWon" then
+    local clean=res.log.dry==0
+    single(state.modal=="roundWon" and "Forty rounds. The city drinks."
+      or ("Round "..res.round..(clean and " held" or " done")),x+32,y+24,"big",clean and P.good or P.warn,w-64)
+    text(clean and ("Every one of "..res.log.served.." houses got its water.")
+      or (plural(res.log.dry,"house").." went dry: "..res.log.lost.." lives lost."),x+32,y+74,"body",P.textDim,w-64)
+    local ry=y+112
+    for _,it in ipairs(res.items) do
+      single(it.label,x+32,ry,"body",P.text,w-200)
+      single(string.format("%s$%d",it.amount<0 and "-" or "+",math.abs(it.amount)),x+32,ry,"body",it.amount<0 and P.warn or P.energy,w-64,"right")
+      ry=ry+26
+    end
+    lg.setColor(P.panelEdge); lg.line(x+32,ry+4,x+w-32,ry+4)
+    single("Paid",x+32,ry+14,"body",P.textDim,120)
+    single((res.total<0 and "-$" or "+$")..math.abs(res.total),x+32,ry+10,"mid",res.total<0 and P.bad or P.energy,w-64,"right")
+    if state.modal=="roundWon" then
+      text("The rounds carry on as long as the network does.",x+32,ry+48,"small",P.textDim,w-64)
+    end
+    button("round-continue",state.modal=="roundWon" and "Keep going" or "Build  (Enter)",x+32,y+h-62,w-64,38,
+      function() state.modal=nil end,true,nil,true,P.good)
+  elseif state.modal=="roundLost" then
+    single("The taps ran dry",x+32,y+24,"big",P.bad,w-64)
+    local served=0
+    for _,r in ipairs(rs.history) do served=served+(r.houses or 0)-(r.dry or 0) end
+    text("Round "..rs.round..(rs.strict and " on a strict run" or "")..". "..served.." houses kept in water along the way.",
+      x+32,y+72,"body",P.textDim,w-64)
+    local rec=state.records or {}
+    text("Best round "..(rec.best or 0).."    Best strict "..(rec.bestStrict or 0).."    Wins "..(rec.wins or 0),
+      x+32,y+130,"small",P.textFaint,w-64)
+    button("lost-new","New run",x+32,y+h-110,(w-72)/2,38,function() act("newRun",false) end,true,nil,true,P.good)
+    button("lost-strict","New strict run",x+40+(w-72)/2,y+h-110,(w-72)/2,38,function() act("newRun",true) end,true,nil,false,P.bad)
+    button("lost-company","Back to your companies",x+32,y+h-62,w-64,38,function() act("leaveRounds") end,true)
+  elseif state.modal=="newRun" then
+    single("Start a new run?",x+32,y+24,"big",P.text,w-64)
+    text("This run ends and a new map is drawn. Standard gives "..City.ROUNDS.START.lives.." lives. Strict ends on the first dry house.",
+      x+32,y+74,"body",P.textDim,w-64)
+    button("new-standard","Standard",x+32,y+h-110,(w-72)/2,38,function() act("newRun",false) end,true,nil,true,P.good)
+    button("new-strict","Strict",x+40+(w-72)/2,y+h-110,(w-72)/2,38,function() act("newRun",true) end,true,nil,false,P.bad)
+    button("new-cancel","Keep playing",x+32,y+h-62,w-64,38,function() state.modal=nil end,true)
+  else
+    single("Rounds",x+32,y+24,"big",P.text,w-64)
+    local lines={
+      "Every round, houses arrive one at a time in the open zones. Each wants water, and gets all of it or none.",
+      "A house is served only inside the radius of an automation hub. Levelling a hub widens its reach. The Round tab shows how much of each zone your hubs reach.",
+      "Wells stand on springs. Mains carry water to the hubs. Everything you know from your companies works here: sizes, junctions, pumps, levels, repairs and undo.",
+      "A dry house costs lives equal to the water it wanted. Houses leave when the round ends, and the next round brings more.",
+      "Rounds pay for themselves: a cheque for the round, money for every unit delivered, spare supply and clean rounds in a row, less the network's upkeep.",
+      "Shocks are announced a round ahead. Burst mains stay broken until you repair them. Every tenth round brings tower blocks.",
+    }
+    local ly=y+74
+    for _,l in ipairs(lines) do
+      local _,wrapped=R.fonts.body:getWrap(l,w-84)
+      lg.setColor(P.accent); lg.circle("fill",x+38,ly+9,3)
+      text(l,x+52,ly,"body",P.textDim,w-84)
+      ly=ly+#wrapped*R.fonts.body:getHeight()+10
+    end
+    button("help-close","Got it",x+32,y+h-62,w-64,38,function() state.modal=nil end,true,nil,true,P.good)
+  end
+end
+
 local TABS={{"network","Build"},{"finance","Company"},{"customers","Clients"},{"stats","Stats"}}
+local ROUND_TABS={{"network","Build"},{"round","Round"},{"history","History"}}
 
 -- The header windows: whatever the window says, it starts at HEAD_VALUE, and
 -- the bar it says it in is HEAD_BAR deep.
@@ -2289,11 +2508,27 @@ function UI.draw(c,s,action)
       or {"EST. PROFIT / DAY",string.format("$%+d",net),net>=0 and P.good or P.bad},
     {"CUSTOMERS SUPPLIED",#clients==0 and "No contracts" or supplied.." / "..#clients,
       #clients==0 and P.textDim or supplied==#clients and P.good or P.warn}}
-  local request=city:nextRequest()
+  local request=not city.rounds and city:nextRequest()
   local bill,broken=city:repairAllCost()
   local premium=request and city:requestPremium(request) or 0
   metrics[4]={"CLIENT REQUEST","None",P.energy}
   metrics[5]={"FIX ALL PIPES","All sound",P.good}
+  if city.rounds then
+    local rs=city.rounds
+    local lifeColor=rs.lives<=rs.maxLives*0.25 and P.bad or rs.lives<=rs.maxLives*0.6 and P.warn or P.good
+    metrics[1]={"ROUND",rs.round<=City.ROUNDS.FINAL_ROUND and (rs.round.." / "..City.ROUNDS.FINAL_ROUND) or ("Freeplay "..rs.round),P.text}
+    metrics[2]={"LIVES",rs.lives.." / "..rs.maxLives,lifeColor}
+    metrics[3]={"AVAILABLE CASH","$"..city.money,P.energy}
+    if rs.phase=="round" then
+      metrics[4]={"ROUND "..rs.round,rs.arrived.." / "..#rs.queue..(rs.log.dry>0 and ("  "..rs.log.dry.." dry") or ""),
+        rs.log.dry>0 and P.bad or P.good}
+    else
+      local plan=city:roundPlan()
+      local short=city:roundSupply(plan)<plan.demand
+      metrics[4]={"NEXT ROUND",#plan.houses.." houses, "..plan.demand.." water",short and P.bad or P.text}
+    end
+    request=nil
+  end
   local width=(W-UI.width-34)/#metrics
   for i,m in ipairs(metrics) do
     local x=UI.width+22+(i-1)*width
@@ -2329,8 +2564,8 @@ function UI.draw(c,s,action)
   end
 
   local tabX=8
-  for i,t in ipairs(TABS) do
-    local tabWidth=({74,90,74,70})[i]
+  for i,t in ipairs(city.rounds and ROUND_TABS or TABS) do
+    local tabWidth=city.rounds and ({96,96,104})[i] or ({74,90,74,70})[i]
     button("tab-"..t[1],t[2],tabX,10,tabWidth,34,function()
       state.rename=nil
       state.tab=t[1]; state.scroll=0
@@ -2350,6 +2585,8 @@ function UI.draw(c,s,action)
   elseif state.tab=="stats" then stats()
   elseif state.tab=="ambitions" then goals()
   elseif state.tab=="advisor" then advisor()
+  elseif state.tab=="round" then roundTab()
+  elseif state.tab=="history" then historyTab()
   else ledger() end
   scroll=false; lg.setScissor()
   UI.maxScroll=math.max(0,(UI.contentBottom or H)-(H-65))
@@ -2405,19 +2642,39 @@ function UI.draw(c,s,action)
   button("mute",state.muted and "Muted" or "Sound",148,H-44,58,32,function() act("mute") end,true,"Toggle sound (M)")
   button("solo",city.hideUnfocusedNetworks and "Solo" or "Grids",212,H-44,54,32,function() act("solo") end,true,
     "Hide every network but the one you're focused on, instead of dimming it (H)")
-  button("companies","Companies",272,H-44,112,32,
-    function() act("openSlots") end,true,
-    "Six companies, kept side by side. Switch, start another, or delete one.")
-  button("rounds","Rounds",390,H-44,80,32,
-    function() act("rounds") end,true,
-    "Rounds mode: build a network, then survive forty rounds of houses. Your companies are saved and untouched.")
+  if city.rounds then
+    button("leave-rounds","Company",272,H-44,112,32,function() act("leaveRounds") end,true,
+      "Back to your companies. This run is saved and waits for you.")
+    button("new-run","New run",390,H-44,80,32,function() state.modal="newRun" end,
+      city.rounds.phase~="round","Start a new run on a new map")
+  else
+    button("companies","Companies",272,H-44,112,32,
+      function() act("openSlots") end,true,
+      "Six companies, kept side by side. Switch, start another, or delete one.")
+    button("rounds","Rounds",390,H-44,80,32,
+      function() act("rounds") end,true,
+      "Rounds mode: build a network, then survive forty rounds of houses. Your companies are saved and untouched.")
+  end
   local message=state.toast or (state.tool and (string.upper(state.tool).." selected: click the map to place, right-click or Esc to put it down")
     or (state.node or state.edge) and "Click it again, right-click or press Esc to deselect" or "")
   -- Clear of the last footer button on its left and the day button on its
   -- right: the message used to start 20 points inside "Companies".
-  single(message,482,H-34,"small",state.toastBad and P.bad or P.textDim,math.max(100,W-687))
-  button("end-day","End day "..city.day.."   >",W-193,H-46,173,36,function() act("endDay") end,
-    not city.bankrupt,"Settle revenue, expenses, investments and pipe wear (Enter)",true,P.good)
+  single(message,482,H-34,"small",state.toastBad and P.bad or P.textDim,math.max(100,W-707))
+  if city.rounds then
+    local rs=city.rounds
+    if rs.phase=="round" then
+      button("round-speed",state.roundSpeed and state.roundSpeed>1 and "Fast  x3" or "Playing  (Space: fast)",W-213,H-46,193,36,
+        function() act("roundSpeed") end,true,"Houses are arriving. Space plays it three times as fast.",true,P.flow)
+    elseif rs.phase=="lost" then
+      button("round-over","New run   >",W-193,H-46,173,36,function() state.modal="roundLost" end,true,nil,true,P.bad)
+    else
+      button("start-round","Start round "..rs.round.."   >",W-213,H-46,193,36,function() act("startRound") end,
+        true,"Houses arrive one at a time. Building is closed until the round ends (Enter or Space)",true,P.good)
+    end
+  else
+    button("end-day","End day "..city.day.."   >",W-193,H-46,173,36,function() act("endDay") end,
+      not city.bankrupt,"Settle revenue, expenses, investments and pipe wear (Enter)",true,P.good)
+  end
 
   -- The opening guide does not only say what to press: it points at it. A
   -- sidebar button gets a ring and an arrow from the map side; the bottom bar
@@ -2444,7 +2701,10 @@ function UI.draw(c,s,action)
       end
     end
   end
-  if state.modal then UI.buttons={}; report() end
+  if state.modal then
+    UI.buttons={}
+    if ROUND_MODALS[state.modal] then roundsModal() else report() end
+  end
 
   local mx,my=love.mouse.getPosition()
   local hovered
