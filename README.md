@@ -503,6 +503,37 @@ slots is called `company.lua` and is picked up as the first slot:
 The installer preserves saved companies. Simulation randomness is stored with
 the company, so loading preserves future outcomes.
 
+## Rounds Mode
+
+A second game in the same window. **Rounds** in the company footer opens it,
+**Company** in its sidebar goes back, and the next launch reopens whichever was
+open. `make rounds` (or `love . --rounds`) starts straight in it. The run is
+saved to `rounds_run.lua` beside the companies and never touches them.
+
+Forty rounds on one map. Between rounds you build wells on springs, junctions,
+water towers and mains. A round then drops houses into the open zones one at a
+time, and each house gets its whole demand or goes dry. Every round has more
+houses than the last.
+
+- A house is served only inside the ring of a building. The preview shows, zone
+  by zone, what is coming and how much of each zone your rings reach.
+- A served house keeps its water for the rest of the round, so later arrivals
+  only get what is left. Each arrival is one max-flow solve.
+- A dry house costs as many lives as it wanted water. Standard runs have 40
+  lives. Strict runs end on the first dry house.
+- Pay comes at the end of a round: a cheque for the round, money per unit
+  delivered, a bonus for spare supply and a streak bonus for clean rounds.
+  Anything bought in the current break sells back in full. Older things sell
+  back at 70%.
+- Zones open on a fixed schedule, and a new zone gets twice the houses in its
+  first round. From round 6 there are announced shocks: drought, heatwave and
+  burst mains, which break the widest mains most often. Every tenth round
+  brings tower blocks.
+- After round 40 the run carries on as freeplay.
+
+All numbers are in `src/data/rounds.lua`. `src/rounds_bot.lua` is a plain player
+the tests use to check a run can still be won after a change.
+
 ## Verification
 
 ```sh
@@ -514,6 +545,8 @@ make shots         # exact 1440x880 and 1100x700 rendered screenshots
 make anatomy       # the shape of the networks these prices produce
 make layout        # every string the interface draws, and any two that collide
 make audio         # synthesized audio report
+make rounds-smoke  # Rounds mode through the real input callbacks
+make rounds-shots  # Rounds screenshots (ROUNDS_SHOTS=dir to choose where)
 make dist          # package the game
 ```
 
@@ -539,6 +572,10 @@ and window tests under Xvfb and uploads the packaged game.
 | `test/test_company.lua` | Regression and multi-company economy tests |
 | `test/test_people.lua` | Population, trips, tolls, routes, petrol, resorts, cars and the internet |
 | `test/test_save_location.lua` | Save slots, and finding a company either build wrote |
+| `src/rounds.lua` | Rounds mode: map, building, round plans, the per-house solve, saves |
+| `src/rounds_app.lua` | Rounds mode screen, input and playback |
+| `src/rounds_bot.lua` | A plain Rounds player used to check balance |
+| `test/test_rounds.lua` | Rounds rules, determinism, saves and winnability |
 
 The previous contract game is retained for comparison with
 `love . --contracts`. Its graph and generation tests remain part of the suite.

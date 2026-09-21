@@ -126,6 +126,15 @@ end
 local function action(name,...)
   if name=="fit" then fit(); return end
   if name=="fitWorld" then fitWorld(); return end
+  -- Rounds is a separate game in the same window. The company is saved on the
+  -- way out and the next launch reopens whichever of the two was open.
+  if name=="rounds" then
+    if testMode then return end
+    save()
+    love.filesystem.write("mode.txt","rounds")
+    App.switchTo("rounds_app")
+    return
+  end
   if name=="mute" then state.muted=not state.muted; A.setEnabled(not state.muted); return end
   if name=="solo" then city.hideUnfocusedNetworks=not city.hideUnfocusedNetworks; return end
   if name=="focusNode" then
