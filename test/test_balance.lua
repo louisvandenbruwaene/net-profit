@@ -39,68 +39,12 @@ local function fresh()
 end
 
 --------------------------------------------------------------------------------
-print("one wide main into a hub beats a main to every house")
+print("one wide main beats four narrow ones")
 do
   local c = fresh()
   for _, cl in ipairs(c:clientList()) do c.g:killNode(cl.id) end
   local src = c.firstSource
   local hubSpot = assert(c:build(src.x + 700, src.y, "junction"))
-
-  -- What n houses of demand three cost connected one by one, all the way back
-  -- to the well. A well answers to a trunk only, so even the "direct" plan
-  -- pays for one manifold and one trunk main before a single house is
-  -- reached; each house after that needs a stub of its own, and the
-  -- smallest main there is carries seven.
-  local function direct(n)
-    local manifoldSpot = assert(c:build(src.x + 90, src.y - 90, "manifold"))
-    local trunk = c:pipeQuote(src.id, manifoldSpot.id, "water", "large")
-    local capex, upkeep = City.price.manifold + trunk.total,
-      City.trade.water.upkeep + trunk.metres * City.trade.water.upkeepPerM
-    for i = 1, n do
-      local a = math.pi * 2 * i / n
-      local spot = c:build(manifoldSpot.x + math.cos(a) * 260, manifoldSpot.y + math.sin(a) * 260, "junction")
-      if spot then
-        local q = c:pipeQuote(manifoldSpot.id, spot.id, "water", "small")
-        capex = capex + q.total
-        upkeep = upkeep + City.trade.water.upkeep + q.metres * City.trade.water.upkeepPerM
-        c:demolishNode(spot.id)
-      end
-    end
-    c:demolishNode(manifoldSpot.id)
-    return capex, upkeep
-  end
-
-  -- What they cost behind a hub: as many trunk mains as their demand needs, the
-  -- hub itself, and a joining fee each.
-  local function hubbed(n)
-    local trunk = c:pipeQuote(src.id, hubSpot.id, "water", "large")
-    local trunks = math.ceil(3 * n / trunk.capacity)
-    local capex = City.price.exchange + trunks * trunk.total + n * City.hub.connect
-    local upkeep = City.hub.upkeep + n * City.hub.perClient
-      + trunks * (City.trade.water.upkeep + trunk.metres * City.trade.water.upkeepPerM)
-    return capex, upkeep
-  end
-
-  local d4 = direct(4)
-  local h4 = hubbed(4)
-  ok("a handful of houses is cheaper connected directly", d4 < h4,
-    string.format("$%d direct against $%d hubbed", d4, h4))
-
-  -- A hub is priced like the business it replaces, not like a fitting, so a
-  -- dozen houses tight around one manifold still comes in under it on the
-  -- cheque: a hub is not the early move any more, it is the one a company
-  -- grows into.
-  local d12 = direct(12)
-  local h12 = hubbed(12)
-  ok("a dozen is still cheaper direct, while the network is this small", d12 < h12,
-    string.format("$%d against $%d", d12, h12))
-
-  -- What it buys instead is a lower running cost once the company is large
-  -- enough that the difference is worth having.
-  local d100, du100 = direct(100)
-  local h100, hu100 = hubbed(100)
-  ok("at real scale a hub costs less to run than a hundred private mains", hu100 < du100,
-    string.format("$%.1f against $%.1f a day", hu100, du100))
 
   -- The reason: one big main is not priced as four small ones.
   local small = c:pipeQuote(src.id, hubSpot.id, "water", "small").total
@@ -241,7 +185,7 @@ do
     cl.x, cl.y = c.firstSource.x + 200 + i * 60, c.firstSource.y + 300
   end
   c:refresh()
-  ok("hubs arrive with the customers", c:unlocked("hub"))
+  ok("distribution hubs wait for a bigger company", not c:unlocked("hub"))
   ok("departments arrive with them too", c:unlocked("orders"))
   assert(c:buyLicence("power"))
   ok("works arrive with the second trade", c:unlocked("works"))

@@ -1030,31 +1030,31 @@ function Draw.world(city, cam, state)
   drawDistrictChrome(city, cam, state)
   drawSeams(city, cam, state)
 
-  -- What each hub covers. Drawn faintly all the time, because the radius is the
-  -- thing the player is actually placing, and drawn with its spokes when the
-  -- hub is picked up, because that is when you want to see who is on it.
-  for _, h in ipairs(city.g:nodesOfKind("exchange")) do
-    -- The radius the hub actually serves, which is its level's: drawing the
-    -- default here showed a level-one hub reaching 700 m when it serves 450.
+  -- What each distribution hub runs. Drawn faintly all the time, because the
+  -- radius is the thing the player grew it for, and with a spoke to every
+  -- customer it looks after when it is picked up, dimmer for the ones below
+  -- its minimum price.
+  for _, h in ipairs(city:distributionHubs()) do
     local radius = city:hubRadius(h)
     if cam:sees(h.x, h.y, radius * cam.scale + 40) then
-    local hx, hy = cam:toScreen(h.x, h.y)
-    local r = radius * cam.scale
-    local live = state.node == h.id or state.hoverNode == h.id or state.tool == "exchange"
-    local colour = Graph.KINDS.exchange.color
-    lg.setColor(P.with(colour, live and 0.10 or 0.05)); lg.circle("fill", hx, hy, r)
-    lg.setColor(P.with(colour, live and 0.55 or 0.22)); lg.setLineWidth(1)
-    lg.circle("line", hx, hy, r)
-    if live then
-      for _, id in ipairs(h.covered or {}) do
-        local c = city.g.nodes[id]
-        if c and c.alive then
-          local cx, cy = cam:toScreen(c.x, c.y)
-          lg.setColor(P.with(colour, 0.35)); lg.setLineWidth(1)
-          lg.line(hx, hy, cx, cy)
+      local hx, hy = cam:toScreen(h.x, h.y)
+      local rr = radius * cam.scale
+      local live = state.node == h.id or state.hoverNode == h.id
+      local colour = Graph.KINDS.exchange.color
+      lg.setColor(P.with(colour, live and 0.10 or 0.04)); lg.circle("fill", hx, hy, rr)
+      lg.setColor(P.with(colour, live and 0.6 or 0.22)); lg.setLineWidth(live and 1.5 or 1)
+      lg.circle("line", hx, hy, rr)
+      if live then
+        local floor, trades = city:hubFloor(h), city:hubTrades(h)
+        for _, c in ipairs(city:hubClients(h)) do
+          if trades[c.commodity] then
+            local cx, cy = cam:toScreen(c.x, c.y)
+            local paying = (c.rate or 0) >= floor
+            lg.setColor(P.with(paying and colour or P.textFaint, paying and 0.45 or 0.25)); lg.setLineWidth(1)
+            lg.line(hx, hy, cx, cy)
+          end
         end
       end
-    end
     end
   end
 
@@ -1303,6 +1303,26 @@ function Draw.world(city, cam, state)
       -- round join), so the fixed schematic icon here would just duplicate
       -- it -- with the wrong angle. The palette button still shows it.
       if n.kind ~= "corner" then Draw.structureGlyph(n.kind, x, y, r / 15) end
+      -- A building on a ladder wears its level: pips over it, and a distribution
+      -- hub a second ring in its own colour, so the top of the ladder reads as
+      -- a different thing from across the map.
+      local family = city:levelFamily(n)
+      if family and r >= 5 then
+        local level = city:levelOf(n)
+        if city:isDistribution(n) then
+          lg.setColor(Graph.KINDS.exchange.color); lg.setLineWidth(math.max(1.2, r * 0.12))
+          lg.circle("line", x, y, r * 1.28)
+        end
+        if level > 1 and fine then
+          local count, gap = city:levelCount(n), math.max(3.6, r * 0.25)
+          local pr = math.max(1, r * 0.085)
+          for i = 1, count do
+            lg.setColor(i <= level and color or P.with(P.textFaint, 0.6))
+            lg.setLineWidth(math.max(0.9, pr * 0.5))
+            lg.circle(i <= level and "fill" or "line", x - (count - 1) * gap / 2 + (i - 1) * gap, y - r * 1.28 - pr * 3, pr)
+          end
+        end
+      end
       -- A tower's upgrade as a corner badge: the two-coil transformer symbol,
       -- or an upward chevron for a booster.
       if n.upgrade and r >= 5 then
@@ -1543,7 +1563,7 @@ function Draw.world(city, cam, state)
     local carries = City.INFRA.towers[state.tool=="grid" and City.INFRA.voltages[state.voltage or "low"].tower or state.tool]
     local range = state.tool=="pump" and City.INFRA.pumpRange or carries and City.INFRA.voltages[carries].span
       or state.tool=="binder" and City.INFRA.binderRange or state.tool=="tower" and 220
-      or state.tool=="exchange" and City.LEVELS.LEVELS.hub[1].radius or 300
+      or 300
     lg.circle("line",mx,my,range*cam.scale)
     if state.tool=='works' and (City.RECIPES[state.recipe or ''] or {}).farm then
       local r=City.INFRA.farmRadius*cam.scale

@@ -1,6 +1,6 @@
 -- Levels: one building, grown in place.
 --
--- Junctions, towers, automation hubs and pumps each start weak and are made
+-- Junctions, towers, pumps and storage each start weak and are made
 -- stronger by paying for the next level, rather than being replaced by a
 -- different building. Level lives on the node (`n.level`) and so does every
 -- stat a level gives (`ports`, `throughput`, `radius`), so the flow solver and
@@ -24,6 +24,11 @@ return function(City)
 
   function City:levelCount(n) return family(n) and #D.LEVELS[family(n)] or 0 end
 
+  function City:levelBlurb(n, level)
+    local f = family(n)
+    return f and D.BLURBS[f] and D.BLURBS[f][level or self:levelOf(n)] or nil
+  end
+
   function City:levelName(n, level)
     local f = family(n)
     return f and D.NAMES[f][level or self:levelOf(n)] or nil
@@ -37,7 +42,8 @@ return function(City)
     if not base then return nil end
     local spec = { level = level, name = D.NAMES[f][level], ports = base.ports,
       throughput = base.throughput, reach = base.reach, radius = base.radius,
-      clients = base.clients or 0 }
+      store = base.store, fill = base.fill, clients = base.clients or 0,
+      blurb = D.BLURBS[f] and D.BLURBS[f][level] }
     if f == "tower" and base.throughput < 9999 then
       spec.throughput = base.throughput * (D.TOWER_SCALE[n.kind] or 1)
     end
@@ -58,6 +64,10 @@ return function(City)
       n.throughput = math.max(n.throughput or 0, spec.throughput)
     end
     if spec.radius then n.radius = exact and spec.radius or math.max(n.radius or 0, spec.radius) end
+    if spec.store then
+      n.capacityStore = exact and spec.store or math.max(n.capacityStore or 0, spec.store)
+      n.fillRate = exact and spec.fill or math.max(n.fillRate or 0, spec.fill)
+    end
     return spec
   end
 

@@ -225,7 +225,7 @@ function Walk.start(app,mode)
     check(app.state.node==offerHouse.id,"and clicking once more selects it")
     love.mousepressed(hx,hy,2); love.mousereleased(hx,hy,2)
     check(app.state.node==nil,"a right click deselects too")
-    app.state.tool="exchange"
+    app.state.tool="junction"
     love.mousepressed(hx,hy,2); love.mousereleased(hx,hy,2)
     check(app.state.tool==nil,"and puts down a tool in hand")
   end
@@ -601,7 +601,6 @@ function Walk.start(app,mode)
     -- Equipment arrives as the company grows rather than sitting behind a wall
     -- of prices on day one.
     check(findButton("tool-depot")==nil,"storage is not offered to a company with two customers")
-    check(findButton("tool-exchange")==nil,"and neither is a hub")
     for i=1,8 do
       local extra=assert(c:addClient("house"))
       extra.x,extra.y=c.firstSource.x+180+(i%5)*60,c.firstSource.y+320+math.floor(i/5)*70
@@ -609,7 +608,6 @@ function Walk.start(app,mode)
     c:refresh()
     love.draw()
     check(findButton("tool-depot")~=nil,"storage appears once there are customers to store for")
-    check(findButton("tool-exchange")~=nil,"and so does the hub")
     local n=c:clientList()[1]
     c.money=9999; c.licences.power=true
     -- This company has been switched, closed and reloaded by now, so make sure
@@ -1020,7 +1018,10 @@ function Walk.update(app,mode,frame)
         if n.id~=src.id and (n.x-hx)^2+(n.y-hy)^2<(C.rules.minSpacing*2)^2 then c.g:killNode(n.id) end
       end
       c:refresh()
-      local hub=assert(c:build(hx,hy,"exchange"))
+      local hub=assert(c:build(hx,hy,"junction"))
+      -- Straight to the top of the ladder: this frame is about what a
+      -- distribution hub does, not about the customers it takes to earn one.
+      hub.kind,hub.level,hub.ports,hub.throughput,hub.radius="manifold",4,10,999,600
       for i=1,9 do
         local a=i/9*math.pi*2
         local cl=assert(c:addClient(i%3==0 and "estate" or "house",i%4==0))
@@ -1029,6 +1030,7 @@ function Walk.update(app,mode,frame)
       end
       assert(c:layPipe(src.id,hub.id,"water","large"))
       c:refresh()
+      c:runDistribution()
       app.state.modal=nil; app.state.tab="network"; app.state.scroll=0
       app.action("focusNode",hub.id)
       app.camera().targetScale=0.72; app.camera().scale=0.72
@@ -1098,7 +1100,8 @@ function Walk.update(app,mode,frame)
           end
           assert(c:layPipe(mill.id,brew.id,"water","large"))
         end
-        local hub=assert(c:build(brew.x+250,brew.y+40,"exchange"))
+        local hub=assert(c:build(brew.x+250,brew.y+40,"junction"))
+        hub.kind,hub.level,hub.ports,hub.throughput,hub.radius="manifold",4,10,999,600
         assert(c:layPipe(brew.id,hub.id,"beer","large"))
         for i=1,4 do
           local pub=assert(c:addClient("pub"))
@@ -1106,6 +1109,7 @@ function Walk.update(app,mode,frame)
           pub.demand=2
         end
         c:refresh()
+        c:runDistribution()
         app.state.modal=nil; app.state.tab="network"; app.state.scroll=0
         app.action("focusNode",brew.id)
         app.camera().targetScale=0.62; app.camera().scale=0.62
