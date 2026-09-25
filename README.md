@@ -80,11 +80,17 @@ Test modes use isolated companies and never read or overwrite your saves.
 
 ## Menus
 
-The header keeps the current day, available cash, estimated daily profit and
-fully supplied customer count visible. Customer cards show daily income and
-service or offer deadlines; click anywhere on a card to inspect it. Tooltips
-appear after a short pause, and the sidebar scrollbar indicates how much is
-still below the visible area.
+The screen is the map. One bar runs along the top: the four menus, your cash
+and the day's profit, whatever is waiting on a decision (a new offer with what
+you would keep a unit, a repair bill for burst mains, Undo) and End day. A
+menu opens as a drawer over the left of the map and folds away again with its
+tab, the `<` on its edge, Esc, B (Build) or Tab. Clicking anything on the map
+opens the drawer on its inspector. Company and Stats are folded into sections;
+only Money starts open.
+
+The gear holds everything else: show all, undo, sound, hiding other networks,
+hints, companies, and the **text size** (Normal, Large, Huge). The choice is
+remembered in `settings.lua` beside the saves, apart from any company.
 
 - **Build:** pipes, sources and buildings. Pipe options and More buildings open extra tools.
 - **Company:** licences, staff, loans, upgrades and land permits.
