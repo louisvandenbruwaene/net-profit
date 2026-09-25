@@ -2,7 +2,7 @@
 
 A turn-based utility-company game about networks, cash, and promises.
 
-The [September implementation guide](IDEAS-IMPLEMENTATION.md) documents every requirement from `ideas.rtf`, including water aging, saltwater purification, staffing, investments, land discounts, temporary autoplay and the new app logo. **Stats → Autoplay** runs the temporary gameplay assistant for the selected number of minutes.
+The [September implementation guide](IDEAS-IMPLEMENTATION.md) documents every requirement from `ideas.rtf`, including water aging, saltwater purification, staffing, investments, land discounts and the new app logo. (Autoplay, Rounds mode and the automated departments have since been removed: the game is the one company again.)
 
 The [infrastructure guide](INFRASTRUCTURE.md) covers electricity, water, farming and pollution, including the simplified simulation rules. It supersedes older engineering descriptions below.
 
@@ -26,7 +26,16 @@ clerical half of the job for a wage.
 
 ## Growing the network
 
-Buildings are few and each one levels up: a junction becomes a six connection hub, towers gain connections, capacity and reach, automation hubs serve wider districts and pumps carry further. Droughts, grid faults and ground shifts test the network, and some customers offer a secure contract that pays more and refunds every short day. **Stats > Advisor** grades how much one failure would cost you and ranks the upgrades that earn the most. See [EDITING.md](EDITING.md) for the numbers.
+Buildings are few and each one levels up in place, keeping every main tied in:
+
+| Building | Level 1 | Level 2 | Level 3 | Level 4 |
+| --- | --- | --- | --- | --- |
+| Junction | T split | Hub | Large hub | **Distribution hub** |
+| Tank | Tank | Cistern | Reservoir | Water tower |
+| Pump | Pump | Booster pump | Pumping station | Main station |
+| Tower | Basic | Standard | Reinforced | Grid node |
+
+Wells deepen through six named levels, hand well to aquifer station. The **distribution hub** runs its neighbourhood: once a day, for every customer within 600 m who pays at least the minimum price you set on it, it signs the offer, lays a real connection (paid for at the normal price) and digs out the main that is starving them for the next size up. Droughts, grid faults and ground shifts test the network, and some customers offer a secure contract that pays more and refunds every short day. **Stats > Advisor** grades how much one failure would cost you and ranks the upgrades that earn the most. See [EDITING.md](EDITING.md) for the numbers.
 
 ## Play
 
@@ -107,8 +116,8 @@ Requests expire after five days.
 | Build a power station | Choose Power, then Reactor on your ground or Wind park on an island |
 | Build a works | More buildings, then any of the nine works, then place |
 | Fit a wagon to a bulk line | Select the line, then the commodity under "Fit another wagon" |
-| Set what a hub will serve | Select the hub, then the rate floor minus / plus |
-| Hire a department | Company tab, under the maintenance crews |
+| Set a distribution hub's minimum price | Select the hub, then minus / plus |
+| Hire surveyors, scouts or analysts | Company tab, under the maintenance crews |
 | Pan | Drag empty ground, or right / middle drag |
 | Zoom / scroll sidebar | Mouse wheel |
 | Show all buildings | F, or Show all |
@@ -212,14 +221,12 @@ closing a day is final.
   further out it lies. Every natural deposit has a daily ceiling no amount of
   deepening passes, and the ceiling rises with distance, so more supply always
   means more map.
-- **Automation hubs.** An automation hub serves everyone inside 700m who pays at least
-  the rate you set, offers in range signing themselves, and wires each one up itself:
-  a real chain of pipe, splits and pumps built and paid for exactly like you had drawn
-  it by hand. Raise the floor and the cheap houses drop off. When a hub is short, what
-  it landed goes to the best payers first. Its feed replaces itself with the next
-  size up, at the price that size costs, until you switch that off - and never
-  past a large main, because a trunk across the city is your decision and not
-  a standing order.
+- **Distribution hubs.** A junction levelled four times becomes a distribution
+  hub. Every close, for every customer inside 600 m paying at least its minimum
+  price, it signs the offer, connects them with a real chain of T splits and
+  mains, and widens the full main that is starving them, to a large main at
+  most. Everything it lays is on the map and on the books. Customers below the
+  minimum, and secure contracts, stay your decision.
 - **The sea.** North of the first row is water that does not end. Islands in it
   are bought outright rather than next door, and need a harbour to reach. What
   they are for is the wind: a wind park burns nothing at all and will stand
@@ -264,11 +271,9 @@ closing a day is final.
   concrete, a railway is twelve steel a kilometre. Materials are imported or made,
   taken in at the yards, and spent from there. A highway needs none, which is
   how the first steel ever reaches the city.
-- **Departments.** Surveyors report on ground you have not bought. Dispatchers
-  sign any offer over a rate you set. Engineers replace any main that has run
-  full for three days with the next size up, to a large main at most. Estates buy ground when cash is over your reserve. Each is
-  hired once, paid daily, and unlocks at a company size where doing it by hand
-  has become clerical work.
+- **Staff.** Surveyors report on ground you have not bought, scouts reveal the
+  regions further out, analysts improve investment returns. They inform; none of
+  them acts for you.
 
 ## People
 
@@ -349,10 +354,14 @@ licence they could not yet use.
   lowball house is worth refusing outright and a premium factory is worth
   rerouting the map for. Declining costs nothing. Offers expire after several
   days, and accepted customers have a visible patience clock.
-- **Cash:** customers pay for delivered units. A well earns wholesale only while
-  it supplies somebody: a flat fee plus a share of the water actually delivered.
-  An unconnected well is only an upkeep bill. The expense line is itemised: office, wells, plant, mains,
-  crews, imports and loan interest.
+- **Cash:** customers pay for delivered units, and they are the only income. A
+  well costs its upkeep a day and a pumping cost ($0.30 for water) for every unit
+  it lifts. Every trade has an all-in cost a unit: sources, pumping and mains over
+  the units delivered. The well, every customer, every offer, the header request
+  and the Company tab show the price against that cost and what you keep, with an
+  amber (cost) and green (margin) bar. More customers on the same mains make every
+  unit cheaper. The expense line is itemised: office, wells, pumping, plant,
+  mains, crews, imports and loan interest.
 - **Failure:** a main has a daily chance to develop a leak. Once leaking it loses
   capacity every close until repaired. At zero it stays installed and repairable.
   Lost customers damage reputation.
@@ -503,44 +512,6 @@ slots is called `company.lua` and is picked up as the first slot:
 The installer preserves saved companies. Simulation randomness is stored with
 the company, so loading preserves future outcomes.
 
-## Rounds Mode
-
-A tower-defence game played on the company game itself. **Rounds** in the
-footer opens it and **Company** goes back. The next launch reopens whichever was
-open, and `make rounds` (or `love . --rounds`) starts straight in it. The run is
-saved to `rounds_city.lua` beside the companies and never touches a slot.
-
-A run is an ordinary company city with rounds instead of days, so everything
-carries over: the map and its springs, every building and main, pipe sizes,
-levels, repairs, undo, the inspector and the drawing. Only time is different.
-In a break you build. In a round, houses arrive one at a time in the open zones,
-and each one gets its whole demand or goes dry. Every round has more houses than
-the last.
-
-- Houses are served by **automation hubs**: a hub serves every house inside its
-  radius, and its level sets that radius. The Round tab and the map show how
-  much of each zone your hubs reach.
-- A house is accepted only if the network can serve it on top of every house
-  already accepted, so a round is lost house by house. When one goes dry, the
-  toast says why (no hub, no water behind the hub, a full main, spent wells)
-  and the main to blame flashes.
-- A dry house costs as many lives as it wanted water. Standard runs have 100
-  lives. Strict runs end on the first dry house.
-- Pay comes at the end of a round: a cheque for the round, money per unit
-  delivered, a bonus for spare supply and a streak bonus for clean rounds,
-  less a round of the network's upkeep. Building is closed while houses arrive.
-- Districts open as zones on a fixed schedule, and a new zone gets twice the
-  houses in its first round. Other districts can still be bought for their
-  springs. The company's customer-count gates read "most houses served in one
-  round" instead. Materials are waived, and hubs are open from the start.
-- From round 6 there are announced shocks: drought, heatwave and burst mains.
-  A burst main stays broken until you repair it, and lined mains burst less.
-  Every tenth round brings tower blocks. After round 40 the run carries on as
-  freeplay.
-
-The numbers are in `src/data/rounds.lua`. `src/rounds_bot.lua` is a plain player
-the tests use to check that a run still goes deep after a change.
-
 ## Verification
 
 ```sh
@@ -549,11 +520,8 @@ make smoke         # real input callbacks, company screens, save checks
 make soak          # 60+ rendered company days
 make tutorial      # the opening input walkthrough
 make shots         # exact 1440x880 and 1100x700 rendered screenshots
-make anatomy       # the shape of the networks these prices produce
 make layout        # every string the interface draws, and any two that collide
 make audio         # synthesized audio report
-make rounds-smoke  # Rounds mode through the real input callbacks
-make rounds-shots  # Rounds screenshots (ROUNDS_SHOTS=dir to choose where)
 make dist          # package the game
 ```
 
@@ -579,9 +547,9 @@ and window tests under Xvfb and uploads the packaged game.
 | `test/test_company.lua` | Regression and multi-company economy tests |
 | `test/test_people.lua` | Population, trips, tolls, routes, petrol, resorts, cars and the internet |
 | `test/test_save_location.lua` | Save slots, and finding a company either build wrote |
-| `src/rounds.lua` | Rounds mode on a City: zones, round plans, the per-house solve, payouts |
-| `src/rounds_bot.lua` | A plain Rounds player used to check balance |
-| `test/test_rounds.lua` | Rounds rules, determinism, saves and how deep a run goes |
+| `src/distribution.lua` | The distribution hub: sign, connect and widen within its radius |
+| `src/costs.lua` | Pumping bill, cost a unit per trade, and every customer's margin |
+| `src/upgrades.lua` | Building levels (data in `src/data/upgrades.lua`) |
 
 The previous contract game is retained for comparison with
 `love . --contracts`. Its graph and generation tests remain part of the suite.
