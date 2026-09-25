@@ -3,7 +3,7 @@ local Data = {}
 
 Data.UNLOCKS = {
   everyday = { clients = 3,  name = "Treatment, valves and storage" },
-  hub      = { clients = 6,  name = "Automation hubs" },
+  hub      = { clients = 12, name = "Distribution hubs" },
   -- Brine is a coastal, four-figure project, not something to offer a company
   -- that has not yet connected its first street.
   seawater = { clients = 6, name = "Sea pumps and purifiers" },

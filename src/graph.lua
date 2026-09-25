@@ -462,9 +462,6 @@ function Graph:buildNetwork(uncapped, commodity)
         -- satisfied. The second solve reuses their flow in the residual graph.
         net.depotDemands=net.depotDemands or {}
         net.depotDemands[#net.depotDemands+1]={node=node,vertex=vout,amount=node.intakeRequest}
-      elseif node.kind == "exchange" and commodity and (node.demandBy or {})[commodity] then
-        net:arc(vout, TT, uncapped and INF or node.demandBy[commodity])
-        node._drainArc = #net.arcs - 1
       elseif node.kind == "dc" and commodity and (node.intake or {})[commodity] then
         -- A yard takes materials in and holds them for the builders.
         net:arc(vout, TT, uncapped and INF or node.intake[commodity])
@@ -530,7 +527,7 @@ function Graph:maxflow(uncapped, commodity)
   local served, produced = {}, {}
   for _, node in ipairs(self.nodes) do
     if node.alive and node._drainArc and (node.kind == "client" or node.kind == "sink"
-       or node.kind == "depot" or node.kind == "exchange" or node.kind == "works" or node.kind == "dc" or node.kind == "station") then
+       or node.kind == "depot" or node.kind == "works" or node.kind == "dc" or node.kind == "station") then
       local a = net.arcs[node._drainArc]
       served[node.id] = a.cap0 - a.cap
     end

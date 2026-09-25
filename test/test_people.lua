@@ -144,7 +144,7 @@ do
  road(c,a,well)
  local manifold=node(c,'manifold',1500,1100)
  local depot=node(c,'depot',1600,1100); depot.commodity='water'; depot.stored=0
- local hub=node(c,'exchange',1700,1100)
+ local hub=node(c,'gate',1700,1100)
  for _,n in ipairs({well,manifold,depot,hub}) do
   check(not c:dailyDestinationAllowed(n,'car'),'utility and freight-only buildings are not passenger destinations')
  end

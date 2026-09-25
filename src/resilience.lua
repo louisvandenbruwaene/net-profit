@@ -210,9 +210,6 @@ return function(City)
       end
     end
     obj.alive = true
-    -- A hub coming out re-files its customers, so put the copy back to how it
-    -- was before the next one goes. Nothing else keeps state between solves.
-    if item.kind == "node" and obj.kind == "exchange" then copy:refresh() end
     if loss > 0.5 then
       job.points[#job.points + 1] = { kind = item.kind, id = item.id, loss = loss,
                                       share = job.base > 0 and loss / job.base or 0, hurt = hurt }

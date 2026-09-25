@@ -1,13 +1,15 @@
 -- What an endless map costs to solve: luajit test/bench_flow.lua
 --
--- The promise a city with no edge makes is a promise about frame time. Hubs are
--- what keeps it: a customer on a hub is a number in a sum rather than a node
--- and an edge in four flow networks. This measures both sides of that so the
--- day the aggregation breaks, the number says so.
+-- The promise a city with no edge makes is a promise about how fast a decision
+-- settles. Every customer is a node and an edge in the flow networks, so this
+-- measures a large hand-wired company and says when it stops feeling instant.
 package.path = "src/?.lua;../src/?.lua;" .. package.path
 local City = require("city")
 
-local BUDGET_MS = 16
+-- Every customer is on a real main now (the virtual hub is gone), and a
+-- refresh runs once per decision rather than once per frame, so the budget is
+-- a decision that still feels instant rather than a frame.
+local BUDGET_MS = 30
 
 local function clock()
   return os.clock() * 1000
@@ -57,58 +59,23 @@ local function handWired(clients)
   return c
 end
 
--- The same company, hubbed: customers are covered rather than connected.
-local function hubbed(clients)
-  local c, src = opened()
-  -- Hubs laid out the way a company actually grows: one to a neighbourhood,
-  -- spread across the map, each with its own customers around it.
-  local perHub = 40
-  local hubs = math.ceil(clients / perHub)
-  local side = math.ceil(math.sqrt(hubs))
-  local trunk = src.id
-  for h = 1, hubs do
-    local col, row = (h - 1) % side, math.floor((h - 1) / side)
-    local hub = c.g:addNode(src.x + col * 1500, src.y + row * 1500, "exchange")
-    hub.throughput, hub.floor, hub.covered, hub.demandBy = 999, 0, {}, {}
-    c.g:addEdge(trunk, hub.id, 120)
-    trunk = hub.id
-    for i = 1, math.min(perHub, clients - (h - 1) * perHub) do
-      local t = i / perHub * math.pi * 2
-      local reach = 200 + (i % 4) * 90
-      local cl = c.g:addNode(hub.x + math.cos(t) * reach, hub.y + math.sin(t) * reach, "client")
-      cl.commodity, cl.demand, cl.rate, cl.clientType = "water", 2, 5, "house"
-      cl.grace, cl.patience = 3, 3
-    end
-  end
-  return c
-end
-
 local function bench(label, city)
   city:refresh()
   local t0 = clock()
   local rounds = 8
   for _ = 1, rounds do city:refresh() end
   local ms = (clock() - t0) / rounds
-  local solved = 0
-  for _, n in ipairs(city.g:aliveNodes()) do
-    if not n.hub then solved = solved + 1 end
-  end
+  local solved = #city.g:aliveNodes()
   print(string.format("  %-22s %5d customers  %5d nodes in the solver  %6.2f ms",
     label, #city:clientList(), solved, ms))
   return ms
 end
 
 print("a full resolve, all four trades")
-local slow = bench("one main each", handWired(600))
-local fast = bench("on hubs", hubbed(600))
-local big = bench("on hubs, five thousand", hubbed(5000))
+bench("one main each", handWired(600))
+local big = bench("one main each, five thousand", handWired(5000))
 
 print()
-if fast >= slow then
-  print("FAIL  hubs did not make the solve cheaper")
-  os.exit(1)
-end
-print(string.format("hubs solve %.1fx faster at 600 customers", slow / fast))
 if big > BUDGET_MS then
   print(string.format("FAIL  5000 customers took %.2f ms, over the %d ms budget", big, BUDGET_MS))
   os.exit(1)

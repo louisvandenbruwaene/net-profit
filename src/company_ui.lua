@@ -140,13 +140,12 @@ end
 --------------------------------------------------------------------------------
 
 local toolTips = {
-  junction="Starts with 3 connections and 60 a day. Upgrade it in place: level 2 makes it a six-connection hub, and it keeps every main tied in. Costs $1/day.",
+  junction="A T split: 3 connections. Upgrade it in place to a hub, a large hub and finally a distribution hub that signs, connects and widens for its neighbourhood. Every main stays tied in. Costs $1/day.",
   manifold="6 connections. Changes pipe size. Carries several goods. Costs $1/day.",
   pump="2 pipe ports. Boosts pressure; reaches 950m, further with each upgrade. Costs $1/day.",
   tower="Reduces nearby leaks by 55%. Range: 220m. Costs $2/day.",
   gate="2 pipe ports. Sets how much supply passes through. Costs $1/day.",
-  depot="Stores spare supply. Releases it when needed. Costs $3/day.",
-  exchange="Automation hub. Wires up any client within 700m itself: real pipe, splits and pumps, built and paid for like you drew it. Needs a supply pipe. Can replace full feed pipes for you.",
+  depot="A tank that stores spare supply and releases it on a short day. Upgrade it to a cistern, a reservoir and a water tower. Costs $3/day.",
   dc="Receives freight. Sends it through local pipes and roads.",
   terminal="Imports goods for a fee. Requires a freight route. Cannot import electricity.",
   stop="Buses board here. Attach to normal roads, then connect a bus route.",
@@ -171,7 +170,7 @@ toolTips.grid="One tower for every voltage: choose it above. It starts with thre
 -- level 2, and one tower is built at whichever voltage is chosen above the
 -- grid (a transformer is an upgrade, not a building). The older kinds still
 -- exist in saved companies; they are simply no longer sold as separate things.
-local TOOLS = {"junction","pump","filtration","grid","binder","lab","gate","depot","exchange","terminal","dc","stop","station","resort","corner","intersection","roundabout","interchange"}
+local TOOLS = {"junction","pump","filtration","grid","binder","lab","gate","depot","terminal","dc","stop","station","resort","corner","intersection","roundabout","interchange"}
 local function toolKind(name)
   if name=="grid" then return City.INFRA.voltages[state.voltage or "low"].tower end
   return name
@@ -241,6 +240,8 @@ local function levelBlock(n,y)
   local level,count=city:levelOf(n),city:levelCount(n)
   heading("LEVEL "..level.." OF "..count,y); y=y+26
   single(city:levelName(n),M,y,"body",P.accent,CW); y=y+26
+  local blurb=city:levelBlurb(n)
+  if blurb and not city:isDistribution(n) then y=y+paragraph(blurb,y,P.textDim)+6 end
   local used=city:connectionPorts(n.id)
   row("Connections",used.." / "..n.ports,y,used>=n.ports and P.warn or P.text); y=y+24
   local through=n.throughput or 999
@@ -248,8 +249,9 @@ local function levelBlock(n,y)
   row("Capacity",through>=999 and "Unlimited" or (carried.." / "..through.." a day"),y,
     through<999 and carried>=through and P.bad or P.text,
     "What passes through it in a day against what it is allowed to pass."); y=y+24
-  if n.kind=="exchange" then row("Serves within",city:hubRadius(n).." m",y,nil,
-    "How far this hub wires up a customer by itself."); y=y+24 end
+  if n.capacityStore and city:levelFamily(n)=="storage" then
+    row("Holds",(n.capacityStore).." units, "..(n.fillRate or City.depotFillRate).." in a day",y); y=y+24
+  end
   local reach=city:reachBonus(n)
   if reach>0 then row("Reach",string.format("+%d%%",math.floor(reach*100+0.5)),y,P.energy,
     "Added to how far a cable or pipe from here may run."); y=y+24 end
@@ -269,15 +271,16 @@ local function levelBlock(n,y)
       gain=string.format("Earns about $%+d/day, pays back in %s days.",p.net,p.payback or "many")
     end
   end
-  local gives=nxt.ports.." connections, "..(nxt.throughput>=999 and "unlimited" or nxt.throughput).." a day"
+  local gives=(nxt.store and "" or (nxt.ports.." connections, "..(nxt.throughput>=999 and "unlimited" or nxt.throughput).." a day"))
     ..(nxt.reach and nxt.reach>0 and string.format(", +%d%% reach",nxt.reach*100+0.5) or "")
-    ..(nxt.radius and (", "..nxt.radius.." m range") or "")
+    ..(nxt.radius and (", runs everything within "..nxt.radius.." m") or "")
+    ..(nxt.store and ("holds "..nxt.store..", takes in "..nxt.fill.." a day") or "")
   button("level-up","Upgrade to "..string.lower(nxt.name).."  $"..nxt.cost,M+0,y+4,CW,36,
     function() act("upgradeLevel",n.id) end,err==nil,
     err and (err..". Level "..nxt.level..": "..gives..".") or ("Level "..nxt.level..": "..gives..". "..(gain or "")),
     false,P.good,full)
   y=y+48
-  y=y+paragraph("Next: "..gives..(err and ("  ("..err..")") or ""),y,err and P.textFaint or P.textDim)+8
+  y=y+paragraph("Next: "..(nxt.blurb or gives)..(err and ("  ("..err..")") or ""),y,err and P.textFaint or P.textDim)+8
   return y
 end
 
@@ -558,10 +561,11 @@ local function inspectDepot(n,y)
   local w=CW*math.min(1,(n.stored or 0)/(n.capacityStore or City.depotCapacity))
   lg.setColor(P.panelEdge); lg.rectangle("fill",M,y+108,CW,6,2)
   lg.setColor(Graph.COMMODITIES[com].color); lg.rectangle("fill",M,y+108,w,6,2)
-  text("Stores up to "..City.depotFillRate.." spare units per day. Releases them when needed.",
+  text("Stores up to "..(n.fillRate or City.depotFillRate).." spare units per day. Releases them when needed.",
        M,y+128,"small",P.textDim,CW)
   button("load-depot","Load "..S.get(com).." from inventory",M,y+158,CW,28,function() act("loadDepot",n.id) end,(city.stock[com] or 0)>0 and (n.stored or 0)<(n.capacityStore or City.depotCapacity),"Move harvested goods into this depot for transport")
-  local tail=replaceStrip(n,y+198)
+  local tail=levelBlock(n,y+198)+8
+  tail=replaceStrip(n,tail)
   return demolishBlock(n,tail+12)
 end
 
@@ -611,46 +615,46 @@ local function inspectWorks(n,y)
     "Shuts it down. Every line tied into it is cut.")
 end
 
-local function inspectHub(n,y)
-  local covered=#(n.covered or {})
-  row("Customers on it",covered,y,covered>0 and P.good or P.textDim,
-    "Everyone inside "..City.hub.radius.."m who pays at least the floor and has no main of their own. "..
-    "Offers in range sign themselves.")
-  row("Rate floor","$"..(n.floor or 0).." / unit",y+26,(n.floor or 0)>0 and P.energy or P.textDim,
-    "Only serves clients who pay this price or more.")
-  button("hub-floor-down","-",M,y+52,34,30,function() act("setHubFloor",n.id,(n.floor or 0)-City.hub.floorStep) end,
-    (n.floor or 0)>0,"Serve cheaper customers too")
-  button("hub-floor-up","+",M+40,y+52,34,30,function() act("setHubFloor",n.id,(n.floor or 0)+City.hub.floorStep) end,
-    true,"Serve only better payers")
-  button("hub-auto",n.autoWiden and "Auto-upgrade on" or "Auto-upgrade off",M+84,y+52,CW-84,30,
-    function() act("setHubAuto",n.id,not n.autoWiden) end,true,
-    "Replaces full feed pipes when this hub needs more supply. You pay the cost.",n.autoWiden,P.accent)
-  local ly=y+96
-  for _,name in ipairs(Graph.TRADES) do
-    local want=(n.demandBy or {})[name] or 0
-    if want>0 then
-      local got=((city.detail.hub or {})[n.id] or {})[name] or 0
-      row(string.upper(name),got.." / "..want,ly,got>=want and P.good or P.warn,
-        "What the hub landed today against what its customers asked for. "..
-        "Short means the mains into the hub are too narrow, or there is nothing upstream to send.")
-      lg.setColor(P.panelEdge); lg.rectangle("fill",M,ly+21,CW,4,2)
-      lg.setColor(got>=want and P.good or P.warn)
-      lg.rectangle("fill",M,ly+21,CW*(want>0 and math.min(1,got/want) or 0),4,2)
-      ly=ly+38
+-- The top of the fitting ladder. One number to set, and everything it did.
+local function inspectDistribution(n,y)
+  local D=City.DISTRIBUTION
+  heading("DISTRIBUTION",y); y=y+26
+  y=y+paragraph("Every day it signs offers, connects customers and widens full mains within "..city:hubRadius(n)..
+    " m, for anyone paying at least your minimum price. You pay the normal price for everything it builds.",y,P.textDim)+8
+  local floor=city:hubFloor(n)
+  row("Minimum price","$"..floor.." / unit",y,P.energy,
+    "Customers who pay less are left for you to decide by hand. Every customer shows what a unit costs you to deliver.")
+  button("hub-floor-down","-",M+CW-80,y-4,36,30,function() act("setHubFloor",n.id,floor-D.floorStep) end,
+    floor>0,"Take cheaper customers too")
+  button("hub-floor-up","+",M+CW-38,y-4,36,30,function() act("setHubFloor",n.id,floor+D.floorStep) end,
+    true,"Only take better payers")
+  y=y+34
+  local trades=city:hubTrades(n)
+  local names={}
+  for _,key in ipairs(Graph.TRADES) do if trades[key] then names[#names+1]=string.lower(key) end end
+  row("Hands out",#names>0 and table.concat(names,", ") or "nothing yet",y,#names>0 and P.good or P.warn,
+    "The trades that reach this hub over a main. Connect a supply main to it first."); y=y+26
+  local paying,cheap,offers,short=0,0,0,0
+  for _,c in ipairs(city:hubClients(n)) do
+    if trades[c.commodity] then
+      if (c.rate or 0)>=floor then
+        if c.prospect then offers=offers+1 else paying=paying+1 end
+        if not c.prospect and not city:fullyServed(c) then short=short+1 end
+      else cheap=cheap+1 end
     end
   end
-  if covered==0 then
-    text("No clients in range. Range: 700m.",
-      M,ly,"small",P.warn,CW)
-    ly=ly+30
+  row("Customers it runs",paying,y,paying>0 and P.good or P.textDim); y=y+24
+  if offers>0 then row("Offers it will sign",offers,y,P.energy,"Signed at the next close."); y=y+24 end
+  if short>0 then row("Still short",short,y,P.warn,"It widens up to "..D.perDay.." mains a day, while there is cash for them."); y=y+24 end
+  if cheap>0 then row("Below your minimum",cheap,y,P.textDim,"Left for you. Lower the minimum to take them on."); y=y+24 end
+  row("Running cost","-$"..D.upkeep.." / day",y,P.warn); y=y+26
+  local last=n.lastRun
+  if last and (last.signed+last.wired+last.widened+(last.repaired or 0))>0 then
+    y=y+paragraph(string.format("Last run: %d signed, %d connected, %d widened for $%d.",
+      last.signed,last.wired,last.widened,last.spent),y,P.textDim)+4
   end
-  row("Running cost","-$"..string.format("%.1f",City.hub.upkeep+covered*City.hub.perClient).." / day",ly,P.warn,
-    "$"..City.hub.upkeep.." for the hub and $"..City.hub.perClient.." for every customer on it.")
-  text("Connect supply to this hub. It serves nearby clients without extra pipes.",
-    M,ly+30,"small",P.textDim,CW)
-  ly=levelBlock(n,ly+84)
-  return demolishBlock(n,ly+12,"Demolish the hub",
-    "Closes the hub. Its customers go back to having no connection at all.")
+  if #names==0 then y=y+paragraph("Connect a supply main to this hub.",y,P.warn)+4 end
+  return y+6
 end
 
 local function inspectTerminal(n,y)
@@ -1212,7 +1216,7 @@ local function buildPanel()
   -- Which tools exist yet. The first three are always there; the rest arrive
   -- when the company is the size where they are the obvious next move.
   local gate={tower="everyday",gate="everyday",depot="everyday",
-              exchange="hub",terminal="haven",dc="yard",
+              terminal="haven",dc="yard",
               stop=City.BUILD_UNLOCK.stop,station=City.BUILD_UNLOCK.station,resort=City.BUILD_UNLOCK.resort}
   local shown=0
   for i,name in ipairs(TOOLS) do
@@ -1249,7 +1253,7 @@ local function buildPanel()
         afford,toolTips[name],state.tool==name,Graph.KINDS[kind].color)
       -- The name owns the top of the tile, so it is never broken in the
       -- middle of a word; the glyph and the price share the line beneath it.
-      text(({junction="Junction",grid="Tower",pump="Pump",filtration="Filter",binder="Binder",lab="Env. lab",tower="Treat",gate="Valve",depot="Depot",exchange="Hub",terminal="Haven",dc="Yard",
+      text(({junction="Junction",grid="Tower",pump="Pump",filtration="Filter",binder="Binder",lab="Env. lab",tower="Treat",gate="Valve",depot="Tank",terminal="Haven",dc="Yard",
              stop="Bus stop",station="Station",resort="Resort",corner="Corner",intersection="Crossing",roundabout="Roundabout",interchange="Interchange"})[name],
         bx+4,by+5,"tiny",P.text,TILE_TEXT,"center")
       lg.setColor(afford and Graph.KINDS[kind].color or P.textFaint)
@@ -1286,7 +1290,7 @@ local function buildPanel()
   y=y+math.ceil(math.max(shown,1)/3)*58+10
   -- What is not here yet, and what brings it.
   if advanced and not state.people then
-    for _,key in ipairs({"hub","seawater","haven","yard"}) do
+    for _,key in ipairs({"seawater","haven","yard"}) do
       local hint=city:unlockHint(key)
       if hint then
         y=y+paragraph(City.UNLOCKS[key].name..": "..string.lower(hint),y,P.textFaint)+4
@@ -1359,6 +1363,7 @@ local function inspectorPanel(n,e)
       or (n.kind=="works" and (((City.RECIPES[n.recipe or ""] or {}).name or "WORKS").." "..n.id))
       or (n.kind=="source" and ((n.plant and (City.PLANTS[n.plant] or {}).name
           or (string.upper(n.commodity).." WELL")).." "..n.id))
+      or (city:levelFamily(n) and city:levelFamily(n)~="tower" and (string.upper(city:levelName(n)).." "..n.id))
       or (Graph.KINDS[n.kind].name.." "..n.id)
     if n.commodity then drop(n.commodity,M+9,y+10,10); single(title,M+24,y,"mid",P.text,CW-24)
     else single(title,M,y,"mid",P.text,CW) end
@@ -1405,7 +1410,6 @@ local function inspectorPanel(n,e)
     elseif n.kind=="gate" then tail=inspectGate(n,y)
     elseif n.kind=="depot" then tail=inspectDepot(n,y)
     elseif n.kind=="terminal" then tail=inspectTerminal(n,y)
-    elseif n.kind=="exchange" then tail=inspectHub(n,y)
     elseif n.kind=="works" then tail=inspectWorks(n,y)
     elseif n.kind=="stop" then tail=inspectStop(n,y)
     elseif n.kind=="station" then tail=inspectStation(n,y)
@@ -1421,6 +1425,7 @@ local function inspectorPanel(n,e)
           M,y+80,"small",P.textDim,CW)
       end
       tail=y+(n.capped and 128 or 84)
+      if city:isDistribution(n) then tail=inspectDistribution(n,tail) end
       if city:levelFamily(n) then tail=levelBlock(n,tail)+8 end
       tail=replaceStrip(n,tail)
       tail=demolishBlock(n,tail+12)
@@ -2156,7 +2161,7 @@ local function stats()
   local costs=city:expenseBreakdown()
   for _,v in ipairs({{"Office",costs.office},{"Sources",costs.sources},{"Buildings",costs.structures},
     {"Pipes",costs.pipes},{"Staff",costs.crews},{"Imports",costs.imports},{"Freight",costs.haulage},
-    {"Automation hubs",costs.hubs},{"Fuel",costs.fuel},{"Travel",costs.transit},{"Interest",costs.interest}}) do
+    {"Distribution hubs",costs.hubs},{"Fuel",costs.fuel},{"Travel",costs.transit},{"Interest",costs.interest}}) do
     if (v[2] or 0)>0 then row(v[1],string.format("$%.1f",v[2]),y); y=y+26 end
   end
   y=y+16

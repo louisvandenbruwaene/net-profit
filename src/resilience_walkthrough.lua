@@ -34,15 +34,6 @@ return function(app,capture,click,scrollTo,check)
   check(j.kind=='manifold' and c:levelOf(j)==2 and j.ports==6,'the level button turns the junction into a hub')
   click('back-to-build')
 
-  -- The automation hub has its own levels.
-  c.money=200000
-  local hub=assert(c:build(1900,1300,'exchange'))
-  check(hub.ports==4 and c:hubRadius(hub)==450,'a new automation hub is small')
-  app.action('focusNode',hub.id)
-  scrollTo(app,'level-up'); click('level-up')
-  check(c:levelOf(hub)==2 and hub.ports==6 and c:hubRadius(hub)==580,'and grows in ports and range')
-  click('back-to-build')
-
   -- The advisor: the resilience check and the ranked upgrades.
   click('tab-stats')
   click('tab-advisor')

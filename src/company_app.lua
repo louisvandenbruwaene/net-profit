@@ -247,15 +247,7 @@ local function action(name,...)
   if city.bankrupt then return end
   local snapshot=Save.pack(city)
   local result,err
-  if name=="setHubFloor" or name=="setHubAuto" then
-    local id,value=...
-    local n=city.g.nodes[id]
-    if n and n.alive and n.kind=="exchange" then
-      if name=="setHubFloor" then n.floor=math.max(0,math.floor(value))
-      else n.autoWiden=value and true or nil end
-      city:refresh(); result=true
-    else err="Select a hub first" end
-  else result,err=city[name](city,...) end
+  result,err=city[name](city,...)
   if not result then toast(err or "Action unavailable",true); A.play("denied"); return nil end
   if name=="endDay" then
     state.undo={}; clear(); state.rename=nil; state.modal=city.bankrupt and "report" or nil; state.reportDetails=false
@@ -282,6 +274,13 @@ local function action(name,...)
       toast(result.fixed.." main"..(result.fixed==1 and "" or "s").." repaired for $"..result.spent)
     elseif name=="buyDistrict" then
       toast(result.name.." acquired")
+    elseif name=="upgradeLevel" and result.kind and city:levelName(result) then
+      local run=result.lastRun
+      toast(city:levelName(result).." ready"..(run and string.format(": %d signed, %d connected, %d widened",
+        run.signed,run.wired,run.widened) or ""))
+      R.ring(result.x,result.y,P.good)
+    elseif name=="setHubFloor" then
+      toast("Minimum price $"..city:hubFloor(result).." a unit")
     elseif name=="layPipe" then
       toast(city.unserved==0 and "Everyone supplied! Close the day to collect your earnings." or "Connection built. Keep the supply flowing.")
     else

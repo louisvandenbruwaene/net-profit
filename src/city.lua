@@ -1727,201 +1727,11 @@ end
 --------------------------------------------------------------------------------
 
 City.BUILDABLE = { junction = true, manifold = true, pump = true, tower = true,
-                   gate = true, depot = true, terminal = true, exchange = true,
+                   gate = true, depot = true, terminal = true,
                    works = true, dc = true, stop = true, station = true, resort = true }
 
---------------------------------------------------------------------------------
--- Hubs
---
--- The point in the game where a utility stops being a network of pipes to named
--- houses and becomes a distribution business. A hub stands in a neighbourhood
--- and serves everyone inside its radius who pays at least what the player asks,
--- without a main ever being drawn to any of them. The last mile is charged
--- rather than modelled, which is honest: a real water company does not draw its
--- service pipes on the strategy map either.
---
--- It is also what makes an endless map possible. A thousand customers on hubs
--- are a few dozen numbers in the solver instead of a thousand nodes and a
--- thousand edges.
---------------------------------------------------------------------------------
-
--- Priced so that the design the game wants is the design that pays. One trunk
--- into a hub and short spurs out of it beats a separate main to every house
--- from about nine customers on, and beats it on upkeep from about seven, and
--- everybody who moves in afterwards is free.
-City.hub = require("data.freight").hub
-
--- A hub reaches as far as its level lets it. One that predates levels carries
--- no radius of its own and reaches the standard distance.
-function City:hubRadius(h) return h.radius or City.hub.radius end
-
--- What a hub will pick up: everyone in range who pays at least the floor, is
--- not already on a main of their own, and whose trade the company is licensed
--- for. An offer inside the radius signs itself, which is the whole point of
--- putting a hub down rather than a pipe.
-function City:recomputeHubs()
-  local hubs = self.g:nodesOfKind("exchange")
-  for _, n in ipairs(self.g.nodes) do
-    if n.kind == "client" then n.hub = nil end
-  end
-  if #hubs == 0 then return hubs end
-
-  -- Customers bucketed by a square the size of a hub's reach. Every hub then
-  -- looks at the nine squares around it instead of at every customer in the
-  -- company, which is the difference between a city and a city of five
-  -- thousand: the coverage scan was costing more than the flow solve.
-  local size = City.hub.radius
-  for _, h in ipairs(hubs) do size = math.max(size, self:hubRadius(h)) end
-  local grid = {}
-  for _, c in ipairs(self.g.nodes) do
-    -- A secure contract is a promise to cover a failure, so it is never signed
-    -- on the player's behalf just because a hub happens to reach it.
-    if c.alive and c.kind == "client" and not c.supplyClosed and not (c.prospect and c.secure)
-       and self.licences[c.commodity] and self.g:degree(c.id) == 0 then
-      local key = math.floor(c.x / size) .. "," .. math.floor(c.y / size)
-      local bucket = grid[key]
-      if bucket then bucket[#bucket + 1] = c else grid[key] = { c } end
-    end
-  end
-
-  for _, h in ipairs(hubs) do
-    local r2 = self:hubRadius(h) ^ 2
-    h.covered, h.demandBy, h.signed = {}, {}, 0
-    h.floor = h.floor or 0
-    local hcol, hrow = math.floor(h.x / size), math.floor(h.y / size)
-    -- The nine squares, walked in a fixed order, and each bucket already holds
-    -- its customers in node order because that is the order they were filed in.
-    -- Nothing is copied and nothing is sorted: which hub claims a customer
-    -- standing between two of them is decided the same way every time without
-    -- either.
-    for dc = -1, 1 do
-      for dr = -1, 1 do
-        for _, c in ipairs(grid[(hcol + dc) .. "," .. (hrow + dr)] or {}) do
-          if not c.hub
-             and (c.x - h.x) ^ 2 + (c.y - h.y) ^ 2 <= r2
-             and (c.rate or 0) >= h.floor then
-            if c.prospect then
-              c.prospect, c.joined = false, self.day
-              h.signed = h.signed + 1
-            end
-            c.hub = h.id
-            h.covered[#h.covered + 1] = c.id
-            for key,want in pairs(c.demands or {[c.commodity]=c.demand or 0}) do
-              h.demandBy[key]=(h.demandBy[key] or 0)+want
-            end
-            c.connected = true
-          end
-        end
-      end
-    end
-  end
-  return hubs
-end
-
--- The hub used to just mark a covered client served for a flat fee, with no
--- real pipe ever laid. Now it actually builds the last mile itself once a
--- day: a chain of T splits from the nearest fitting with room and supply,
--- out to the client, the same builder autoplay uses on its own network (see
--- src/network_builder.lua) -- paying the ordinary construction cost, same as
--- if the player had drawn the pipe by hand.
---
--- Once a day, not every refresh: laying a pipe calls refresh again to price
--- and settle it, and refresh runs constantly -- every build action, and every
--- plan autoplay so much as considers and throws away. A client the search
--- cannot yet reach (no network within range) would otherwise fail the exact
--- same expensive search again on every one of those, forever. The standing
--- order on hub feeds a few lines below (`widenHubFeeds`) runs on the same
--- once-a-day rhythm for the same reason.
-function City:extendHubs()
-  local built = 0
-  for _, h in ipairs(self.g:nodesOfKind("exchange")) do
-    for _, id in ipairs(h.covered or {}) do
-      local c = self.g.nodes[id]
-      -- A client the search cannot yet reach stays covered but unconnected
-      -- indefinitely; retrying it in full every single day is the same cost
-      -- that made this run every refresh instead. Back off for a few days
-      -- after a miss, same idea as a customer's own grace period elsewhere.
-      if c and c.alive and self.g:degree(c.id) == 0 and self.day >= (c.hubRetryDay or 0) then
-        local ok = false
-        for wantKey, wantAmount in pairs(c.demands or { [c.commodity] = c.demand or 0 }) do
-          if NB.connectPipe(self, c, wantAmount, wantKey) then ok, built = true, built + 1 end
-        end
-        if not ok then c.hubRetryDay = self.day + 5 end
-      end
-    end
-  end
-  return built
-end
-
--- What each hub actually landed, shared out among the customers it covers. The
--- best payers are served first, which is what gives the rate floor its teeth:
--- when a hub is short, it is the cheap houses that go dry.
-function City:shareHubSupply()
-  for _, h in ipairs(self.g:nodesOfKind("exchange")) do
-    local left = {}
-    for name, _ in pairs(h.demandBy or {}) do
-      left[name] = ((self.detail and self.detail.hub or {})[h.id] or {})[name] or 0
-    end
-    local order = {}
-    for _, id in ipairs(h.covered or {}) do order[#order + 1] = self.g.nodes[id] end
-    table.sort(order, function(a, b)
-      if (a.rate or 0) ~= (b.rate or 0) then return (a.rate or 0) > (b.rate or 0) end
-      return a.id < b.id
-    end)
-    for _, c in ipairs(order) do
-      self.servedBy[c.id]=self.servedBy[c.id] or {}
-      for key,want in pairs(c.demands or {[c.commodity]=c.demand or 0}) do
-        local take=math.min(left[key] or 0,want)
-        self.servedBy[c.id][key]=take
-        if key==c.commodity then self.served[c.id]=take end
-        left[key]=(left[key] or 0)-take
-      end
-    end
-  end
-end
-
--- The other half of what a hub buys: the feed into it looks after itself. A
--- saturated main into a hub that is short gets one more unit of bore at the
--- normal price, once a day, and only while the player leaves the switch on.
--- Automation here is a standing order with a bill attached, not a free lunch.
-function City:widenHubFeeds()
-  local count, spent = 0, 0
-  for _, h in ipairs(self.g:nodesOfKind("exchange")) do
-    if h.autoWiden then
-      for name, want in pairs(h.demandBy or {}) do
-        local got = ((self.detail.hub or {})[h.id] or {})[name] or 0
-        if got < want then
-          local best, bestCost
-          for _, e in ipairs(self.g:edgesAt(h.id)) do
-            local flow = math.abs((self.detail.edge or {})[e.id] or 0)
-            if e.commodity == name and flow >= e.cap and (e.capMax or e.cap) < City.autoWidenCap() then
-              local cost = self:boreCost(e, 1)
-              -- A main already at the top size the company may lay has
-              -- nothing to widen into: boreCost says so with nil, not with a
-              -- price, and this is not a bill to skip.
-              if cost and cost <= self.money and (not bestCost or cost < bestCost) then
-                best, bestCost = e, cost
-              end
-            end
-          end
-          if best then
-            self:upgradePipe(best.id)
-            count, spent = count + 1, spent + bestCost
-          end
-        end
-      end
-    end
-  end
-  return count, spent
-end
-
-function City:hubBill()
-  local total = 0
-  for _, h in ipairs(self.g:nodesOfKind("exchange")) do
-    total = total + City.hub.upkeep + #(h.covered or {}) * City.hub.perClient
-  end
-  return total
-end
+-- Hubs: see src/distribution.lua. A fitting levelled to the top of its ladder
+-- runs its own neighbourhood; there is no separate hub building any more.
 
 -- The outside world.
 --
@@ -2027,12 +1837,6 @@ function City:build(x, y, kind, commodity)
     n.makes = recipe.makes
     n.wants = self:worksWants(n)
     self:note("%s built: %d %s a day when it is fed", recipe.name, recipe.rate, recipe.makes)
-  elseif kind == "exchange" then
-    -- A hub starts open to everyone. Raising the floor is how the player turns
-    -- it into a business decision rather than a public service.
-    n.throughput = 999
-    n.floor, n.covered, n.demandBy = 0, {}, {}
-    n.autoWiden = true
   elseif kind == "gate" then
     -- A gate starts wide open; the point of it is that the player narrows it.
     n.throughput = 6
@@ -2905,9 +2709,6 @@ end
 --------------------------------------------------------------------------------
 
 function City:refresh()
-  -- Who is on a hub has to be settled before the networks are built, because a
-  -- customer on a hub is not in them.
-  self:recomputeHubs()
   self.served = {}
   self.servedBy = {}
   self.detail = { edge = {}, node = {}, hub = {}, works = {} }
@@ -2971,11 +2772,9 @@ function City:refresh()
       for _, key in ipairs(Graph.ALL) do
         if Graph.COMMODITIES[key].landed ~= false then feeds[key] = true end
       end
-    elseif n.kind == "exchange" then
-      for key in pairs(n.demandBy or {}) do wants[key] = true end
     elseif n.kind == "dc" then
       for key in pairs(n.intake or {}) do wants[key] = true end
-    elseif n.kind == "client" and not n.hub and not n.prospect then
+    elseif n.kind == "client" and not n.prospect then
       wants[n.commodity] = true
       for key in pairs(n.demands or {}) do wants[key] = true end
     elseif n.kind == "station" then
@@ -3004,10 +2803,7 @@ function City:refresh()
     if name=='oil' then self.oilSpills=(detail or {}).spill or {} end
     for id, v in pairs(served or {}) do
       local n = self.g.nodes[id]
-      if n and n.kind == "exchange" then
-        self.detail.hub[id] = self.detail.hub[id] or {}
-        self.detail.hub[id][name] = v
-      elseif n and n.kind == "depot" then
+      if n and n.kind == "depot" then
         self.detail.depot=self.detail.depot or {}
         self.detail.depot[id]=v
       elseif n and n.kind == "works" then
@@ -3075,11 +2871,6 @@ function City:refresh()
     self.wellSpare[name] = math.max(0, (wells[name] or 0) - (self.flowBy[name] or 0))
     self.spare[name] = math.max(0, (headroom[name] or 0) - (self.flowBy[name] or 0))
   end
-
-  -- What the hubs landed is shared out among the customers behind them, so
-  -- everything downstream -- income, patience, the short customer report --
-  -- reads a per customer number exactly as it always did.
-  self:shareHubSupply()
 
   -- People travel on what the day's solve left in the filling stations.
   self:routeTrips()
@@ -3360,23 +3151,6 @@ function City:endDay()
   report.carsSold, report.carIncome = self:sellCars()
   report.revenue = report.revenue + report.carIncome
 
-  -- 3a2. Hubs build their own last mile out to whoever they picked up today.
-  report.hubsBuilt = self:extendHubs()
-  if report.hubsBuilt > 0 then
-    self:note("%d connection%s wired in by the hubs", report.hubsBuilt,
-      report.hubsBuilt == 1 and "" or "s")
-    self:refresh()
-  end
-
-  -- 3a3. The standing order on hub feeds.
-  report.widened, report.widenCost = self:widenHubFeeds()
-  if report.widened > 0 then
-    self:note("%d hub feed%s widened for $%d", report.widened,
-      report.widened == 1 and "" or "s", report.widenCost)
-    self:refresh()
-  end
-
-
   -- 3b. The crews work the backlog. This is what the wage buys: the worst main
   --     on the books gets fixed without anybody clicking on it.
   report.crewFixed, report.crewCost = 0, 0
@@ -3419,7 +3193,7 @@ function City:endDay()
     for _, n in ipairs(self.g:nodesOfKind("depot")) do
       if not n.freightStorage and n.commodity == name and spare > 0 and self.g:degree(n.id) > 0 then
         local room = (n.capacityStore or City.depotCapacity) - (n.stored or 0)
-        local take = math.min(spare, room, City.depotFillRate)
+        local take = math.min(spare, room, n.fillRate or City.depotFillRate)
         if take > 0 then
           n.stored = (n.stored or 0) + take
           spare = spare - take
@@ -3472,6 +3246,8 @@ function City:endDay()
     report.arrived=report.arrived or request
   end
   if #report.arrivals>0 then self:note("%d new requests",#report.arrivals) end
+  -- 5a. The distribution hubs sign, connect and widen for today's offers too.
+  self:runDistribution(report)
   if report.ignored>0 then self:note("%d requests expired. Reputation -%d.",report.ignored,report.ignored*City.rules.repIgnored) end
   if self.adDaysLeft>0 then self.adDaysLeft=self.adDaysLeft-1 end
 
@@ -3542,6 +3318,18 @@ function City:migrate()
   -- The automated departments are gone: nothing on the books buys land or
   -- replaces mains on the company's behalf any more, or draws a wage for it.
   self.orders.engineers, self.orders.estates = nil, nil
+  -- The automation hub is gone too. One already standing becomes what it
+  -- always was in spirit: a distribution hub at the top of the fitting ladder,
+  -- keeping its floor, and its mains exactly where they are.
+  for _, n in ipairs(self.g.nodes) do
+    if n.kind == "exchange" then
+      n.kind, n.level = "manifold", 4
+      n.ports, n.throughput = math.max(n.ports or 0, 10), 999
+      n.radius, n.covered, n.demandBy, n.signed, n.autoWiden = nil, nil, nil, nil, nil
+    elseif n.kind == "client" then
+      n.hub = nil
+    end
+  end
   self.dispatchRate, self.estateReserve, self.estateMax, self.estateDiscount = nil, nil, nil, nil
   self.stock = self.stock or {}
   self.premiumBought = self.premiumBought or {}
@@ -4220,7 +4008,6 @@ function City:expenseBreakdown()
     elseif n.kind == "works" then
       b.structures = b.structures + ((City.RECIPES[n.recipe or ""] or {}).upkeep or 20)
     elseif n.kind == "dc" then b.structures = b.structures + 12
-    elseif n.kind == "exchange" then b.structures = b.structures + 0
     elseif n.kind == "terminal" then b.structures = b.structures + City.terminalUpkeep
     elseif n.kind == "depot" then b.structures = b.structures + 3
     elseif n.kind == "tower" then b.structures = b.structures + 2
@@ -4228,7 +4015,7 @@ function City:expenseBreakdown()
   end
   b.imports = self:importBill()
   b.haulage = self:haulageBill()
-  b.hubs = self:hubBill()
+  b.hubs = self:distributionBill()
   b.fuel = self:fuelBill()
   b.transit = self:transitBill()
   for _, e in ipairs(self.g.edges) do
@@ -4286,5 +4073,6 @@ require("road_model")(City)
 require("ideas")(City)
 require("resilience")(City)
 require("upgrades")(City)
+require("distribution")(City)
 
 return City

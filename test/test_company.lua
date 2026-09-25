@@ -508,71 +508,57 @@ do
   check(c:sourceIncome(t)==0,"a haven pays no wholesale, because it produces nothing")
 end
 
-print("a hub is the last mile, charged rather than drawn")
+print("a distribution hub signs, connects and widens for the customers who pay enough")
 do
   local c=fresh()
   c.money=99999
   c.obstacles={}
+  for _,d in ipairs(c.districts) do d.owned=true end
   local src=c.firstSource
   for _,cl in ipairs(c:clientList()) do c.g:killNode(cl.id) end
-  local hub=assert(c:build(src.x+240,src.y,"exchange"))
-  -- Three customers around the hub: two that pay the going rate and one that
-  -- does not. None of them gets a main of their own.
-  local made={}
-  for i=1,3 do
-    local cl=assert(c:addClient("house",i==3))
-    cl.x,cl.y=hub.x+120*math.cos(i),hub.y+120*math.sin(i)
-    cl.demand,cl.rate=3,i==2 and 2 or 6
-    made[i]=cl
-  end
-  c:refresh()
-  check(made[3].prospect==false,"an offer inside a hub signs itself")
-  check(made[1].hub==hub.id and made[2].hub==hub.id,"and the hub picks up everyone in range")
-  check(c.g:degree(made[1].id)==0,"with no main drawn to any of them")
-
-  -- The rate floor is the whole point of a hub: it refuses cheap customers.
-  c:refresh()
-  local before=#hub.covered
-  hub.floor=4
-  c:refresh()
-  check(#hub.covered==before-1,"raising the floor drops the customer who pays least")
-  check(made[2].hub==nil,"and it is the right one")
-
-  -- Feed it and everyone behind it is supplied, through one main.
-  assert(c:layPipe(src.id,hub.id,"water","large"))
-  check(c.served[made[1].id]==3 and c.served[made[3].id]==3,
-    "one main into the hub supplies every customer behind it")
-  check(c.detail.hub[hub.id].water==6,"and the hub is what the network actually delivered to")
-
-  -- Short supply goes to the best payers first.
-  made[3].rate=9
-  local narrow=c.g:edgesAt(hub.id)[1]
-  narrow.cap,narrow.capMax=3,3
-  c:refresh()
-  check(c.served[made[3].id]==3 and c.served[made[1].id]==0,
-    "when a hub is short the better payer is served first")
-
-  -- And the feed looks after itself, at the usual price. The trunk into a
-  -- hub is never smaller than large, so boring it up a size needs massive
-  -- unlocked, same as it would for a real company this size.
+  local relay=assert(c:build(src.x+110,src.y,"junction"))
+  local hub=assert(c:build(src.x+300,src.y,"junction"))
+  assert(c:layPipe(src.id,relay.id,"water","large"))
+  -- Fed through a small main on purpose: it is the bottleneck the hub must find.
+  local feed=assert(c:layPipe(relay.id,hub.id,"water","small"))
+  check(c:levelName(hub)=="T split","a fitting starts as a T split")
+  check(select(2,c:upgradeLevel(hub.id))==nil and c:levelName(hub)=="Hub","and levels up to a hub")
+  check(c:upgradeLevel(hub.id)==nil,"a large hub waits for customers")
+  -- A company big enough for the top of the ladder, all of it far away.
   for i=1,12 do
-    -- Inside the hub's own radius and paying above its floor, an offer signs
-    -- itself.
-    local extra=assert(c:addClient("house",true))
-    extra.x,extra.y=hub.x+90*math.cos(i),hub.y+90*math.sin(i)
-    extra.rate=9
-    c:refresh()
+    local far=assert(c:addClient("house"))
+    far.x,far.y=src.x-3000-i*40,src.y+3000
   end
-  check(c:unlocked("massive"),"enough customers to bore the trunk past large")
-  hub.autoWiden=true
-  local before=narrow.capMax
+  c:refresh()
+  assert(c:upgradeLevel(hub.id))
+  check(c:levelName(hub)=="Large hub" and not c:isDistribution(hub),"a large hub does nothing by itself")
+  -- Around it: an offer paying well, an offer paying badly, and a signed
+  -- customer nobody has connected yet.
+  local good=assert(c:addClient("house",true)); good.x,good.y=hub.x+150,hub.y+60;  good.rate,good.demand=7,6
+  local cheap=assert(c:addClient("house",true)); cheap.x,cheap.y=hub.x-60,hub.y+170; cheap.rate,cheap.demand=2,3
+  local waiting=assert(c:addClient("house")); waiting.x,waiting.y=hub.x+40,hub.y-180; waiting.rate,waiting.demand=6,6
+  c:refresh()
+  check(c.g:degree(waiting.id)==0,"the signed customer has no main yet")
+  local money=c.money
+  local hubbed=assert(c:upgradeLevel(hub.id))
+  check(c:isDistribution(hubbed) and c:levelName(hub)=="Distribution hub","the fourth level is the distribution hub")
+  check(not good.prospect,"it signs an offer above its minimum price")
+  check(cheap.prospect,"and leaves one below it for the player")
+  check(c.g:degree(waiting.id)>0 and c.g:degree(good.id)>0,"it lays a real main to each customer it runs")
+  check(c.g:degree(cheap.id)==0,"and none to the one it did not sign")
+  check(c.money<money-City.LEVELS.LEVELS.fitting[4].cost,"everything it builds is paid for")
+  check(feed.size=="medium" and feed.cap==City.sizeOf("medium").cap,
+    "the small feed starving them is dug out for the next size up")
+  check(c:fullyServed(good) and c:fullyServed(waiting),"so both customers are fully supplied")
+
+  -- The minimum price is the one control, and it is respected at the close.
+  assert(c:setHubFloor(hub.id,8))
+  local late=assert(c:addClient("house",true)); late.x,late.y=hub.x-150,hub.y-90; late.rate=7
+  c:refresh()
   local report=c:endDay()
-  -- The bill is the thing to check, not the closing balance: widening the
-  -- feed also un-starves the hub, so the day it happens can easily earn more
-  -- than the work cost.
-  check(report.widened>=1 and (report.widenCost or 0)>0,"the standing order widens the feed and bills for it")
-  check(narrow.capMax>before and narrow.size=="massive",
-    "the main into the hub is the next size up, which is what was paid for")
+  check(late.prospect or not late.alive,"an offer below a raised minimum is not signed")
+  check(report.distribution~=nil,"the close reports what the hubs did")
+  check(c:expenseBreakdown().hubs==City.DISTRIBUTION.upkeep,"and the hub's running cost is on the books")
 end
 
 print("a chain of works turns ground into something worth selling")
@@ -647,13 +633,14 @@ do
   check(brew.ready==before,"a second solve changes nothing: the order is topological")
 
   -- And it reaches a customer.
-  local hub=assert(c:build(brew.x+240,brew.y,"exchange"))
+  local hub=assert(c:build(brew.x+240,brew.y,"junction"))
   assert(c:layPipe(brew.id,hub.id,"beer","large"))
   local pub=assert(c:addClient("pub"))
   pub.x,pub.y=hub.x+180,hub.y+140
   pub.demand=2
+  assert(c:layPipe(hub.id,pub.id,"beer","small"))
   c:refresh()
-  check(c.served[pub.id]==2,"beer the company made itself reaches a pub through a hub")
+  check(c.served[pub.id]==2,"beer the company made itself reaches a pub through a junction")
   check(c:expenseBreakdown().imports==0,"and not one unit of it was landed")
 end
 
