@@ -1,4 +1,4 @@
-.PHONY: run rounds mac-run mac-install hooks test bench anatomy layout smoke soak tutorial audio shots rounds-smoke rounds-shots dist install export clean
+.PHONY: run mac-run mac-install hooks test bench layout smoke soak tutorial audio shots dist install export clean
 
 # The headless suites are plain Lua and run under whatever interpreter is here:
 # 5.4 if it is installed, otherwise 5.3, plain lua, or LuaJIT.
@@ -13,9 +13,6 @@ TESTENV := SDL_AUDIODRIVER=dummy
 
 run:
 	@$(LOVE) .
-
-rounds:
-	@$(LOVE) . --rounds
 
 mac-run:
 	@open -a "LOVE" "$(CURDIR)"
@@ -45,20 +42,11 @@ test:
 	@$(LUA) test/test_infrastructure.lua
 	@$(LUA) test/test_resilience.lua
 	@$(LUA) test/test_ideas.lua
-	@$(LUA) test/test_autoplay.lua
-	@$(LUA) test/test_rounds.lua
 
 # What an endless map costs to solve. Kept out of `test` because it is a timing
 # measurement and a loaded machine is not a regression, but watched in CI.
 bench:
 	@$(LUA) test/bench_flow.lua
-
-# The shape of the networks these prices actually produce: Horton-Strahler
-# orders, Horton's ratios and the self-similar dimension they imply. Also a
-# measurement rather than a test, and the thing to run after touching pipe
-# sizes, source ladders or the builder. DAYS=n plays longer companies.
-anatomy:
-	@$(LUA) test/anatomy.lua
 
 # Input paths, driven through the real love callbacks.
 smoke:
@@ -77,21 +65,13 @@ audio:
 	@$(TESTENV) timeout -k 5 120 $(LOVE) . --audio
 
 # Every string the interface draws, and any two that land on the same pixels.
-# A measurement like `anatomy`, not a test: read the list and fix what is real.
+# A measurement, not a test: read the list and fix what is real.
 layout:
 	@$(TESTENV) timeout -k 5 180 $(LOVE) . --shot --audit 2>&1 | sed -n '/^layout:/,$$p'
 	@$(TESTENV) timeout -k 5 180 $(LOVE) . --smoke --audit 2>&1 | sed -n '/^layout:/,$$p'
 
 shots:
 	@$(TESTENV) timeout -k 5 120 $(LOVE) . --shot
-
-# Rounds mode through the real callbacks: build, lay a main, play rounds, save.
-rounds-smoke:
-	@$(TESTENV) timeout -k 5 90 $(LOVE) . --rounds --smoke
-
-# Rounds screenshots. ROUNDS_SHOTS=dir writes them there instead of the save folder.
-rounds-shots:
-	@$(TESTENV) timeout -k 5 90 $(LOVE) . --rounds --shot
 
 dist:
 	@mkdir -p dist

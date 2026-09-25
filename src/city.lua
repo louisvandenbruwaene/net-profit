@@ -4106,6 +4106,9 @@ end
 City.ORDERS = require("data.progression").ORDERS
 City.ORDER_LIST = { "surveyors", "dispatchers", "engineers", "estates" }
 
+-- How big the company is, for the gates that open stronger buildings.
+function City:progress() return #self:clientList() end
+
 function City:orderAvailable(key)
   local spec = City.ORDERS[key]
   if not spec then return false end
@@ -4345,6 +4348,5 @@ require("road_model")(City)
 require("ideas")(City)
 require("resilience")(City)
 require("upgrades")(City)
-require("rounds")(City)
 
 return City
