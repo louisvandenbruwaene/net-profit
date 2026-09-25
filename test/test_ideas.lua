@@ -48,10 +48,6 @@ do
  check(c:waterRating(incoming)>clogged,'mineral buildup reduces usable flow')
  incoming.calcification=120; incoming.leaking=true; incoming.cap=40
  assert(c:repairPipe(incoming.id)); check(incoming.calcification==0 and incoming.cap==50,'repair resets mineral age')
- c.orders.engineers=1; local report={}; incoming.calcification=150
- local money=c.money
- check(c:preventLeak(incoming,report) and c.money<money and incoming.calcification==0 and report.prevented==1,'engineer prevents failure and charges replacement')
- c.money=0; check(not c:preventLeak(incoming,{}),'unfunded preventive work cannot happen')
 end
 -- A real saltwater connection, both products, and interruption on lost feed.
 do
@@ -118,10 +114,6 @@ do
  c.day=1; d.owned=false
  check(c:buyDistrict(d.id)~=nil,'nonadjacent holdings can be bought')
  for _,land in ipairs(c.districts) do land.owned=true end
- local target=c:surveyCell(15,15); target.owned=false
- c.orders.estates=1; c.estateReserve=0; c.estateMax=1e7; c.estateDiscount=.5
- for day=1,1000 do c.day=day; if c:landDiscount(target)==.5 then break end end
- c:runOrders({}); check(target.owned,'estates buy qualifying disconnected discounted land')
 end
 -- Electricity requests do not silently change an existing signed contract.
 do

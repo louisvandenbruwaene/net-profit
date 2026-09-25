@@ -1628,22 +1628,6 @@ local function company()
   end
   -- The two rules that need a number attached.
   if city:workerCount("dispatchers")>0 then row(S.get("dispatchers").." Visible rings",city:workerCount("dispatchers"),oy,P.energy); oy=oy+30 end
-  if (city.orders or {}).estates then
-    row("Minimum discount",math.floor((city.estateDiscount or .3)*100).."%",oy,P.energy)
-    button("discount-less","-",M+220,oy+20,34,28,function() act("setEstatePolicy",(city.estateDiscount or .3)-.1,city.estateMax or 4000) end,true)
-    button("discount-more","+",M+260,oy+20,34,28,function() act("setEstatePolicy",(city.estateDiscount or .3)+.1,city.estateMax or 4000) end,true)
-    oy=oy+56
-    row("Maximum land price","$"..(city.estateMax or 4000),oy,P.energy)
-    button("estate-less","-",M+220,oy+20,34,28,function() act("setEstatePolicy",city.estateDiscount or .3,(city.estateMax or 4000)-1000) end,true)
-    button("estate-more","+",M+260,oy+20,34,28,function() act("setEstatePolicy",city.estateDiscount or .3,(city.estateMax or 4000)+1000) end,true)
-    oy=oy+56
-    row("Cash reserve","$"..(city.estateReserve or 4000).." in hand",oy,P.energy)
-    button("reserve-down","-",M+CW-80,oy+22,34,28,function() act("setReserve",(city.estateReserve or 4000)-1000) end,
-      (city.estateReserve or 4000)>1000,"Keep less back")
-    button("reserve-up","+",M+CW-40,oy+22,34,28,function() act("setReserve",(city.estateReserve or 4000)+1000) end,
-      true,"Keep more back")
-    oy=oy+60
-  end
   gy=oy-124
   -- One trade at a time. The next licence is the only one offered, so the
   -- player is choosing when rather than which, and the panel is never a wall of

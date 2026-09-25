@@ -35,12 +35,8 @@ Data.MILESTONES = {
 Data.ORDERS = {
   surveyors   = { name = "Surveyors",   hire = 420,  wage = 20, clients = 6,
                   blurb = "Shows deposits on land you do not own." },
-  dispatchers = { name = "Dispatchers", hire = 900,  wage = 30, clients = 12,
-                  blurb = "Accepts requests that meet your minimum price." },
-  engineers   = { name = "Engineers",   hire = 1600, wage = 45, clients = 20,
-                  blurb = "Replaces pipes after 3 full days. You pay the build cost." },
-  estates     = { name = "Estates",     hire = 2600, wage = 60, clients = 32,
-                  blurb = "Buys nearby land. Keeps the cash reserve you set." },
+  dispatchers = { name = "Scouts",      hire = 900,  wage = 30, clients = 12,
+                  blurb = "Each scout reveals one more ring of regions around your land, up to four." },
 }
 
 Data.PERMITS = {

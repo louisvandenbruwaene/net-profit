@@ -4,13 +4,10 @@ local Graph=require('graph')
 return function(City)
   City.PLANTS.seapump={name="SEAWATER PUMP",blurb="Pumps 50 saltwater from the sea. Connect a filter with armoured pipes."}
   City.BUILDABLE.tower=nil
-  City.ORDERS.dispatchers.blurb='Each dispatcher reveals one ring of neighboring regions, up to four.'
-  City.ORDERS.engineers.blurb='Replace failing lines before they lose delivery capacity. Replacement costs are charged.'
-  City.ORDERS.estates.blurb='Buy discounted land within the minimum discount, maximum price and cash reserve you set.'
   City.INFRA.kinds.transformer.legacy=false
   City.BUILDABLE.transformer=true
   City.ORDERS.analysts={name='Market analysts',hire=1000,wage=25,clients=0,blurb='+10 percentage points expected return per analyst, +1 per week of service; wages grow 1% weekly.'}
-  City.ORDER_LIST={'surveyors','dispatchers','engineers','estates','analysts'}
+  City.ORDER_LIST={'surveyors','dispatchers','analysts'}
   City.trade.saltwater={}; for k,v in pairs(City.trade.water) do City.trade.saltwater[k]=v end
   City.trade.saltwater.sourceUpkeep=18; City.trade.saltwater.wholesale=0; City.trade.saltwater.wholesalePerUnit=0
   for _,key in ipairs({'gems','jewelry'}) do
@@ -59,16 +56,6 @@ return function(City)
     for _,day in ipairs(self.analystHired or {}) do total=total+City.ORDERS.analysts.wage*1.01^math.floor(math.max(0,self.day-day)/7) end
     return math.ceil(total)
   end
-  function City:preventLeak(e,report)
-    if self:workerCount('engineers')==0 then return false end
-    local quote=self:replaceQuote(e.id,e.size,e.grade)
-    local cost=quote and quote.net or self:repairCost(e)
-    if self.money<cost then return false end
-    self:spend(cost); e.calcification=0; e.cap=e.capMax or e.cap; e.decayTick=nil
-    if quote then e.paid=quote.total end
-    report.prevented=(report.prevented or 0)+1; report.preventCost=(report.preventCost or 0)+cost
-    return true
-  end
   -- The same seed, coordinate and day always produce the same advertised offer,
   -- including regions discovered halfway through a day. No preview rerolls it.
   function City:landDiscount(d)
@@ -88,33 +75,6 @@ return function(City)
       return self:districtCost(self.districts[id])>self.money and 'not enough cash' or nil
     end
     return why
-  end
-  function City:setEstatePolicy(discount,maxPrice)
-    if type(discount)~='number' or type(maxPrice)~='number' or discount~=discount or maxPrice~=maxPrice then return nil,'invalid policy' end
-    self.estateDiscount=math.floor(math.max(.1,math.min(.5,discount))*10+.5)/10; self.estateMax=math.max(0,math.min(100000000,math.floor(maxPrice)))
-    return true
-  end
-  local runOrders=City.runOrders
-  function City:runOrders(report)
-    -- Dispatchers survey; requests remain the player's decisions. Engineers
-    -- prevent failures at the wear step rather than widening arbitrary mains.
-    local saved=self.orders
-    self.orders={surveyors=saved.surveyors}
-    runOrders(self,report)
-    self.orders=saved
-    if self:workerCount('estates')>0 then
-      for _=1,self:workerCount('estates') do
-        local best,price
-        for _,d in ipairs(self.districts) do
-          local cost=self:districtCost(d)
-          if not d.owned and self:landDiscount(d)>=(self.estateDiscount or .3) and cost<=(self.estateMax or 4000)
-            and self.money-cost>=(self.estateReserve or 4000) and not self:districtError(d.id)
-            and (not price or cost<price) then best,price=d,cost end
-        end
-        if not best then break end
-        self:buyDistrict(best.id); report.bought=best.name
-      end
-    end
   end
   function City:districtVisible(d)
     if not d or not d.col or not d.row then return false end
