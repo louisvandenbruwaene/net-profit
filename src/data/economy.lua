@@ -37,7 +37,9 @@ Data.trade = {
     -- times a well to commission and its own ladder is steeper again, so the
     -- second one is a late luxury and the third is never the answer.
     intakeMult = 3.2, intakeGrowth = 2.6,
-    wholesale = 12, wholesalePerUnit = 0.55, sourceUpkeep = 6,
+    -- A well costs its upkeep a day and a pumping cost for every unit it
+    -- lifts. Nothing pays the well: customers are the only income.
+    wholesale = 0, wholesalePerUnit = 0, sourceUpkeep = 4, extractPerUnit = 0.30,
     importCost = 1.2,
   },
   -- Electricity sits between water and beer: cables are dearer than a water
@@ -54,7 +56,7 @@ Data.trade = {
     upkeep = 0.45, upkeepPerM = 0.0023,
     sourceBase = 3600, sourceGrowth = 1.35, sourceOutput = 45,
     upgradeBase = 1400, upgradeGrowth = 1.42, upgradeStep = 12,
-    wholesale = 18, wholesalePerUnit = 0.90, sourceUpkeep = 52,
+    wholesale = 0, wholesalePerUnit = 0, sourceUpkeep = 52,
     fuelPerUnit = 0.55,
     importCost = nil,
   },
@@ -65,7 +67,7 @@ Data.trade = {
     upkeep = 0.60, upkeepPerM = 0.0030,
     sourceBase = 420, sourceGrowth = 1.55, sourceOutput = 10,
     upgradeBase = 210, upgradeGrowth = 1.22, upgradeStep = 4,
-    wholesale = 26, wholesalePerUnit = 1.30, sourceUpkeep = 11,
+    wholesale = 0, wholesalePerUnit = 0, sourceUpkeep = 11, extractPerUnit = 1.0,
     importCost = 5.5,
   },
   oil = {
@@ -75,7 +77,7 @@ Data.trade = {
     upkeep = 1.00, upkeepPerM = 0.0050,
     sourceBase = 900, sourceGrowth = 1.55, sourceOutput = 10,
     upgradeBase = 430, upgradeGrowth = 1.22, upgradeStep = 4,
-    wholesale = 44, wholesalePerUnit = 2.20, sourceUpkeep = 17,
+    wholesale = 0, wholesalePerUnit = 0, sourceUpkeep = 14, extractPerUnit = 1.6,
     importCost = 9.0,
   },
 }

@@ -364,12 +364,16 @@ do
   assert(c:upgradeSource(src.id))
   check(src.output>out and src.level==level+1,"a well can be deepened in place")
   check(c:sourceUpgradeCost(src)>cost,"each level costs more than the last")
-  check(c:sourceIncome(src)==0,"a well nobody draws on earns no wholesale")
+  check(c:sourceIncome(src)==0,"a well nobody draws on earns nothing")
   supply(c)
-  local paid=c:sourceIncome(src)
-  check(paid>0,"a well earns wholesale once it supplies somebody")
-  check(paid==math.floor(City.trade.water.wholesale+(c.produced[src.id] or 0)*City.trade.water.wholesalePerUnit),
-    "wholesale scales with the water actually delivered, not with the well's output")
+  check(c:sourceIncome(src)==0,"and a well that supplies somebody still earns nothing: customers pay")
+  local lifted=c.produced[src.id] or 0
+  check(lifted>0 and math.abs(c:pumpingBill()-lifted*City.trade.water.extractPerUnit)<1e-9,
+    "every unit lifted is billed at the pumping cost")
+  local costs=c:tradeCosts("water")
+  check(costs.perUnit and costs.perUnit>costs.marginal,"a unit costs its pumping plus a share of the upkeep")
+  check(costs.price and costs.margin and math.abs(costs.price-costs.perUnit-costs.margin)<1e-9,
+    "and the margin is what customers pay above that")
   for _=1,10 do c:upgradeSource(src.id) end
   check(src.output==src.cap,"a well tops out at what the ground gives")
   local why=select(2,c:upgradeSource(src.id))

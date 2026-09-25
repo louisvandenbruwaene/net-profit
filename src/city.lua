@@ -4000,7 +4000,7 @@ function City:fuelBill()
 end
 
 function City:expenseBreakdown()
-  local b = { office = 8, sources = 0, structures = 0, pipes = 0, crews = 0 }
+  local b = { office = 6, sources = 0, structures = 0, pipes = 0, crews = 0 }
   for _, n in ipairs(self.g:aliveNodes()) do
     if n.kind == "source" then
       local trade = City.trade[n.commodity] or City.trade.water
@@ -4017,6 +4017,7 @@ function City:expenseBreakdown()
   b.haulage = self:haulageBill()
   b.hubs = self:distributionBill()
   b.fuel = self:fuelBill()
+  b.pumping = self:pumpingBill()
   b.transit = self:transitBill()
   for _, e in ipairs(self.g.edges) do
     if e.alive then b.pipes = b.pipes + self:pipeUpkeep(e) end
@@ -4024,7 +4025,7 @@ function City:expenseBreakdown()
   b.crews = (self.crews or 0) * City.crewWage + self:orderWages()
   b.interest = self:loanInterest()
   b.total = math.ceil(b.office + b.sources + b.structures + b.pipes + b.crews
-    + b.interest + b.imports + b.haulage + b.fuel + b.hubs + b.transit)
+    + b.interest + b.imports + b.haulage + b.fuel + b.pumping + b.hubs + b.transit)
   return b
 end
 
@@ -4074,5 +4075,6 @@ require("ideas")(City)
 require("resilience")(City)
 require("upgrades")(City)
 require("distribution")(City)
+require("costs")(City)
 
 return City
