@@ -739,7 +739,17 @@ local function drawSea(city, cam, state)
   local cx0, cy = cam:toScreen(left - 200, 0)
   local cx1 = cam:toScreen(right + 200, 0)
   lg.setColor(P.with({ 0.40, 0.64, 0.88 }, 0.6)); lg.setLineWidth(2)
-  lg.line(cx0, cy, cx1, cy)
+  -- Broken where the river runs out into the sea: an estuary has no shore
+  -- across it.
+  local p = city:riverPath()
+  if p and p.n > 0 then
+    local mx0 = cam:toScreen(p.x[1] - p.hw[1], 0)
+    local mx1 = cam:toScreen(p.x[1] + p.hw[1], 0)
+    if mx0 > cx0 then lg.line(cx0, cy, math.min(mx0, cx1), cy) end
+    if mx1 < cx1 then lg.line(math.max(mx1, cx0), cy, cx1, cy) end
+  else
+    lg.line(cx0, cy, cx1, cy)
+  end
 
   -- Where a harbour may stand, shown only while the tool is in hand.
   if state and state.tool == "terminal" and (state.havenKind or "port") == "port" then
