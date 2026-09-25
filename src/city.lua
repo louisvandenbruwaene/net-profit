@@ -3328,6 +3328,13 @@ function City:migrate()
       n.radius, n.covered, n.demandBy, n.signed, n.autoWiden = nil, nil, nil, nil, nil
     elseif n.kind == "client" then
       n.hub = nil
+      -- Wells stopped being paid a wholesale fee and the going rate for water
+      -- rose a dollar to make up for it. Contracts signed at the old going
+      -- rate move with it, once: the new base is never the old one.
+      local was = ({ house = 6, estate = 8 })[n.clientType]
+      if was and n.rateBase == was and n.rate then
+        n.rateBase, n.rate = was + 1, n.rate + 1
+      end
     end
   end
   self.dispatchRate, self.estateReserve, self.estateMax, self.estateDiscount = nil, nil, nil, nil
