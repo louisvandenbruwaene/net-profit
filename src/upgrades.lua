@@ -68,8 +68,7 @@ return function(City)
     if level >= self:levelCount(n) then return "already at the highest level" end
     local spec = self:levelSpec(n, level + 1)
     if self:progress() < spec.clients then
-      return self.rounds and ("needs a round that serves " .. spec.clients .. " houses")
-        or ("needs " .. spec.clients .. " signed customers")
+      return "needs " .. spec.clients .. " signed customers"
     end
     if spec.cost > self.money then return "not enough cash" end
     return nil

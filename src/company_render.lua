@@ -975,40 +975,6 @@ local function drawLinks(city, cam, state)
   end
 end
 
--- Rounds zones. An open zone is ground the houses land on, so it is framed in
--- its own colour with how much of it the hubs reach. A zone opening this round
--- pulses. A closed one says when it opens.
-function Draw.zones(city, cam, state)
-  local rs = city.rounds
-  for _, d in ipairs(city.districts) do
-    if d.zoneOpens and cam:seesBox(d.x, d.y, d.x + d.w, d.y + d.h) then
-      local x, y = cam:toScreen(d.x, d.y)
-      local w, h = d.w * cam.scale, d.h * cam.scale
-      local open = d.zoneOpens <= rs.round
-      local fresh = open and d.zoneOpens == rs.round and rs.phase == "build"
-      if open then
-        local c = fresh and P.energy or P.accent
-        local pulse = fresh and (0.5 + 0.5 * math.sin(R.t * 3)) or 0
-        lg.setColor(P.with(c, 0.05 + 0.05 * pulse)); lg.rectangle("fill", x + 3, y + 3, w - 6, h - 6, 5)
-        lg.setColor(P.with(c, 0.5 + 0.3 * pulse)); lg.setLineWidth(fresh and 2.5 or 1.5)
-        lg.rectangle("line", x + 3, y + 3, w - 6, h - 6, 5)
-        -- The company hides an owned district's name when zoomed out. A zone
-        -- is what the Round tab talks about, so it keeps its name.
-        if cam.scale > 0.14 and cam.scale <= 0.34 then
-          label(string.upper(d.name), x + w / 2, y + 16, fresh and P.energy or P.accent, R.fonts.small)
-        end
-        if cam.scale > 0.14 and rs.phase ~= "round" then
-          local cov = city:zoneCoverage(d)
-          label((fresh and "NEW ZONE  /  " or "") .. math.floor(cov * 100 + 0.5) .. "% IN REACH OF A HUB",
-            x + w / 2, y + h - 22, cov >= 0.995 and P.good or cov >= 0.8 and P.warn or P.bad, R.fonts.tiny)
-        end
-      elseif cam.scale > 0.14 then
-        label("ZONE OPENS ROUND " .. d.zoneOpens, x + w / 2, y + h / 2 + 30, P.textDim, R.fonts.small)
-      end
-    end
-  end
-end
-
 function Draw.world(city, cam, state)
   UNFOCUSED_ALPHA = city.hideUnfocusedNetworks and 0 or 0.4
   labels,occupied,segments={},{},{}; labelPriority=0
@@ -1062,7 +1028,6 @@ function Draw.world(city, cam, state)
     end
   end
   drawDistrictChrome(city, cam, state)
-  if city.rounds then Draw.zones(city, cam, state) end
   drawSeams(city, cam, state)
 
   -- What each hub covers. Drawn faintly all the time, because the radius is the
