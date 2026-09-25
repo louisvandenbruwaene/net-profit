@@ -1227,6 +1227,20 @@ function Walk.update(app,mode,frame)
       cam.scale,cam.targetScale=0.15,0.15
       cam.x,cam.y=c.river.x0+650,1250
       capture("net-profit-25-river",app,1440,880,true)
+      -- Close in on the tightest bend, where the sand bar and the deep water show.
+      do
+        local p=c:riverPath()
+        local best,bi=0,40
+        for i=40,math.min(p.n,400) do
+          local d=math.abs(math.atan2(p.ny[i+2] or 0,-(p.nx[i+2] or 1))-math.atan2(p.ny[i-2],-p.nx[i-2]))
+          if d<math.pi and d>best then best,bi=d,i end
+        end
+        local drawer=app.state.drawer; app.state.drawer=nil
+        cam.scale,cam.targetScale=0.6,0.6
+        cam.x,cam.y=p.x[bi],p.y[bi]
+        capture("net-profit-25b-river-bend",app,1440,880,true)
+        app.state.drawer=drawer
+      end
     elseif frame==44 then
       require("infrastructure_walkthrough")(app,capture,click,scrollTo,check)
       print("Screenshots written to "..love.filesystem.getSaveDirectory()); love.event.quit()

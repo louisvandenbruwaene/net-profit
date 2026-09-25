@@ -524,12 +524,24 @@ local function drawDistrictGround(city, cam)
       if d.island then
         -- A speck of rock in the water, not a surveyed lot: a smooth oval,
         -- never a straight edge.
+        -- Drawn as an island looks from the air: surf breaking round a ragged
+        -- shore, a beach, and green ground inside it. The shore wanders but
+        -- never passes the oval the island is surveyed as.
         local cx,cy=x+w/2,y+h/2
-        lg.setColor(d.owned and {0.13,0.13,0.11,0.95} or {0.10,0.11,0.11,0.9})
-        lg.ellipse("fill",cx,cy,w/2,h/2)
-        lg.setColor(0.52,0.48,0.38,d.owned and 0.55 or 0.3)
-        lg.setLineWidth(2)
-        lg.ellipse("line",cx,cy,w/2,h/2)
+        local a,b=(d.id or 1)*1.7,(d.id or 1)*2.3
+        local function shore(k,swell)
+          local pts={}
+          for i=0,47 do
+            local t=i/48*math.pi*2
+            local f=(0.9+0.055*math.sin(3*t+a)+0.04*math.sin(5*t+b)+0.015*math.sin(9*t+a*b))*k+(swell or 0)
+            pts[#pts+1]=cx+math.cos(t)*w/2*f; pts[#pts+1]=cy+math.sin(t)*h/2*f
+          end
+          return pts
+        end
+        local surf=0.5+0.5*math.sin(R.t*0.9+(d.id or 1))
+        lg.setColor(0.20,0.40,0.55,0.35+0.15*surf); lg.polygon("fill",shore(1.12,0.01*surf))
+        lg.setColor(0.58,0.53,0.40,d.owned and 0.95 or 0.75); lg.polygon("fill",shore(1))
+        lg.setColor(d.owned and {0.16,0.25,0.18,1} or {0.12,0.18,0.15,1}); lg.polygon("fill",shore(0.86))
       else
         lg.setColor(d.owned and P.with(P.land,0.9) or {0.10,0.13,0.15,0.55})
         lg.rectangle("fill",x+4,y+4,w-8,h-8,8)
@@ -746,76 +758,191 @@ end
 
 -- Only the reach the camera can see is drawn, and none of it north of the
 -- coastline: the estuary opens into the sea rather than being painted over it.
--- Each stretch between two samples is its own quad, bank to bank, because the
+--
+-- A river is drawn the way it looks from above, in layers, every layer for
+-- every channel before the next so that a tributary pours into the main
+-- stream instead of being fenced off from it:
+--   the banks      a strip of trodden, damper ground along both sides
+--   the shallows   the full width of the water
+--   the deep       the channel's thalweg, which swings to the outside of every
+--                  bend, because that is where the current cuts
+--   point bars     pale sand on the inside of a bend, where the current drops it
+--   the current    ripples drifting downstream to the sea
+local RIVER = {
+  bank    = { 0.19, 0.23, 0.18, 1 },
+  shallow = { 0.12, 0.26, 0.36, 1 },
+  deep    = { 0.07, 0.17, 0.28, 1 },
+  sand    = { 0.64, 0.57, 0.41 },
+  edge    = { 0.42, 0.60, 0.72 },
+}
+
+-- How hard the channel bends at each sample, and to which side: +1 when the
+-- inside of the bend is on the +normal bank, -1 when it is on the other.
+local function bends(p)
+  if p.bend then return p.bend, p.inner end
+  local bend, inner = {}, {}
+  local function heading(i) return math.atan2(p.ny[i], -p.nx[i]) end
+  for i = 1, p.n do
+    local a, b = heading(math.max(1, i - 2)), heading(math.min(p.n, i + 2))
+    local d = b - a
+    if d > math.pi then d = d - 2 * math.pi elseif d < -math.pi then d = d + 2 * math.pi end
+    local curvature = d / (City.riverStep * (math.min(p.n, i + 2) - math.max(1, i - 2)))
+    bend[i] = math.min(1, math.abs(curvature) * p.hw[i] * 5)
+    inner[i] = curvature > 0 and -1 or 1
+  end
+  p.bend, p.inner = bend, inner
+  return bend, inner
+end
+
+-- A point across the channel: `across` is -1 on one bank, +1 on the other.
+local function across(cam, p, i, off)
+  return cam:toScreen(p.x[i] + p.nx[i] * off, p.y[i] + p.ny[i] * off)
+end
+
+-- A ribbon between two offsets from the centreline, as quads, because the
 -- channel as a whole is nowhere near convex.
+-- One triangle strip, so neighbouring pieces share their edges and no
+-- hairline of the layer beneath shows through between them.
+local ribbonMesh, ribbonCap
+local function ribbon(cam, p, first, last, inner, outer)
+  local verts = {}
+  for i = first, last do
+    local ax, ay = across(cam, p, i, inner(i))
+    local bx, by = across(cam, p, i, outer(i))
+    verts[#verts + 1] = { ax, ay }
+    verts[#verts + 1] = { bx, by }
+  end
+  if #verts < 4 then return end
+  if not ribbonMesh or #verts > ribbonCap then
+    ribbonCap = math.max(#verts, 2 * (ribbonCap or 1024))
+    ribbonMesh = lg.newMesh({ { "VertexPosition", "float", 2 } }, ribbonCap, "strip", "stream")
+  end
+  ribbonMesh:setVertices(verts)
+  ribbonMesh:setDrawRange(1, #verts)
+  lg.draw(ribbonMesh)
+end
+
+local function riverPoint(p, s)
+  local f = s / City.riverStep + 1
+  local i = math.max(1, math.min(p.n - 1, math.floor(f)))
+  local t = math.max(0, math.min(1, f - i))
+  local function lerp(a) return a[i] + (a[i + 1] - a[i]) * t end
+  return lerp(p.x), lerp(p.y), lerp(p.hw), lerp(p.nx), lerp(p.ny)
+end
+
 local function drawRiver(city, cam)
   local p = city:riverPath()
   if not p then return end
   local _, top = cam:toWorld(cam.vx, cam.vy)
   local _, bottom = cam:toWorld(cam.vx, cam.vy + cam.vh)
   if bottom < 0 then return end
-  local paths={p}
-  for _,branch in ipairs(p.branches or {}) do paths[#paths+1]=branch end
-  local col = City.OBSTACLES.river.color
+  local paths = { p }
+  for _, branch in ipairs(p.branches or {}) do paths[#paths + 1] = branch end
+  local spans = {}
+  for k, q in ipairs(paths) do
+    local first, last = city:riverSpan(top - q.maxHalf, bottom + q.maxHalf, q)
+    if first and last - first >= 1 then spans[k] = { first, last } end
+  end
   local _, coast = cam:toScreen(0, 0)
-  local _,viewHeight=R.dimensions()
+  local _, viewHeight = R.dimensions()
+  local fine = cam.scale > 0.22
   withinRows(coast, viewHeight, function()
-    for _,p in ipairs(paths) do
-    local first,last=city:riverSpan(top-p.maxHalf,bottom+p.maxHalf,p)
-    if last-first>=1 then
-    local left, right = {}, {}
-    for i = first, last do
-      local x, y, hw, nx, ny = p.x[i], p.y[i], p.hw[i], p.nx[i], p.ny[i]
-      local lx, ly = cam:toScreen(x + nx * hw, y + ny * hw)
-      local rx, ry = cam:toScreen(x - nx * hw, y - ny * hw)
-      left[#left + 1], left[#left + 2] = lx, ly
-      right[#right + 1], right[#right + 2] = rx, ry
-    end
-    lg.setColor(0.075,0.155,0.235,1)
-    for k = 1, #left - 2, 2 do
-      lg.polygon("fill", left[k], left[k + 1], left[k + 2], left[k + 3],
-        right[k + 2], right[k + 3], right[k], right[k + 1])
-    end
-    lg.setColor(P.with(col, 0.55))
-    lg.setLineWidth(1.4)
-    -- Do not draw a bank across a tributary mouth.
-    for _,bank in ipairs({left,right}) do
-      for k=1,#bank-2,2 do
-        local wx,wy=cam:toWorld((bank[k]+bank[k+2])/2,(bank[k+1]+bank[k+3])/2)
-        if (city:riverEdge(wx,wy) or 0)>-2 then lg.line(bank[k],bank[k+1],bank[k+2],bank[k+3]) end
-      end
-    end
-    -- Current, drawn with the flow and following every bend.
-    lg.setColor(P.with({ 1, 1, 1 }, 0.12))
-    lg.setLineWidth(math.max(1, 1.4 * cam.scale))
-    for _, side in ipairs({ -0.3, 0.3 }) do
-      local pts = {}
-      for i = first, last do
-        local off = side * p.hw[i]
-        local sx, sy = cam:toScreen(p.x[i] + p.nx[i] * off, p.y[i] + p.ny[i] * off)
-        pts[#pts + 1], pts[#pts + 2] = sx, sy
-      end
-      local smooth={}
-      for k=1,#pts-2,2 do
-        local a=math.max(1,k-2); local b=math.min(#pts-1,k+4)
-        for step=0,7 do
-          local t=step/8
-          for axis=0,1 do
-            local p0,p1,p2,p3=pts[a+axis],pts[k+axis],pts[k+2+axis],pts[b+axis]
-            smooth[#smooth+1]=.5*((2*p1)+(-p0+p2)*t+(2*p0-5*p1+4*p2-p3)*t*t+(-p0+3*p1-3*p2+p3)*t*t*t)
+    -- The banks.
+    lg.setColor(RIVER.bank)
+    for k, q in ipairs(paths) do if spans[k] then
+      ribbon(cam, q, spans[k][1], spans[k][2],
+        function(i) return -(q.hw[i] + math.max(10, q.hw[i] * 0.16)) end,
+        function(i) return q.hw[i] + math.max(10, q.hw[i] * 0.16) end)
+    end end
+    -- The shallows.
+    lg.setColor(RIVER.shallow)
+    for k, q in ipairs(paths) do if spans[k] then
+      ribbon(cam, q, spans[k][1], spans[k][2], function(i) return -q.hw[i] end, function(i) return q.hw[i] end)
+    end end
+    -- The deep water, pushed to the outside of each bend.
+    lg.setColor(RIVER.deep)
+    for k, q in ipairs(paths) do if spans[k] then
+      local bend, inner = bends(q)
+      ribbon(cam, q, spans[k][1], spans[k][2],
+        function(i) return -inner[i] * bend[i] * q.hw[i] * 0.3 - q.hw[i] * 0.52 end,
+        function(i) return -inner[i] * bend[i] * q.hw[i] * 0.3 + q.hw[i] * 0.52 end)
+    end end
+    if fine then
+      -- Point bars: sand on the inside of the tighter bends, fading in and out
+      -- along the bend as one strip.
+      for k, q in ipairs(paths) do if spans[k] then
+        local bend, inner = bends(q)
+        local verts = {}
+        local function flush()
+          if #verts >= 4 then
+            local mesh = lg.newMesh({ { "VertexPosition", "float", 2 }, { "VertexColor", "float", 4 } }, verts, "strip", "stream")
+            lg.setColor(1, 1, 1, 1); lg.draw(mesh); mesh:release()
+          end
+          verts = {}
+        end
+        for i = spans[k][1], spans[k][2] do
+          local b = bend[i]
+          if b > 0.2 and (i == spans[k][1] or inner[i] == inner[i - 1]) then
+            local side = inner[i]
+            local ax, ay = across(cam, q, i, side * q.hw[i])
+            local bx, by = across(cam, q, i, side * (q.hw[i] * (1 - 0.5 * b)))
+            local a = math.min(0.62, (b - 0.2) * 1.1)
+            verts[#verts + 1] = { ax, ay, RIVER.sand[1], RIVER.sand[2], RIVER.sand[3], a }
+            verts[#verts + 1] = { bx, by, RIVER.sand[1], RIVER.sand[2], RIVER.sand[3], 0 }
+          else
+            flush()
           end
         end
+        flush()
+      end end
+    end
+    -- The water's edge, left out wherever another channel runs in.
+    lg.setColor(RIVER.edge[1], RIVER.edge[2], RIVER.edge[3], 0.32)
+    lg.setLineWidth(math.max(1, 1.2 * cam.scale))
+    for k, q in ipairs(paths) do if spans[k] then
+      for _, side in ipairs({ -1, 1 }) do
+        local px, py
+        for i = spans[k][1], spans[k][2] do
+          local wx, wy = q.x[i] + q.nx[i] * side * q.hw[i], q.y[i] + q.ny[i] * side * q.hw[i]
+          local sx, sy = cam:toScreen(wx, wy)
+          local open = (city:riverEdge(wx + q.nx[i] * side * 6, wy + q.ny[i] * side * 6) or 1) > 0
+          if px and open then lg.line(px, py, sx, sy) end
+          if open then px, py = sx, sy else px = nil end
+        end
       end
-      smooth[#smooth+1]=pts[#pts-1]; smooth[#smooth+1]=pts[#pts]
-      lg.line(smooth)
-    end
-    end
+    end end
+    -- The current: short ripples drifting downstream, towards the sea. The
+    -- narrower the channel, the faster it runs.
+    if fine then
+      local spacing = 150
+      for k, q in ipairs(paths) do if spans[k] then
+        local s0 = (spans[k][1] - 1) * City.riverStep
+        local s1 = (spans[k][2] - 1) * City.riverStep
+        for lane, off in ipairs({ -0.45, 0.05, 0.5 }) do
+          local speed = 34 * 90 / math.max(40, q.maxHalf)
+          local shift = (R.t * speed + lane * 57) % spacing
+          local s = math.floor(s0 / spacing) * spacing - shift + lane * 41
+          while s < s1 do
+            if s > 0 then
+              local x1, y1, hw1, nx1, ny1 = riverPoint(q, s)
+              local x2, y2, hw2, nx2, ny2 = riverPoint(q, s + 26)
+              local a = 0.10 + 0.08 * math.sin(s * 0.013 + lane)
+              lg.setColor(0.75, 0.88, 1, a)
+              lg.setLineWidth(math.max(1, 1.6 * cam.scale))
+              local ax, ay = cam:toScreen(x1 + nx1 * off * hw1, y1 + ny1 * off * hw1)
+              local bx, by = cam:toScreen(x2 + nx2 * off * hw2, y2 + ny2 * off * hw2)
+              lg.line(ax, ay, bx, by)
+            end
+            s = s + spacing
+          end
+        end
+      end end
     end
   end)
   if cam.scale > 0.28 then
-    local i = math.floor(280 / City.riverStep) + 1
+    local i = math.min(p.n, math.floor(1400 / City.riverStep) + 1)
     local mx, my = cam:toScreen(p.x[i], p.y[i])
-    label("THE RIVER", mx, my, P.with(col, 0.85), R.fonts.tiny)
+    label(city:riverName(), mx, my, P.with(RIVER.edge, 0.9), R.fonts.tiny)
   end
 end
 

@@ -547,7 +547,9 @@ City.INTAKE = {
 function City:intakeCap(x, y)
   local edge, hw = self:riverEdge(x, y)
   if edge and edge >= 0 and edge <= City.INTAKE.reach then
-    return math.floor(City.INTAKE.riverBase + City.INTAKE.riverPerHalf * (hw or 0)), "river"
+    -- The flared estuary is tidal and brackish: an intake there lifts no more
+    -- than one on the widest fresh reach.
+    return math.floor(City.INTAKE.riverBase + City.INTAKE.riverPerHalf * math.min(hw or 0, 120)), "river"
   end
   if self:onCoast(x, y) then return City.INTAKE.sea, "sea" end
   return nil
@@ -912,8 +914,109 @@ function City:layOutRiver()
     -- The bends come out of a stream of their own. The shared stream is spent
     -- by leaks and offers, so drawing on it here would move the river on reload.
     meander = self:cellSeed(-4096, -4096),
+    style = 2,
   }
 end
+
+-- The second course: a river laid the way rivers lay themselves.
+--
+-- A meandering river does not follow a sine wave sideways. Its direction does:
+-- the angle of the channel swings back and forth as a sine of the distance
+-- travelled (Langbein and Leopold's sine-generated curve), which is what gives
+-- real meanders their round, almost looping bends rather than a wiggle. The
+-- bends scale with the channel, about eleven widths from one to the next, so
+-- a river that is wide at its mouth swings in long loops there and in short
+-- tight ones upstream where it has narrowed. A little third harmonic leans
+-- each bend downstream, the way a real one migrates.
+--
+-- Tributaries join at an acute angle pointing downstream, each narrower than
+-- the river it feeds and narrowing again towards its source.
+--
+-- Every sample still makes headway south, so the samples stay sorted by y and
+-- the bank searches keep working on sorted heights.
+local HEADWAY = math.rad(78)
+
+local function sampleCourse(start, heading, length, width, rng, opts)
+  opts = opts or {}
+  local step = City.riverStep
+  local p = { n = 0, x = {}, y = {}, hw = {}, nx = {}, ny = {}, maxHalf = 0 }
+  local theta0 = opts.swing or rng(0.95, 1.15)  -- how far a bend swings, in radians
+  local drift, driftWave, driftPhase = rng(0.10, 0.22), rng(9000, 14000), rng(0, 2 * math.pi)
+  local phase = rng(0, 2 * math.pi)
+  local x, y = start.x, start.y
+  local steps = math.floor(length / step)
+  for i = 0, steps do
+    local s = i * step
+    local w = width(s)
+    local hw = w / 2
+    -- The bend rate follows the width, with a slow wander in the wavelength so
+    -- no two bends are the same size.
+    local wave = 11 * w * (0.85 + 0.3 * (0.5 + 0.5 * math.sin(s / 2300 + phase * 1.7)))
+    local ease = math.min(1, s / (opts.ease or 1)) ; ease = ease * ease * (3 - 2 * ease)
+    local swing = theta0 * (0.8 + 0.2 * math.sin(s / 5100 + phase)) * ease
+    local angle = heading + drift * math.sin(2 * math.pi * s / driftWave + driftPhase)
+      + swing * (math.sin(phase) + 0.16 * math.cos(3 * phase))
+    angle = math.max(-HEADWAY, math.min(HEADWAY, angle))
+    local j = i + 1
+    local tx, ty = math.sin(angle), math.cos(angle)
+    p.x[j], p.y[j], p.hw[j] = x, y, hw
+    p.nx[j], p.ny[j] = -ty, tx
+    p.maxHalf = math.max(p.maxHalf, hw)
+    p.n = j
+    x, y = x + tx * step, y + ty * step
+    phase = phase + 2 * math.pi * step / wave
+  end
+  -- The mouth meets the coast square on, so the estuary opens into the sea.
+  if opts.mouth then p.nx[1], p.ny[1] = -1, 0 end
+  return p
+end
+
+function City:riverPath2(r)
+  local state = r.meander
+  local function rng(lo, hi)
+    state = (state * 16807) % 2147483647
+    return lo + (state - 1) / 2147483646 * (hi - lo)
+  end
+  -- Wide at the mouth, a flared estuary, and narrowing all the way upstream.
+  local function mainWidth(s)
+    return 95 + 165 * math.exp(-s / 11000) + 150 * math.exp(-s / 420)
+  end
+  local home = (City.MAP.start - 1) % City.MAP.cols + 1
+  local homeRight = home * City.MAP.w
+  local homeBottom = (math.floor((City.MAP.start - 1) / City.MAP.cols) + 1) * City.MAP.h
+  local path
+  -- Keep the home ground dry: a course that swings back over it is thrown away
+  -- and the next one tried, all from the same seed stream.
+  for _ = 1, 12 do
+    path = sampleCourse({ x = r.x0, y = r.y0 }, r.angle * 0.45, City.riverLength, mainWidth, rng, { ease = 1600, mouth = true })
+    local clear = true
+    for i = 1, path.n do
+      if path.y[i] > homeBottom + 400 then break end
+      if path.x[i] - path.hw[i] < homeRight + 80 then clear = false; break end
+    end
+    if clear then break end
+  end
+  path.branches = {}
+  local joins = { 2600, 6200, 10400, 15800 }
+  for b, sj in ipairs(joins) do
+    local j = math.floor(sj / City.riverStep) + 1
+    if j < path.n then
+      local side = (b % 2 == 1) and 1 or -1
+      -- The main channel's heading here, from its bank normal.
+      local heading = math.atan2(path.ny[j], -path.nx[j])
+      local w0 = path.hw[j] * 2 * rng(0.42, 0.58)
+      local length = rng(5000, 9000)
+      local stream = sampleCourse({ x = path.x[j], y = path.y[j] }, heading + side * rng(0.5, 0.7), length,
+        function(t) return w0 * (0.45 + 0.55 * math.exp(-t / 5000)) * math.max(0, math.min(1, (length - t) / 1400)) end,
+        rng, { ease = 600, swing = rng(0.7, 0.95) })
+      -- A stream rises from nothing: its last sample is its source.
+      stream.hw[stream.n] = 0
+      path.branches[#path.branches + 1] = stream
+    end
+  end
+  return path
+end
+
 
 -- The sampled course: centreline, half-width and unit bank normal per sample.
 -- Amplitudes and wavelengths are bounded together: the tightest bend keeps a
@@ -924,6 +1027,11 @@ function City:riverPath()
   if not r or not r.meander then return nil end
   local path = riverPaths[r]
   if path then return path end
+  if r.style == 2 then
+    path = self:riverPath2(r)
+    riverPaths[r] = path
+    return path
+  end
 
   local state = r.meander
   local function roll(lo, hi)
@@ -1013,7 +1121,10 @@ end
 -- How far a point stands outside the bank (negative inside the channel) and the
 -- half-width there, or nil at sea or where no reach of the river comes close.
 function City:riverEdge(x, y)
-  local p = self:riverPath()
+  return self:riverEdgeOn(self:riverPath(), x, y)
+end
+
+function City:riverEdgeOn(p, x, y)
   if not p or y < 0 then return nil end
   local best,bestHw
   local paths={p}
@@ -1031,6 +1142,16 @@ function City:riverEdge(x, y)
   end
   end
   return best, bestHw
+end
+
+-- A river has a name, and it is the seed's: the same company always runs
+-- along the same one.
+City.RIVER_NAMES = { "THE WEY", "THE AVON", "THE OUSE", "THE LUNE", "THE TAVY", "THE MERE",
+  "THE COLNE", "THE DART", "THE WEAR", "THE TEME" }
+function City:riverName()
+  local r = self.river
+  if not r or not r.meander then return "THE RIVER" end
+  return City.RIVER_NAMES[(r.meander % #City.RIVER_NAMES) + 1]
 end
 
 function City:riverAt(x, y)
@@ -3387,6 +3508,62 @@ function City:migrate()
   -- A save from before the river existed, or from when it ran dead straight,
   -- still has a home district to lay a meandering one out from, and the
   -- river's geometry answers to nothing but that and the seed.
+  -- A company whose river still runs the old course moves to the new one if,
+  -- and only if, nothing it has built is in the way: no structure standing in
+  -- the new channel, no main crossing water that was dry, and every river
+  -- intake still on a bank. Otherwise the old course stays, because moving a
+  -- river under somebody's works is not a migration, it is a flood.
+  -- Several courses are tried, each from the seed, and the first that misses
+  -- everything wins, so a single house on the bank does not keep the old river.
+  local clear, candidate = false, nil
+  for attempt = 0, (self.river and self.river.meander and self.river.style ~= 2) and 39 or -1 do
+    candidate = {}
+    for k, v in pairs(self.river) do candidate[k] = v end
+    candidate.style = 2
+    if attempt > 0 then candidate.meander = (self.river.meander * 48271 + attempt * 7919) % 2147483647 end
+    local newPath = self:riverPath2(candidate)
+    local oldPath = self:riverPath()
+    clear = true
+    for _, n in ipairs(self.g.nodes) do
+      if n.alive then
+        local now = self:riverEdgeOn(newPath, n.x, n.y)
+        if n.intake == "river" then
+          if not now or now <= 0 or now > City.riverWellReach then clear = false end
+        elseif now and now <= 25 then clear = false end
+      end
+      if not clear then break end
+    end
+    if clear then
+      for _, e in ipairs(self.g.edges) do
+        local a, b = self.g.nodes[e.a], self.g.nodes[e.b]
+        if e.alive and a and b then
+          for i = 0, 24 do
+            local t = i / 24
+            local x, y = a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t
+            local now = self:riverEdgeOn(newPath, x, y)
+            local was = self:riverEdgeOn(oldPath, x, y)
+            if now and now <= 0 and not (was and was <= 0) then clear = false; break end
+          end
+        end
+        if not clear then break end
+      end
+    end
+    if clear then break end
+  end
+  if clear and candidate then
+      self.river = candidate
+      for i = #self.obstacles, 1, -1 do
+        local o = self.obstacles[i]
+        local edge = self:riverEdge(o.x, o.y)
+        if edge and edge < o.r then table.remove(self.obstacles, i) end
+      end
+      for i = #(self.deposits or {}), 1, -1 do
+        local d = self.deposits[i]
+        local edge = self:riverEdge(d.x, d.y)
+        if not d.taken and edge and edge < 40 then table.remove(self.deposits, i) end
+      end
+  end
+
   if not (self.river and self.river.meander) then
     self:layOutRiver()
     -- The river replaces the old scattered ponds outright, and ground scattered
