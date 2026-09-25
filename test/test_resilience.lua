@@ -173,7 +173,7 @@ do
     if offer and offer.secure then found=offer; break end
   end
   check(found,'some offers come as secure contracts once the company is big enough')
-  check(found.rateBase==8 and found.patience==2 and found.grace==2,'they pay a premium and lose patience sooner')
+  check(found.rateBase==math.floor(City.CLIENTS.house.rate*City.SECURE.rate+0.5) and found.patience==2 and found.grace==2,'they pay a premium and lose patience sooner')
   local plain=city()
   local early=plain:addClient('house',true)
   check(not early.secure,'a small company is never offered one')

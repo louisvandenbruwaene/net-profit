@@ -861,6 +861,14 @@ function Walk.update(app,mode,frame)
       connect(app,extra)
       app.state.node=nil; app.state.edge=nil
       capture("net-profit-02-supplied",app)
+      -- The well, scrolled to what a unit of its water costs and sells for.
+      local well=c.g:nodesOfKind("source")[1]
+      if well then
+        app.action("focusNode",well.id); love.draw()
+        app.state.scroll=math.min(460,UI.maxScroll or 0)
+        capture("net-profit-39-well-economics",app)
+        app.state.node=nil; app.state.scroll=0
+      end
     elseif frame==14 then
       app.action("endDay"); app.state.tab="stats"; app.state.scroll=0; capture("net-profit-03-report",app)
     elseif frame==20 then

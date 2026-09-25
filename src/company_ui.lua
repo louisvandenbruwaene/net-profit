@@ -227,6 +227,68 @@ local function gainText(p)
   return string.format(" Earns about $%d/day, pays back in %s.",math.floor(p.net+0.5),
     p.payback and (p.payback.." day"..(p.payback==1 and "" or "s")) or "no time")
 end
+-- A price a unit, the way the customer rows already quote it: electricity in
+-- kWh, everything else by the unit.
+local function perUnit(commodity,v)
+  if v==nil then return "-" end
+  if commodity=="power" then return City.money2(v/5).." / kWh" end
+  return City.money2(v).." / unit"
+end
+
+local function marginText(commodity,m)
+  if m==nil then return "-" end
+  return (m>=0 and "+" or "-")..perUnit(commodity,math.abs(m))
+end
+
+-- The price as one bar: the amber part is what a unit costs you, the green
+-- part is what you keep. A price below cost shows red where the loss is.
+local function marginBar(cost,price,y)
+  lg.setColor(P.panelEdge); lg.rectangle("fill",M,y,CW,8,3)
+  if not price or price<=0 then return y+14 end
+  local top=math.max(price,cost or 0)
+  local cw,pw=CW*math.min(1,(cost or 0)/top),CW*price/top
+  if cost and cost>price then
+    lg.setColor(P.bad); lg.rectangle("fill",M,y,cw,8,3)
+    lg.setColor(P.warn); lg.rectangle("fill",M,y,pw,8,3)
+  else
+    lg.setColor(P.good); lg.rectangle("fill",M,y,pw,8,3)
+    lg.setColor(P.warn); lg.rectangle("fill",M,y,cw,8,3)
+  end
+  return y+14
+end
+
+-- What a unit of one trade costs the company and what it sells for, for the
+-- source inspector. `n` is the source being looked at, for its own share.
+local function economics(commodity,y,n)
+  local t=city:tradeCosts(commodity)
+  heading("WHAT A UNIT COSTS",y); y=y+28
+  row("One more unit",perUnit(commodity,t.marginal),y,P.warn,
+    "The pumping cost: what lifting one more unit costs at your cheapest source.")
+  y=y+24
+  if n then
+    local trade=City.trade[n.commodity] or City.trade.water
+    local upkeep=(n.upkeep or trade.sourceUpkeep or 0)+((n.level or 1)-1)*2
+    local drawn=(city.produced or {})[n.id] or 0
+    local rate=n.plant and (n.fuel or trade.fuelPerUnit or 0) or (trade.extractPerUnit or 0)
+    row("This source today",drawn>0 and perUnit(commodity,(upkeep+drawn*rate)/drawn) or ("idle, -$"..upkeep.." a day"),y,
+      drawn>0 and P.text or P.warn,"Its upkeep of $"..upkeep.." a day plus "..City.money2(rate)..
+      " for every unit it lifts, over the units it lifted today. The more it pumps, the cheaper each unit.")
+    y=y+24
+  end
+  row("All "..string.lower(Graph.COMMODITIES[commodity].name).." together",perUnit(commodity,t.perUnit),y,P.warn,
+    "Every source, every unit pumped and every main of this trade, over every unit your customers took today.")
+  y=y+24
+  row("Customers pay",t.price and (perUnit(commodity,t.price).." avg") or "-",y,P.text)
+  y=y+24
+  row("You keep",marginText(commodity,t.margin),y,t.margin and (t.margin>=0 and P.good or P.bad) or P.textDim,
+    "Price minus cost, for every unit sold.")
+  y=y+26
+  y=marginBar(t.perUnit,t.price,y)
+  y=y+paragraph(t.perUnit and "Amber is cost, green is profit. More customers on the same mains make every unit cheaper."
+    or "Nothing delivered yet: connect a customer to see the cost of a unit.",y,P.textDim)+10
+  return y
+end
+
 local function pointing(x,y,w,h)
   local mx,my=love.mouse.getPosition()
   return mx>=x and mx<x+w and my>=y and my<y+h
@@ -241,7 +303,7 @@ local function levelBlock(n,y)
   heading("LEVEL "..level.." OF "..count,y); y=y+26
   single(city:levelName(n),M,y,"body",P.accent,CW); y=y+26
   local blurb=city:levelBlurb(n)
-  if blurb and not city:isDistribution(n) then y=y+paragraph(blurb,y,P.textDim)+6 end
+  if blurb and not city:isDistribution(n) then y=y+paragraph(blurb,y,P.textDim)+12 end
   local used=city:connectionPorts(n.id)
   row("Connections",used.." / "..n.ports,y,used>=n.ports and P.warn or P.text); y=y+24
   local through=n.throughput or 999
@@ -295,8 +357,12 @@ local function inspectClient(n,y)
     end
   end
   local premium=city:ratePremium(n)
-  local good,bad=premium>0.10,premium<-0.10
-  row("Supply",string.upper(n.commodity),y,Graph.COMMODITIES[n.commodity].color)
+  local margin,cost,rate,guess=city:clientMargin(n)
+  local good,bad=margin>=cost,margin<0
+  row("Your cost",perUnit(n.commodity,cost),y,P.warn,
+    (guess and "Your marginal cost: nothing is delivered yet. " or "")..
+    "Every source, every unit pumped and every "..string.lower(n.commodity).." main, over every unit your customers take"..
+    (n.prospect and ", counting this customer as signed." or "."))
   row("Rate offered",n.commodity=="power" and string.format("$%.2f / kWh",n.rate/5) or ("$"..n.rate.." / unit"),y+26,good and P.good or bad and P.bad or P.text,
     "Every customer negotiates their own price. The going rate for a "..
     string.lower(City.CLIENTS[n.clientType].name).." is $"..(n.rateBase or n.rate)..
@@ -310,11 +376,14 @@ local function inspectClient(n,y)
       (n.prospect and "" or exposure==nil and "Run a resilience check in Stats > Advisor to see whether one failure would cut it off. "
         or exposure and "One failure would cut it off: see the Advisor. " or "It survives any single failure. "))
   else
-    row("Price difference",string.format("%+.0f%%",premium*100),y+52,
-      good and P.good or bad and P.bad or P.textDim)
+    row("You keep",marginText(n.commodity,margin),y+52,
+      bad and P.bad or margin>0 and P.good or P.textDim,
+      string.format("Rate minus your cost. This offer is %+.0f%% against the going rate for a %s.",
+        premium*100,string.lower(City.CLIENTS[n.clientType].name)))
   end
   row("Income / day","$"..city:contractValue(n),y+78,P.energy)
   row("Delivery",city:quantityPair(n.commodity,city.served[n.id] or 0,n.demand),y+104)
+  marginBar(cost,rate,y+153)
   row(n.prospect and "Offer expires" or "Patience",
     n.prospect and (n.expires-city.day+1).." days" or n.grace.." days",y+130,P.warn)
   if n.prospect then
@@ -336,8 +405,8 @@ local function inspectClient(n,y)
       "Lose 1 reputation. Ignoring it costs 2.",
       false,bad and P.bad or P.flow,bad)
     if n.secure then text("Secure contract: pays well, refunds every short day.",M,y+214,"small",P.energy,CW)
-    elseif bad then text("Paying "..string.format("%.0f%%",-premium*100).." under the going rate.",M,y+214,"small",P.bad,CW)
-    elseif good then text("Paying "..string.format("%.0f%%",premium*100).." over the going rate.",M,y+214,"small",P.good,CW) end
+    elseif bad then text("Pays less than a unit costs you: every unit loses "..City.money2(-margin)..".",M,y+214,"small",P.bad,CW)
+    else text(string.format("%+.0f%% against the going rate.",premium*100),M,y+214,"small",premium>0.10 and P.good or premium<-0.10 and P.warn or P.textDim,CW) end
   else
     button("supply-valve",n.supplyClosed and "[ ]  Customer supply" or "[x]  Customer supply",
       M,y+168,CW,36,function() act("toggleSupply",n.id) end,true,
@@ -472,16 +541,21 @@ local function inspectSource(n,y)
       n.intake=="river" and "The river's width here sets the ceiling. A wider reach gives more."
       or n.intake and "A sea intake is limited by the treatment works, not the water."
       or "Maximum supply from this spot. Distant deposits give more.")
-    row(n.intake and "Treatment stages" or "Well depth",
-      "level "..level.." / "..city:maxLevel(n),y+142)
+    local names=City.LEVELS.WELL_NAMES
+    row(n.intake and "Treatment stages" or "Well",
+      n.intake and ("level "..level.." / "..city:maxLevel(n))
+        or ((names[level] or "Well").."  "..level.."/"..city:maxLevel(n)),y+142,P.accent,
+      not n.intake and ("Hand well, well, deep well, borehole, deep borehole, aquifer station: each one is this well deepened.") or nil)
   end
-  row("Wholesale income","+$"..city:sourceIncome(n).." / day",y+168,P.good)
+  row(n.plant and "Fuel a unit" or "Pumping cost",perUnit(n.commodity,n.plant and (n.fuel or trade.fuelPerUnit or 0) or (trade.extractPerUnit or 0)),y+168,P.warn,
+    "Paid for every unit this source lifts. Customers are your only income.")
   row("Upkeep","-$"..((n.upkeep or trade.sourceUpkeep)+(level-1)*2).." / day",y+194,P.warn)
   row("Connections",city:connectionPorts(n.id).." / "..n.ports,y+220)
   local step,unit=city:upgradeStep(n)
   local upCost=city:sourceUpgradeCost(n)
   if upCost and level<city:maxLevel(n) and capacity<ceiling then
-    local verb=n.plant and ("Add a "..unit) or n.intake and "Add a stage" or "Deepen well"
+    local verb=n.plant and ("Add a "..unit) or n.intake and "Add a stage"
+      or ("To "..string.lower(City.LEVELS.WELL_NAMES[level+1] or "deeper"))
     button("upgrade-source",verb.."   +"..step.." output   $"..upCost,
       M,y+258,CW,38,function() act("upgradeSource",n.id) end,city.money>=upCost,
       "Adds "..step.." supply per day. Keeps existing pipes, needs no new route."..
@@ -506,6 +580,7 @@ local function inspectSource(n,y)
     text("Rich deposit. Gives extra supply.",M,y,"small",P.energy,CW)
     y=y+24
   end
+  y=economics(n.commodity,y+6,n)
   line(y); y=y+20
 
   -- Closing a well never takes the network with it. If mains are tied in, the
@@ -1544,6 +1619,24 @@ local function company()
     end
   end
   local my=y+116
+  -- Each trade's unit cost against its price, so the margin behind the profit
+  -- line is never a guess.
+  local shown=false
+  for _,name in ipairs(Graph.TRADES) do
+    if city.licences[name] then
+      local t=city:tradeCosts(name)
+      if t.perUnit or t.price then
+        if not shown then heading("COST AND PRICE A UNIT",my); my=my+28; shown=true end
+        row(string.upper(name),t.perUnit and ("cost "..City.money2(t.perUnit).."  sells "..City.money2(t.price))
+          or "nothing delivered yet",my,
+          t.margin and (t.margin>=0 and P.good or P.bad) or P.textDim,
+          "What a unit costs you (sources, pumping and mains, over units delivered) and what customers pay for it on average."..
+          (t.margin and (" You keep "..City.money2(t.margin).." a unit.") or ""))
+        my=t.perUnit and marginBar(t.perUnit,t.price,my+24)+6 or my+28
+      end
+    end
+  end
+  if shown then my=my+8 end
   if #city.g:nodesOfKind("dc")>0 or any then
     heading("YARDS",my); my=my+26
     for _,pair in ipairs(held) do
@@ -2161,7 +2254,7 @@ local function stats()
   local costs=city:expenseBreakdown()
   for _,v in ipairs({{"Office",costs.office},{"Sources",costs.sources},{"Buildings",costs.structures},
     {"Pipes",costs.pipes},{"Staff",costs.crews},{"Imports",costs.imports},{"Freight",costs.haulage},
-    {"Distribution hubs",costs.hubs},{"Fuel",costs.fuel},{"Travel",costs.transit},{"Interest",costs.interest}}) do
+    {"Distribution hubs",costs.hubs},{"Pumping",costs.pumping},{"Fuel",costs.fuel},{"Travel",costs.transit},{"Interest",costs.interest}}) do
     if (v[2] or 0)>0 then row(v[1],string.format("$%.1f",v[2]),y); y=y+26 end
   end
   y=y+16
@@ -2298,15 +2391,19 @@ function UI.draw(c,s,action)
       -- The only number that ranks an offer: how far above or below the going
       -- rate it is. Above is worth taking and below is not, so it is coloured
       -- that way, and an offer at the going rate stays plain.
-      local tint=premium>0 and P.good or premium<0 and P.bad or nil
-      -- Who is asking, then how their price compares, so the button says what it opens.
+      -- Who is asking, what they pay a unit, and what that leaves after a
+      -- unit's cost: green when it pays well, red when it would lose money.
+      local margin,cost,rate=city:clientMargin(request)
+      local tint=margin<0 and P.bad or margin>=cost and P.good or nil
       local who=((City.CLIENTS[request.clientType] or {}).name or "REQUEST")
       who=request.powerRequest and "Power" or who:sub(1,1)..who:sub(2):lower()
-      button("request-open",who.." "..string.format("%+.0f%%",premium*100),x+dx,UI.HEAD_VALUE,bw,bh,
+      button("request-open",who.." "..City.money2(rate).."  "..(margin>=0 and "+" or "-")..City.money2(math.abs(margin)),
+        x+dx,UI.HEAD_VALUE,bw,bh,
         function() act("focusRequest",request.id) end,true,
         "Open this contract"..(request.powerRequest and " for electricity" or "")..
-        ": the best offer on the table, "..string.format("%+.0f%%",premium*100)..
-        " against the going rate.",tint~=nil,tint)
+        ": pays "..City.money2(rate).." a unit, a unit costs you "..City.money2(cost)..
+        ", so you keep "..City.money2(margin).." a unit ("..string.format("%+.0f%%",premium*100)..
+        " against the going rate).",tint~=nil,tint)
     elseif i==5 and broken>0 then
       -- The price is the whole of the decision, and a burst main is not good
       -- news, so the button carries the one and is coloured for the other.

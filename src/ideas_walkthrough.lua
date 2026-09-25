@@ -19,12 +19,14 @@ return function(app,capture,click,scrollTo,check)
    love.draw()
    for _,b in ipairs(UI.buttons) do if b.id=='request-open' then return b end end
   end
-  offer.rate=rate*1.4
-  check(control().color==P.good,'an offer above the going rate reads green')
-  offer.rate=rate*0.6
-  check(control().color==P.bad,'and one below it reads red')
+  local _,cost=c:clientMargin(offer)
+  offer.rate=cost*3
+  check(control().color==P.good,'an offer that keeps more than a unit costs reads green')
+  offer.rate=cost*0.5
+  check(control().color==P.bad,'and one that pays less than a unit costs reads red')
+  offer.rate=cost*1.5
+  check(control().color==nil and not control().active,'a thin margin stays plain')
   offer.rate=rate
-  check(control().color==nil and not control().active,'an offer at the going rate stays plain')
  end
  local offer=c:nextRequest()
  click('request-open')
