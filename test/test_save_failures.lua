@@ -19,7 +19,8 @@ Save.readSlot = readSlot
 package.loaded.render = { init=function() end, dimensions=function() return 1440,880 end }
 package.loaded.audio = { init=function() end }
 package.loaded.company_render = {}
-package.loaded.company_ui = { width=340 }
+package.loaded.company_ui = { width=340, BAR=60, effectiveScale=function() return 1 end,
+  drawerOpen=function() return false end, covers=function() return false end }
 _G.love = {}
 local current = City.new({seed=24,obstacles=0})
 local other = City.new({seed=25,obstacles=0})
