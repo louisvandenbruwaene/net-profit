@@ -21,19 +21,26 @@ end
 
 R.SIZES = { tiny = 11, small = 12, body = 14, mid = 18, big = 30, huge = 54 }
 
+-- The interface can be drawn larger than a point per point (Settings > Text
+-- size). Its letters are then rasterised at that size too, so a large panel
+-- is as sharp as a small one rather than a stretched copy of it.
+R.uiScale = 1
+
 function R.init()
   local fontFile = "assets/DejaVuSans-Bold.ttf"
+  local density = (lg.getDPIScale and lg.getDPIScale() or 1) * (R.uiScale or 1)
   local function loadFont(size)
     if love.filesystem and love.filesystem.getInfo and love.filesystem.getInfo(fontFile) then
-      return lg.newFont(fontFile, size)
+      return lg.newFont(fontFile, size, "normal", density)
     end
-    return lg.newFont(size)
+    return lg.newFont(size, "normal", density)
   end
   R.fonts = {}
   for key, size in pairs(R.SIZES) do R.fonts[key] = loadFont(size) end
   -- A font is rasterised for the density of the screen it was made on, so the
   -- density it was made at is worth remembering.
   R.density = lg.getDPIScale and lg.getDPIScale() or 1
+  R.fontScale = R.uiScale or 1
   -- Teaches love.graphics.print to draw the commodity symbols that travel
   -- inside ordinary strings. The letters stay this typeface.
   require("symbol_font").install()
@@ -43,7 +50,8 @@ end
 -- rasterised for the old one, so they are made again. On one screen this never
 -- fires.
 function R.retune()
-  if math.abs((lg.getDPIScale and lg.getDPIScale() or 1)-(R.density or 1))>0.01 then R.init() end
+  if math.abs((lg.getDPIScale and lg.getDPIScale() or 1)-(R.density or 1))>0.01
+     or math.abs((R.uiScale or 1)-(R.fontScale or 1))>0.01 then R.init() end
 end
 
 --------------------------------------------------------------------------------

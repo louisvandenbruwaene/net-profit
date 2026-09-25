@@ -18,8 +18,16 @@ local CW  = 300          -- sidebar content width
 -- points, which broke "Roundabout" into "Roundab / out".
 local TILE_W, TILE_H = 96, 50
 local TILE_TEXT = TILE_W - 8
-local TOP = 81         -- first content line, before scrolling
+local TOP = 78         -- first content line, before scrolling
 local tooltipId,tooltipSince,tooltipX,tooltipY
+
+-- The mouse in interface units, which differ from screen points when the
+-- interface is drawn larger.
+local function mouse()
+  local x,y=love.mouse.getPosition()
+  local k=UI.scale or 1
+  return x/k,y/k
+end
 
 local function text(s,x,y,font,color,width,align)
   lg.setFont(R.fonts[font or "body"])
@@ -43,8 +51,8 @@ end
 -- a burst pipe the game owes them the fix, not a hunt for it.
 local function button(id,label,x,y,w,h,fn,enabled,tip,active,color,emphasis)
   enabled = enabled ~= false
-  local mx,my = love.mouse.getPosition()
-  local inClip = not scroll or (y>=67 and y+h<=H-62)
+  local mx,my = mouse()
+  local inClip = not scroll or (y>=UI.BAR+2 and y+h<=H-2)
   local hover = enabled and inClip and mx>=x and mx<x+w and my>=y and my<y+h
   color = color or P.flow
   local pulse = emphasis and enabled and (0.5+0.5*math.sin(R.t*2)) or 0
@@ -73,7 +81,7 @@ local function row(label,value,y,color,tip)
   single(label,M,y,"small",P.textDim,142)
   single(value,M+152,y-1,"body",color or P.text,CW-152)
   if tip then
-    local mx,my=love.mouse.getPosition()
+    local mx,my=mouse()
     if mx>=M and mx<=M+CW and my>=y-3 and my<=y+17 then
       UI.buttons[#UI.buttons+1]={id="row",x=M,y=y-3,w=CW,h=20,fn=function() end,enabled=false,tip=tip}
     end
@@ -290,7 +298,7 @@ local function economics(commodity,y,n)
 end
 
 local function pointing(x,y,w,h)
-  local mx,my=love.mouse.getPosition()
+  local mx,my=mouse()
   return mx>=x and mx<x+w and my>=y and my<y+h
 end
 
@@ -324,7 +332,7 @@ local function levelBlock(n,y)
   end
   local err=city:levelError(n.id)
   local full=through<999 and carried>=through
-  local mx,my=love.mouse.getPosition()
+  local mx,my=mouse()
   local hover=mx>=M and mx<M+CW and my>=y+4 and my<y+40
   local gain
   if full and hover then
@@ -1364,7 +1372,7 @@ local function buildPanel()
   end
   y=y+math.ceil(math.max(shown,1)/3)*58+10
   -- What is not here yet, and what brings it.
-  if advanced and not state.people then
+  if advanced and not state.people and state.buildHelp then
     for _,key in ipairs({"seawater","haven","yard"}) do
       local hint=city:unlockHint(key)
       if hint then
@@ -1428,7 +1436,7 @@ local function inspectorPanel(n,e)
   local y=TOP-state.scroll
   button("back-to-build","<   Build tools",M,y,CW,30,function()
     state.node,state.edge,state.district=nil,nil,nil
-    state.scroll=0
+    state.scroll=0; state.drawer=true
   end,true,"Clear the selection and return to the structures (Escape)")
   y=y+42
   local tail
@@ -1520,7 +1528,7 @@ local function linkPanel(l)
   local y=TOP-state.scroll
   button("back-to-build","<   Build tools",M,y,CW,30,function()
     state.node,state.edge,state.link,state.district=nil,nil,nil,nil
-    state.scroll=0
+    state.scroll=0; state.drawer=true
   end,true,"Clear the selection and return to the structures (Escape)")
   y=y+42
   local road=l.mode=="road"
@@ -1577,183 +1585,206 @@ end
 
 --------------------------------------------------------------------------------
 
+-- A section of a menu that opens when it is wanted. Only what is looked at
+-- every day starts open; the rest is one line saying what is inside.
+local function fold(key,title,y,summary,default)
+  state.folds=state.folds or {}
+  local open=state.foldAll or state.folds[key]
+  if open==nil then open=default or false end
+  button("fold-"..key,"",M,y,CW,38,function() state.folds[key]=not open end,true,nil,open)
+  local label=(open and "\u{25BE}  " or "\u{25B8}  ")..title
+  local tw=math.min(CW-24,SF.width(label,R.fonts.body))
+  single(label,M+12,y+10,"body",open and P.flow or P.text,tw)
+  local room=CW-24-tw-12
+  if summary and summary~="" and room>40 then single(summary,M+CW-12-room,y+12,"small",P.textDim,room,"right") end
+  return y+(open and 50 or 46),open
+end
+
 local function company()
   local y=TOP-state.scroll
-  single(E.companyName(city),M,y,"mid",P.text,CW)
-  button("rename-company",state.rename and "Save name" or "Rename",M,y+30,88,28,function()
+  single(E.companyName(city),M,y+4,"mid",P.text,CW-100)
+  button("rename-company",state.rename and "Save" or "Rename",M+CW-88,y,88,30,function()
     if state.rename then
       if act("setCompanyName",state.rename) then state.rename=nil; state.renameSelectAll=nil end
     else state.rename=E.companyName(city); state.renameSelectAll=true end
   end,true,"Type to replace the name; Enter saves, Escape cancels")
   if state.rename then
-    single(state.rename.."|",M+98,y+37,"small",P.energy,CW-98)
+    single(state.rename.."|",M,y+36,"small",P.energy,CW)
+    y=y+24
   end
-  y=y+80
-  button("company-permits",state.showPermits and "Hide land permits" or "Land permits",M,y,CW,32,
-    function() state.showPermits=not state.showPermits end,true,"Build on trees, rock or water.")
-  y=y+44
-  if state.showPermits then
+  y=y+46
+
+  -- Money: the one section open by default.
+  local b=city:expenseBreakdown()
+  local open
+  y,open=fold("money","Money",y,string.format("$%+d a day",city:dailyRevenue()-b.total),true)
+  if open then
+    row("Income / day","+$"..city:dailyRevenue(),y,P.good)
+    row("Costs / day","-$"..b.total,y+26,P.warn)
+    row("Profit / day",string.format("$%+d",city:dailyRevenue()-b.total),y+52,P.energy)
+    y=y+86
+    -- Each trade's unit cost against its price, so the margin behind the
+    -- profit line is never a guess.
+    for _,name in ipairs(Graph.TRADES) do
+      if city.licences[name] then
+        local t=city:tradeCosts(name)
+        if t.perUnit or t.price then
+          row(string.upper(name),t.perUnit and ("cost "..City.money2(t.perUnit).."  sells "..City.money2(t.price))
+            or "nothing delivered yet",y,
+            t.margin and (t.margin>=0 and P.good or P.bad) or P.textDim,
+            "What a unit costs you (sources, pumping and mains, over units delivered) and what customers pay for it on average."..
+            (t.margin and (" You keep "..City.money2(t.margin).." a unit.") or ""))
+          y=t.perUnit and marginBar(t.perUnit,t.price,y+24)+6 or y+28
+        end
+      end
+    end
+    y=y+10
+  end
+
+  -- Trades: one at a time. The next licence is the only one offered, so the
+  -- player is choosing when rather than which.
+  local offer,held={},{}
+  for _,name in ipairs(City.LICENCE_ORDER) do
+    if city.licences[name] then offer[#offer+1]=name; held[#held+1]=name end
+  end
+  local nextUp=city:nextLicence()
+  if nextUp then offer[#offer+1]=nextUp end
+  y,open=fold("trades","Trades",y,nextUp and ("next: "..nextUp) or (#held.." held"))
+  if open then
+    for _,name in ipairs(offer) do
+      local cost=City.price[name.."Licence"]
+      local has=city.licences[name]
+      local entry,how=E.tradeEntry(city,name)
+      button("licence-"..name,has and (string.upper(name).." licence held") or (string.upper(name).." licence   $"..cost),
+        M,y,CW,34,function() act("buyLicence",name) end,not has and city.money>=cost,
+        has and "Licence owned." or ("Allows "..name.." supply: "..how.."."),false,
+        Graph.COMMODITIES[name].color)
+      drop(name,M+16,y+17,8)
+      y=y+38
+      if not has then
+        y=y+paragraph("Then about $"..entry.." more before the first customer: "..how..".",y,P.textDim)+8
+      end
+    end
+    y=y+8
+  end
+
+  -- Staff and growth.
+  local crews=city.crews or 0
+  local staff=crews
+  for _,key in ipairs(City.ORDER_LIST) do staff=staff+city:workerCount(key) end
+  y,open=fold("staff","Staff and growth",y,staff>0 and (staff.." on the payroll") or "")
+  if open then
+    button("ads",city.adDaysLeft>0 and ("Advertising: "..city.adDaysLeft.." days left") or "Advertising campaign   $90",
+      M,y,CW,34,function() act("buyAds") end,city.money>=90 and city.adDaysLeft==0,
+      "Five days of increased enquiries")
+    local nextGrade=City.GRADES[(city.lining or 1)+1]
+    button("quality",nextGrade and ("Unlock "..nextGrade.name.." pipes  $"..city:qualityCost()) or "All pipe types unlocked",
+      M,y+41,CW,34,function() act("upgradeQuality") end,nextGrade~=nil and city.money>=city:qualityCost(),
+      "Unlocks better leak protection. Choose it in Pipe options. Existing pipes keep their old lining.")
+    button("hire-crew",S.get("crews").." "..crews.."/"..City.crewMax..(crews>=City.crewMax and "" or ("  + $"..City.crewHire)),
+      M,y+82,206,34,function() act("hireCrew") end,crews<City.crewMax and city.money>=City.crewHire,
+      "$"..City.crewWage.." per day. Fixes one damaged pipe each day. Repairs cost extra.")
+    button("fire-crew","Stand down",M+214,y+82,86,34,function() act("dismissCrew") end,crews>0,
+      "Remove one crew from the payroll")
+    y=y+124
+    for _,key in ipairs(City.ORDER_LIST) do
+      local spec=City.ORDERS[key]
+      local count=city:workerCount(key)
+      local has=count>0
+      local can=city:orderAvailable(key)
+      button("order-"..key,S.get(key).." "..count.."  + $"..spec.hire,M,y,CW-92,32,
+        function() act("hireOrder",key) end,
+        can and city.money>=spec.hire and count<(key=="analysts" and math.huge or 4),
+        spec.name..": "..spec.blurb.."  $"..spec.wage.." a day."..
+        (can and "" or ("  Available at "..spec.clients.." customers.")),
+        has,has and P.good or P.energy)
+      if has then
+        button("order-stop-"..key,"Stop",M+CW-86,y,86,32,function() act("dismissOrder",key) end,
+          true,"Take "..string.lower(spec.name).." off the payroll")
+      end
+      y=y+38
+    end
+    y=y+8
+  end
+
+  -- Investing and credit. The fixed rate is the point: the fund is a gamble,
+  -- the bank is not.
+  local invested=city:investedTotal()
+  y,open=fold("capital","Invest and borrow",y,
+    (city.loan or 0)>0 and ("loan $"..city.loan) or invested>0 and ("$"..invested.." invested") or "")
+  if open then
+    button("invest-minus","-",M,y,34,34,function() state.invest=math.max(50,state.invest-50) end,true,"Less")
+    button("invest","Invest $"..state.invest,M+41,y,218,34,function() act("invest",state.invest) end,
+      city.money>=state.invest,"Locks cash for 7 days. The mean and spread shown below include your analysts. You can lose the invested money.")
+    button("invest-plus","+",M+266,y,34,34,function() state.invest=state.invest+50 end,true,"More")
+    local mean,sd=city:investmentDistribution()
+    row("7-day mean / spread",string.format("%.0f%% / %.0f%%",mean*100,sd*100),y+40,P.energy)
+    y=y+68
+    for _,inv in ipairs(city.investments) do
+      row("$"..inv.amount.." on deposit",city:daysToMaturity(inv).." days left",y,P.energy); y=y+24
+    end
+    local limit,avail=city:loanLimit(),city:loanAvailable()
+    row("Credit line","$"..(city.loan or 0).." / $"..limit,y+6,
+      (city.loan or 0)>0 and P.warn or P.textDim,
+      "Borrow up to half your assets. Interest: 10% per week, paid daily.")
+    y=y+32
+    if (city.loan or 0)>0 then row("Daily interest","-$"..city:loanInterest(),y,P.bad); y=y+26 end
+    -- The amount is clamped to what the bank will actually lend, so the
+    -- button never sits dead just because the dial is above the limit.
+    local want=math.min(state.borrow or 500,avail)
+    button("borrow-minus","-",M,y,34,34,function() state.borrow=math.max(100,(state.borrow or 500)-100) end,true,"Less")
+    button("borrow","Borrow $"..want,M+41,y,218,34,function() act("borrow",want) end,
+      avail>0,"Interest: 10% per week, paid daily. You can borrow $"..avail.." more.")
+    button("borrow-plus","+",M+266,y,34,34,function() state.borrow=(state.borrow or 500)+100 end,true,"More")
+    button("repay",(city.loan or 0)>0 and ("Repay $"..math.min(city.loan,city.money)) or "Nothing outstanding",
+      M,y+40,CW,32,function() act("repay",math.min(city.loan,city.money)) end,
+      (city.loan or 0)>0 and city.money>0,"Pays down as much of the balance as the till allows")
+    y=y+84
+  end
+
+  -- Land permits.
+  local owned=0
+  for _,kind in ipairs(City.PERMIT_ORDER) do if city.permits[kind] then owned=owned+1 end end
+  y,open=fold("permits","Land permits",y,owned.." of "..#City.PERMIT_ORDER)
+  if open then
+    text("Build on trees, rock or water.",M,y,"small",P.textDim,CW); y=y+24
     for _,kind in ipairs(City.PERMIT_ORDER) do
       local spec=City.PERMITS[kind]
-      local held=city.permits[kind]
-      button("permit-"..kind,(held and "Owned: " or "Buy: ")..({park="Trees",river="Water",bedrock="Rock"})[kind]..(held and "" or ("  $"..spec.cost)),
-        M,y,CW,32,function() act("buyPermit",kind) end,not held and city.money>=spec.cost,
+      local has=city.permits[kind]
+      button("permit-"..kind,(has and "Owned: " or "Buy: ")..({park="Trees",river="Water",bedrock="Rock"})[kind]..(has and "" or ("  $"..spec.cost)),
+        M,y,CW,32,function() act("buyPermit",kind) end,not has and city.money>=spec.cost,
         "Allows building here. Crossing cost: x"..spec.cross..".")
       y=y+40
     end
+    y=y+6
   end
-  heading("MONEY",y)
-  local b=city:expenseBreakdown()
-  row("Income / day","+$"..city:dailyRevenue(),y+30,P.good)
-  row("Costs / day","-$"..b.total,y+56,P.warn)
-  row("Profit / day",string.format("$%+d",city:dailyRevenue()-b.total),y+82,P.energy)
-  -- What the yards are holding. Materials are the second currency and the
-  -- player needs to see the balance.
-  local held,any={},false
+
+  -- What the yards hold, once there are yards. Materials are the second
+  -- currency and the player needs to see the balance.
+  local rows,any={},false
   for _,name in ipairs(Graph.ALL) do
     local role=Graph.COMMODITIES[name].role
     if role=="material" or role=="vehicle" then
       local units=city:materialStock(name)
-      held[#held+1]={name,units}
+      rows[#rows+1]={name,units}
       if units>0 then any=true end
     end
   end
-  local my=y+116
-  -- Each trade's unit cost against its price, so the margin behind the profit
-  -- line is never a guess.
-  local shown=false
-  for _,name in ipairs(Graph.TRADES) do
-    if city.licences[name] then
-      local t=city:tradeCosts(name)
-      if t.perUnit or t.price then
-        if not shown then heading("COST AND PRICE A UNIT",my); my=my+28; shown=true end
-        row(string.upper(name),t.perUnit and ("cost "..City.money2(t.perUnit).."  sells "..City.money2(t.price))
-          or "nothing delivered yet",my,
-          t.margin and (t.margin>=0 and P.good or P.bad) or P.textDim,
-          "What a unit costs you (sources, pumping and mains, over units delivered) and what customers pay for it on average."..
-          (t.margin and (" You keep "..City.money2(t.margin).." a unit.") or ""))
-        my=t.perUnit and marginBar(t.perUnit,t.price,my+24)+6 or my+28
-      end
-    end
-  end
-  if shown then my=my+8 end
   if #city.g:nodesOfKind("dc")>0 or any then
-    heading("YARDS",my); my=my+26
-    for _,pair in ipairs(held) do
-      local taken=((city.detail or {}).yard or {})[pair[1]] or 0
-      row(string.upper(pair[1]),pair[2]..(taken>0 and ("   +"..taken.." today") or ""),my,
-        pair[2]>0 and Graph.COMMODITIES[pair[1]].color or P.textFaint,
-        "Materials are taken in at the depot yards and spent on building. "..
-        "Each yard holds "..City.yardStock.." and takes "..City.yardIntakeRate.." a day.")
-      my=my+24
-    end
-    my=my+10
-  else
-    text("Build a freight yard to store materials.",M,my,"small",P.textFaint,CW)
-    my=my+30
-  end
-  line(my)
-
-  heading("CAPITAL",my+18)
-  button("invest-minus","-",M,my+46,34,34,function() state.invest=math.max(50,state.invest-50) end,true,"Less")
-  button("invest","Invest $"..state.invest,M+41,my+46,218,34,function() act("invest",state.invest) end,
-    city.money>=state.invest,"Locks cash for 7 days. The mean and spread shown below include your analysts. You can lose the invested money.")
-  button("invest-plus","+",M+266,my+46,34,34,function() state.invest=state.invest+50 end,true,"More")
-  local mean,sd=city:investmentDistribution()
-  row("7-day mean / spread",string.format("%.0f%% / %.0f%%",mean*100,sd*100),my+86,P.energy)
-  local iy=my+114
-  for _,inv in ipairs(city.investments) do
-    row("$"..inv.amount.." on deposit",city:daysToMaturity(inv).." days left",iy,P.energy); iy=iy+24
-  end
-
-  -- Credit. The fixed rate is the point: the fund is a gamble, the bank is not.
-  local limit,avail=city:loanLimit(),city:loanAvailable()
-  row("Credit line","$"..(city.loan or 0).." / $"..limit,iy+10,
-    (city.loan or 0)>0 and P.warn or P.textDim,
-    "Borrow up to half your assets. Interest: 10% per week, paid daily.")
-  if (city.loan or 0)>0 then
-    row("Daily interest","-$"..city:loanInterest(),iy+34,P.bad)
-  end
-  local by=iy+(((city.loan or 0)>0) and 60 or 36)
-  -- The amount is clamped to what the bank will actually lend, so the button
-  -- never sits dead just because the dial is above the limit.
-  local want=math.min(state.borrow or 500,avail)
-  button("borrow-minus","-",M,by,34,34,function() state.borrow=math.max(100,(state.borrow or 500)-100) end,true,"Less")
-  button("borrow","Borrow $"..want,M+41,by,218,34,function() act("borrow",want) end,
-    avail>0,
-    "Interest: 10% per week, paid daily. You can borrow $"..avail.." more.")
-  button("borrow-plus","+",M+266,by,34,34,function() state.borrow=(state.borrow or 500)+100 end,true,"More")
-  button("repay",(city.loan or 0)>0 and ("Repay $"..math.min(city.loan,city.money)) or "Nothing outstanding",
-    M,by+40,CW,32,function() act("repay",math.min(city.loan,city.money)) end,
-    (city.loan or 0)>0 and city.money>0,"Pays down as much of the balance as the till allows")
-  line(by+92)
-
-  heading("GROWTH",by+110)
-  local gy=by+138
-  button("ads",city.adDaysLeft>0 and ("Advertising: "..city.adDaysLeft.." days left") or "Advertising campaign   $90",
-    M,gy,CW,34,function() act("buyAds") end,city.money>=90 and city.adDaysLeft==0,
-    "Five days of increased enquiries")
-  local nextGrade=City.GRADES[(city.lining or 1)+1]
-  button("quality",nextGrade and ("Unlock "..nextGrade.name.." pipes  $"..city:qualityCost()) or "All pipe types unlocked",
-    M,gy+41,CW,34,function() act("upgradeQuality") end,nextGrade~=nil and city.money>=city:qualityCost(),
-    "Unlocks better leak protection. Choose it in Pipe options. Existing pipes keep their old lining.")
-  local crews=city.crews or 0
-  button("hire-crew",S.get("crews").." "..crews.."/"..City.crewMax..(crews>=City.crewMax and "" or ("  + $"..City.crewHire)),
-    M,gy+82,206,34,function() act("hireCrew") end,crews<City.crewMax and city.money>=City.crewHire,
-    "$"..City.crewWage.." per day. Fixes one damaged pipe each day. Repairs cost extra.")
-  button("fire-crew","Stand down",M+214,gy+82,86,34,function() act("dismissCrew") end,crews>0,
-    "Remove one crew from the payroll")
-  -- The rest of the ladder. Each rung is a rule the player writes once and pays
-  -- for daily, and none of them appears until the company is big enough that
-  -- doing that job by hand is clerical work.
-  local oy=gy+124
-  for _,key in ipairs(City.ORDER_LIST) do
-    local spec=City.ORDERS[key]
-    local count=city:workerCount(key)
-    local held=count>0
-    local can=city:orderAvailable(key)
-    button("order-"..key,S.get(key).." "..count.."  + $"..spec.hire,M,oy,CW-92,32,
-      function() act("hireOrder",key) end,
-      can and city.money>=spec.hire and count<(key=="analysts" and math.huge or 4),
-      spec.blurb.."  $"..spec.wage.." a day."..
-      (can and "" or ("  Available at "..spec.clients.." customers.")),
-      held,held and P.good or P.energy)
-    if held then
-      button("order-stop-"..key,"Stop",M+CW-86,oy,86,32,function() act("dismissOrder",key) end,
-        true,"Take "..string.lower(spec.name).." off the payroll")
-    end
-    oy=oy+38
-  end
-  -- The two rules that need a number attached.
-  if city:workerCount("dispatchers")>0 then row(S.get("dispatchers").." Visible rings",city:workerCount("dispatchers"),oy,P.energy); oy=oy+30 end
-  gy=oy-124
-  -- One trade at a time. The next licence is the only one offered, so the
-  -- player is choosing when rather than which, and the panel is never a wall of
-  -- prices they cannot pay.
-  local offer={}
-  for _,name in ipairs(City.LICENCE_ORDER) do
-    if city.licences[name] then offer[#offer+1]=name end
-  end
-  local nextUp=city:nextLicence()
-  if nextUp then offer[#offer+1]=nextUp end
-  local ly=gy+123
-  for _,name in ipairs(offer) do
-    local cost=City.price[name.."Licence"]
-    local held=city.licences[name]
-    local entry,how=E.tradeEntry(city,name)
-    button("licence-"..name,held and (string.upper(name).." licence held") or (string.upper(name).." licence   $"..cost),
-      M,ly,CW,34,function() act("buyLicence",name) end,not held and city.money>=cost,
-      held and "Licence owned." or ("Allows "..name.." supply: "..how.."."),false,
-      Graph.COMMODITIES[name].color)
-    drop(name,M+16,ly+17,8)
-    ly=ly+38
-    -- The licence is the smaller half of the bill, so the larger half is on
-    -- the panel beside it rather than behind a tooltip.
-    if not held then
-      ly=ly+paragraph("Then about $"..entry.." more before the first customer: "..how..".",ly,P.textDim)+8
+    y,open=fold("yards","Yards",y,"")
+    if open then
+      for _,pair in ipairs(rows) do
+        local taken=((city.detail or {}).yard or {})[pair[1]] or 0
+        row(string.upper(pair[1]),pair[2]..(taken>0 and ("   +"..taken.." today") or ""),y,
+          pair[2]>0 and Graph.COMMODITIES[pair[1]].color or P.textFaint,
+          "Materials are taken in at the depot yards and spent on building. "..
+          "Each yard holds "..City.yardStock.." and takes "..City.yardIntakeRate.." a day.")
+        y=y+24
+      end
+      y=y+10
     end
   end
-  UI.contentBottom=ly+state.scroll+24
+  UI.contentBottom=y+state.scroll+24
 end
 
 --------------------------------------------------------------------------------
@@ -2069,7 +2100,7 @@ local function advisor()
   if #list==0 then
     y=y+paragraph("Nothing that is full is holding an earning customer back. When a main, a well or a structure runs flat out and a wider or stronger one would earn more, it appears here with what it pays back.",y)+10
   end
-  local mx,my=love.mouse.getPosition()
+  local mx,my=mouse()
   for i,item in ipairs(list) do
     local hover=mx>=M and mx<M+CW and my>=y and my<y+54
     if hover then state.advisorFocus={kind=item.kind=="pipe" and "edge" or "node",id=item.id} end
@@ -2235,7 +2266,9 @@ local function stats()
   y=y+42
   button("tab-ledger","History",M,y,CW,32,function() state.tab="ledger"; state.scroll=0 end,true,"Past events and payments.")
   y=y+48
-  heading("STATS",y); y=y+30
+  local open
+  y,open=fold("overview","Company at a glance",y,city.reputation.."% rep")
+  if open then
   for _,v in ipairs({{"Day",city.day},{"Clients",#city:clientList()},{"Open requests",#city:clientList(true)},
     {"Company value","$"..city:valuation()},{"Reputation",city.reputation.."%"},
     {"Requests per day","Up to "..city:requestLimit()},{"Land owned",#city:ownedDistricts()},
@@ -2243,29 +2276,35 @@ local function stats()
   y=y+16
   text("Decline a request: -1 reputation.\nLet it expire: -2 reputation.\nBetter reputation brings more requests.",M,y,"small",P.textDim,CW)
   y=y+80
-  heading("RECENT PROFIT",y); y=y+28
+  end
+  y,open=fold("recent","Recent profit",y,"")
+  if open then
   for i=math.max(1,#city.history-6),#city.history do
     local h=city.history[i]
     row("Day "..h.day,string.format("$%+d",h.revenue-(h.expenses or 0)),y)
     y=y+28
   end
   y=y+16
-  heading("DAILY COSTS",y); y=y+28
+  end
   local costs=city:expenseBreakdown()
+  y,open=fold("costs","Daily costs",y,"$"..costs.total)
+  if open then
   for _,v in ipairs({{"Office",costs.office},{"Sources",costs.sources},{"Buildings",costs.structures},
     {"Pipes",costs.pipes},{"Staff",costs.crews},{"Imports",costs.imports},{"Freight",costs.haulage},
     {"Distribution hubs",costs.hubs},{"Pumping",costs.pumping},{"Fuel",costs.fuel},{"Travel",costs.transit},{"Interest",costs.interest}}) do
     if (v[2] or 0)>0 then row(v[1],string.format("$%.1f",v[2]),y); y=y+26 end
   end
   y=y+16
+  end
   -- What shape the network has grown into. A company that follows the prices
   -- ends up with a tree: many narrow mains into buildings, fewer and wider
   -- ones carrying them, and a trunk under all of it. This is that tree,
   -- counted, and it is the one panel that describes the network as a whole
   -- rather than one piece of it.
   local shape=E.anatomy(city,"water")
-  if shape and shape.top>1 then
-    heading("NETWORK SHAPE",y); y=y+28
+  local shapeOpen=false
+  if shape and shape.top>1 then y,shapeOpen=fold("shape","Network shape",y,"") end
+  if shape and shape.top>1 and shapeOpen then
     local NAME={"stubs","feeders","trunks","the trunk"}
     for o=1,shape.top do
       local b=shape.band[o]
@@ -2312,7 +2351,8 @@ local function stats()
          "are no longer than the stubs. Carry a wide main further before splitting it.")
     y=y+36
   end
-  heading("MAP SUPPLIES",y); y=y+28
+  y,open=fold("supplies","Map supplies",y,"")
+  if open then
   local free,buried={water=0,oil=0},0
   for _,deposit in ipairs(city.deposits or {}) do
     if not deposit.taken and free[deposit.commodity] then
@@ -2327,6 +2367,7 @@ local function stats()
     local count=0
     for _,n in ipairs(city.g:nodesOfKind("terminal")) do if n.haven==key then count=count+1 end end
     row(City.HAVENS[key].name,count.." built",y); y=y+26
+  end
   end
   UI.contentBottom=y+24+state.scroll
 end
@@ -2352,114 +2393,250 @@ function UI.headerButton(width)
   return (width-w)/2-14,w,36
 end
 
-function UI.draw(c,s,action)
-  city,state,act=c,s,action
-  W,H=R.dimensions()
-  UI.buttons={}; scroll=false
-  lg.setColor(P.panel); lg.rectangle("fill",0,0,UI.width,H)
-  lg.rectangle("fill",UI.width,0,W-UI.width,80)
-  lg.setColor(P.panelEdge); lg.setLineWidth(1); lg.line(UI.width,0,UI.width,H); lg.line(UI.width,80,W,80)
+-- The screen is the map. Above it runs one bar: the four menus on the left,
+-- the cash and the day's profit, anything that needs a decision now (an offer,
+-- a burst main), and the day button. Everything else lives in the menus, which
+-- open as a drawer over the map's left edge, or behind the settings button.
+UI.BAR=60
+-- The size the player chose in Settings, and the ones on offer.
+UI.pref=1.2
+UI.SIZES={{"Normal",1.0},{"Large",1.2},{"Huge",1.4}}
 
+-- The scale the interface is drawn at: the chosen one, unless the window is
+-- too small to hold the bar at that size.
+function UI.effectiveScale()
+  local w,h=R.dimensions()
+  return math.max(1,math.min(UI.pref or 1,w/1120,h/690))
+end
+
+function UI.drawerOpen(s)
+  s=s or state
+  return (s and (s.drawer or s.node or s.edge or s.link or s.district)) and true or false
+end
+
+local function inside(x,y,r) return x>=r[1] and x<=r[1]+r[3] and y>=r[2] and y<=r[2]+r[4] end
+
+-- Whether a point on the real screen belongs to the interface rather than the map.
+function UI.covers(x,y)
+  local k=UI.scale or 1
+  x,y=x/k,y/k
+  if y<UI.BAR then return true end
+  for _,r in ipairs(UI.blocks or {}) do if inside(x,y,r) then return true end end
+  for _,b in ipairs(UI.buttons or {}) do if inside(x,y,{b.x,b.y,b.w,b.h}) then return true end end
+  return false
+end
+
+function UI.overDrawer(x,y)
+  local k=UI.scale or 1
+  return UI.drawerOpen() and x/k<UI.width and y/k>=UI.BAR
+end
+
+local function closeDrawer()
+  state.drawer=nil
+  state.node,state.edge,state.link,state.district=nil,nil,nil,nil
+  state.scroll=0; state.rename=nil
+end
+UI.closeDrawer=function(s) state=s or state; closeDrawer() end
+
+local function openTab(key)
+  state.rename=nil
+  if UI.drawerOpen() and state.tab==key and not (state.node or state.edge or state.link or state.district) then
+    closeDrawer(); return
+  end
+  state.node,state.edge,state.link,state.district=nil,nil,nil,nil
+  state.tab=key; state.scroll=0; state.drawer=true; state.settings=nil
+  if key=="map" then act("fitWorld") end
+end
+
+-- A gear, drawn rather than lettered.
+local function gear(x,y,r,color)
+  lg.setColor(color)
+  for i=0,7 do
+    local a=i*math.pi/4
+    lg.circle("fill",x+math.cos(a)*r*0.82,y+math.sin(a)*r*0.82,r*0.24)
+  end
+  lg.circle("fill",x,y,r*0.7)
+  lg.setColor(P.panel); lg.circle("fill",x,y,r*0.3)
+end
+
+local function topBar(open)
+  lg.setColor(P.panel); lg.rectangle("fill",0,0,W,UI.BAR)
+  lg.setColor(P.panelEdge); lg.setLineWidth(1); lg.line(0,UI.BAR,W,UI.BAR)
+
+  local tabX=10
+  for i,t in ipairs(TABS) do
+    local tw=({76,98,82,70})[i]
+    local here=state.tab==t[1] or (t[1]=="stats" and (state.tab=="ambitions" or state.tab=="ledger" or state.tab=="advisor"))
+      or (t[1]=="network" and state.tab=="map")
+    button("tab-"..t[1],t[2],tabX,11,tw,38,function() openTab(t[1]) end,true,
+      ({network="Build pipes and buildings (B)",finance="Money, loans, staff and licences",
+        customers="Offers and contracts",stats="Results, goals, advisor and history"})[t[1]],open and here)
+    tabX=tabX+tw+5
+  end
+
+  -- From the right: the day, the settings, then whatever wants deciding.
+  local rx=W-10
+  button("end-day","End day "..city.day.."   >",rx-168,10,168,40,function() act("endDay") end,
+    not city.bankrupt,"Settle revenue, expenses, investments and pipe wear (Enter)",true,P.good)
+  rx=rx-176
+  button("settings","",rx-44,10,44,40,function() state.settings=not state.settings end,true,
+    "Settings: undo, sound, text size, companies",state.settings)
+  gear(rx-22,30,11,state.settings and P.flow or P.textDim)
+  rx=rx-52
+  if #state.undo>0 then
+    button("undo","Undo",rx-66,10,66,40,function() act("undo") end,true,"Undo the last decision (Z). Closing a day is final.")
+    rx=rx-74
+  end
+  local bill,broken=city:repairAllCost()
+  if broken>0 then
+    button("repair-all","Fix  $"..bill,rx-116,10,116,40,function() act("repairAll") end,
+      city.money>=bill,broken.." damaged "..(broken==1 and "line" or "lines")..". Repair every one of them.",true,P.bad)
+    rx=rx-124
+  end
+  local request=city:nextRequest()
+  if request then
+    -- Who is asking, what they pay a unit, and what that leaves after a
+    -- unit's cost: green when it pays well, red when it would lose money.
+    local premium=city:requestPremium(request)
+    local margin,cost,rate=city:clientMargin(request)
+    local tint=margin<0 and P.bad or margin>=cost and P.good or nil
+    local who=((City.CLIENTS[request.clientType] or {}).name or "REQUEST")
+    who=request.powerRequest and "Power" or who:sub(1,1)..who:sub(2):lower()
+    local bw=math.min(200,math.max(150,rx-tabX-300))
+    button("request-open",who.." "..City.money2(rate).."  "..(margin>=0 and "+" or "-")..City.money2(math.abs(margin)),
+      rx-bw,10,bw,40,function() act("focusRequest",request.id) end,true,
+      "New offer"..(request.powerRequest and " for electricity" or "")..
+      ": pays "..City.money2(rate).." a unit, a unit costs you "..City.money2(cost)..
+      ", so you keep "..City.money2(margin).." a unit ("..string.format("%+.0f%%",premium*100)..
+      " against the going rate).",tint~=nil,tint)
+    rx=rx-bw-8
+  end
+
+  -- The two numbers that matter every day, in the room that is left.
   local net=city:dailyRevenue()-city:dailyExpenses()
   local clients=city:clientList()
   local supplied=0
-  for _,client in ipairs(clients) do
-    if city:fullyServed(client) then supplied=supplied+1 end
-  end
-  local metrics={{"AVAILABLE CASH","$"..city.money,P.energy},
-    -- Before anything is built the only figure is the office rent, and a red
-    -- number is a poor first thing to show somebody who has not started yet.
-    #city.g:nodesOfKind("source")==0 and #clients==0 and {"EST. PROFIT / DAY","Not trading",P.textDim}
-      or {"EST. PROFIT / DAY",string.format("$%+d",net),net>=0 and P.good or P.bad},
-    {"CUSTOMERS SUPPLIED",#clients==0 and "No contracts" or supplied.." / "..#clients,
-      #clients==0 and P.textDim or supplied==#clients and P.good or P.warn}}
-  local request=city:nextRequest()
-  local bill,broken=city:repairAllCost()
-  local premium=request and city:requestPremium(request) or 0
-  metrics[4]={"CLIENT REQUEST","None",P.energy}
-  metrics[5]={"FIX ALL PIPES","All sound",P.good}
-  local width=(W-UI.width-34)/#metrics
-  for i,m in ipairs(metrics) do
-    local x=UI.width+22+(i-1)*width
-    local room=width-16
-    local decision=(i==4 and request) or (i==5 and broken>0)
-    -- A window of figures reads from its left edge with the rest of the panel.
-    -- A window of decisions is its control, so the heading sits over it.
-    local dx,bw,bh=UI.headerButton(width)
-    single(m[1],decision and x+dx or x,16,"tiny",P.textDim,decision and bw or room,decision and "center" or nil)
-    if i==4 and request then
-      -- The only number that ranks an offer: how far above or below the going
-      -- rate it is. Above is worth taking and below is not, so it is coloured
-      -- that way, and an offer at the going rate stays plain.
-      -- Who is asking, what they pay a unit, and what that leaves after a
-      -- unit's cost: green when it pays well, red when it would lose money.
-      local margin,cost,rate=city:clientMargin(request)
-      local tint=margin<0 and P.bad or margin>=cost and P.good or nil
-      local who=((City.CLIENTS[request.clientType] or {}).name or "REQUEST")
-      who=request.powerRequest and "Power" or who:sub(1,1)..who:sub(2):lower()
-      button("request-open",who.." "..City.money2(rate).."  "..(margin>=0 and "+" or "-")..City.money2(math.abs(margin)),
-        x+dx,UI.HEAD_VALUE,bw,bh,
-        function() act("focusRequest",request.id) end,true,
-        "Open this contract"..(request.powerRequest and " for electricity" or "")..
-        ": pays "..City.money2(rate).." a unit, a unit costs you "..City.money2(cost)..
-        ", so you keep "..City.money2(margin).." a unit ("..string.format("%+.0f%%",premium*100)..
-        " against the going rate).",tint~=nil,tint)
-    elseif i==5 and broken>0 then
-      -- The price is the whole of the decision, and a burst main is not good
-      -- news, so the button carries the one and is coloured for the other.
-      button("repair-all","$"..bill,x+dx,UI.HEAD_VALUE,bw,bh,function() act("repairAll") end,
-        city.money>=bill,broken.." damaged "..(broken==1 and "line" or "lines")..". Repair every one of them.",
-        true,P.bad)
-    else
-      single(m[2],x,UI.HEAD_VALUE,UI.headerFont(m[2],width-14),m[3],room)
+  for _,client in ipairs(clients) do if city:fullyServed(client) then supplied=supplied+1 end end
+  local x0=tabX+14
+  local room=rx-x0-8
+  if room>90 then
+    local cash="$"..city.money
+    local cashW=math.min(room*0.55,math.max(90,SF.width(cash,R.fonts.big)+28))
+    single(cash,x0,20,UI.headerFont(cash,cashW),P.energy,cashW)
+    single("CASH",x0,8,"tiny",P.textDim,cashW)
+    local dx=x0+cashW+12
+    local dayW=rx-dx-8
+    if dayW>70 then
+      local trading=not (#city.g:nodesOfKind("source")==0 and #clients==0)
+      single("PER DAY"..(#clients>0 and dayW>=170 and ("   "..supplied.."/"..#clients.." SUPPLIED") or ""),dx,8,"tiny",
+        #clients>0 and supplied<#clients and P.warn or P.textDim,dayW)
+      local day=trading and string.format("$%+d",net) or "Not trading"
+      single(day,dx,24,dayW>=120 and "mid" or "body",trading and (net>=0 and P.good or P.bad) or P.textDim,dayW)
     end
-    if i>1 then lg.setColor(P.panelEdge); lg.line(x-14,20,x-14,60) end
   end
+end
 
-  local tabX=8
-  for i,t in ipairs(TABS) do
-    local tabWidth=({74,90,74,70})[i]
-    button("tab-"..t[1],t[2],tabX,10,tabWidth,34,function()
-      state.rename=nil
-      state.tab=t[1]; state.scroll=0
-      -- The Map tab is a map: opening it pulls the camera back to show the
-      -- whole city, so the ground being priced is the ground being looked at.
-      if t[1]=="map" then act("fitWorld") end
-    end,true,nil,state.tab==t[1] or (t[1]=="stats" and (state.tab=="ambitions" or state.tab=="ledger" or state.tab=="advisor")))
-    tabX=tabX+tabWidth+4
+local function settingsMenu()
+  local pw=270
+  local px,py=W-10-pw,UI.BAR+8
+  local rows={
+    {"fit","Show all buildings   F",function() act("fit") end,true,"Zoom out to show all your buildings."},
+    {"undo","Undo last decision   Z",function() act("undo") end,#state.undo>0,"Closing a day is final."},
+    {"mute",state.muted and "Sound off   M" or "Sound on   M",function() act("mute") end,true,"Toggle sound."},
+    {"solo",city.hideUnfocusedNetworks and "Other networks: hidden   H" or "Other networks: dimmed   H",
+      function() act("solo") end,true,"Hide every network but the one you are working on, instead of dimming it."},
+    {"hints",state.buildHelp and "Hints: on" or "Hints: off",function() act("hints") end,true,
+      "The opening guide, and a short note the first time something new opens."},
+    {"companies","Companies...",function() state.settings=nil; act("openSlots") end,true,
+      "Six companies, kept side by side. Switch, start another, or delete one."},
+  }
+  local ph=16+#rows*44+30+44
+  lg.setColor(P.bg); lg.rectangle("fill",px-1,py-1,pw+2,ph+2,8)
+  lg.setColor(P.panel); lg.rectangle("fill",px,py,pw,ph,8)
+  lg.setColor(P.panelEdge); lg.rectangle("line",px,py,pw,ph,8)
+  UI.blocks[#UI.blocks+1]={px,py,pw,ph}
+  local y=py+10
+  for _,r in ipairs(rows) do
+    button(r[1],r[2],px+10,y,pw-20,38,r[3],r[4],r[5],r[1]=="hints" and state.buildHelp)
+    y=y+44
   end
-  lg.setColor(P.with(P.panelEdge,0.65)); lg.line(M,58,M+CW,58)
+  single("TEXT SIZE",px+12,y+6,"tiny",P.textDim,pw-24)
+  y=y+24
+  local bw=(pw-20-12)/3
+  for i,sz in ipairs(UI.SIZES) do
+    button("size-ui-"..i,sz[1],px+10+(i-1)*(bw+6),y,bw,36,function() act("uiScale",sz[2]) end,true,
+      "Draw the menus and text at "..math.floor(sz[2]*100).."%.",math.abs((UI.pref or 1)-sz[2])<0.01)
+  end
+end
 
-  lg.setScissor(0,67,UI.width-1,H-129); scroll=true
-  if state.tab=="network" then network()
-  elseif state.tab=="finance" then company()
-  elseif state.tab=="customers" then customers()
-  elseif state.tab=="map" then mapTab()
-  elseif state.tab=="stats" then stats()
-  elseif state.tab=="ambitions" then goals()
-  elseif state.tab=="advisor" then advisor()
-  else ledger() end
-  scroll=false; lg.setScissor()
-  UI.maxScroll=math.max(0,(UI.contentBottom or H)-(H-65))
-  state.scroll=math.min(state.scroll,UI.maxScroll)
-  if UI.maxScroll>0 then
-    local track=H-143
-    local thumb=math.max(30,track*track/(track+UI.maxScroll))
-    lg.setColor(P.panelEdge); lg.rectangle("fill",UI.width-9,72,3,track,1)
-    lg.setColor(P.textFaint)
-    lg.rectangle("fill",UI.width-9,72+(track-thumb)*math.min(1,state.scroll/UI.maxScroll),3,thumb,1)
+-- A short line at the foot of the map: what just happened, or what the tool
+-- in hand does. It is the only text that is not in a menu.
+local function toastPill(open)
+  local message=state.toast or (state.tool and (string.upper(state.tool).." in hand: click the map to place it. Right-click or Esc puts it down."))
+  if not message or message=="" then return end
+  local left=open and UI.width or 0
+  local f=R.fonts.body
+  local tw=math.min(W-left-40,SF.width(message,f)+36)
+  local tx,ty=left+(W-left-tw)/2,H-50
+  lg.setColor(P.with(P.bg,0.92)); lg.rectangle("fill",tx,ty,tw,34,17)
+  lg.setColor(state.toastBad and P.with(P.bad,0.7) or P.panelEdge); lg.rectangle("line",tx,ty,tw,34,17)
+  single(message,tx+18,ty+9,"body",state.toastBad and P.bad or P.text,tw-36)
+end
+
+function UI.draw(c,s,action)
+  city,state,act=c,s,action
+  local k=UI.effectiveScale()
+  UI.scale=k
+  if math.abs((R.uiScale or 1)-k)>0.01 then R.uiScale=k; R.retune() end
+  local RW,RH=R.dimensions()
+  W,H=RW/k,RH/k
+  UI.buttons={}; UI.blocks={}; scroll=false
+  lg.push(); lg.scale(k)
+  local open=UI.drawerOpen()
+
+  if open then
+    lg.setColor(P.panel); lg.rectangle("fill",0,UI.BAR,UI.width,H-UI.BAR)
+    lg.setColor(P.panelEdge); lg.setLineWidth(1); lg.line(UI.width,UI.BAR,UI.width,H)
+    UI.blocks[#UI.blocks+1]={0,UI.BAR,UI.width,H-UI.BAR}
+    lg.setScissor(0,(UI.BAR+2)*k,(UI.width-1)*k,(H-UI.BAR-2)*k); scroll=true
+    if state.tab=="network" then network()
+    elseif state.tab=="finance" then company()
+    elseif state.tab=="customers" then customers()
+    elseif state.tab=="map" then mapTab()
+    elseif state.tab=="stats" then stats()
+    elseif state.tab=="ambitions" then goals()
+    elseif state.tab=="advisor" then advisor()
+    else ledger() end
+    scroll=false; lg.setScissor()
+    UI.maxScroll=math.max(0,(UI.contentBottom or H)-(H-12))
+    state.scroll=math.min(state.scroll,UI.maxScroll)
+    if UI.maxScroll>0 then
+      local track=H-UI.BAR-16
+      local thumb=math.max(30,track*track/(track+UI.maxScroll))
+      lg.setColor(P.panelEdge); lg.rectangle("fill",UI.width-9,UI.BAR+8,3,track,1)
+      lg.setColor(P.textFaint)
+      lg.rectangle("fill",UI.width-9,UI.BAR+8+(track-thumb)*math.min(1,state.scroll/UI.maxScroll),3,thumb,1)
+    end
+    -- A tab on the drawer's edge that folds it away again.
+    button("drawer-close","<",UI.width-1,UI.BAR+12,24,46,function() closeDrawer() end,true,"Close the panel (Esc)")
+  else
+    UI.maxScroll=0
   end
+  topBar(open)
+
 
   -- The first day, one step at a time. Everything the player will go on doing
   -- for the rest of the game happens once here, in order, with the panel saying
   -- only what the next action is.
   local step,stepNo,steps=city:tutorialStep()
-  if state.buildHelp and step and not state.modal and state.tab=="network" then
-    local gx,gw=UI.width+20,math.min(600,W-UI.width-40)
+  local left=open and UI.width or 0
+  if state.buildHelp and step and not state.modal then
+    local gx,gw=left+20,math.min(600,W-left-40)
     local font=R.fonts.body
     local _,lines=font:getWrap(step.body,gw-32)
     local gh=84+#lines*20
-    local gy=H-72-gh
+    local gy=H-66-gh
+    UI.blocks[#UI.blocks+1]={gx,gy,gw,gh}
     lg.setColor(P.panel); lg.rectangle("fill",gx,gy,gw,gh,8)
     lg.setColor(P.with(P.good,0.6)); lg.rectangle("line",gx,gy,gw,gh,8)
     single(stepNo.." / "..steps.."   "..step.title,gx+16,gy+12,"mid",P.good,gw-32)
@@ -2471,13 +2648,14 @@ function UI.draw(c,s,action)
   -- One short panel the first time something new is worth explaining, and never
   -- again. It sits where the opening guide sits, and only when the player is
   -- not in the middle of something.
-  local lesson=not state.modal and not (step and state.tab=="network") and city:pendingLesson()
+  local lesson=not state.modal and not step and city:pendingLesson()
   if state.buildHelp and lesson and (city.day>2 or city.guideDismissed) then
-    local gx,gw=UI.width+20,math.min(620,W-UI.width-40)
+    local gx,gw=left+20,math.min(620,W-left-40)
     local font=R.fonts.body
     local _,lines=font:getWrap(lesson.body,gw-32)
     local gh=84+#lines*20
-    local gy=H-72-gh
+    local gy=H-66-gh
+    UI.blocks[#UI.blocks+1]={gx,gy,gw,gh}
     lg.setColor(P.panel); lg.rectangle("fill",gx,gy,gw,gh,8)
     lg.setColor(P.with(P.energy,0.6)); lg.rectangle("line",gx,gy,gw,gh,8)
     single(lesson.title,gx+16,gy+12,"mid",P.energy,gw-32)
@@ -2486,40 +2664,35 @@ function UI.draw(c,s,action)
       function() act("teach",lesson.key) end,true,"Understood: do not show this again")
   end
 
-  lg.setColor(P.panel); lg.rectangle("fill",0,H-58,W,58)
-  lg.setColor(P.panelEdge); lg.line(0,H-58,W,H-58)
-  button("undo","Undo",10,H-44,52,32,function() act("undo") end,#state.undo>0,"Undo last decision (Z); day closes are final")
-  button("fit","Show all",68,H-44,74,32,function() act("fit") end,true,"Zoom out to show all your buildings. Shortcut: F.")
-  button("mute",state.muted and "Muted" or "Sound",148,H-44,58,32,function() act("mute") end,true,"Toggle sound (M)")
-  button("solo",city.hideUnfocusedNetworks and "Solo" or "Grids",212,H-44,54,32,function() act("solo") end,true,
-    "Hide every network but the one you're focused on, instead of dimming it (H)")
-  button("companies","Companies",272,H-44,112,32,
-    function() act("openSlots") end,true,
-    "Six companies, kept side by side. Switch, start another, or delete one.")
-  local message=state.toast or (state.tool and (string.upper(state.tool).." selected: click the map to place, right-click or Esc to put it down")
-    or (state.node or state.edge) and "Click it again, right-click or press Esc to deselect" or "")
-  -- Clear of the last footer button on its left and the day button on its
-  -- right: the message used to start 20 points inside "Companies".
-  single(message,396,H-34,"small",state.toastBad and P.bad or P.textDim,math.max(100,W-621))
-  button("end-day","End day "..city.day.."   >",W-193,H-46,173,36,function() act("endDay") end,
-    not city.bankrupt,"Settle revenue, expenses, investments and pipe wear (Enter)",true,P.good)
+  toastPill(open)
+  if state.settings and not state.modal then settingsMenu() end
 
   -- The opening guide does not only say what to press: it points at it. A
   -- sidebar button gets a ring and an arrow from the map side; the bottom bar
   -- gets one from above. Map targets are drawn with the world.
-  local target=not state.modal and E.tutorialTarget(city,state)
+  local target=not state.modal and not state.settings and E.tutorialTarget(city,state)
   if target and target.button then
+    -- A button inside a closed menu cannot be pointed at, so the arrow points
+    -- at the menu that holds it.
+    local want=target.button
+    local found=false
+    for _,b in ipairs(UI.buttons) do if b.id==want then found=true end end
+    if not found then want="tab-network" end
     for _,b in ipairs(UI.buttons) do
-      if b.id==target.button then
+      if b.id==want then
         local pulse=0.5+0.5*math.sin(R.t*2)
         local bob=3*math.sin(R.t*2)
         lg.setColor(P.with(P.good,0.45+0.25*pulse)); lg.setLineWidth(2)
         lg.rectangle("line",b.x-4,b.y-4,b.w+8,b.h+8,6)
-        if b.x>W/2 or b.y>H-70 then
+        if b.y<UI.BAR then
+          local ax,ay=b.x+b.w/2,b.y+b.h+14-bob
+          lg.polygon("fill",ax,ay,ax-11,ay+16,ax+11,ay+16)
+          lg.rectangle("fill",ax-4,ay+15,8,19)
+        elseif b.x>W/2 or b.y>H-70 then
           local ax,ay=b.x+b.w/2,b.y-14+bob
           lg.polygon("fill",ax,ay,ax-11,ay-16,ax+11,ay-16)
           lg.rectangle("fill",ax-4,ay-34,8,19)
-        elseif not b.id:match("^tab%-") then
+        else
           local ax,ay=b.x+b.w+14+bob,b.y+b.h/2
           lg.polygon("fill",ax,ay,ax+16,ay-11,ax+16,ay+11)
           lg.rectangle("fill",ax+15,ay-4,19,8)
@@ -2534,7 +2707,7 @@ function UI.draw(c,s,action)
     report()
   end
 
-  local mx,my=love.mouse.getPosition()
+  local mx,my=mouse()
   local hovered
   for _,b in ipairs(UI.buttons) do
     if b.tip and mx>=b.x and mx<=b.x+b.w and my>=b.y and my<=b.y+b.h then
@@ -2561,6 +2734,7 @@ function UI.draw(c,s,action)
     end
   end
   if not hovered then tooltipId=nil end
+  lg.pop()
 end
 
 -- Scroll straight to the inspector. Called whenever a selection is made, so a
@@ -2570,12 +2744,28 @@ end
 function UI.revealInspector() return 0 end
 
 function UI.click(x,y)
+  local k=UI.scale or 1
+  x,y=x/k,y/k
+  -- An open settings menu takes the next click: its own buttons act, and a
+  -- click anywhere else just closes it.
+  if state and state.settings then
+    for _,b in ipairs(UI.buttons) do
+      if x>=b.x and x<=b.x+b.w and y>=b.y and y<=b.y+b.h then
+        if b.enabled then b.fn() end
+        if b.id~="settings" and not b.id:match("^size%-ui") and b.id~="mute" and b.id~="solo" and b.id~="hints" then state.settings=nil end
+        return true
+      end
+    end
+    state.settings=nil
+    return true
+  end
   for _,b in ipairs(UI.buttons) do
     if x>=b.x and x<=b.x+b.w and y>=b.y and y<=b.y+b.h then
       if b.enabled then b.fn() end
       return true
     end
   end
+  for _,r in ipairs(UI.blocks or {}) do if inside(x,y,r) then return true end end
   return false
 end
 
