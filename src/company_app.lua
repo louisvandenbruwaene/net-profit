@@ -31,9 +31,37 @@ local function save()
   return ok
 end
 
+-- The map is the whole window under the top bar. Menus open over its left
+-- edge rather than pushing it aside, so opening one never moves the city.
 local function layout()
   local w,h=R.dimensions()
-  cam:setViewport(UI.width,84,w-UI.width,h-142)
+  local top=UI.BAR*UI.effectiveScale()
+  cam:setViewport(0,top,w,h-top)
+end
+
+-- Centre on a point in the part of the map a menu is not covering.
+local function centerOn(x,y)
+  cam:centerOn(x,y)
+  if UI.drawerOpen(state) then cam.x=cam.x-(UI.width*UI.effectiveScale()/2)/cam.targetScale end
+end
+
+-- The player's own preferences, kept apart from any company: the text size,
+-- whether hints are shown, and whether the sound is on.
+local SETTINGS_FILE="settings.lua"
+local function saveSettings()
+  if testMode or not (love.filesystem and love.filesystem.write) then return end
+  love.filesystem.write(SETTINGS_FILE,string.format("return {ui=%.2f,hints=%s,muted=%s}",
+    UI.pref or 1.2,tostring(state.buildHelp and true or false),tostring(state.muted and true or false)))
+end
+local function loadSettings()
+  if testMode or not (love.filesystem and love.filesystem.getInfo) or not love.filesystem.getInfo(SETTINGS_FILE) then return end
+  local chunk=load(love.filesystem.read(SETTINGS_FILE) or "","settings","t",{})
+  local ok,t=pcall(chunk or function() end)
+  if ok and type(t)=="table" then
+    if type(t.ui)=="number" then UI.pref=math.max(1,math.min(1.6,t.ui)) end
+    state.buildHelp=t.hints==true
+    if t.muted==true then state.muted=true; A.setEnabled(false) end
+  end
 end
 
 -- Pull back far enough to see every district, bought or not.
@@ -45,9 +73,10 @@ local function fitWorld()
   local x0,y0,x1,y1=city:ownedBounds()
   local margin=City.MAP.w*0.8
   x0,y0,x1,y1=x0-margin,y0-margin,x1+margin,y1+margin
-  cam.x,cam.y=(x0+x1)/2,(y0+y1)/2
-  cam.scale=math.max(0.12,math.min(1.45,cam.vw/(x1-x0),cam.vh/(y1-y0)))
+  local covered=UI.drawerOpen(state) and UI.width*UI.effectiveScale() or 0
+  cam.scale=math.max(0.12,math.min(1.45,(cam.vw-covered)/(x1-x0),cam.vh/(y1-y0)))
   cam.targetScale=cam.scale
+  cam.x,cam.y=(x0+x1)/2-covered/2/cam.scale,(y0+y1)/2
 end
 
 local function fit()
@@ -56,9 +85,10 @@ local function fit()
   for _,n in ipairs(city.g:aliveNodes()) do
     x0,y0,x1,y1=math.min(x0,n.x),math.min(y0,n.y),math.max(x1,n.x),math.max(y1,n.y)
   end
-  cam.x,cam.y=(x0+x1)/2,(y0+y1)/2
-  cam.scale=math.max(0.3,math.min(1.45,cam.vw/(x1-x0+330),cam.vh/(y1-y0+330)))
+  local covered=UI.drawerOpen(state) and UI.width*UI.effectiveScale() or 0
+  cam.scale=math.max(0.3,math.min(1.45,(cam.vw-covered)/(x1-x0+330),cam.vh/(y1-y0+330)))
   cam.targetScale=cam.scale
+  cam.x,cam.y=(x0+x1)/2-covered/2/cam.scale,(y0+y1)/2
 end
 
 local function clear()
@@ -126,13 +156,15 @@ end
 local function action(name,...)
   if name=="fit" then fit(); return end
   if name=="fitWorld" then fitWorld(); return end
-  if name=="mute" then state.muted=not state.muted; A.setEnabled(not state.muted); return end
+  if name=="mute" then state.muted=not state.muted; A.setEnabled(not state.muted); saveSettings(); return end
+  if name=="uiScale" then UI.pref=...; saveSettings(); layout(); return end
+  if name=="hints" then state.buildHelp=not state.buildHelp; saveSettings(); return end
   if name=="solo" then city.hideUnfocusedNetworks=not city.hideUnfocusedNetworks; return end
   if name=="focusNode" then
     local id=...
     local n=city.g.nodes[id]
     clear(); state.filter=nil; state.modal=nil; state.node=id; reveal()
-    cam:centerOn(n.x,n.y)
+    centerOn(n.x,n.y)
     return
   end
   -- The header's one request control. The contract opens, the house it is
@@ -143,7 +175,7 @@ local function action(name,...)
     local n=city.g.nodes[id]
     if not n then return end
     clear(); state.filter=nil; state.modal=nil; state.node=id; reveal()
-    cam:centerOn(n.x,n.y)
+    centerOn(n.x,n.y)
     cam.targetScale=math.min(2.2,math.max(cam.targetScale,1.35))
     return
   end
@@ -152,7 +184,7 @@ local function action(name,...)
     local e=city.g.edges[id]
     local a,b=city.g.nodes[e.a],city.g.nodes[e.b]
     clear(); state.filter=nil; state.modal=nil; state.edge=id; reveal()
-    cam:centerOn((a.x+b.x)/2,(a.y+b.y)/2)
+    centerOn((a.x+b.x)/2,(a.y+b.y)/2)
     return
   end
   if name=="focusLink" then
@@ -160,7 +192,7 @@ local function action(name,...)
     local l=city.links[id]
     local a,b=city.g.nodes[l.a],city.g.nodes[l.b]
     clear(); state.filter=nil; state.modal=nil; state.link=id; reveal()
-    cam:centerOn((a.x+b.x)/2,(a.y+b.y)/2)
+    centerOn((a.x+b.x)/2,(a.y+b.y)/2)
     return
   end
   if name=="focusDistrict" then
@@ -306,7 +338,7 @@ local function pointDistance(x,y,ax,ay,bx,by)
 end
 
 local function hit(x,y)
-  if x<UI.width or y<84 or y>love.graphics.getHeight()-58 then return nil,nil end
+  if UI.covers(x,y) then return nil,nil end
   for _,n in ipairs(city.g:aliveNodes()) do
     local sx,sy=cam:toScreen(n.x,n.y)
     if (not state.filter or not n.commodity or n.commodity==state.filter or (n.demands and n.demands[state.filter])) and
@@ -366,7 +398,13 @@ function love.load(args)
     return
   end
   -- Keep the harness off the user's screen: offscreen, minimised and silent.
+  loadSettings()
   if testMode then
+    -- The tests click through the menus as they were drawn at one scale with
+    -- the drawer open; they do not also have to open it.
+    UI.pref=1
+    state.drawer=true
+    state.foldAll=true
     A.setEnabled(false)
     state.muted = true
     pcall(love.window.setPosition, -5000, -5000)
@@ -404,7 +442,7 @@ function love.load(args)
 end
 
 function love.update(dt)
-  R.update(dt); cam:update(dt)
+  R.update(dt); layout(); cam:update(dt)
   if state.flashTime then
     state.flashTime=state.flashTime-dt
     if state.flashTime<=0 then state.flashTime,state.flashEdge=nil,nil end
@@ -447,7 +485,7 @@ end
 function love.mousepressed(x,y,button)
   if button==1 and UI.click(x,y) then return end
   if state.modal then return end
-  if x<UI.width or y<84 or y>love.graphics.getHeight()-58 then return end
+  if UI.covers(x,y) then return end
   -- Right-click puts down whatever is in hand. With nothing in hand, a right
   -- click that does not turn into a pan clears the selection on release.
   if button==2 or button==3 then
@@ -541,7 +579,8 @@ end
 function love.wheelmoved(_,dy)
   if state.modal then return end
   local x,y=love.mouse.getPosition()
-  if x<UI.width then state.scroll=math.max(0,math.min(UI.maxScroll or 0,state.scroll-dy*42))
+  if UI.overDrawer(x,y) then state.scroll=math.max(0,math.min(UI.maxScroll or 0,state.scroll-dy*42))
+  elseif UI.covers(x,y) then return
   else cam:zoomAt(x,y,dy) end
 end
 
@@ -568,7 +607,18 @@ function love.keypressed(key)
     end
     return
   end
-  if key=="escape" then clear()
+  if key=="escape" then
+    -- Esc folds things away one layer at a time: a menu, then what is in hand
+    -- or selected, then the drawer.
+    if state.settings then state.settings=nil
+    elseif state.tool or state.node or state.edge or state.link or state.district then
+      clear(); if not state.drawer then UI.closeDrawer(state) end
+    else UI.closeDrawer(state) end
+  elseif key=="b" then
+    if UI.drawerOpen(state) and state.tab=="network" then UI.closeDrawer(state)
+    else state.tab="network"; state.drawer=true; state.scroll=0 end
+  elseif key=="tab" then
+    if UI.drawerOpen(state) then UI.closeDrawer(state) else state.drawer=true; state.scroll=0 end
   elseif key=="return" then action("endDay")
   elseif key=="f" then fit()
   elseif key=="t" and (#city.g:nodesOfKind("terminal")+#city.g:nodesOfKind("dc")>0) then state.rail=(state.rail==nil) and "rail" or nil

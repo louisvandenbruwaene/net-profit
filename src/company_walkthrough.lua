@@ -15,14 +15,29 @@ local function legacyCable(c,a,b)
   table.insert(c.g.adj[a],e.id); table.insert(c.g.adj[b],e.id)
   return e
 end
+local SETTINGS_ITEMS={companies=true,fit=true,mute=true,solo=true,undo=true,hints=true,
+  ["size-ui-1"]=true,["size-ui-2"]=true,["size-ui-3"]=true}
 local function click(id)
   love.draw()
   for _,b in ipairs(UI.buttons) do
+    -- A menu tab that is already open would fold the drawer away. The tests
+    -- mean "go to this menu", so an open one is left as it is.
+    if b.id==id and id:match("^tab%-") and b.active then return end
     if b.id==id then
       check(b.enabled,"button enabled: "..id)
       love.mousepressed(b.x+b.w/2,b.y+b.h/2,1)
       love.mousereleased(b.x+b.w/2,b.y+b.h/2,1)
       return
+    end
+  end
+  -- Undo, sound, companies and the like live behind the settings button: open
+  -- it the way a player would, and look again.
+  if SETTINGS_ITEMS[id] then
+    for _,b in ipairs(UI.buttons) do
+      if b.id=="settings" and not b.active then
+        love.mousepressed(b.x+b.w/2,b.y+b.h/2,1); love.mousereleased(b.x+b.w/2,b.y+b.h/2,1)
+        return click(id)
+      end
     end
   end
   error("missing visible button: "..id)
@@ -95,7 +110,7 @@ local function capture(name,app,width,height,keepCamera)
     width,height=width or 1440,height or 880
     local canvas=love.graphics.newCanvas(width,height)
     R.viewportOverride={width,height}
-    if keepCamera then app.camera():setViewport(UI.width,84,width-UI.width,height-142) end
+    if keepCamera then app.camera():setViewport(0,UI.BAR,width,height-UI.BAR) end
     if not keepCamera then app.action(app.state.tab=="map" and "fitWorld" or "fit") end
     love.graphics.setCanvas(canvas)
     love.draw()
@@ -245,6 +260,7 @@ function Walk.start(app,mode)
   -- The opening spends nearly everything, so the treasury checks get a float.
   c.money=c.money+500
   love.draw()
+  scrollTo(app,"invest")
   click("invest")
   check(c:investedTotal()==100,"investment UI locks actual cash")
   local snap=assert(Save.unpack(Save.pack(c)))
@@ -387,10 +403,12 @@ function Walk.start(app,mode)
     local cash,limit,worth=c.money,c:loanLimit(),c:valuation()
     check(limit>0,"the company has collateral to borrow against")
     check(limit==math.floor(c:collateral()*0.5),"credit is capped at half of company value")
+    scrollTo(app,"borrow")
     click("borrow")
     check(c.loan>0 and c.money==cash+c.loan,"borrowing pays cash into the till")
     check(c:valuation()==worth,"borrowing leaves net worth unchanged")
     check(c:loanInterest()==math.ceil(c.loan*0.10/7),"interest is a flat 10% a week, not a gamble")
+    scrollTo(app,"repay")
     click("repay")
     check(c.loan==0,"and the balance can be paid down")
   end
@@ -410,7 +428,6 @@ function Walk.start(app,mode)
     local d=c.districts[target]
     check(c:placementError(d.x+d.w/2,d.y+d.h/2)==nil or true,"bought ground accepts structures")
     click("tab-finance")
-    click("company-permits")
     scrollTo(app,"permit-park")
     click("permit-park")
     check(c.permits.park,"a permit can be granted")
@@ -861,6 +878,24 @@ function Walk.update(app,mode,frame)
       connect(app,extra)
       app.state.node=nil; app.state.edge=nil
       capture("net-profit-02-supplied",app)
+      -- What a player sees: Large text, every menu folded away, only the map.
+      do
+        local pref,drawer,foldAll=UI.pref,app.state.drawer,app.state.foldAll
+        UI.pref=1.2; app.state.drawer=nil; app.state.node=nil; app.state.edge=nil; app.state.foldAll=nil
+        app.action("fit")
+        capture("net-profit-00-player",app)
+        app.state.drawer=true; app.state.tab="network"
+        capture("net-profit-00-player-build",app)
+        app.state.drawer=true; app.state.tab="finance"
+        capture("net-profit-00-player-company",app)
+        app.state.tab="customers"; capture("net-profit-00-player-clients",app)
+        app.state.tab="stats"; capture("net-profit-00-player-stats",app)
+        app.state.drawer=nil; app.state.settings=true
+        capture("net-profit-00-player-settings",app)
+        app.state.settings=nil
+        UI.pref,app.state.drawer,app.state.foldAll=pref,drawer,foldAll; app.state.tab="network"
+        app.action("fit")
+      end
       -- The well, scrolled to what a unit of its water costs and sells for.
       local well=c.g:nodesOfKind("source")[1]
       if well then

@@ -573,7 +573,11 @@ local function drawDistrictChrome(city, cam, state)
       lg.setLineWidth(hot and 2 or 1)
       if d.island then lg.ellipse("line", cx, cy, w / 2 - 2, h / 2 - 2)
       else lg.rectangle("line", x + 2, y + 2, w - 4, h - 4) end
-      if cam.scale > 0.19 then
+      -- Prices only when land is the question: the land view, the overview
+      -- from far out, or the plot just clicked. Close in, a city of price
+      -- tags is noise over the network being built.
+      local pricing = hot or state.tab == "map" or cam.scale <= 0.34
+      if cam.scale > 0.19 and pricing then
         label(d.name, cx, cy - 20, buyable and P.text or P.textDim, R.fonts.body)
         if (d.population or 0) > 0 then
           label("POP " .. d.population, cx, cy - 44, P.textDim, R.fonts.tiny)
@@ -1511,7 +1515,7 @@ function Draw.world(city, cam, state)
             qh=qh+row.height+8
           end
           local qx=math.max(cam.vx+16,math.min(cam.vx+cam.vw-qw-16,mx+20))
-          local qy=math.max(cam.vy+12,math.min(height-74-qh,my-qh-22))
+          local qy=math.max(cam.vy+12,math.min(cam.vy+cam.vh-70-qh,my-qh-22))
           occupied[#occupied+1]={x=qx-4,y=qy-4,w=qw+8,h=qh+8}
           lg.setColor(P.panel); lg.rectangle("fill",qx,qy,qw,qh,7)
           lg.setColor(p.cash<0 and P.bad or P.flow); lg.setLineWidth(1)
@@ -1526,7 +1530,7 @@ function Draw.world(city, cam, state)
         end
       end
     end
-  elseif state.tool and mx>cam.vx and my>84 and my<height-58 then
+  elseif state.tool and mx>cam.vx and my>cam.vy and my<cam.vy+cam.vh then
     local wx,wy = cam:toWorld(mx,my)
     local err, cost, seam
     if state.tool=="source" then

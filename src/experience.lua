@@ -223,7 +223,9 @@ function E.tutorialTarget(c,state)
     if n.kind=="source" and not well then well=n end
   end
   if step.key=="close" then return {button="end-day"} end
-  if state.tab~="network" then return {button="tab-network"} end
+  if state.tab~="network" or not (state.drawer or state.node or state.edge or state.link) then
+    return {button="tab-network"}
+  end
   if step.key=="well" then
     if state.node or state.edge then return {button="back-to-build"} end
     if state.commodity~="water" then return {button="water"} end
