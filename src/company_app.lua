@@ -247,10 +247,7 @@ local function action(name,...)
   if city.bankrupt then return end
   local snapshot=Save.pack(city)
   local result,err
-  if name=="setDispatchRate" or name=="setReserve" then
-    local field=name=="setReserve" and "estateReserve" or "dispatchRate"
-    city[field]=math.max(0,select(1,...)); result=true
-  elseif name=="setHubFloor" or name=="setHubAuto" then
+  if name=="setHubFloor" or name=="setHubAuto" then
     local id,value=...
     local n=city.g.nodes[id]
     if n and n.alive and n.kind=="exchange" then

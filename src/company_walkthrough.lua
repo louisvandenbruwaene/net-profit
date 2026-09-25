@@ -794,10 +794,10 @@ function Walk.start(app,mode)
   do
     local before=Save.pack(app.city())
     local depth=#app.state.undo
-    check(app.action("setReserve",321),"reserve action reports success")
-    check(app.city().estateReserve==321 and #app.state.undo==math.min(30,depth+1),"reserve decision records undo")
+    check(app.action("buyAds"),"advertising action reports success")
+    check(#app.state.undo==math.min(30,depth+1),"a management decision records undo")
     app.action("undo")
-    check(Save.pack(app.city())==Save.pack(assert(Save.unpack(before))),"undo restores the saved company before changing reserve")
+    check(Save.pack(app.city())==Save.pack(assert(Save.unpack(before))),"undo restores the saved company before the decision")
     before=Save.pack(app.city())
     check(app.action("teach","regression-lesson"),"lesson acknowledgement reports success")
     app.action("undo")

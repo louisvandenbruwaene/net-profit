@@ -696,26 +696,6 @@ do
   check(wages>=City.ORDERS.dispatchers.wage,"the wage is on the books")
   assert(c:dismissOrder("dispatchers"))
   check(c:expenseBreakdown().crews<wages,"and comes off when they are stood down")
-
-  -- Engineers widen a main that has run full for three days. A crew keeps it
-  -- sound while they do, because a main that bursts is the crews' problem and
-  -- a main that is too narrow is theirs.
-  assert(c:hireOrder("engineers"))
-  assert(c:hireCrew())
-  local cl=c:clientList()[1]
-  cl.demand=12
-  -- A very patient customer: this check is about the engineers noticing a full
-  -- main, not about how long somebody waits before walking away.
-  cl.grace=99
-  local src2=c.firstSource
-  local hub2=assert(c:build(src2.x+90,src2.y-90,"junction"))
-  assert(c:layPipe(src2.id,hub2.id,"water","large"))
-  local main=assert(c:layPipe(hub2.id,cl.id,"water",1))
-  c.firstSource.output,c.firstSource.cap=40,40
-  c:refresh()
-  local width=main.capMax
-  for _=1,6 do c:endDay() end
-  check(main.capMax==width and not main.leaking,"engineers preserve installed size and prevent leakage")
 end
 
 print("the game tells a customer why they are short, and the fix works")

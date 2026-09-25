@@ -118,8 +118,6 @@ function City:spendMaterials(bill, scale)
   self.stock = self.stock or {}
   self.orders = self.orders or {}
   self.taught = self.taught or {}
-  self.dispatchRate = self.dispatchRate or 0
-  self.estateReserve = self.estateReserve or 4000
   for material, amount in pairs(bill or {}) do
     self.stock[material] = math.max(0, (self.stock[material] or 0) - math.ceil(amount * scale))
   end
@@ -366,8 +364,6 @@ function City.new(opts)
   self.stock = {}
   self.orders = {}
   self.taught = {}
-  self.dispatchRate = 0
-  self.estateReserve = 4000
   self.loan = 0
   self.event = nil
   self.districtsBought = 0
@@ -3317,7 +3313,7 @@ function City:endDay()
   --    capacity every day until somebody pays to fix it.
   for _, e in ipairs(self.g.edges) do
     if e.alive then
-      if not e.leaking and self:random() < self:leakChance(e) and not self:preventLeak(e,report) then
+      if not e.leaking and self:random() < self:leakChance(e) and true then
         e.leaking = true
         self:note("Leak found on a %s main", e.commodity)
       end
@@ -3380,8 +3376,6 @@ function City:endDay()
     self:refresh()
   end
 
-  -- 3a4. The standing orders, if there are any on the books.
-  self:runOrders(report)
 
   -- 3b. The crews work the backlog. This is what the wage buys: the worst main
   --     on the books gets fixed without anybody clicking on it.
@@ -3544,6 +3538,11 @@ function City:migrate()
   self.tenders, self.tendersDone, self.nextTender = nil, nil, nil
   if self.ambition == "tenders" then self.ambition = nil end
   self.crews = self.crews or 0
+  self.orders = self.orders or {}
+  -- The automated departments are gone: nothing on the books buys land or
+  -- replaces mains on the company's behalf any more, or draws a wage for it.
+  self.orders.engineers, self.orders.estates = nil, nil
+  self.dispatchRate, self.estateReserve, self.estateMax, self.estateDiscount = nil, nil, nil, nil
   self.stock = self.stock or {}
   self.premiumBought = self.premiumBought or {}
   self.districtsBought = self.districtsBought or 0
@@ -4052,7 +4051,7 @@ City.LESSONS = {
   },
   {
     key = "orders", title = "Staff",
-    body = "Hire staff in Company. They can accept requests, replace full pipes or buy land for you. Each team has a daily cost.",
+    body = "Hire staff in Company: surveyors show deposits, scouts reveal land further out, analysts improve investments. Each has a daily wage.",
     when = function(c) return c:unlocked("orders") end,
   },
   {
@@ -4104,7 +4103,7 @@ end
 -- money.
 --------------------------------------------------------------------------------
 City.ORDERS = require("data.progression").ORDERS
-City.ORDER_LIST = { "surveyors", "dispatchers", "engineers", "estates" }
+City.ORDER_LIST = { "surveyors", "dispatchers", "analysts" }
 
 -- How big the company is, for the gates that open stronger buildings.
 function City:progress() return #self:clientList() end
@@ -4142,67 +4141,6 @@ function City:orderWages()
   local total = 0
   for key in pairs(self.orders or {}) do total = total + (City.ORDERS[key] or {}).wage end
   return total
-end
-
--- What the departments do at the close, in the order a company would do them:
--- sign the work, then build for it, then buy the ground for the next lot.
-function City:runOrders(report)
-  local orders = self.orders or {}
-  report.signed, report.widened = report.signed or 0, report.widened or 0
-
-  if orders.dispatchers then
-    local floor = self.dispatchRate or 0
-    for _, c in ipairs(self:clientList(true)) do
-      if (c.rate or 0) >= floor then
-        c.prospect, c.joined = false, self.day
-        report.signed = report.signed + 1
-      end
-    end
-    if report.signed > 0 then
-      self:note("Dispatchers signed %d offer%s", report.signed,
-        report.signed == 1 and "" or "s")
-      self:refresh()
-    end
-  end
-
-  if orders.engineers then
-    for _, e in ipairs(self.g.edges) do
-      if e.alive and not e.bulk then
-        local flow = math.abs((self.detail.edge or {})[e.id] or 0)
-        if flow >= e.cap and e.cap > 0 then
-          e.fullFor = (e.fullFor or 0) + 1
-        else
-          e.fullFor = 0
-        end
-        if (e.fullFor or 0) >= 3 and (e.capMax or e.cap) < City.autoWidenCap() then
-          local cost = self:boreCost(e, 1)
-          if cost <= self.money then
-            self:upgradePipe(e.id)
-            e.fullFor = 0
-            report.widened = report.widened + 1
-            report.widenCost = (report.widenCost or 0) + cost
-          end
-        end
-      end
-    end
-  end
-
-  if orders.estates then
-    local reserve = self.estateReserve or 4000
-    local best, bestCost
-    for _, d in ipairs(self.districts) do
-      if not d.owned and not self:districtError(d.id) then
-        local cost = self:districtCost(d)
-        if self.money - cost >= reserve and (not bestCost or cost < bestCost) then
-          best, bestCost = d, cost
-        end
-      end
-    end
-    if best then
-      self:buyDistrict(best.id)
-      report.bought = best.name
-    end
-  end
 end
 
 City.crewWage = require("data.economy").crewWage
