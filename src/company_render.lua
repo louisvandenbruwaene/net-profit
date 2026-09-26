@@ -750,6 +750,122 @@ function Draw.structureBuilding(kind, x, y, r, accent, level, fill, busy, seed)
   end
 end
 
+-- Fittings and plant buildings close up, so nothing built on the map is left
+-- as a bare icon. A T split is a concrete valve chamber; a hub a pump house
+-- that grows with its level, up to a distribution hub's depot with its trade
+-- flag; a gate a valve pit; filtration two settling basins; a haven node a
+-- warehouse; a plant node its control building; a lab, a substation and a
+-- road interchange what they are.
+function Draw.fittingBuilding(kind, x, y, r, accent, level, busy, seed)
+  local u = r / 10
+  level = level or 1
+  local ink = { 0.10, 0.09, 0.08 }
+  local lw = math.max(1, 0.55 * u)
+  local function box(bx, by, w, h, col, k)
+    k = k or 1
+    lg.setColor(col[1] * k, col[2] * k, col[3] * k); lg.rectangle("fill", bx, by, w, h)
+    lg.setColor(ink[1], ink[2], ink[3], 0.85); lg.setLineWidth(lw); lg.rectangle("line", bx, by, w, h)
+  end
+  -- A flat-roofed block seen from above and in front: roof, then front wall.
+  local function block(bx, by, w, d, h, roof, wall, windows)
+    box(bx - w / 2, by - d - h, w, d, roof)
+    box(bx - w / 2, by - h, w, h, wall)
+    if windows then
+      for wx = bx - w / 2 + 1.5 * u, bx + w / 2 - 3 * u, 3.2 * u do
+        lg.setColor(0.22, 0.28, 0.34); lg.rectangle("fill", wx, by - h + 1.3 * u, 1.8 * u, 1.8 * u)
+      end
+    end
+  end
+  lg.setColor(0, 0, 0, 0.25); lg.ellipse("fill", x + 2 * u, y + 6 * u, 12 * u, 4 * u)
+  local concrete, brick, slate = { 0.60, 0.60, 0.58 }, { 0.60, 0.36, 0.28 }, { 0.40, 0.42, 0.46 }
+  if kind == "junction" or kind == "manifold" then
+    if level <= 1 then
+      -- Valve chamber: a slab with a round cover and the main's stubs.
+      box(x - 7 * u, y - 5 * u, 14 * u, 10 * u, concrete)
+      lg.setColor(0.32, 0.33, 0.35); lg.circle("fill", x, y, 3.6 * u)
+      lg.setColor(0.48, 0.49, 0.51); lg.setLineWidth(lw)
+      lg.line(x - 2.5 * u, y, x + 2.5 * u, y); lg.line(x, y - 2.5 * u, x, y + 2.5 * u)
+      lg.setColor(ink[1], ink[2], ink[3], 0.85); lg.circle("line", x, y, 3.6 * u)
+    elseif level == 2 then
+      block(x, y + 5 * u, 14 * u, 5 * u, 7 * u, slate, brick, true)
+      lg.setColor(accent); lg.rectangle("fill", x - 7 * u, y - 2.2 * u, 14 * u, 1 * u)
+    elseif level == 3 then
+      block(x - 2 * u, y + 6 * u, 16 * u, 6 * u, 8 * u, slate, brick, true)
+      box(x + 7 * u, y - 5 * u, 5 * u, 11 * u, concrete)
+      lg.setColor(accent); lg.rectangle("fill", x - 10 * u, y - 2 * u, 16 * u, 1 * u)
+    else
+      -- Distribution hub: a depot with a pitched roof and a flag in its trade.
+      box(x - 11 * u, y - 1 * u, 22 * u, 8 * u, { 0.82, 0.78, 0.68 })
+      lg.setColor(0.52, 0.30, 0.24); lg.polygon("fill", x - 12 * u, y - 1 * u, x - 8 * u, y - 9 * u, x + 8 * u, y - 9 * u, x + 12 * u, y - 1 * u)
+      lg.setColor(0.40, 0.23, 0.19); lg.polygon("fill", x, y - 9 * u, x + 8 * u, y - 9 * u, x + 12 * u, y - 1 * u, x, y - 1 * u)
+      lg.setColor(ink[1], ink[2], ink[3], 0.85); lg.setLineWidth(lw)
+      lg.polygon("line", x - 12 * u, y - 1 * u, x - 8 * u, y - 9 * u, x + 8 * u, y - 9 * u, x + 12 * u, y - 1 * u)
+      for i = -1, 1 do box(x + i * 6.5 * u - 2 * u, y + 2 * u, 4 * u, 5 * u, { 0.36, 0.38, 0.42 }) end
+      lg.setColor(0.35, 0.35, 0.37); lg.setLineWidth(lw); lg.line(x - 9 * u, y - 9 * u, x - 9 * u, y - 17 * u)
+      local wave = math.sin(R.t * 3 + (seed or 0)) * u
+      lg.setColor(accent); lg.polygon("fill", x - 9 * u, y - 17 * u, x - 3 * u, y - 16 * u + wave, x - 9 * u, y - 14 * u)
+    end
+  elseif kind == "gate" then
+    box(x - 6 * u, y - 4 * u, 12 * u, 8 * u, concrete)
+    lg.setColor(0.78, 0.22, 0.20); lg.setLineWidth(math.max(1, u))
+    lg.circle("line", x, y - 1 * u, 3.2 * u)
+    lg.line(x - 3.2 * u, y - 1 * u, x + 3.2 * u, y - 1 * u); lg.line(x, y - 4.2 * u, x, y + 2.2 * u)
+  elseif kind == "filtration" then
+    for i = -1, 1, 2 do
+      local bx = x + i * 5.5 * u
+      lg.setColor(0.62, 0.62, 0.60); lg.ellipse("fill", bx, y, 5 * u, 3.4 * u)
+      lg.setColor(0.20, 0.42, 0.56); lg.ellipse("fill", bx, y, 3.8 * u, 2.4 * u)
+      lg.setColor(1, 1, 1, 0.3); lg.setLineWidth(lw)
+      local ang = R.t * 0.8 * i + (seed or 0)
+      lg.line(bx, y, bx + math.cos(ang) * 3.6 * u, y + math.sin(ang) * 2.2 * u)
+      lg.setColor(ink[1], ink[2], ink[3], 0.85); lg.ellipse("line", bx, y, 5 * u, 3.4 * u)
+    end
+    block(x, y - 3 * u, 7 * u, 3 * u, 4 * u, slate, { 0.84, 0.84, 0.82 }, false)
+  elseif kind == "terminal" then
+    box(x - 11 * u, y - 9 * u, 22 * u, 7 * u, { 0.52, 0.55, 0.58 })
+    lg.setColor(0.42, 0.45, 0.48); for rx = x - 9 * u, x + 10 * u, 2.4 * u do lg.line(rx, y - 9 * u, rx, y - 2 * u) end
+    box(x - 11 * u, y - 2 * u, 22 * u, 7 * u, { 0.74, 0.70, 0.60 })
+    for i = 0, 2 do box(x - 9 * u + i * 6.5 * u, y, 5 * u, 5 * u, { 0.46, 0.48, 0.50 }) end
+  elseif kind == "plant" then
+    block(x, y + 5 * u, 16 * u, 5 * u, 8 * u, slate, { 0.78, 0.78, 0.76 }, true)
+    lg.setColor(accent); lg.rectangle("fill", x - 8 * u, y - 3.2 * u, 16 * u, 1 * u)
+  elseif kind == "lab" then
+    block(x, y + 5 * u, 16 * u, 5 * u, 7 * u, { 0.86, 0.88, 0.88 }, { 0.92, 0.93, 0.92 }, true)
+    lg.setColor(0.36, 0.72, 0.46); lg.rectangle("fill", x - 8 * u, y - 2.2 * u, 16 * u, 1.2 * u)
+    lg.setColor(0.80, 0.82, 0.84); lg.arc("fill", "pie", x + 3 * u, y - 7 * u, 3 * u, math.pi, math.pi * 2)
+  elseif kind == "transformer" or kind == "binder" then
+    -- A substation: gravel pad inside a fence, with transformer boxes.
+    lg.setColor(0.44, 0.43, 0.40); lg.rectangle("fill", x - 10 * u, y - 7 * u, 20 * u, 14 * u)
+    lg.setColor(0.70, 0.72, 0.74); lg.setLineWidth(math.max(1, 0.4 * u)); lg.rectangle("line", x - 10 * u, y - 7 * u, 20 * u, 14 * u)
+    for i = -1, 1, 2 do
+      box(x + i * 4.5 * u - 3 * u, y - 4 * u, 6 * u, 7 * u, { 0.50, 0.54, 0.50 })
+      lg.setColor(accent); lg.circle("fill", x + i * 4.5 * u, y - 5 * u, 0.9 * u)
+    end
+  elseif kind == "sawmill" then
+    -- An open-sided shed over the saw bench, logs stacked beside it.
+    box(x - 9 * u, y - 7 * u, 16 * u, 6 * u, { 0.48, 0.34, 0.22 })
+    lg.setColor(0.36, 0.25, 0.16); for rx = x - 8 * u, x + 6 * u, 2.2 * u do lg.line(rx, y - 7 * u, rx, y - 1 * u) end
+    lg.setColor(0.30, 0.21, 0.14); lg.rectangle("fill", x - 8 * u, y - 1 * u, 1.4 * u, 6 * u); lg.rectangle("fill", x + 5.6 * u, y - 1 * u, 1.4 * u, 6 * u)
+    box(x - 5 * u, y + 1 * u, 8 * u, 2.4 * u, { 0.70, 0.56, 0.36 })
+    for i = 0, 2 do
+      local lx, ly = x + 10 * u, y + 4 * u - i * 2.4 * u
+      lg.setColor(0.36, 0.26, 0.16); lg.circle("fill", lx, ly, 1.3 * u)
+      lg.setColor(0.72, 0.58, 0.38); lg.circle("fill", lx, ly, 0.8 * u)
+    end
+  elseif kind == "crusher" then
+    -- A crusher on legs feeding a conveyor down to a stone heap.
+    box(x - 8 * u, y - 8 * u, 8 * u, 7 * u, { 0.56, 0.52, 0.30 })
+    lg.setColor(0.30, 0.30, 0.32); lg.setLineWidth(math.max(1, u)); lg.line(x - 7 * u, y - 1 * u, x - 7 * u, y + 5 * u); lg.line(x - 1 * u, y - 1 * u, x - 1 * u, y + 5 * u)
+    lg.setColor(0.24, 0.24, 0.26); lg.setLineWidth(math.max(1, 1.2 * u)); lg.line(x - 1 * u, y - 5 * u, x + 8 * u, y + 1 * u)
+    lg.setColor(0.62, 0.60, 0.58); lg.polygon("fill", x + 3 * u, y + 6 * u, x + 8 * u, y + 0.5 * u, x + 13 * u, y + 6 * u)
+    lg.setColor(ink[1], ink[2], ink[3], 0.85); lg.setLineWidth(lw); lg.polygon("line", x + 3 * u, y + 6 * u, x + 8 * u, y + 0.5 * u, x + 13 * u, y + 6 * u)
+  elseif kind == "interchange" then
+    lg.setColor(0.22, 0.23, 0.25); lg.circle("fill", x, y, 9 * u)
+    lg.setColor(0.24, 0.40, 0.26); lg.circle("fill", x, y, 5 * u)
+    lg.setColor(0.85, 0.80, 0.55, 0.7); lg.setLineWidth(math.max(1, 0.4 * u)); lg.circle("line", x, y, 7 * u)
+  end
+end
+
 -- Every node on the map is a disc: a dark body tinted by its trade, and a rim
 -- in the trade colour. Flat, so the symbol on top of it is what the eye finds.
 function Draw.disc(x, y, r, color, tint)
@@ -2169,7 +2285,18 @@ function Draw.world(city, cam, state)
       or ((n.kind == "tower" or n.kind == "pole" or n.kind == "pylon" or n.kind == "hvtower"
         or n.kind == "depot" or n.kind == "pump" or n.kind == "stop"
         or n.kind == "station" or n.kind == "resort" or n.kind == "dc") and r >= 14)
-    if building and n.kind ~= "client" and n.kind ~= "source" and n.kind ~= "works" then
+    -- Everything else built is drawn as what it is too.
+    local fitting = r >= 14 and ((n.kind == "junction" or n.kind == "manifold" or n.kind == "gate"
+      or n.kind == "filtration" or n.kind == "terminal" or n.kind == "lab" or n.kind == "transformer"
+      or n.kind == "binder" or n.kind == "interchange") and n.kind
+      or (n.kind == "source" and n.plant and n.plant ~= "wind") and "plant"
+      or (n.kind == "source" and n.commodity == "timber") and "sawmill"
+      or (n.kind == "source" and n.commodity == "rock") and "crusher")
+    if fitting then
+      building = true
+      Draw.fittingBuilding(fitting, x, y, r, color, city:levelFamily(n) and city:levelOf(n) or 1,
+        math.abs((city.detail.node or {})[n.id] or 0) > 0, n.id * 0.7)
+    elseif building and n.kind ~= "client" and n.kind ~= "source" and n.kind ~= "works" then
       -- Older saves keep the tower ladder as three kinds; they are the same
       -- pylon, one level each.
       local oldTower = ({ pole = 1, pylon = 2, hvtower = 3 })[n.kind]
@@ -2223,8 +2350,10 @@ function Draw.world(city, cam, state)
           premium > 0.10 and P.good or premium < -0.10 and P.bad or P.textDim, R.fonts.tiny)
       end
     elseif n.kind == "source" then
-      if n.plant == "wind" then
-        if not building then lg.setColor(color); Draw.turbine(x, y, r * 0.9) end
+      if building then
+        -- drawn as its building above
+      elseif n.plant == "wind" then
+        lg.setColor(color); Draw.turbine(x, y, r * 0.9)
       elseif n.plant == "nuclear" then
         lg.setColor(color)
         Draw.reactor(x, y - r * 0.04, r * 0.86)
