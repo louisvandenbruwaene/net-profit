@@ -703,6 +703,30 @@ local function drawSea(city, cam, state)
       lg.line(smooth)
     end
   end)
+  -- Glints on the open water: short flecks of light on a coarse world grid,
+  -- each twinkling on its own clock, thinning out toward the shallows.
+  withinRows(0, coast, function()
+    local cell = 170
+    local gx0, gx1 = math.floor((left - 200) / cell), math.floor((right + 200) / cell)
+    local gy0 = math.floor((top - 200) / cell)
+    if (gx1 - gx0) * (0 - gy0) < 900 then
+      lg.setLineWidth(math.max(1, 1.5 * cam.scale))
+      for gx = gx0, gx1 do
+        for gy = gy0, -2 do
+          local hx = Shape.hash(gx, gy, 1)
+          local wx, wy = (gx + hx) * cell, (gy + Shape.hash(gx, gy, 2)) * cell
+          local tw = math.sin(R.t * (0.6 + hx) + Shape.hash(gx, gy, 3) * 6.28)
+          if tw > 0.45 then
+            local sx, sy = cam:toScreen(wx, wy)
+            local len = (3 + 5 * hx) * math.max(0.5, cam.scale)
+            lg.setColor(0.80, 0.90, 1, (tw - 0.45) * 1.0)
+            lg.line(sx - len, sy, sx + len, sy)
+          end
+        end
+      end
+    end
+  end)
+
   -- The shore: shallows lightening toward land, a beach whose edge wanders,
   -- wet sand at the waterline and surf running up it. All of it is on the sea
   -- side of the line, so nothing drawn here is ground anyone could build on.
@@ -710,7 +734,14 @@ local function drawSea(city, cam, state)
   local p = city:riverPath()
   local gapA, gapB = math.huge, -math.huge
   if p and p.n > 0 then gapA, gapB = p.x[1] - p.hw[1], p.x[1] + p.hw[1] end
-  local function edge(wx) return -20 - 7 * math.sin(wx / 90) - 4 * math.sin(wx / 37 + 1) end
+  -- The beach narrows to nothing as it reaches the river mouth, so the sand
+  -- turns the corner into the banks instead of stopping at a wall.
+  local function edge(wx)
+    local e = -20 - 7 * math.sin(wx / 90) - 4 * math.sin(wx / 37 + 1)
+    local near = math.min(math.abs(wx - gapA), math.abs(wx - gapB))
+    local taper = math.min(1, near / 90)
+    return e * (0.15 + 0.85 * taper * taper * (3 - 2 * taper))
+  end
   local step = math.max(12, 18 / math.max(0.2, cam.scale))
   local x0w = math.floor((left - 200) / step) * step
   withinRows(0, coast, function()
