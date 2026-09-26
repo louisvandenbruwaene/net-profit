@@ -117,4 +117,45 @@ return function(app,capture,click,scrollTo,check)
   end
   check(seen.park and seen.bedrock,'massive parks and mountains render in distant regions')
 
+  -- The close-up scene: one of everything drawn as a building or a site, a
+  -- quarry cutting its range, forestry in its clearing, a wood growing back.
+  -- A kind that stops drawing shows up here instead of in a player's game.
+  local show=City.new({seed=24,obstacles=0})
+  show.guideDismissed=true; show.money=1e7
+  local home=show.districts[City.MAP.start]
+  local cx,cy=home.x+home.w/2,home.y+home.h/2
+  local function put(kind,dx,dy,fields)
+    local n=show.g:addNode(cx+dx,cy+dy,kind)
+    for k,v in pairs(fields or {}) do n[k]=v end
+    return n
+  end
+  show.obstacles={{x=cx-330,y=cy+150,r=95,kind='bedrock'},{x=cx+330,y=cy+150,r=95,kind='park'}}
+  show.permits={park=true,bedrock=true,river=true}
+  local quarry=put('source',-330,150,{commodity='rock',output=12})
+  put('source',330,150,{commodity='timber',output=12})
+  show.regrowth={{x=cx,y=cy+260,r=80,kind='park',cleared=show.day-25}}
+  local row={
+    {'client',{clientType='house',commodity='water',demand=2}},{'client',{clientType='estate',commodity='water',demand=2}},
+    {'client',{clientType='workshop',commodity='power',demand=2}},{'client',{clientType='pub',commodity='beer',demand=2}},
+    {'client',{clientType='factory',commodity='oil',demand=2}},{'client',{clientType='market',commodity='food',demand=2}},
+    {'source',{commodity='water',output=10}},{'source',{commodity='oil',output=10}},
+    {'tower',{level=3,commodity='power'}},{'depot',{level=4,commodity='water',stored=10}},{'pump',{}},
+    {'stop',{}},{'station',{}},{'resort',{level=2}},{'dc',{}},
+  }
+  for i,spec in ipairs(row) do
+    local f=spec[2]; f.patience=f.patience or 3; f.grace=f.grace or 3; f.rate=f.rate or 7
+    put(spec[1],-420+((i-1)%8)*120,-150+math.floor((i-1)/8)*110,f)
+  end
+  put('source',-300,40,{plant='wind',level=3,commodity='power'})
+  put('source',0,40,{plant='nuclear',level=2,commodity='power'})
+  put('source',300,40,{plant='solar',level=3,commodity='power'})
+  app.setTestCity(show)
+  show:refresh()
+  local cam=app.camera()
+  cam:centerOn(cx,cy+40); cam.scale=1.0; cam.targetScale=1.0
+  app.state.banner=nil; app.state.dusk=nil; app.state.toast=nil; app.state.drawer=nil
+  require('render').fx={}
+  capture('net-profit-40-closeup-buildings',app,1440,880,true)
+  check(show:quarryRange(quarry) ~= nil,'the showcase quarry stands on its range')
+
 end
