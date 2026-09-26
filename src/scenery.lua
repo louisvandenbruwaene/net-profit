@@ -490,6 +490,61 @@ function Scenery.grass(wx, wy, ww, wh, sx, sy, scale, alpha)
   lg.setBlendMode("alpha")
 end
 
+--------------------------------------------------------------------------------
+-- Cloud shadows
+--
+-- Soft dark shapes on a coarse world grid, drifting east with the wind. They
+-- only show from far out, where the map is a landscape rather than a
+-- worksite, and they pass under the network so nothing built is dimmed.
+--------------------------------------------------------------------------------
+
+local cloud
+local function buildCloud()
+  local size = 256
+  local canvas = lg.newCanvas(size, size)
+  lg.push("all")
+  lg.origin(); lg.setScissor(); lg.setCanvas(canvas)
+  lg.clear(0, 0, 0, 0)
+  -- A cluster of puffs, each a stack of fading discs, so the edge is soft.
+  for i = 1, 7 do
+    local a = i / 7 * math.pi * 2
+    local d = i == 1 and 0 or 46 + hash(i, 70) * 24
+    local x, y = size / 2 + math.cos(a) * d, size / 2 + math.sin(a) * d * 0.6
+    local r = 42 + hash(i, 71) * 26
+    for k = 1, 10 do
+      lg.setColor(0, 0, 0, 0.035)
+      lg.circle("fill", x, y, r * (1 - (k - 1) * 0.08))
+    end
+  end
+  lg.pop()
+  cloud = bake(canvas)
+end
+
+local CLOUD_CELL = 2400
+function Scenery.clouds(cam, t)
+  local far = math.max(0, math.min(1, (0.55 - cam.scale) / 0.3))
+  if far <= 0 then return end
+  if not cloud then buildCloud() end
+  local drift = (t or 0) * 14
+  local x0, y0 = cam:toWorld(cam.vx, cam.vy)
+  local x1, y1 = cam:toWorld(cam.vx + cam.vw, cam.vy + cam.vh)
+  lg.setBlendMode("alpha", "premultiplied")
+  for gx = math.floor((x0 - drift) / CLOUD_CELL) - 1, math.floor((x1 - drift) / CLOUD_CELL) + 1 do
+    for gy = math.floor(y0 / CLOUD_CELL) - 1, math.floor(y1 / CLOUD_CELL) + 1 do
+      if hash(gx, gy, 72) < 0.6 then
+        local wx = (gx + hash(gx, gy, 73)) * CLOUD_CELL + drift
+        local wy = (gy + hash(gx, gy, 74)) * CLOUD_CELL
+        local sx, sy = cam:toScreen(wx, wy)
+        local size = (900 + hash(gx, gy, 75) * 900) * cam.scale / 256
+        local a = far * (0.28 + 0.14 * hash(gx, gy, 76))
+        lg.setColor(a, a, a, a)
+        lg.draw(cloud, sx, sy, hash(gx, gy, 77) * 6.28, size * 1.4, size, 128, 128)
+      end
+    end
+  end
+  lg.setBlendMode("alpha")
+end
+
 -- How many trees a forest was built with; used by the checks.
 function Scenery.treeCount(o)
   return built(o).trees or 0

@@ -719,7 +719,7 @@ local function drawSea(city, cam, state)
           if tw > 0.45 then
             local sx, sy = cam:toScreen(wx, wy)
             local len = (3 + 5 * hx) * math.max(0.5, cam.scale)
-            lg.setColor(0.80, 0.90, 1, (tw - 0.45) * 1.0)
+            lg.setColor(0.80, 0.90, 1, (tw - 0.45) * math.min(1, cam.scale / 0.45))
             lg.line(sx - len, sy, sx + len, sy)
           end
         end
@@ -1526,6 +1526,7 @@ function Draw.world(city, cam, state)
       lg.pop()
     end
   end
+  Scenery.clouds(cam, R.t)
   drawDistrictChrome(city, cam, state)
   drawSeams(city, cam, state)
 
