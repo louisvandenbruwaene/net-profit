@@ -32,6 +32,15 @@ return function(app,capture,click,scrollTo,check)
  check(app.camera().targetScale>=1.3,'and comes in closer than the map was')
  click('decline'); check(#c:clientList(true)==0,'the decision removes the current offer')
  for _=1,2 do assert(c:addClient('house',true)) end
+ do
+   -- The cash stays in one place whatever menu is open or selected.
+   local xs={}
+   for _,tab in ipairs({'tab-finance','tab-customers','tab-stats','tab-network'}) do
+     click(tab); love.draw(); xs[#xs+1]=UI.cashX
+   end
+   local same=true; for _,v in ipairs(xs) do if v~=xs[1] then same=false end end
+   check(same,'the cash does not move between menus')
+ end
  local best=c:nextRequest(); click('request-open')
  do
    -- The offer must land in the middle of the map area beside the panel.
