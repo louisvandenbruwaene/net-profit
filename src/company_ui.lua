@@ -2470,9 +2470,16 @@ local function topBar(open)
     local tw=({76,98,82,70})[i]
     local here=state.tab==t[1] or (t[1]=="stats" and (state.tab=="ambitions" or state.tab=="ledger" or state.tab=="advisor"))
       or (t[1]=="network" and state.tab=="map")
+    local offers=t[1]=="customers" and #city:clientList(true) or 0
     button("tab-"..t[1],t[2],tabX,11,tw,38,function() openTab(t[1]) end,true,
       ({network="Build pipes and buildings (B)",finance="Money, loans, staff and licences",
         customers="Offers and contracts",stats="Results, goals, advisor and history"})[t[1]],open and here)
+    if offers>0 then
+      -- A dot with the number of open offers, the one reason to look in there.
+      local bx,by=tabX+tw-6,13
+      lg.setColor(P.energy); lg.circle("fill",bx,by,9)
+      single(tostring(offers),bx-9,by-7,"tiny",P.bg,18,"center")
+    end
     tabX=tabX+tw+5
   end
 
@@ -2522,9 +2529,24 @@ local function topBar(open)
   local x0=tabX+14
   local room=rx-x0-8
   if room>90 then
-    local cash="$"..city.money
+    -- Cash rolls to its new value rather than jumping, and flashes the colour
+    -- of the change, so a day's takings or a big purchase is felt.
+    local target=city.money
+    UI.cashShown=UI.cashShown or target
+    if UI.cashShown~=target then
+      local diff=target-UI.cashShown
+      if not UI.cashFlash or UI.cashFlashTarget~=target then
+        UI.cashFlash,UI.cashFlashTarget,UI.cashFlashUp=R.t,target,diff>0
+      end
+      local step=math.max(1,math.abs(diff)*0.12)
+      UI.cashShown=math.abs(diff)<=step and target or UI.cashShown+(diff>0 and step or -step)
+    end
+    local cash="$"..math.floor(UI.cashShown+0.5)
+    local flash=UI.cashFlash and math.max(0,1-(R.t-UI.cashFlash)/0.9) or 0
+    local cashColor=flash>0 and P.mix and P.mix(P.energy,UI.cashFlashUp and P.good or P.bad,flash)
+      or (flash>0.3 and (UI.cashFlashUp and P.good or P.bad)) or P.energy
     local cashW=math.min(room*0.55,math.max(90,SF.width(cash,R.fonts.big)+28))
-    single(cash,x0,20,UI.headerFont(cash,cashW),P.energy,cashW)
+    single(cash,x0,20,UI.headerFont(cash,cashW),cashColor,cashW)
     single("CASH",x0,8,"tiny",P.textDim,cashW)
     local dx=x0+cashW+12
     local dayW=rx-dx-8
@@ -2712,7 +2734,9 @@ function UI.draw(c,s,action)
   -- only what the next action is.
   local step,stepNo,steps=city:tutorialStep()
   local left=open and UI.width or 0
-  if state.buildHelp and step and not state.modal then
+  -- The opening guide shows by itself until the player has said either way
+  -- about hints: a first company should never start with nothing to go on.
+  if (state.buildHelp or not state.hintsChosen) and step and not state.modal then
     local gx,gw=left+20,math.min(600,W-left-40)
     local font=R.fonts.body
     local _,lines=font:getWrap(step.body,gw-32)

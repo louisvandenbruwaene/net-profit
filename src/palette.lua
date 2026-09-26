@@ -30,4 +30,9 @@ function P.with(c, a)
   return { c[1], c[2], c[3], a }
 end
 
+-- Part way from one colour to another.
+function P.mix(a, b, t)
+  return { a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t, a[3] + (b[3] - a[3]) * t, 1 }
+end
+
 return P

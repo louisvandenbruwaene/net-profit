@@ -159,7 +159,7 @@ end
 
 function Walk.start(app,mode)
   print("Net Profit: "..mode)
-  if mode=="--shot" then capture("net-profit-01-opening",app); return end
+  if mode=="--shot" then capture("net-profit-01-opening",app); playerShot("net-profit-00-player-opening",app); return end
   local c=app.city()
   check(c.money==C.rules.startMoney,"new company has cash")
 
