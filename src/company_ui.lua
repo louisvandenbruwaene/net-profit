@@ -2710,7 +2710,17 @@ local function hoverCard()
   local n=state.hoverNode and city.g.nodes[state.hoverNode]
   local e=not n and state.hoverEdge and city.g.edges[state.hoverEdge]
   if (n and state.node==n.id) or (e and state.edge==e.id) then hoverKey=nil; return end
-  local key=n and ("n"..n.id) or e and ("e"..e.id) or nil
+  -- Bare ground: what is standing on it and what it costs to cross or buy.
+  local ground,plot
+  if not n and not e and state.hoverGround then
+    local gx,gy=state.hoverGround[1],state.hoverGround[2]
+    plot=city:districtAt(gx,gy)
+    if plot and not city:districtVisible(plot) then plot=nil end
+    ground=plot and city:obstacleAt(gx,gy)
+  end
+  local key=n and ("n"..n.id) or e and ("e"..e.id)
+    or ground and ("g"..(ground.river and "river" or tostring(ground.x)..":"..tostring(ground.y)))
+    or plot and not plot.owned and ("d"..plot.id) or nil
   if key~=hoverKey then hoverKey,hoverSince=key,R.t end
   if not key or R.t-(hoverSince or R.t)<0.3 then return end
   local title,lines="",{}
@@ -2750,6 +2760,27 @@ local function hoverCard()
     local flow=math.floor(math.abs((city.detail.edge or {})[e.id] or 0))
     add("Carrying "..flow.." of "..e.cap,flow>=e.cap and P.warn or P.good)
     if e.leaking then add(e.cap==0 and "Burst: repair it" or "Leaking: repair it",P.bad) end
+  end
+  if ground then
+    local spec=City.OBSTACLES[ground.kind] or {}
+    title=ground.river and city:riverName()
+      or ground.massive and (ground.kind=="park" and "Protected park" or "Mountain range")
+      or ground.kind=="park" and "Woodland" or ground.kind=="bedrock" and "Bedrock outcrop" or (spec.name or "Ground")
+    local cross=city:groundCross(ground.kind,ground)
+    if not cross then add("Closed: no main may cross it",P.bad)
+    elseif cross>1 then add(string.format("Mains across it cost x%.1f",cross),P.warn)
+    else add("Open: mains cross at the normal price",P.good) end
+    local permit=City.PERMITS[ground.kind]
+    if permit and not (city.permits or {})[ground.kind] and not ground.massive then
+      add(permit.name..": $"..permit.cost.." lowers it to "..(permit.cross>1 and string.format("x%.1f",permit.cross) or "normal"),P.textDim)
+    end
+    if plot and not plot.owned then add(plot.name..": not yours yet",P.textFaint) end
+  elseif plot and not plot.owned then
+    title=plot.name
+    local err=city:districtError(plot.id)
+    add("$"..city:districtCost(plot)..(err and "" or "  click to open the sale"),err and P.textDim or P.energy)
+    if (plot.population or 0)>0 then add("Population "..plot.population) end
+    if not city:districtAdjacent(plot) then add("Not next to your land",P.textFaint) end
   end
   if #lines==0 and title=="" then return end
   local mx,my=mouse()

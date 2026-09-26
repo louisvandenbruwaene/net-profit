@@ -3,6 +3,7 @@ local Graph = require("graph")
 local City = require("city")
 local R = require("render")
 local E = require("experience")
+local Scenery = require("scenery")
 local Draw = {}
 local lg = love.graphics
 
@@ -543,20 +544,32 @@ local function drawDistrictGround(city, cam)
         lg.setColor(0.58,0.53,0.40,d.owned and 0.95 or 0.75); lg.polygon("fill",shore(1))
         lg.setColor(d.owned and {0.16,0.25,0.18,1} or {0.12,0.18,0.15,1}); lg.polygon("fill",shore(0.86))
       else
-        lg.setColor(d.owned and P.with(P.land,0.9) or {0.10,0.13,0.15,0.55})
-        lg.rectangle("fill",x+4,y+4,w-8,h-8,8)
-        -- Survey dots give open ground scale without competing with pipes.
-        if d.owned and cam.scale>0.35 then
-          local spacing=120*cam.scale
-          local firstX=x+math.max(1,math.ceil((cam.vx-x)/spacing))*spacing
-          local firstY=y+math.max(1,math.ceil((cam.vy-y)/spacing))*spacing
-          lg.setColor(P.with(P.textDim,0.12))
-          for gx=firstX,math.min(x+w-8,cam.vx+cam.vw),spacing do
-            for gy=firstY,math.min(y+h-8,cam.vy+cam.vh),spacing do
-              lg.rectangle("fill",math.floor(gx),math.floor(gy),1,1)
-            end
+        -- A plot is a field with a verge round it: rounded, mottled grass
+        -- pinned to the world, and a lit top edge so it sits on the map rather
+        -- than being printed on it. Ground not yet bought is the same field,
+        -- greyer and hatched as undeveloped.
+        local m=math.max(2,10*cam.scale)
+        local px,py,pw,ph=x+m,y+m,w-m*2,h-m*2
+        local round=math.max(3,18*cam.scale)
+        lg.setColor(0,0,0,0.22); lg.rectangle("fill",px,py+2,pw,ph,round)
+        lg.setColor(d.owned and {P.land[1],P.land[2],P.land[3],0.96} or {0.100,0.122,0.128,0.92})
+        lg.rectangle("fill",px,py,pw,ph,round)
+        Scenery.grass(d.x+10,d.y+10,d.w-20,d.h-20,px,py,cam.scale,d.owned and 1 or 0.55)
+        if not d.owned and cam.scale>0.22 then
+          -- Lines where (x - px) + (y - py) is constant, clipped to the plot.
+          lg.setColor(1,1,1,0.022); lg.setLineWidth(1)
+          local step=26
+          for c=step-((px+py)%step),pw+ph,step do
+            local x0,y0=px+math.max(0,c-ph),py+math.min(ph,c)
+            local x1,y1=px+math.min(pw,c),py+math.max(0,c-pw)
+            lg.line(x0,y0,x1,y1)
           end
         end
+        lg.setLineWidth(1)
+        lg.setColor(1,1,1,d.owned and 0.06 or 0.03)
+        lg.line(px+round,py+0.5,px+pw-round,py+0.5)
+        lg.setColor(0,0,0,0.25)
+        lg.line(px+round,py+ph-0.5,px+pw-round,py+ph-0.5)
       end
     end
   end
@@ -576,15 +589,16 @@ local function drawDistrictChrome(city, cam, state)
     else
       -- Ground you do not own is visibly not yours, but still legible enough
       -- to plan towards.
-      lg.setColor(P.with(P.bg, 0.38))
+      lg.setColor(P.with(P.bg, 0.2))
       if d.island then lg.ellipse("fill", cx, cy, w / 2, h / 2)
       else lg.rectangle("fill", x, y, w, h) end
       local hot = state.district == d.id
       local buyable = not city:districtError(d.id)
       lg.setColor(P.with(hot and P.energy or buyable and P.good or P.textFaint, hot and 0.9 or 0.25))
       lg.setLineWidth(hot and 2 or 1)
+      local m = math.max(2, 10 * cam.scale)
       if d.island then lg.ellipse("line", cx, cy, w / 2 - 2, h / 2 - 2)
-      else lg.rectangle("line", x + 2, y + 2, w - 4, h - 4) end
+      else lg.rectangle("line", x + m, y + m, w - m * 2, h - m * 2, math.max(3, 18 * cam.scale)) end
       -- Prices only when land is the question: the land view, the overview
       -- from far out, or the plot just clicked. Close in, a city of price
       -- tags is noise over the network being built.
@@ -610,65 +624,6 @@ local function drawDistrictChrome(city, cam, state)
       end
     end
     end
-  end
-end
-
--- What the ground is, drawn as one icon standing in the middle of it: a tree
--- for parkland, water for the river, a boulder for bedrock. One icon each,
--- because a scatter of five little ones is texture rather than a symbol, and
--- texture is what makes a map hard to read.
-local function scenery(o, x, y, r)
-  local spec = City.OBSTACLES[o.kind] or {}
-  local c = spec.color or { 0.3, 0.3, 0.3 }
-  if o.massive then
-    -- A forest or mountain range, rather than one oversized map symbol.
-    local patch={kind=o.kind}
-    for _,pos in ipairs({{-0.40,-0.26},{0,-0.40},{0.40,-0.23},{-0.48,0.16},{-0.08,0.05},{0.36,0.23},{-0.12,0.43}}) do
-      scenery(patch,x+pos[1]*r,y+pos[2]*r,r*0.38)
-    end
-    return
-  end
-  local s = r * 0.58
-  occupied[#occupied+1]={x=x-s,y=y-s,w=s*2,h=s*2}
-  if o.kind == "park" then
-    -- A tree: brown trunk, green crown.
-    lg.setColor(0.34, 0.24, 0.15, 0.95)
-    lg.rectangle("fill", x - s * 0.10, y + s * 0.06, s * 0.20, s * 0.58, s * 0.05)
-    lg.setColor(0.24, 0.58, 0.33, 0.95)
-    lg.circle("fill", x, y - s * 0.26, s * 0.5)
-  elseif o.kind == "river" then
-    -- Water: the two-wave mark, and nothing else.
-    lg.setColor(c[1], c[2], c[3], 0.75)
-    lg.setLineWidth(math.max(1.4, s * 0.16))
-    for i = 0, 1 do
-      local yy = y + (i - 0.5) * s * 0.62
-      local pts = {}
-      for j = 0, 16 do
-        local t = j / 16
-        pts[#pts + 1] = x - s + 2 * s * t
-        pts[#pts + 1] = yy + math.sin(t * math.pi * 2) * s * 0.2
-      end
-      local smooth={}
-      for k=1,#pts-2,2 do
-        local a=math.max(1,k-2); local b=math.min(#pts-1,k+4)
-        for step=0,7 do
-          local t=step/8
-          for axis=0,1 do
-            local p0,p1,p2,p3=pts[a+axis],pts[k+axis],pts[k+2+axis],pts[b+axis]
-            smooth[#smooth+1]=.5*((2*p1)+(-p0+p2)*t+(2*p0-5*p1+4*p2-p3)*t*t+(-p0+3*p1-3*p2+p3)*t*t*t)
-          end
-        end
-      end
-      smooth[#smooth+1]=pts[#pts-1]; smooth[#smooth+1]=pts[#pts]
-      lg.line(smooth)
-    end
-  else
-    -- A boulder: angular and taller than it is wide at the peak, so it reads
-    -- as rock rather than as a hill.
-    lg.setColor(c[1] * 1.7, c[2] * 1.7, c[3] * 1.7, 0.85)
-    lg.polygon("fill", x - s * 0.82, y + s * 0.56, x - s * 0.5, y - s * 0.34,
-                       x - s * 0.06, y - s * 0.9, x + s * 0.46, y - s * 0.42,
-                       x + s * 0.82, y + s * 0.56)
   end
 end
 
@@ -973,9 +928,23 @@ local function drawSeams(city, cam, state)
         local dim = not d.owned and 0.5 or 1
         local focused=state.tool=="source" and state.commodity==s.commodity
         if not focused then dim=dim*0.45 end
-        lg.setColor(P.with(spec.color, 0.09 * dim)); lg.circle("fill", x, y, r)
-        lg.setColor(P.with(spec.color, 0.45 * dim)); lg.setLineWidth(1)
-        lg.circle("line", x, y, r)
+        -- A surveyed claim: a faint wash, a dashed ring, and four stakes at
+        -- the compass points where the surveyor pegged it out.
+        lg.setColor(P.with(spec.color, 0.07 * dim)); lg.circle("fill", x, y, r)
+        -- A cleared patch, so a claim stays findable in the middle of a forest.
+        lg.setColor(P.with(P.bg, 0.55 * dim)); lg.circle("fill", x, y, math.max(4, r * 0.4))
+        lg.setColor(P.with(spec.color, 0.12 * dim)); lg.circle("fill", x, y, r * 0.45)
+        Scenery.boundary({ r = City.seamRange }, x, y, cam.scale, spec.color, (focused and 0.7 or 0.5) * dim)
+        if r > 14 then
+          local st = math.max(2, r * 0.07)
+          lg.setColor(P.with(P.energy, 0.55 * dim)); lg.setLineWidth(math.max(1, st * 0.45))
+          for q = 0, 3 do
+            local a = q * math.pi / 2 + math.pi / 4
+            local sx, sy = x + math.cos(a) * r, y + math.sin(a) * r
+            lg.line(sx, sy - st, sx, sy + st * 0.4)
+            lg.circle("fill", sx, sy - st, st * 0.45)
+          end
+        end
         local mr=math.max(2.5,R.sym(9,cam.scale))
         occupied[#occupied+1]={x=x-mr-3,y=y-mr-5,w=mr*2+6,h=mr*2+6}
         Draw.mark(s.commodity, x, y - 2, mr)
@@ -1155,12 +1124,26 @@ function Draw.world(city, cam, state)
     local x, y = cam:toScreen(o.x, o.y)
     local r = o.r * cam.scale
     local freed = city.permits and city.permits[o.kind]
-    lg.setColor(P.with(spec.color, freed and 0.10 or 0.16))
-    lg.circle("fill", x, y, r)
-    lg.setColor(P.with(spec.color, freed and 0.35 or 0.6))
-    lg.setLineWidth(1)
-    lg.circle("line", x, y, r)
-    scenery(o,x,y,r)
+    local d = city:districtAt(o.x, o.y)
+    local function terrain()
+      Scenery.draw(o, x, y, cam.scale, R.t, (d and not d.owned) and 0.7 or 1, function()
+        -- Surveyed claims stand in a clearing, so the marker is never lost in
+        -- the canopy.
+        local spots = {}
+        for _, s in ipairs(city.deposits or {}) do
+          if (s.x - o.x) ^ 2 + (s.y - o.y) ^ 2 < (o.r + City.seamRange) ^ 2 then
+            spots[#spots + 1] = { s.x - o.x, s.y - o.y, City.seamRange + 18 }
+          end
+        end
+        return spots
+      end)
+      Scenery.boundary(o, x, y, cam.scale, freed and P.good or spec.color, freed and 0.45 or (o.massive and 0.5 or 0.3))
+    end
+    -- Ground that reaches the coast stops at it: no trees in the sea.
+    if o.y - o.r < 0 then
+      local _, coast = cam:toScreen(0, 0)
+      withinRows(coast, cam.vy + cam.vh, terrain)
+    else terrain() end
     if cam.scale > 0.48 then
       local cross = city:groundCross(o.kind, o)
       local tag = (o.massive and (o.kind=="park" and "PROTECTED PARK" or "MOUNTAIN RANGE") or spec.name) .. (cross and (cross > 1 and string.format("  x%.1f", cross) or "  OPEN") or "  CLOSED")

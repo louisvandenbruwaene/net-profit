@@ -1106,6 +1106,24 @@ function Walk.update(app,mode,frame)
           love.draw(); R.t=R.t+1
           playerShot("net-profit-00-player-hover",app)
           app.state.fakeMouse=nil; app.state.hoverNode=nil
+          -- The same card on bare ground: what a wood costs to cross.
+          local cam=app.camera()
+          app.state.hoverGround=nil
+          local spots={}
+          for _,o in ipairs(c2.obstacles) do spots[#spots+1]=o end
+          for _,d in ipairs(c2.districts) do
+            if not d.owned and c2:districtVisible(d) then spots[#spots+1]={x=d.x+d.w*0.3,y=d.y+d.h*0.3} end
+          end
+          for _,o in ipairs(spots) do
+            local ox,oy=cam:toScreen(o.x,o.y)
+            if not app.state.hoverGround and ox>cam.vx+60 and ox<cam.vx+cam.vw-260 and oy>cam.vy+60 and oy<cam.vy+cam.vh-120 then
+              app.state.fakeMouse={ox/k,oy/k}; app.state.hoverGround={o.x,o.y}
+              love.draw(); R.t=R.t+1
+              playerShot("net-profit-00-player-hover-ground",app)
+            end
+          end
+          check(app.state.hoverGround~=nil,"bare ground under the pointer gets a hover card")
+          app.state.fakeMouse=nil; app.state.hoverGround=nil
           UI.pref=1
         end
         app.action("endDay")
