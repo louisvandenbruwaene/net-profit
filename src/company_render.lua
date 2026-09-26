@@ -604,15 +604,18 @@ local function drawDistrictChrome(city, cam, state)
       else lg.rectangle("fill", x, y, w, h) end
       local hot = state.district == d.id
       local buyable = not city:districtError(d.id)
-      lg.setColor(P.with(hot and P.energy or buyable and P.good or P.textFaint, hot and 0.9 or 0.25))
-      lg.setLineWidth(hot and 2 or 1)
-      local m = math.max(2, 10 * cam.scale)
-      if d.island then lg.ellipse("line", cx, cy, w / 2 - 2, h / 2 - 2)
-      else lg.rectangle("line", x + m, y + m, w - m * 2, h - m * 2, math.max(3, 18 * cam.scale)) end
+      -- The land view draws its own, stronger status borders.
+      if state.tab ~= "map" then
+        lg.setColor(P.with(hot and P.energy or buyable and P.good or P.textFaint, hot and 0.9 or 0.25))
+        lg.setLineWidth(hot and 2 or 1)
+        local m = math.max(2, 10 * cam.scale)
+        if d.island then lg.ellipse("line", cx, cy, w / 2 - 2, h / 2 - 2)
+        else lg.rectangle("line", x + m, y + m, w - m * 2, h - m * 2, math.max(3, 18 * cam.scale)) end
+      end
       -- Prices only when land is the question: the land view, the overview
       -- from far out, or the plot just clicked. Close in, a city of price
       -- tags is noise over the network being built.
-      local pricing = hot or state.tab == "map" or cam.scale <= 0.34
+      local pricing = state.tab ~= "map" and (hot or cam.scale <= 0.34)
       if cam.scale > 0.19 and pricing then
         label(d.name, cx, cy - 20, buyable and P.text or P.textDim, R.fonts.body)
         if (d.population or 0) > 0 then
@@ -1091,6 +1094,156 @@ local function drawLinks(city, cam, state)
       end
       end -- physical road segments, or the ferry/air service geometry
       fading(false)
+    end
+  end
+end
+
+
+--------------------------------------------------------------------------------
+-- The land view
+--
+-- Each plot for sale carries a deed: what it is, what it costs, whether it can
+-- be bought right now and, if not, why, and what is on it. Plots are coloured
+-- by that answer, so the map reads as "green: yours for the asking" before a
+-- single word is read.
+--------------------------------------------------------------------------------
+
+-- Whether a plot can be bought now, and the colour and words for it.
+function Draw.landStatus(city, d)
+  local err = city:districtError(d.id)
+  if d.owned then return "owned", P.flow, "Yours" end
+  if not err then return "buy", P.good, "Click to buy" end
+  if err == "not enough cash" then
+    return "short", P.warn, "Need $" .. (city:districtCost(d) - math.floor(city.money)) .. " more"
+  end
+  if d.island then return "far", P.textFaint, "Needs a harbour" end
+  return "far", P.textFaint, "Not next to your land"
+end
+
+-- What a plot holds, as the deed lists it. Deposits only if the company has
+-- surveyed it: an owned plot, or anywhere while surveyors are on the books.
+function Draw.landContents(city, d)
+  local found = { deposits = {}, woods = 0, ranges = 0 }
+  found.surveyed = d.owned or (city.orders or {}).surveyors
+  for _, s in ipairs(city.deposits or {}) do
+    if not s.taken and city:districtAt(s.x, s.y) == d then
+      found.deposits[s.commodity] = (found.deposits[s.commodity] or 0) + 1
+    end
+  end
+  for _, o in ipairs(city.obstacles) do
+    if city:districtAt(o.x, o.y) == d then
+      if o.kind == "park" then found.woods = found.woods + 1
+      elseif o.kind == "bedrock" then found.ranges = found.ranges + 1 end
+    end
+  end
+  return found
+end
+
+local function drawLandView(city, cam, state)
+  local hoverD = state.hoverGround and city:districtAt(state.hoverGround[1], state.hoverGround[2])
+  for _, d in ipairs(city.districts or {}) do
+    if city:districtVisible(d) and cam:seesBox(d.x, d.y, d.x + d.w, d.y + d.h) then
+      local x, y = cam:toScreen(d.x, d.y)
+      local w, h = d.w * cam.scale, d.h * cam.scale
+      local cx, cy = x + w / 2, y + h / 2
+      local m = math.max(2, 10 * cam.scale)
+      local round = math.max(3, 18 * cam.scale)
+      local kind, colour, words = Draw.landStatus(city, d)
+      local hot, hover = state.district == d.id, hoverD == d
+      local function outline(alpha, width)
+        lg.setLineWidth(width)
+        lg.setColor(colour[1], colour[2], colour[3], alpha)
+        if d.island then lg.ellipse("line", cx, cy, w / 2 - 1, h / 2 - 1)
+        else lg.rectangle("line", x + m, y + m, w - m * 2, h - m * 2, round) end
+      end
+      if kind == "buy" then
+        lg.setColor(P.good[1], P.good[2], P.good[3], (hover or hot) and 0.12 or 0.06 + 0.02 * math.sin(R.t * 2.2))
+        if d.island then lg.ellipse("fill", cx, cy, w / 2, h / 2)
+        else lg.rectangle("fill", x + m, y + m, w - m * 2, h - m * 2, round) end
+        outline((hover or hot) and 1 or 0.75, (hover or hot) and 3 or 2)
+      elseif kind == "short" then
+        outline((hover or hot) and 0.9 or 0.55, (hover or hot) and 3 or 1.5)
+      elseif kind == "owned" then
+        outline(0.3, 1)
+      elseif hover or hot then
+        outline(0.5, 1.5)
+      end
+      if hot then
+        lg.setColor(P.energy[1], P.energy[2], P.energy[3], 0.9)
+        lg.setLineWidth(2)
+        if d.island then lg.ellipse("line", cx, cy, w / 2 + 3, h / 2 + 3)
+        else lg.rectangle("line", x + m - 4, y + m - 4, w - m * 2 + 8, h - m * 2 + 8, round + 3) end
+      end
+      if kind ~= "owned" then
+        -- The deed itself. A full card when the plot is big enough on screen,
+        -- a price pill when it is not.
+        local f = Draw.landContents(city, d)
+        local price = "$" .. city:districtCost(d)
+        local disc = city:landDiscount(d)
+        local cw = math.min(236, w * 0.78)
+        if cw >= 150 and h >= 120 then
+          local ch = 96
+          local bx, by = math.floor(cx - cw / 2), math.floor(cy - ch / 2)
+          lg.setColor(0, 0, 0, 0.35); lg.rectangle("fill", bx + 2, by + 4, cw, ch, 8)
+          lg.setColor(P.bg[1], P.bg[2], P.bg[3], kind == "far" and 0.82 or 0.94); lg.rectangle("fill", bx, by, cw, ch, 8)
+          lg.setColor(colour[1], colour[2], colour[3], kind == "far" and 0.35 or 0.9)
+          lg.setLineWidth(kind == "far" and 1 or 1.5); lg.rectangle("line", bx, by, cw, ch, 8)
+          lg.rectangle("fill", bx, by + 8, 4, ch - 16)
+          local fade = kind == "far" and 0.7 or 1
+          lg.setFont(R.fonts.body); lg.setColor(P.text[1], P.text[2], P.text[3], fade)
+          lg.print(d.name, bx + 12, by + 8)
+          local tag = d.island and "ISLAND" or (d.spec and d.spec.label) or "TOWN"
+          lg.setFont(R.fonts.tiny); lg.setColor(P.textFaint[1], P.textFaint[2], P.textFaint[3], fade)
+          lg.print(tag, bx + cw - 10 - R.fonts.tiny:getWidth(tag), by + 11)
+          lg.setFont(R.fonts.mid); lg.setColor(kind == "far" and P.textDim or P.energy)
+          lg.print(price, bx + 12, by + 28)
+          if disc > 0 then
+            local dx = bx + 18 + R.fonts.mid:getWidth(price)
+            local dt = "-" .. math.floor(disc * 100) .. "% today"
+            lg.setFont(R.fonts.tiny); lg.setColor(P.good)
+            lg.print(dt, dx, by + 34)
+          end
+          lg.setFont(R.fonts.small); lg.setColor(colour[1], colour[2], colour[3], kind == "far" and 0.9 or 1)
+          lg.print(words, bx + 12, by + 52)
+          -- Contents: people, deposits by trade, and the ground that costs.
+          local ix, iy = bx + 12, by + 74
+          lg.setFont(R.fonts.tiny)
+          if (d.population or 0) > 0 then
+            lg.setColor(P.textDim); lg.print("POP " .. d.population, ix, iy); ix = ix + R.fonts.tiny:getWidth("POP " .. d.population) + 10
+          end
+          if f.surveyed then
+            for _, name in ipairs(Graph.TRADES) do
+              local n = f.deposits[name]
+              if n then
+                Draw.mark(name, ix + 5, iy + 6, 5)
+                lg.setFont(R.fonts.tiny); lg.setColor(P.textDim); lg.print("x" .. n, ix + 12, iy)
+                ix = ix + 12 + R.fonts.tiny:getWidth("x" .. n) + 8
+              end
+            end
+          elseif not d.island then
+            lg.setColor(P.textFaint); lg.print("deposits ?", ix, iy); ix = ix + R.fonts.tiny:getWidth("deposits ?") + 10
+          end
+          local ground = (f.woods > 0 and (f.woods .. (f.woods > 1 and " woods" or " wood")) or "")
+            .. ((f.woods > 0 and f.ranges > 0) and ", " or "")
+            .. (f.ranges > 0 and (f.ranges .. (f.ranges > 1 and " ranges" or " range")) or "")
+          if ground ~= "" and ix + R.fonts.tiny:getWidth(ground) < bx + cw - 8 then
+            lg.setColor(P.textFaint); lg.print(ground, ix, iy)
+          end
+          occupied[#occupied + 1] = { x = bx, y = by, w = cw, h = ch }
+        else
+          local tw = R.fonts.small:getWidth(price) + 14
+          local bx, by = math.floor(cx - tw / 2), math.floor(cy - 10)
+          lg.setColor(P.bg[1], P.bg[2], P.bg[3], 0.92); lg.rectangle("fill", bx, by, tw, 20, 6)
+          lg.setColor(colour[1], colour[2], colour[3], kind == "far" and 0.4 or 0.9); lg.setLineWidth(1)
+          lg.rectangle("line", bx, by, tw, 20, 6)
+          lg.setFont(R.fonts.small); lg.setColor(kind == "far" and P.textDim or colour)
+          lg.print(price, bx + 7, by + 3)
+          occupied[#occupied + 1] = { x = bx, y = by, w = tw, h = 20 }
+        end
+      elseif cam.scale > 0.12 then
+        lg.setFont(R.fonts.tiny); lg.setColor(P.flow[1], P.flow[2], P.flow[3], 0.8)
+        lg.print("YOURS", x + m + 8, y + m + 6)
+      end
     end
   end
 end
@@ -1772,6 +1925,7 @@ function Draw.world(city, cam, state)
 
   end
   fading(false)
+  if state.tab == "map" then drawLandView(city, cam, state) end
   drawLabels(cam)
   lg.setScissor()
 end

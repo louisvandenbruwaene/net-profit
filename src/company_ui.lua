@@ -1870,7 +1870,25 @@ local function mapTab()
     local d=city.districts[state.district]
     if d then
       single(d.name,M,y,"mid",P.energy,CW)
-      y=y+36
+      y=y+30
+      local kind,colour,words=Draw.landStatus(city,d)
+      single(((d.island and "ISLAND") or (d.spec and d.spec.label) or "TOWN").."  ·  "..words,M,y,"small",colour,CW)
+      y=y+22
+      if d.spec and d.spec.story then
+        text(d.spec.story,M,y,"small",P.textDim,CW)
+        local _,wrapped=R.fonts.small:getWrap(d.spec.story,CW)
+        y=y+#wrapped*R.fonts.small:getHeight()+8
+      end
+      local f=Draw.landContents(city,d)
+      local parts={}
+      if f.surveyed then
+        for _,name in ipairs(Graph.TRADES) do if f.deposits[name] then parts[#parts+1]=f.deposits[name].." "..name end end
+        if #parts==0 then parts[1]="no deposits" end
+      elseif not d.island then parts[1]="deposits unsurveyed" end
+      if f.woods>0 then parts[#parts+1]=f.woods..(f.woods>1 and " woods" or " wood") end
+      if f.ranges>0 then parts[#parts+1]=f.ranges..(f.ranges>1 and " ranges" or " range") end
+      if #parts>0 then text(table.concat(parts,", "),M,y,"small",P.text,CW); y=y+26 end
+      y=y+6
       row("Pollution",string.format("%.1f / 100",d.pollution or 0),y,(d.pollution or 0)>=City.INFRA.pollution.stopAt and P.bad or P.good)
       y=y+30
       if (d.population or 0)>0 then
@@ -1909,7 +1927,36 @@ local function mapTab()
     end
     button("district-permits","Land permits",M,y,CW,32,function() state.tab="finance"; state.scroll=0; state.showPermits=true end,true,"Build on trees, rock or water.")
     y=y+48
-  else text("Click land on the map to see its price.",M,y,"body",P.textDim,CW); y=y+60 end
+  else
+    -- Nothing picked yet: what the colours on the map mean, and the plots
+    -- that can be bought, cheapest first, one click from their deed.
+    text("Click a plot on the map, or pick one below.",M,y,"body",P.textDim,CW); y=y+44
+    for _,k in ipairs({{P.good,"Green: buy it now"},{P.warn,"Amber: next door, needs more cash"},{P.textFaint,"Grey: not next to your land yet"}}) do
+      lg.setColor(k[1]); lg.rectangle("fill",M,y+4,14,14,3)
+      text(k[2],M+22,y+2,"small",P.textDim,CW-22); y=y+22
+    end
+    y=y+12
+    local near={}
+    for _,pl in ipairs(city.districts) do
+      if not pl.owned and city:districtVisible(pl) then
+        local err=city:districtError(pl.id)
+        if not err or err=="not enough cash" then near[#near+1]=pl end
+      end
+    end
+    table.sort(near,function(a,b) return city:districtCost(a)<city:districtCost(b) end)
+    if #near>0 then
+      text("NEXT DOOR",M,y,"tiny",P.textFaint,CW); y=y+20
+      for i,pl in ipairs(near) do
+        if i>8 then break end
+        local short=city:districtError(pl.id)
+        local tag=pl.island and "island" or string.lower((pl.spec and pl.spec.label) or "town")
+        button("near-"..pl.id,pl.name.."  ("..tag..")  $"..city:districtCost(pl),M,y,CW,30,
+          function() act("focusDistrict",pl.id) end,true,short and "Needs more cash" or "Show its deed",nil,short and P.warn or P.good)
+        y=y+36
+      end
+      y=y+8
+    end
+  end
   button("district-back","Back to build",M,y,CW,32,function() state.tab="network"; state.district=nil; state.scroll=0 end)
   UI.contentBottom=y+50+state.scroll
 end
@@ -2712,7 +2759,7 @@ local function hoverCard()
   if (n and state.node==n.id) or (e and state.edge==e.id) then hoverKey=nil; return end
   -- Bare ground: what is standing on it and what it costs to cross or buy.
   local ground,plot
-  if not n and not e and state.hoverGround then
+  if not n and not e and state.hoverGround and state.tab~="map" then
     local gx,gy=state.hoverGround[1],state.hoverGround[2]
     plot=city:districtAt(gx,gy)
     if plot and not city:districtVisible(plot) then plot=nil end
