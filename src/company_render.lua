@@ -884,9 +884,7 @@ local function drawDistrictChrome(city, cam, state)
     end
     if cam.scale > 0.34 and d.owned then
       label(string.upper(d.name), cx, (d.island and cy - h / 2 + 16) or y + 6, P.textFaint, R.fonts.tiny)
-      if (d.population or 0) > 0 then
-        label("POP " .. d.population, cx, (d.island and cy - h / 2 + 34) or y + 24, P.textDim, R.fonts.tiny)
-      end
+
     end
     end
   end
@@ -1501,53 +1499,36 @@ local function drawLandView(city, cam, state)
         local disc = city:landDiscount(d)
         local cw = math.min(236, w * 0.78)
         if cw >= 150 and h >= 120 then
-          local ch = 96
+          -- Name, price, and one line only when there is something to say:
+          -- how much short, or why it is out of reach. The colour already
+          -- says "buy". Deposits show as their marks.
+          local note = kind == "short" and words or kind == "far" and words or nil
+          local marks = {}
+          if f.surveyed then
+            for _, name in ipairs(Graph.TRADES) do if f.deposits[name] then marks[#marks + 1] = name end end
+          end
+          local ch = 52 + (note and 20 or 0) + (#marks > 0 and 18 or 0)
+          cw = math.min(cw, 190)
           local bx, by = math.floor(cx - cw / 2), math.floor(cy - ch / 2)
           lg.setColor(0, 0, 0, 0.35); lg.rectangle("fill", bx + 2, by + 4, cw, ch, 8)
           lg.setColor(P.bg[1], P.bg[2], P.bg[3], kind == "far" and 0.82 or 0.94); lg.rectangle("fill", bx, by, cw, ch, 8)
           lg.setColor(colour[1], colour[2], colour[3], kind == "far" and 0.35 or 0.9)
           lg.setLineWidth(kind == "far" and 1 or 1.5); lg.rectangle("line", bx, by, cw, ch, 8)
-          lg.rectangle("fill", bx, by + 8, 4, ch - 16)
           local fade = kind == "far" and 0.7 or 1
           lg.setFont(R.fonts.body); lg.setColor(P.text[1], P.text[2], P.text[3], fade)
-          lg.print(d.name, bx + 12, by + 8)
-          local tag = d.island and "ISLAND" or (d.spec and d.spec.label) or "TOWN"
-          lg.setFont(R.fonts.tiny); lg.setColor(P.textFaint[1], P.textFaint[2], P.textFaint[3], fade)
-          lg.print(tag, bx + cw - 10 - R.fonts.tiny:getWidth(tag), by + 11)
-          lg.setFont(R.fonts.mid); lg.setColor(kind == "far" and P.textDim or P.energy)
-          lg.print(price, bx + 12, by + 28)
+          lg.print(d.name, bx + 12, by + 7)
+          lg.setFont(R.fonts.mid); lg.setColor(kind == "far" and P.textDim or kind == "buy" and P.good or P.energy)
+          lg.print(price, bx + 12, by + 26)
           if disc > 0 then
-            local dx = bx + 18 + R.fonts.mid:getWidth(price)
-            local dt = "-" .. math.floor(disc * 100) .. "% today"
             lg.setFont(R.fonts.tiny); lg.setColor(P.good)
-            lg.print(dt, dx, by + 34)
+            lg.print("-" .. math.floor(disc * 100) .. "%", bx + 18 + R.fonts.mid:getWidth(price), by + 32)
           end
-          lg.setFont(R.fonts.small); lg.setColor(colour[1], colour[2], colour[3], kind == "far" and 0.9 or 1)
-          lg.print(words, bx + 12, by + 52)
-          -- Contents: people, deposits by trade, and the ground that costs.
-          local ix, iy = bx + 12, by + 74
-          lg.setFont(R.fonts.tiny)
-          if (d.population or 0) > 0 then
-            lg.setColor(P.textDim); lg.print("POP " .. d.population, ix, iy); ix = ix + R.fonts.tiny:getWidth("POP " .. d.population) + 10
+          local ly = by + 50
+          if note then
+            lg.setFont(R.fonts.small); lg.setColor(colour[1], colour[2], colour[3], 0.95)
+            lg.print(note, bx + 12, ly); ly = ly + 20
           end
-          if f.surveyed then
-            for _, name in ipairs(Graph.TRADES) do
-              local n = f.deposits[name]
-              if n then
-                Draw.mark(name, ix + 5, iy + 6, 5)
-                lg.setFont(R.fonts.tiny); lg.setColor(P.textDim); lg.print("x" .. n, ix + 12, iy)
-                ix = ix + 12 + R.fonts.tiny:getWidth("x" .. n) + 8
-              end
-            end
-          elseif not d.island then
-            lg.setColor(P.textFaint); lg.print("deposits ?", ix, iy); ix = ix + R.fonts.tiny:getWidth("deposits ?") + 10
-          end
-          local ground = (f.woods > 0 and (f.woods .. (f.woods > 1 and " woods" or " wood")) or "")
-            .. ((f.woods > 0 and f.ranges > 0) and ", " or "")
-            .. (f.ranges > 0 and (f.ranges .. (f.ranges > 1 and " ranges" or " range")) or "")
-          if ground ~= "" and ix + R.fonts.tiny:getWidth(ground) < bx + cw - 8 then
-            lg.setColor(P.textFaint); lg.print(ground, ix, iy)
-          end
+          for i, name in ipairs(marks) do Draw.mark(name, bx + 18 + (i - 1) * 16, ly + 6, 5) end
           occupied[#occupied + 1] = { x = bx, y = by, w = cw, h = ch }
         else
           local tw = R.fonts.small:getWidth(price) + 14
@@ -1631,13 +1612,6 @@ function Draw.world(city, cam, state)
       local _, coast = cam:toScreen(0, 0)
       withinRows(coast, cam.vy + cam.vh, terrain)
     else terrain() end
-    -- Close in only: further out the hover card says the same thing without
-    -- a tag on every wood.
-    if cam.scale > 0.95 then
-      local cross = city:groundCross(o.kind, o)
-      local tag = (o.massive and (o.kind=="park" and "PROTECTED PARK" or "MOUNTAIN RANGE") or spec.name) .. (cross and (cross > 1 and string.format("  x%.1f", cross) or "  OPEN") or "  CLOSED")
-      label(tag, x, y+Shape.reach(o, o.x, o.y+1)*cam.scale+3, freed and P.good or P.textDim, R.fonts.tiny)
-    end
     end
   end
   -- Works that take from the ground leave a mark on it: a forestry fells a

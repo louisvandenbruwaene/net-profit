@@ -23,7 +23,7 @@ end
 local function save()
   if testMode then return true end
   if saveBlocked then
-    toast("Saved company is damaged. Choose another company slot; the original file is protected.",true)
+    toast("Save damaged: pick another slot",true)
     return nil
   end
   local ok,err=Save.write(city)
@@ -245,7 +245,7 @@ local function action(name,...)
     if not saveBlocked and not save() then return end
     if not testMode then
       local info=Save.summarize(slot)
-      if info.error then toast("This slot contains a damaged save. Choose an empty slot.",true); return end
+      if info.error then toast("Damaged save: pick an empty slot",true); return end
     end
     local fresh=City.new(); fresh.slot=slot
     if not testMode then
@@ -353,8 +353,8 @@ local function action(name,...)
       if not wasOpen[key] and city:unlocked(key) then opened[#opened+1]=spec.name end
     end
     table.sort(opened)
-    toast(string.format("Day %d closed: %s%d.",city.day-1,profit>=0 and "+$" or "-$",math.abs(profit))..
-      (#opened>0 and ("  New: "..table.concat(opened,", ").."!") or ("  Day "..city.day.." begins.")),profit<0)
+    toast(string.format("Day %d: %s%d",city.day-1,profit>=0 and "+$" or "-$",math.abs(profit))..
+      (#opened>0 and ("  New: "..table.concat(opened,", ")) or ""),profit<0)
     if #opened>0 then state.toastTime=9; A.play("unlock",0.7) end
     table.sort(paying,function(p,q) return p.x+p.y<q.x+q.y end)
     for i,p in ipairs(paying) do
@@ -396,7 +396,7 @@ local function action(name,...)
     elseif name=="setHubFloor" then
       toast("Minimum price $"..city:hubFloor(result).." a unit")
     elseif name=="layPipe" then
-      toast(city.unserved==0 and "Everyone supplied! Close the day to collect your earnings." or "Connection built. Keep the supply flowing.")
+      toast(city.unserved==0 and "Everyone supplied" or "Connected")
     else
       toast(({repairPipe="Pipe repaired",replacePipe="Main replaced",buyAds="Advertising booked",
         invest="Investment placed",upgradeQuality="Treatment upgraded",buyLicence="Trade licence acquired",
@@ -500,7 +500,7 @@ function love.load(args)
   UI.camera=cam
   if err then
     saveBlocked=true
-    toast("Saved company is damaged and protected. Open Companies to choose another slot.",true)
+    toast("Save damaged: pick another slot",true)
     state.modal="slots"; state.slots=slotSummaries()
   end
   if city.bankrupt then state.modal="report" end
