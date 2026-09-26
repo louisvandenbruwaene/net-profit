@@ -609,6 +609,68 @@ function Draw.worksBuilding(makes, x, y, r, accent, busy, seed)
   end
 end
 
+-- Network structures close up. A tower is a steel pylon, taller the higher
+-- its level; a depot a storage tank showing how full it is, on legs as a
+-- water tower at the top of its ladder; a pump a small pump house with its
+-- impeller turning while water moves.
+function Draw.structureBuilding(kind, x, y, r, accent, level, fill, busy, seed)
+  local u = r / 12
+  level = level or 1
+  lg.setColor(0, 0, 0, 0.28); lg.ellipse("fill", x + 2 * u, y + 9 * u, 11 * u, 4 * u)
+  if kind == "tower" then
+    local h = (14 + level * 2.5) * u
+    local top, base = y - h + 6 * u, y + 7 * u
+    lg.setColor(0.62, 0.64, 0.68); lg.setLineWidth(math.max(1, 1.1 * u))
+    lg.line(x - 7 * u, base, x - 1.5 * u, top); lg.line(x + 7 * u, base, x + 1.5 * u, top)
+    -- Cross bracing up the legs.
+    local steps = 3 + level
+    for i = 0, steps - 1 do
+      local t0, t1 = i / steps, (i + 1) / steps
+      local l0, l1 = x - 7 * u + 5.5 * u * t0, x - 7 * u + 5.5 * u * t1
+      local r0, r1 = x + 7 * u - 5.5 * u * t0, x + 7 * u - 5.5 * u * t1
+      local y0, y1 = base + (top - base) * t0, base + (top - base) * t1
+      lg.line(l0, y0, r1, y1); lg.line(r0, y0, l1, y1)
+    end
+    -- Cross-arms with insulators in the trade colour.
+    for arm = 0, math.min(2, level - 1) do
+      local ay, aw = top + (2 + arm * 4) * u, (8 - arm) * u
+      lg.setColor(0.62, 0.64, 0.68); lg.line(x - aw, ay, x + aw, ay)
+      lg.setColor(accent); lg.circle("fill", x - aw, ay + 1 * u, 1 * u); lg.circle("fill", x + aw, ay + 1 * u, 1 * u)
+    end
+  elseif kind == "depot" then
+    local legs = level >= 4
+    local cy = legs and y - 6 * u or y
+    if legs then
+      lg.setColor(0.40, 0.42, 0.46); lg.setLineWidth(math.max(1, 1.2 * u))
+      lg.line(x - 6 * u, cy + 4 * u, x - 8 * u, y + 8 * u); lg.line(x + 6 * u, cy + 4 * u, x + 8 * u, y + 8 * u)
+      lg.line(x - 7 * u, y + 3 * u, x + 7 * u, y + 3 * u)
+    end
+    local w = (legs and 16 or 14 + level * 1.5) * u
+    local hgt = (legs and 9 or 10) * u
+    lg.setColor(0.60, 0.62, 0.64); lg.rectangle("fill", x - w / 2, cy - hgt / 2, w, hgt)
+    lg.setColor(0.46, 0.48, 0.50); lg.rectangle("fill", x, cy - hgt / 2, w / 2, hgt)
+    lg.setColor(0.72, 0.74, 0.76); lg.ellipse("fill", x, cy - hgt / 2, w / 2, 2.6 * u)
+    lg.setColor(0.50, 0.52, 0.54); lg.ellipse("line", x, cy - hgt / 2, w / 2, 2.6 * u)
+    -- A gauge down the side: how full it is, in the trade colour.
+    lg.setColor(0.16, 0.18, 0.22); lg.rectangle("fill", x - w / 2 + 2 * u, cy - hgt / 2 + 2 * u, 2.2 * u, hgt - 3 * u)
+    local f = math.max(0, math.min(1, fill or 0))
+    lg.setColor(accent); lg.rectangle("fill", x - w / 2 + 2 * u, cy + hgt / 2 - 1 * u - (hgt - 3 * u) * f, 2.2 * u, (hgt - 3 * u) * f)
+  else
+    -- Pump house: a concrete block, the main passing through its flanges,
+    -- and the impeller showing through a round port.
+    lg.setColor(0.56, 0.58, 0.60); lg.rectangle("fill", x - 8 * u, y - 6 * u, 16 * u, 12 * u, 1.5 * u)
+    lg.setColor(0.44, 0.46, 0.48); lg.rectangle("fill", x - 8 * u, y - 6 * u, 16 * u, 3 * u, 1.5 * u)
+    lg.setColor(accent); lg.rectangle("fill", x - 11 * u, y + 1 * u, 3 * u, 3 * u); lg.rectangle("fill", x + 8 * u, y + 1 * u, 3 * u, 3 * u)
+    lg.setColor(0.18, 0.20, 0.24); lg.circle("fill", x, y + 1.5 * u, 3.6 * u)
+    local spin = busy and R.t * 5 + (seed or 0) or (seed or 0)
+    lg.setColor(accent); lg.setLineWidth(math.max(1, 0.9 * u))
+    for i = 0, 2 do
+      local a = spin + i * math.pi * 2 / 3
+      lg.line(x, y + 1.5 * u, x + math.cos(a) * 3 * u, y + 1.5 * u + math.sin(a) * 3 * u)
+    end
+  end
+end
+
 -- Every node on the map is a disc: a dark body tinted by its trade, and a rim
 -- in the trade colour. Flat, so the symbol on top of it is what the eye finds.
 function Draw.disc(x, y, r, color, tint)
@@ -1920,7 +1982,12 @@ function Draw.world(city, cam, state)
     local building = (n.kind == "client" and not n.roundHouse and r >= 14)
       or (n.kind == "source" and not n.plant and r >= 16)
       or (n.kind == "works" and n.recipe ~= "forestry" and n.recipe ~= "quarry" and r >= 16)
-    if building and n.kind == "client" then
+      or ((n.kind == "tower" or n.kind == "depot" or n.kind == "pump") and r >= 16)
+    if building and (n.kind == "tower" or n.kind == "depot" or n.kind == "pump") then
+      Draw.structureBuilding(n.kind, x, y, r, color, n.level or 1,
+        n.kind == "depot" and (n.stored or 0) / (n.capacityStore or City.depotCapacity or 1),
+        math.abs((city.detail.node or {})[n.id] or 0) > 0, n.id * 0.7)
+    elseif building and n.kind == "client" then
       Draw.clientBuilding(n.clientType, x, y, r, color, n.commodity, n.prospect)
     elseif building and n.kind == "source" then
       Draw.sourceBuilding(n.commodity, x, y, r, color, n.id)
