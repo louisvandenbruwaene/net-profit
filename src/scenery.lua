@@ -412,45 +412,81 @@ end
 -- coordinates so it does not slide as the camera pans.
 --------------------------------------------------------------------------------
 
-local TILE, TILE_WORLD = 256, 640
-local grass, grassQuad
+local TILE = 256
+local PATCH_WORLD, TUFT_WORLD = 1400, 310
+local patches, tufts, grassQuad
 
-local function buildGrass()
+-- Paints a wrapping tile: everything is drawn nine times, shifted a tile each
+-- way, so the edges meet without a seam.
+local function paintTile(fn)
   local canvas = lg.newCanvas(TILE, TILE)
   lg.push("all")
   lg.origin(); lg.setScissor(); lg.setCanvas(canvas)
   lg.clear(0, 0, 0, 0)
-  -- Blobs are drawn nine times, shifted a tile each way, so the tile wraps
-  -- without a seam.
-  local function blob(x, y, r, a, light)
-    lg.setColor(light and 1 or 0, light and 1 or 0, light and 1 or 0, a)
-    for dx = -1, 1 do for dy = -1, 1 do lg.circle("fill", x + dx * TILE, y + dy * TILE, r) end end
+  local function wrapped(draw)
+    for dx = -1, 1 do for dy = -1, 1 do draw(dx * TILE, dy * TILE) end end
   end
-  -- Broad patches, each a stack of shrinking discs so its edge is soft.
-  for i = 1, 40 do
-    local x, y, r, light = hash(i, 1) * TILE, hash(i, 2) * TILE, 18 + hash(i, 3) * 40, hash(i, 4) > 0.5
-    for k = 1, 4 do blob(x, y, r * (1 - (k - 1) * 0.22), 0.007, light) end
-  end
-  -- Tufts.
-  for i = 1, 220 do
-    blob(hash(i, 5) * TILE, hash(i, 6) * TILE, 0.8 + hash(i, 7) * 1.6, 0.06, hash(i, 8) > 0.45)
-  end
+  fn(wrapped)
   lg.pop()
-  grass = bake(canvas)
-  grass:setWrap("repeat", "repeat")
+  local image = bake(canvas)
+  image:setWrap("repeat", "repeat")
+  return image
+end
+
+local function buildGrass()
+  -- Broad, soft patches of lighter and darker ground: what gives a field its
+  -- lie from far out.
+  patches = paintTile(function(wrapped)
+    for i = 1, 26 do
+      local x, y, r, light = hash(i, 1) * TILE, hash(i, 2) * TILE, 22 + hash(i, 3) * 46, hash(i, 4) > 0.5
+      for k = 1, 5 do
+        lg.setColor(light and 1 or 0, light and 1 or 0, light and 1 or 0, 0.012)
+        wrapped(function(ox, oy) lg.circle("fill", x + ox, y + oy, r * (1 - (k - 1) * 0.18)) end)
+      end
+    end
+  end)
+  -- Blades of grass, in little tufts, and the odd flower: detail that only
+  -- shows up close.
+  tufts = paintTile(function(wrapped)
+    lg.setLineWidth(1)
+    for i = 1, 60 do
+      local x, y = hash(i, 5) * TILE, hash(i, 6) * TILE
+      local light = hash(i, 8) > 0.4
+      local c = light and { 0.55, 0.75, 0.50, 0.15 } or { 0, 0, 0, 0.18 }
+      lg.setColor(c)
+      local blades = 2 + math.floor(hash(i, 9) * 3)
+      for b = 1, blades do
+        local lean = (b - (blades + 1) / 2) * 0.9 + (hash(i, 10 + b) - 0.5)
+        local len = 3 + hash(i, 20 + b) * 4
+        wrapped(function(ox, oy) lg.line(x + ox, y + oy, x + ox + lean * 1.6, y + oy - len) end)
+      end
+    end
+    for i = 1, 6 do
+      local x, y = hash(i, 40) * TILE, hash(i, 41) * TILE
+      local warm = hash(i, 42) > 0.5
+      lg.setColor(warm and 0.95 or 0.85, warm and 0.82 or 0.85, warm and 0.45 or 0.95, 0.35)
+      wrapped(function(ox, oy) lg.circle("fill", x + ox, y + oy, 1.3) end)
+    end
+  end)
   grassQuad = lg.newQuad(0, 0, TILE, TILE, TILE, TILE)
 end
 
--- Mottles a plot. wx, wy, ww, wh are the plot in world units, sx, sy where its
--- corner lands on screen.
-function Scenery.grass(wx, wy, ww, wh, sx, sy, scale, alpha)
-  if not grass then buildGrass() end
-  local k = TILE / TILE_WORLD
+local function layer(image, world, wx, wy, ww, wh, sx, sy, scale, alpha)
+  local k = TILE / world
   grassQuad:setViewport(wx * k, wy * k, ww * k, wh * k, TILE, TILE)
+  lg.setColor(alpha, alpha, alpha, alpha)
+  lg.draw(image, grassQuad, sx, sy, 0, scale / k, scale / k)
+end
+
+-- Grass over a plot. wx, wy, ww, wh are the plot in world units, sx, sy where
+-- its corner lands on screen. The tufts fade in as the camera comes close.
+function Scenery.grass(wx, wy, ww, wh, sx, sy, scale, alpha)
+  if not patches then buildGrass() end
   alpha = alpha or 1
   lg.setBlendMode("alpha", "premultiplied")
-  lg.setColor(alpha, alpha, alpha, alpha)
-  lg.draw(grass, grassQuad, sx, sy, 0, scale / k, scale / k)
+  layer(patches, PATCH_WORLD, wx, wy, ww, wh, sx, sy, scale, alpha)
+  local close = math.max(0, math.min(1, (scale - 0.55) / 0.6))
+  if close > 0 then layer(tufts, TUFT_WORLD, wx, wy, ww, wh, sx, sy, scale, alpha * close) end
   lg.setBlendMode("alpha")
 end
 
