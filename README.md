@@ -152,12 +152,29 @@ first municipal grant. Everyday build tools stay near the top of Build;
 **More buildings** reveals treatment, valves, storage and freight and stays collapsed until you open it. **Pipe options** reveals manual size and lining choices; automatic endpoint fitting keeps the opening straightforward. The guide can
 be dismissed, and existing companies continue with their original saves.
 
-Trees, rock formations and water give the map a sense of place, and two of them
+Woods, mountain ranges and water give the map a sense of place, and two of them
 are worth owning: parkland is where a forestry stands and bedrock is where a
 quarry goes, so the permits that make them passable are an investment rather
-than a toll. Only badged structures and customers are interactive. Terrain boundaries still show the exact area used by construction
-rules. Supplied houses light their windows; supplied industry becomes active.
-District landmarks and stories explain the character of each area.
+than a toll. Woods are drawn as many trees and ranges as peaks rising out of
+foothills, each with an irregular outline; that outline is exactly the ground
+the rules charge for, so what you see is what a main pays to cross. Islands grow
+groves at their ends and keep the middle clear for a wind park. Hover bare
+ground to see what crossing it costs; while dragging a main, every wood and
+range on the run lights up red (closed), amber (dearer) or green (open).
+
+Zoomed in, customers, wells, works, towers, tanks, pumps, stops, stations,
+resorts and depot yards stand as small buildings in the same footprint as their
+disc (same click); zoomed out they return to flat icons that stay readable.
+Plants spread over their sites (a turbine per wind row, a panel bank per solar
+array, reactor domes beside a cooling tower, a headrace to the river), a
+harbour runs a jetty to a moored ship, and road heads and airfields sit on
+their own road and runway. Only badged structures and customers are
+interactive. District landmarks and stories explain the character of each area.
+
+The land view colours every plot by whether it can be bought now (green),
+is next door but short of cash (amber) or is not reachable yet, and gives each
+plot for sale a deed: type, price and discount, what stops you, and what is on
+it. The panel lists the plots next door, cheapest first.
 
 A power tower carries electricity and nothing else, so picking one up puts
 electricity in hand whatever the panel had selected, and the preview, the price
@@ -545,7 +562,9 @@ and window tests under Xvfb and uploads the packaged game.
 | `src/graph.lua` | Dinic max flow, finite source output, separate commodities |
 | `src/company_app.lua` | Input, camera, action history and game lifecycle |
 | `src/company_ui.lua` | Network inspector, treasury, clients, journal and report |
-| `src/company_render.lua` | City map, districts, trade symbols, flowing pipes and track |
+| `src/company_render.lua` | City map, districts, trade symbols, flowing pipes and track, close-up buildings, land deeds |
+| `src/scenery.lua` | Cached forests, mountain ranges, ponds, plot grass and cloud shadows |
+| `src/terrain_shape.lua` | The lobed outline of woods and ranges, shared by the rules and the renderer |
 | `src/company_save.lua` | Six save slots, versioned saves, random-state persistence |
 | `src/experience.lua` | Isolated planning previews, ambitions, names, district stories and route overlays |
 | `src/company_walkthrough.lua` | Rendered input and screenshot checks |
