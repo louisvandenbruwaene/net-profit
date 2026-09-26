@@ -436,19 +436,36 @@ end
 -- the caller already set, facing whichever way it is currently travelling.
 function Draw.freightVehicle(haven, x, y, dir, s)
   local r, g, b, a = trim()
+  local ink = { 0.10, 0.09, 0.08, 0.85 * a }
   lg.push()
   lg.translate(x, y)
   lg.scale(dir, 1)
+  lg.setLineWidth(math.max(0.8, 0.25 * s))
   if haven == "airfield" then
-    lg.polygon("fill", -3.4 * s, 0, 3.2 * s, -1.3 * s, 3.2 * s, 1.3 * s)
-    lg.rectangle("fill", -3.4 * s, -0.4 * s, 4.6 * s, 0.8 * s)
+    -- Fuselage, swept wings and a tail, in white with a stripe of the trade.
+    lg.setColor(0.92, 0.93, 0.94, a)
+    lg.polygon("fill", -1 * s, -3.2 * s, 0.6 * s, -3.2 * s, 1.4 * s, 0, 0.6 * s, 3.2 * s, -1 * s, 3.2 * s, -0.2 * s, 0)
+    lg.rectangle("fill", -4 * s, -0.6 * s, 7.4 * s, 1.2 * s, 0.6 * s)
+    lg.polygon("fill", -4 * s, -0.4 * s, -4.4 * s, -1.8 * s, -3.4 * s, -0.4 * s)
+    lg.setColor(r, g, b, a); lg.rectangle("fill", -2.5 * s, -0.2 * s, 5 * s, 0.4 * s)
   elseif haven == "port" then
-    lg.polygon("fill", -3.4 * s, 1.6 * s, 3.4 * s, 1.6 * s, 2.1 * s, -0.8 * s, -2.1 * s, -0.8 * s)
-    lg.rectangle("fill", -0.7 * s, -2.2 * s, 1.4 * s, 1.6 * s)
+    -- A hull, a row of containers and the bridge at the stern.
+    lg.setColor(0.14, 0.15, 0.18, a)
+    lg.polygon("fill", -3.6 * s, -1.2 * s, 2.8 * s, -1.2 * s, 3.8 * s, 0, 2.8 * s, 1.2 * s, -3.6 * s, 1.2 * s)
+    lg.setColor(ink); lg.polygon("line", -3.6 * s, -1.2 * s, 2.8 * s, -1.2 * s, 3.8 * s, 0, 2.8 * s, 1.2 * s, -3.6 * s, 1.2 * s)
+    for i = 0, 2 do
+      lg.setColor(i == 1 and 0.85 or r, i == 1 and 0.62 or g, i == 1 and 0.25 or b, a)
+      lg.rectangle("fill", -1.8 * s + i * 1.4 * s, -0.8 * s, 1.2 * s, 1.6 * s)
+    end
+    lg.setColor(0.90, 0.90, 0.88, a); lg.rectangle("fill", -3.3 * s, -0.8 * s, 1.2 * s, 1.6 * s)
   else
-    lg.rectangle("fill", -3.2 * s, -1.6 * s, 6.4 * s, 3.2 * s, 0.5 * s)
-    lg.setColor(P.bg)
-    lg.rectangle("fill", 1.6 * s, -1.15 * s, 1.4 * s, 2.3 * s)
+    -- A cab and a trailer in the trade colour, on wheels.
+    lg.setColor(0.12, 0.12, 0.13, a)
+    for _, wx in ipairs({ -2.4, -0.6, 2.2 }) do lg.rectangle("fill", (wx - 0.5) * s, -1.7 * s, 1 * s, 3.4 * s) end
+    lg.setColor(r, g, b, a); lg.rectangle("fill", -3.4 * s, -1.3 * s, 4.6 * s, 2.6 * s)
+    lg.setColor(0.82, 0.82, 0.84, a); lg.rectangle("fill", 1.6 * s, -1.1 * s, 1.8 * s, 2.2 * s, 0.4 * s)
+    lg.setColor(0.30, 0.40, 0.50, a); lg.rectangle("fill", 2.8 * s, -0.9 * s, 0.5 * s, 1.8 * s)
+    lg.setColor(ink); lg.rectangle("line", -3.4 * s, -1.3 * s, 4.6 * s, 2.6 * s)
   end
   lg.pop()
   lg.setColor(r, g, b, a)
