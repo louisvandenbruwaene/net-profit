@@ -323,8 +323,19 @@ local function action(name,...)
       A.play("unlock",0.9)
     end
   end
+  if name=="endDay" and result.loyal then
+    for i,l in ipairs(result.loyal) do
+      if i>20 then break end
+      R.floatText(l.x,l.y-52,"Loyal!  +$"..City.LOYALTY.step.." a unit",P.energy,1+i*0.05)
+      R.ring(l.x,l.y,P.energy)
+    end
+  end
   if name=="endDay" and result.achievement then
     state.banner={title="Ambition achieved",sub=result.achievement,t=R.t}
+  end
+  -- The market and the weather are news, not a line in a log.
+  if name=="endDay" and not state.banner and (result.shock or result.event) then
+    state.banner={title=result.shock and "Shock" or "Market news",sub=result.shock or result.event,t=R.t,warn=result.shock~=nil}
   end
   if name=="endDay" then
     state.undo={}; clear(); state.rename=nil; state.modal=city.bankrupt and "report" or nil; state.reportDetails=false
@@ -700,6 +711,8 @@ function love.keypressed(key)
   elseif key=="=" or key=="+" or key=="kp+" or key=="-" or key=="kp-" then
     local w,h=love.graphics.getDimensions()
     cam:zoomAt(w/2,h/2,(key=="-" or key=="kp-") and -1.5 or 1.5)
+  elseif (key=="y" or key=="n") and state.node and city.g.nodes[state.node] and city.g.nodes[state.node].prospect then
+    action(key=="y" and "acceptClient" or "declineClient",state.node)
   elseif key=="b" then
     if UI.drawerOpen(state) and state.tab=="network" then UI.closeDrawer(state)
     else state.tab="network"; state.drawer=true; state.scroll=0 end
