@@ -2292,14 +2292,37 @@ local function stats()
   text("Decline a request: -1 reputation.\nLet it expire: -2 reputation.\nBetter reputation brings more requests.",M,y,"small",P.textDim,CW)
   y=y+80
   end
-  y,open=fold("recent","Recent profit",y,"")
+  y,open=fold("recent","Recent profit",y,#city.history>0 and string.format("$%+d last",
+    city.history[#city.history].revenue-(city.history[#city.history].expenses or 0)) or "")
   if open then
-  for i=math.max(1,#city.history-6),#city.history do
-    local h=city.history[i]
-    row("Day "..h.day,string.format("$%+d",h.revenue-(h.expenses or 0)),y)
-    y=y+28
-  end
-  y=y+16
+    -- The last fortnight as bars either side of a zero line: green days up,
+    -- red days down, the latest one labelled.
+    local first=math.max(1,#city.history-13)
+    local n=#city.history-first+1
+    if n<=0 then
+      text("No days closed yet.",M,y,"small",P.textDim,CW); y=y+30
+    else
+      local lo,hi=0,1
+      for i=first,#city.history do
+        local v=city.history[i].revenue-(city.history[i].expenses or 0)
+        lo,hi=math.min(lo,v),math.max(hi,v)
+      end
+      local ch=110
+      local zero=y+ch*hi/(hi-lo)
+      local bw=CW/14
+      lg.setColor(P.with(P.textFaint,0.6)); lg.setLineWidth(1); lg.line(M,zero,M+CW,zero)
+      for i=first,#city.history do
+        local h=city.history[i]
+        local v=h.revenue-(h.expenses or 0)
+        local bx=M+(i-first)*bw+2
+        local bh=math.abs(v)/(hi-lo)*ch
+        lg.setColor(v>=0 and P.good or P.bad)
+        lg.rectangle("fill",bx,v>=0 and zero-bh or zero,bw-4,math.max(1,bh),2)
+      end
+      local last=city.history[#city.history]
+      single("Day "..last.day..": "..string.format("$%+d",last.revenue-(last.expenses or 0)),M,y+ch+8,"small",P.textDim,CW)
+      y=y+ch+36
+    end
   end
   local costs=city:expenseBreakdown()
   y,open=fold("costs","Daily costs",y,"$"..costs.total)
@@ -2565,8 +2588,15 @@ local function topBar(open)
     local dayW=rx-dx-8
     if dayW>70 then
       local trading=not (#city.g:nodesOfKind("source")==0 and #clients==0)
-      single("PER DAY"..(#clients>0 and dayW>=170 and ("   "..supplied.."/"..#clients.." SUPPLIED") or ""),dx,8,"tiny",
-        #clients>0 and supplied<#clients and P.warn or P.textDim,dayW)
+      -- Losing money: how long the cash lasts at this rate says more than the rate.
+      local runway=trading and net<0 and city.money>0 and math.floor(city.money/-net) or nil
+      if runway and runway<=30 then
+        single("PER DAY   CASH LASTS "..runway..(runway==1 and " DAY" or " DAYS"),dx,8,"tiny",
+          runway<=7 and P.bad or P.warn,dayW)
+      else
+        single("PER DAY"..(#clients>0 and dayW>=170 and ("   "..supplied.."/"..#clients.." SUPPLIED") or ""),dx,8,"tiny",
+          #clients>0 and supplied<#clients and P.warn or P.textDim,dayW)
+      end
       local day=trading and string.format("$%+d",net) or "Not trading"
       local dayFont=dayW>=120 and "mid" or "body"
       single(day,dx,24,dayFont,trading and (net>=0 and P.good or P.bad) or P.textDim,dayW)
@@ -2829,7 +2859,7 @@ function UI.draw(c,s,action)
   toastPill(open)
   hoverCard()
   -- A milestone or an ambition reached gets a banner of its own for a moment.
-  if state.banner then
+  if state.banner and not state.drag and not state.tool then
     local b=state.banner
     local age=R.t-b.t
     if age>3.2 then state.banner=nil

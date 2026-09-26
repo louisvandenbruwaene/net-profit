@@ -1680,9 +1680,15 @@ function Draw.world(city, cam, state)
             {"Build for $"..q.total,R.fonts.mid,P.energy},
             {string.format("%d m  /  Capacity %s",math.floor(q.metres),q.capacity),R.fonts.small,P.textDim},
             {(p.demand and (p.delivery.."/"..p.demand.." supplied  /  ") or "")..
-              string.format("Profit $%+d/day",p.net),R.fonts.body,P.good},
+              string.format("Profit $%+d/day",p.net),R.fonts.body,p.net>0 and P.good or p.net<0 and P.bad or P.textDim},
             {p.cash<0 and ("Need $"..(-p.cash).." more") or ("Cash remaining: $"..p.cash),R.fonts.body,p.cash<0 and P.bad or P.text},
           }
+          -- The one number that says whether it is worth it.
+          if p.net>0 then
+            local days=math.ceil(q.total/p.net)
+            table.insert(rows,3,{"Pays for itself in "..days..(days==1 and " day" or " days"),R.fonts.small,
+              days<=10 and P.good or days<=30 and P.text or P.warn})
+          end
           if note then rows[#rows+1]={note,R.fonts.small,P.warn} end
           local qh=20
           for _,row in ipairs(rows) do
