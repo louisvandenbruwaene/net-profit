@@ -539,6 +539,76 @@ function Draw.clientBuilding(kind, x, y, r, accent, commodity, ghost)
   end
 end
 
+-- A well seen close up. Water and brine come up through a stone well-head
+-- with a windlass over it; oil through a pumpjack whose beam nods on its own
+-- clock. Drawn in the disc's footprint, with the trade badge on the corner.
+function Draw.sourceBuilding(commodity, x, y, r, accent, seed)
+  local u = r / 12
+  lg.setColor(0, 0, 0, 0.28); lg.ellipse("fill", x + 2 * u, y + 9 * u, 13 * u, 4.5 * u)
+  if commodity == "oil" then
+    -- Base, A-frame, a walking beam rocking about its top, horse head and
+    -- the counterweight crank at the back.
+    lg.setColor(0.30, 0.31, 0.34); lg.rectangle("fill", x - 11 * u, y + 5 * u, 22 * u, 3 * u)
+    local tilt = math.sin(R.t * 1.6 + (seed or 0)) * 0.28
+    local px, py = x, y - 6 * u
+    lg.setColor(0.42, 0.44, 0.48); lg.setLineWidth(math.max(1, 1.6 * u))
+    lg.line(x - 4 * u, y + 5 * u, px, py); lg.line(x + 4 * u, y + 5 * u, px, py)
+    local cx, cy = math.cos(tilt), math.sin(tilt)
+    local hx, hy = px - cx * 10 * u, py - cy * 10 * u
+    local tx, ty = px + cx * 8 * u, py + cy * 8 * u
+    lg.setColor(accent[1] * 0.7, accent[2] * 0.7, accent[3] * 0.7); lg.setLineWidth(math.max(1.5, 2.4 * u)); lg.line(hx, hy, tx, ty)
+    lg.setColor(0.85, 0.62, 0.20); lg.polygon("fill", hx - 2 * u, hy - 2 * u, hx + 1 * u, hy - 3 * u, hx + 1 * u, hy + 3 * u, hx - 2 * u, hy + 2 * u)
+    lg.setColor(0.25, 0.26, 0.29); lg.circle("fill", tx + 1 * u, ty + 3 * u, 3 * u)
+    lg.setColor(0.42, 0.44, 0.48); lg.setLineWidth(1); lg.line(hx - 1 * u, hy + 2 * u, hx - 1 * u, y + 5 * u)
+  else
+    -- Stone ring, the water in it, two posts and a windlass across.
+    lg.setColor(0.52, 0.50, 0.47); lg.circle("fill", x, y + 2 * u, 8 * u)
+    lg.setColor(0.36, 0.35, 0.33); lg.setLineWidth(math.max(1, u)); lg.circle("line", x, y + 2 * u, 8 * u)
+    lg.setColor(accent[1] * 0.8, accent[2] * 0.8, accent[3] * 0.8); lg.circle("fill", x, y + 2 * u, 5 * u)
+    lg.setColor(1, 1, 1, 0.25 + 0.15 * math.sin(R.t * 2 + (seed or 0))); lg.ellipse("fill", x - 1.5 * u, y + 0.5 * u, 2 * u, 1 * u)
+    lg.setColor(0.36, 0.26, 0.17)
+    lg.rectangle("fill", x - 9 * u, y - 8 * u, 2 * u, 12 * u); lg.rectangle("fill", x + 7 * u, y - 8 * u, 2 * u, 12 * u)
+    lg.rectangle("fill", x - 9 * u, y - 8 * u, 18 * u, 2 * u)
+    lg.setColor(0.58, 0.33, 0.27); lg.polygon("fill", x - 11 * u, y - 7 * u, x, y - 13 * u, x + 11 * u, y - 7 * u)
+  end
+  if r >= 16 then
+    local bx, by, br = x + 10 * u, y - 10 * u, 3.6 * u
+    lg.setColor(P.bg[1], P.bg[2], P.bg[3], 0.9); lg.circle("fill", bx, by, br)
+    lg.setColor(accent); lg.setLineWidth(1); lg.circle("line", bx, by, br)
+    Draw.mark(commodity, bx, by, br * 0.62)
+  end
+end
+
+-- A works close up: a brick hall with a slate roof, a stack with smoke when
+-- it is making something, and a stripe and badge in the colour of what it
+-- makes.
+function Draw.worksBuilding(makes, x, y, r, accent, busy, seed)
+  local u = r / 12
+  lg.setColor(0, 0, 0, 0.28); lg.ellipse("fill", x + 2 * u, y + 9 * u, 14 * u, 4.5 * u)
+  lg.setColor(0.52, 0.32, 0.26); lg.rectangle("fill", x - 11 * u, y - 3 * u, 22 * u, 11 * u)
+  lg.setColor(0.40, 0.24, 0.20)
+  for row = 0, 2 do lg.line(x - 11 * u, y + (-0.5 + row * 3.5) * u, x + 11 * u, y + (-0.5 + row * 3.5) * u) end
+  lg.setColor(0.46, 0.49, 0.53); lg.polygon("fill", x - 12 * u, y - 3 * u, x - 8 * u, y - 10 * u, x + 8 * u, y - 10 * u, x + 12 * u, y - 3 * u)
+  lg.setColor(0.32, 0.34, 0.38); lg.polygon("fill", x, y - 10 * u, x + 8 * u, y - 10 * u, x + 12 * u, y - 3 * u, x, y - 3 * u)
+  lg.setColor(accent); lg.rectangle("fill", x - 11 * u, y + 1 * u, 22 * u, 1.6 * u)
+  lg.setColor(0.18, 0.20, 0.24); lg.rectangle("fill", x - 2.5 * u, y + 3 * u, 5 * u, 5 * u)
+  local sx = x - 7 * u
+  lg.setColor(0.36, 0.26, 0.22); lg.rectangle("fill", sx, y - 16 * u, 3 * u, 8 * u)
+  if busy then
+    for p = 0, 2 do
+      local ph = (R.t * 0.4 + p / 3 + (seed or 0)) % 1
+      lg.setColor(0.72, 0.72, 0.74, 0.35 * (1 - ph))
+      lg.circle("fill", sx + 1.5 * u + ph * 6 * u, y - 17 * u - ph * 8 * u, (1.5 + ph * 2.5) * u)
+    end
+  end
+  if r >= 16 and makes then
+    local bx, by, br = x + 11 * u, y - 11 * u, 3.6 * u
+    lg.setColor(P.bg[1], P.bg[2], P.bg[3], 0.9); lg.circle("fill", bx, by, br)
+    lg.setColor(accent); lg.setLineWidth(1); lg.circle("line", bx, by, br)
+    Draw.mark(makes, bx, by, br * 0.62)
+  end
+end
+
 -- Every node on the map is a disc: a dark body tinted by its trade, and a rim
 -- in the trade colour. Flat, so the symbol on top of it is what the eye finds.
 function Draw.disc(x, y, r, color, tint)
@@ -1847,9 +1917,16 @@ function Draw.world(city, cam, state)
       lg.setColor(P.with(P.good,0.10)); lg.circle("fill",x,y,r * 1.42)
     end
     -- Close in, a customer is its building; further out, its disc.
-    local building = n.kind == "client" and not n.roundHouse and r >= 14
-    if building then
+    local building = (n.kind == "client" and not n.roundHouse and r >= 14)
+      or (n.kind == "source" and not n.plant and r >= 16)
+      or (n.kind == "works" and n.recipe ~= "forestry" and n.recipe ~= "quarry" and r >= 16)
+    if building and n.kind == "client" then
       Draw.clientBuilding(n.clientType, x, y, r, color, n.commodity, n.prospect)
+    elseif building and n.kind == "source" then
+      Draw.sourceBuilding(n.commodity, x, y, r, color, n.id)
+    elseif building then
+      local recipe = City.RECIPES[n.recipe or ""]
+      Draw.worksBuilding(n.makes or (recipe and recipe.makes), x, y, r, color, (n.ready or 0) > 0, n.id * 0.13)
     else
       Draw.disc(x, y, r, color, n.prospect and 0.14 or 0.20)
     end
@@ -1892,7 +1969,7 @@ function Draw.world(city, cam, state)
       elseif n.plant=="hydro" then
         Draw.mark('water',x-r*0.25,y,r*0.45)
         Draw.mark('power',x+r*0.28,y,r*0.45)
-      else
+      elseif not building then
         Draw.mark(n.commodity, x, y - r * 0.04, r * 0.58)
       end
       local level = n.level or 1
@@ -1944,7 +2021,7 @@ function Draw.world(city, cam, state)
       -- A corner's own bend is now drawn by the road itself (drawLinks'
       -- round join), so the fixed schematic icon here would just duplicate
       -- it -- with the wrong angle. The palette button still shows it.
-      if n.kind ~= "corner" then Draw.structureGlyph(n.kind, x, y, r / 15) end
+      if n.kind ~= "corner" and not building then Draw.structureGlyph(n.kind, x, y, r / 15) end
       -- A building on a ladder wears its level: pips over it, and a distribution
       -- hub a second ring in its own colour, so the top of the ladder reads as
       -- a different thing from across the map.
