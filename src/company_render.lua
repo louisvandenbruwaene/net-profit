@@ -1316,6 +1316,59 @@ function Draw.world(city, cam, state)
     end
     end
   end
+  -- Works that take from the ground leave a mark on it: a forestry fells a
+  -- clearing with stumps and stacked logs, a quarry cuts a terraced pit.
+  for _, n in ipairs(city.g:aliveNodes()) do
+    if (n.recipe == "forestry" or n.recipe == "quarry") and cam:sees(n.x, n.y, 80 * cam.scale + 20) then
+      local x, y = cam:toScreen(n.x, n.y)
+      local r = (n.recipe == "forestry" and 80 or 62) * cam.scale
+      local h = function(k) return Shape.hash(n.x, n.y, k) end
+      if n.recipe == "forestry" then
+        -- Felled ground: solid in the middle, thinning out into the trees.
+        for _, ring in ipairs({ { 1.0, 0.18 }, { 0.9, 0.35 }, { 0.8, 0.6 }, { 0.7, 1 } }) do
+          lg.setColor(0.15, 0.20, 0.14, ring[2])
+          lg.circle("fill", x, y, r * ring[1])
+        end
+        lg.setColor(0.24, 0.22, 0.14, 0.35); lg.circle("fill", x - r * 0.1, y + r * 0.1, r * 0.35)
+        for i = 1, 9 do
+          local a, d = h(i) * 6.28, (0.45 + h(i + 20) * 0.5) * r
+          local sx, sy, sr = x + math.cos(a) * d, y + math.sin(a) * d, math.max(1, (2.2 + h(i + 40) * 1.6) * cam.scale)
+          lg.setColor(0.30, 0.22, 0.14); lg.circle("fill", sx, sy, sr)
+          lg.setColor(0.62, 0.50, 0.33); lg.circle("fill", sx, sy - sr * 0.2, sr * 0.62)
+        end
+        -- A stack of logs, ends facing the viewer.
+        local lx, ly, lr = x + r * 0.55, y + r * 0.35, math.max(1.2, 3 * cam.scale)
+        for row = 0, 2 do
+          for col = 0, 2 - row do
+            local cx, cy = lx + (col + row * 0.5) * lr * 2.1, ly - row * lr * 1.8
+            lg.setColor(0.36, 0.26, 0.16); lg.circle("fill", cx, cy, lr)
+            lg.setColor(0.70, 0.56, 0.36); lg.circle("fill", cx, cy, lr * 0.6)
+          end
+        end
+      else
+        -- Terraces stepping down into the pit, each a little darker.
+        for i = 0, 4 do
+          local k = 1 - i * 0.18
+          local pts = {}
+          for j = 0, 23 do
+            local a = j / 24 * math.pi * 2
+            local f = 1 + 0.08 * math.sin(3 * a + h(1) * 6) + 0.05 * math.sin(5 * a + h(2) * 6)
+            pts[#pts + 1] = x + math.cos(a) * r * k * f * 1.1
+            pts[#pts + 1] = y + math.sin(a) * r * k * f * 0.8
+          end
+          local tone = 0.30 - i * 0.045
+          lg.setColor(tone, tone * 0.96, tone * 0.92, 0.95); lg.polygon("fill", pts)
+          lg.setColor(0.52, 0.50, 0.48, 0.35); lg.setLineWidth(1); lg.polygon("line", pts)
+        end
+        for i = 1, 5 do
+          local a, d = h(i + 60) * 6.28, (0.6 + h(i + 70) * 0.35) * r
+          local bx, by, bs = x + math.cos(a) * d * 1.1, y + math.sin(a) * d * 0.8, math.max(1.5, (3 + h(i + 80) * 3) * cam.scale)
+          lg.setColor(0.58, 0.56, 0.54); lg.rectangle("fill", bx - bs, by - bs * 0.7, bs * 2, bs * 1.4, bs * 0.3)
+          lg.setColor(0.38, 0.36, 0.36); lg.rectangle("fill", bx - bs, by + bs * 0.3, bs * 2, bs * 0.4)
+        end
+      end
+    end
+  end
   drawDistrictChrome(city, cam, state)
   drawSeams(city, cam, state)
 

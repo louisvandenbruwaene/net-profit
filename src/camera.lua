@@ -27,6 +27,16 @@ end
 
 function Camera:update(dt)
   self.scale = self.scale + (self.targetScale - self.scale) * math.min(1, dt * 12)
+  -- A glide in progress eases toward its point and lets go once there, or as
+  -- soon as the player pans: a hand on the map always wins.
+  if self.glide then
+    local k = math.min(1, dt * 7)
+    self.x = self.x + (self.glide.x - self.x) * k
+    self.y = self.y + (self.glide.y - self.y) * k
+    if math.abs(self.glide.x - self.x) + math.abs(self.glide.y - self.y) < 0.5 then
+      self.x, self.y, self.glide = self.glide.x, self.glide.y, nil
+    end
+  end
   if self.shake > 0 then self.shake = math.max(0, self.shake - dt * 2.6) end
   local m = 260 / self.scale
   local b = self.field
@@ -79,13 +89,20 @@ function Camera:toWorld(sx, sy)
          (sy - self.vy - self.vh / 2) / self.scale + self.y
 end
 
+-- Ease there over a few frames instead of cutting.
+function Camera:glideTo(wx, wy)
+  self.glide = { x = wx, y = wy }
+end
+
 function Camera:pan(dx, dy)
+  self.glide = nil
   self.x = self.x - dx / self.scale
   self.y = self.y - dy / self.scale
 end
 
 -- Zoom about the cursor so the point under the mouse stays put.
 function Camera:zoomAt(sx, sy, delta)
+  self.glide = nil
   local wx, wy = self:toWorld(sx, sy)
   self.targetScale = math.max(0.11, math.min(2.2, self.targetScale * (1 + delta * 0.16)))
   self.scale = self.targetScale
@@ -95,6 +112,7 @@ function Camera:zoomAt(sx, sy, delta)
 end
 
 function Camera:centerOn(wx, wy)
+  self.glide = nil
   self.x, self.y = wx, wy
 end
 
