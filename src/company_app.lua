@@ -282,6 +282,11 @@ local function action(name,...)
   local result,err
   -- What each customer is about to pay, so the close can show it landing.
   local paying,wasOpen
+  -- Mains that exist before the action, so any laid by it (by hand, or by a
+  -- distribution hub at the close) can be traced into the ground after.
+  local edgesBefore=#city.g.edges
+  local milestonesBefore={}
+  for i in pairs(city.milestones or {}) do milestonesBefore[i]=true end
   if name=="endDay" then
     wasOpen={}
     for key in pairs(City.UNLOCKS) do wasOpen[key]=city:unlocked(key) end
@@ -294,8 +299,36 @@ local function action(name,...)
   end
   result,err=city[name](city,...)
   if not result then toast(err or "Action unavailable",true); A.play("denied"); return nil end
+  -- Every main that came into being, drawn in with a pulse from end to end.
+  do
+    local fresh=0
+    for id=edgesBefore+1,#city.g.edges do
+      local e=city.g.edges[id]
+      local a,b=e and city.g.nodes[e.a],e and city.g.nodes[e.b]
+      if e and e.alive and a and b and fresh<40 then
+        fresh=fresh+1
+        R.trace(a.x,a.y,b.x,b.y,(Graph.COMMODITIES[e.commodity] or {}).color or P.flow,name=="endDay" and 0.5+fresh*0.05 or 0)
+      end
+    end
+    if name=="replacePipe" or name=="upgradePipe" then
+      local e=city.g.edges[...]
+      local a,b=e and city.g.nodes[e.a],e and city.g.nodes[e.b]
+      if a and b then R.trace(a.x,a.y,b.x,b.y,(Graph.COMMODITIES[e.commodity] or {}).color or P.flow) end
+    end
+  end
+  -- A milestone reached gets its banner.
+  for i,m in ipairs(City.MILESTONES) do
+    if (city.milestones or {})[i] and not milestonesBefore[i] then
+      state.banner={title=m.name.."!",sub="Municipal grant  +$"..m.reward,t=R.t}
+      A.play("unlock",0.9)
+    end
+  end
+  if name=="endDay" and result.achievement then
+    state.banner={title="Ambition achieved",sub=result.achievement,t=R.t}
+  end
   if name=="endDay" then
     state.undo={}; clear(); state.rename=nil; state.modal=city.bankrupt and "report" or nil; state.reportDetails=false
+    state.dusk=R.t
     local profit=(result.revenue or 0)-(result.expenses or 0)-(result.crewCost or 0)
     local opened={}
     for key,spec in pairs(City.UNLOCKS) do
@@ -341,7 +374,7 @@ local function action(name,...)
       local run=result.lastRun
       toast(city:levelName(result).." ready"..(run and string.format(": %d signed, %d connected, %d widened",
         run.signed,run.wired,run.widened) or ""))
-      R.ring(result.x,result.y,P.good)
+      R.ring(result.x,result.y,P.good); R.burst(result.x,result.y,P.energy,26)
     elseif name=="setHubFloor" then
       toast("Minimum price $"..city:hubFloor(result).." a unit")
     elseif name=="layPipe" then
@@ -474,6 +507,16 @@ end
 
 function love.update(dt)
   R.update(dt); layout(); cam:update(dt)
+  -- The map pans under WASD or the arrow keys, faster with shift held.
+  if not state.rename and not state.modal and love.keyboard then
+    local kd=love.keyboard.isDown
+    local dx=(kd("a","left") and 1 or 0)-(kd("d","right") and 1 or 0)
+    local dy=(kd("w","up") and 1 or 0)-(kd("s","down") and 1 or 0)
+    if dx~=0 or dy~=0 then
+      local speed=(kd("lshift","rshift") and 1500 or 700)*dt
+      cam:pan(dx*speed,dy*speed)
+    end
+  end
   -- Sounds booked for a moment from now, like the ticks of a day landing.
   if state.sfx then
     for i=#state.sfx,1,-1 do
@@ -654,6 +697,9 @@ function love.keypressed(key)
     elseif state.tool or state.node or state.edge or state.link or state.district then
       clear(); if not state.drawer then UI.closeDrawer(state) end
     else UI.closeDrawer(state) end
+  elseif key=="=" or key=="+" or key=="kp+" or key=="-" or key=="kp-" then
+    local w,h=love.graphics.getDimensions()
+    cam:zoomAt(w/2,h/2,(key=="-" or key=="kp-") and -1.5 or 1.5)
   elseif key=="b" then
     if UI.drawerOpen(state) and state.tab=="network" then UI.closeDrawer(state)
     else state.tab="network"; state.drawer=true; state.scroll=0 end

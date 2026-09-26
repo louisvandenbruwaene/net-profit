@@ -1837,6 +1837,11 @@ local function customers()
       lg.setFont(R.fonts.small)
       lg.setColor(c.secure and P.energy or premium>0.12 and P.good or premium<-0.12 and P.bad or P.textDim)
       lg.printf(tag,M+12,y+57,CW-24,"left")
+      -- What each unit leaves after its cost, on the right of the same line.
+      local margin=city:clientMargin(c)
+      local shown=c.commodity=="power" and 5 or 1
+      single("keep "..(margin>=0 and "+" or "-")..City.money2(math.abs(margin)/shown),M+CW-120,y+57,"small",
+        margin<0 and P.bad or P.good,108,"right")
       y=y+92
     end
     y=y+18
@@ -2555,7 +2560,35 @@ local function topBar(open)
       single("PER DAY"..(#clients>0 and dayW>=170 and ("   "..supplied.."/"..#clients.." SUPPLIED") or ""),dx,8,"tiny",
         #clients>0 and supplied<#clients and P.warn or P.textDim,dayW)
       local day=trading and string.format("$%+d",net) or "Not trading"
-      single(day,dx,24,dayW>=120 and "mid" or "body",trading and (net>=0 and P.good or P.bad) or P.textDim,dayW)
+      local dayFont=dayW>=120 and "mid" or "body"
+      single(day,dx,24,dayFont,trading and (net>=0 and P.good or P.bad) or P.textDim,dayW)
+      -- The last fortnight of closes as a line, so the trend reads at a glance.
+      local hist=city.history or {}
+      local sw=math.min(110,dayW-SF.width(day,R.fonts[dayFont])-18)
+      if #hist>=3 and sw>=50 then
+        local sx0=dx+SF.width(day,R.fonts[dayFont])+14
+        local first=math.max(1,#hist-13)
+        local lo,hi=0,0
+        for i=first,#hist do
+          local v=hist[i].revenue-(hist[i].expenses or 0)
+          lo,hi=math.min(lo,v),math.max(hi,v)
+        end
+        local span=math.max(1,hi-lo)
+        local pts={}
+        for i=first,#hist do
+          local v=hist[i].revenue-(hist[i].expenses or 0)
+          pts[#pts+1]=sx0+(i-first)/math.max(1,#hist-first)*sw
+          pts[#pts+1]=48-(v-lo)/span*20
+        end
+        if lo<0 and hi>0 then
+          local zy=48-(0-lo)/span*20
+          lg.setColor(P.with(P.textFaint,0.5)); lg.setLineWidth(1); lg.line(sx0,zy,sx0+sw,zy)
+        end
+        local last=hist[#hist].revenue-(hist[#hist].expenses or 0)
+        lg.setColor(P.with(last>=0 and P.good or P.bad,0.85)); lg.setLineWidth(1.6)
+        lg.line(pts)
+        lg.circle("fill",pts[#pts-1],pts[#pts],2.5)
+      end
     end
   end
 end
@@ -2698,6 +2731,16 @@ function UI.draw(c,s,action)
   lg.push(); lg.scale(k)
   local open=UI.drawerOpen()
 
+  -- Dusk: the close sweeps a moment of evening over the map, then day again.
+  if state.dusk then
+    local a=(R.t-state.dusk)/1.1
+    if a>=1 then state.dusk=nil
+    else
+      lg.setColor(0.03,0.05,0.12,0.5*math.sin(a*math.pi))
+      lg.rectangle("fill",0,UI.BAR,W,H-UI.BAR)
+    end
+  end
+
   if open then
     lg.setColor(P.panel); lg.rectangle("fill",0,UI.BAR,UI.width,H-UI.BAR)
     lg.setColor(P.panelEdge); lg.setLineWidth(1); lg.line(UI.width,UI.BAR,UI.width,H)
@@ -2772,6 +2815,25 @@ function UI.draw(c,s,action)
 
   toastPill(open)
   hoverCard()
+  -- A milestone or an ambition reached gets a banner of its own for a moment.
+  if state.banner then
+    local b=state.banner
+    local age=R.t-b.t
+    if age>3.2 then state.banner=nil
+    else
+      local pop=math.min(1,age*6)
+      local fade=math.min(1,(3.2-age)/0.5)
+      local bw,bh=math.min(560,W-40),96
+      local bx,by=((open and UI.width or 0)+W)/2-bw/2,UI.BAR+40
+      lg.push(); lg.translate(bx+bw/2,by+bh/2); lg.scale(0.7+0.3*pop); lg.translate(-bw/2,-bh/2)
+      lg.setColor(P.with(P.bg,0.92*fade)); lg.rectangle("fill",0,0,bw,bh,12)
+      lg.setColor(P.with(P.energy,0.8*fade)); lg.setLineWidth(2); lg.rectangle("line",0,0,bw,bh,12)
+      local c1=P.with(P.energy,fade)
+      single(b.title,20,14,"big",c1,bw-40,"center")
+      single(b.sub or "",20,62,"body",P.with(P.good,fade),bw-40,"center")
+      lg.pop()
+    end
+  end
   if state.settings and not state.modal then settingsMenu() end
 
   -- The opening guide does not only say what to press: it points at it. A
