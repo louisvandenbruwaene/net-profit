@@ -2079,12 +2079,16 @@ function Draw.world(city, cam, state)
     end
     -- Close in, a customer is its building; further out, its disc.
     local building = (n.kind == "client" and not n.roundHouse and r >= 14)
-      or (n.kind == "source" and not n.plant and r >= 16)
-      or (n.kind == "works" and n.recipe ~= "forestry" and n.recipe ~= "quarry" and r >= 16)
-      or ((n.kind == "tower" or n.kind == "depot" or n.kind == "pump" or n.kind == "stop"
-        or n.kind == "station" or n.kind == "resort" or n.kind == "dc") and r >= 16)
+      or (n.kind == "source" and not n.plant and r >= 14)
+      or (n.kind == "works" and n.recipe ~= "forestry" and n.recipe ~= "quarry" and r >= 14)
+      or ((n.kind == "tower" or n.kind == "pole" or n.kind == "pylon" or n.kind == "hvtower"
+        or n.kind == "depot" or n.kind == "pump" or n.kind == "stop"
+        or n.kind == "station" or n.kind == "resort" or n.kind == "dc") and r >= 14)
     if building and n.kind ~= "client" and n.kind ~= "source" and n.kind ~= "works" then
-      Draw.structureBuilding(n.kind, x, y, r, color, n.level or 1,
+      -- Older saves keep the tower ladder as three kinds; they are the same
+      -- pylon, one level each.
+      local oldTower = ({ pole = 1, pylon = 2, hvtower = 3 })[n.kind]
+      Draw.structureBuilding(oldTower and "tower" or n.kind, x, y, r, color, oldTower or n.level or 1,
         n.kind == "depot" and (n.stored or 0) / (n.capacityStore or City.depotCapacity or 1),
         math.abs((city.detail.node or {})[n.id] or 0) > 0, n.id * 0.7)
     elseif building and n.kind == "client" then
