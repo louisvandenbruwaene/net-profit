@@ -717,7 +717,7 @@ local function drawSea(city, cam, state)
       for j = 0, 28 do
         local t = j / 28
         local wx = left - 200 + (right - left + 400) * t
-        local sx, sy = cam:toScreen(wx, wy + math.sin(t * math.pi * 5 + i * 1.7) * 26)
+        local sx, sy = cam:toScreen(wx, wy + math.sin(t * math.pi * 5 + i * 1.7 + R.t * 0.35) * 26)
         pts[#pts + 1] = sx; pts[#pts + 1] = sy
       end
       local smooth={}
@@ -1199,6 +1199,21 @@ function Draw.world(city, cam, state)
     end
   end
 
+  -- The reach a building would have at its next level, while the upgrade
+  -- button is under the pointer.
+  if state.previewRadius then
+    local pr = state.previewRadius
+    local px, py = cam:toScreen(pr.x, pr.y)
+    local rr = pr.r * cam.scale
+    lg.setColor(P.with(Graph.KINDS.exchange.color, 0.08 + 0.04 * math.sin(R.t * 3))); lg.circle("fill", px, py, rr)
+    lg.setColor(P.with(Graph.KINDS.exchange.color, 0.7)); lg.setLineWidth(2)
+    local segs = 64
+    for i = 0, segs - 1, 2 do
+      local a0, a1 = i / segs * math.pi * 2 + R.t * 0.2, (i + 1) / segs * math.pi * 2 + R.t * 0.2
+      lg.line(px + math.cos(a0) * rr, py + math.sin(a0) * rr, px + math.cos(a1) * rr, py + math.sin(a1) * rr)
+    end
+  end
+
   local selected = city.g.nodes[state.node or 0]
   if selected and selected.alive and selected.kind == "tower" then
     local x,y = cam:toScreen(selected.x,selected.y)
@@ -1380,6 +1395,15 @@ function Draw.world(city, cam, state)
     if n.kind == "client" then
       lg.setColor(color)
       Draw.clientGlyph(n.clientType, x, y + r * 0.06, r / 15)
+      -- An open offer carries a beating mark, so the map says where the work is.
+      if n.prospect and r >= 5 then
+        local br = math.max(5, r * 0.4) * (1 + 0.12 * math.sin(R.t * 4 + n.id))
+        local bx, by = x + r * 0.78, y - r * 0.78
+        lg.setColor(P.energy); lg.circle("fill", bx, by, br)
+        lg.setColor(P.bg); lg.setLineWidth(math.max(1.2, br * 0.28))
+        lg.line(bx, by - br * 0.5, bx, by + br * 0.1)
+        lg.circle("fill", bx, by + br * 0.45, math.max(0.8, br * 0.14))
+      end
       if r>=7.5 and (focused or (not n.prospect and (n.supplyClosed or not city:fullyServed(n)))) then
         local title = n.prospect and "OFFER" or n.dry and "DRY" or n.supplyClosed and "SHUT"
           or n.demands and n.demands.water and n.demands.power and (city:fullyServed(n) and "Water + electricity supplied" or "Water / electricity short")

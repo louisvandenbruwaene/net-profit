@@ -565,6 +565,33 @@ do
   check(c:expenseBreakdown().hubs==City.DISTRIBUTION.upkeep,"and the hub's running cost is on the books")
 end
 
+print("a customer kept supplied grows loyal and pays a little more")
+do
+  local c=fresh()
+  c.money=99999
+  local leak=City.rules.leakBase
+  City.rules.leakBase=0
+  supply(c)
+  local cl
+  for _,x in ipairs(c:clientList()) do if c:fullyServed(x) then cl=x end end
+  check(cl~=nil,"a supplied customer to watch")
+  local rate=cl.rate
+  local shocks=require("data.resilience").SHOCK_CHANCE
+  require("data.resilience").SHOCK_CHANCE=0
+  local loyal
+  for _=1,City.LOYALTY.every do
+    local r=c:endDay()
+    if r.loyal then loyal=r.loyal end
+    c.money=99999
+  end
+  check(cl.rate==rate+City.LOYALTY.step and cl.loyalty==1,"ten full days raise the rate once")
+  local reported=false
+  for _,l in ipairs(loyal or {}) do if l.id==cl.id then reported=true end end
+  check(reported,"and the close reports it")
+  City.rules.leakBase=leak
+  require("data.resilience").SHOCK_CHANCE=shocks
+end
+
 print("a chain of works turns ground into something worth selling")
 do
   local c=fresh()

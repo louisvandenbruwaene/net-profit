@@ -3029,6 +3029,10 @@ function City:eventRate(commodity)
   return 1
 end
 
+-- A customer supplied in full for `every` closes running raises its rate by
+-- `step`, at most `max` times.
+City.LOYALTY = { every = 10, step = 1, max = 3 }
+
 function City:clientIncome(c)
   return math.floor((self.served[c.id] or 0) * c.rate * self:eventRate(c.commodity) + 0.5)
 end
@@ -3187,7 +3191,17 @@ function City:endDay()
     report.revenue = report.revenue + self:clientIncome(c)
     if self:fullyServed(c) then
       c.grace = c.patience or City.CLIENTS[c.clientType].patience
+      -- Loyalty: a customer kept fully supplied for a run of closes pays a
+      -- little more, a few times over. Reliability is the product.
+      c.streak = (c.streak or 0) + 1
+      if c.streak % City.LOYALTY.every == 0 and (c.loyalty or 0) < City.LOYALTY.max then
+        c.loyalty = (c.loyalty or 0) + 1
+        c.rate = (c.rate or 0) + City.LOYALTY.step
+        report.loyal = report.loyal or {}
+        report.loyal[#report.loyal + 1] = { x = c.x, y = c.y, id = c.id }
+      end
     else
+      c.streak = 0
       -- A secure contract refunds what it was not given.
       local credit = self:serviceCredit(c)
       if credit > 0 then

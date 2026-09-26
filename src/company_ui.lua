@@ -336,6 +336,7 @@ local function levelBlock(n,y)
   local full=through<999 and carried>=through
   local mx,my=mouse()
   local hover=mx>=M and mx<M+CW and my>=y+4 and my<y+40
+  if hover and nxt.radius then state.previewRadius={x=n.x,y=n.y,r=nxt.radius} end
   local gain
   if full and hover then
     local p=E.levelPreview(city,n.id)
@@ -391,11 +392,18 @@ local function inspectClient(n,y)
       string.format("Rate minus your cost. This offer is %+.0f%% against the going rate for a %s.",
         premium*100,string.lower(City.CLIENTS[n.clientType].name)))
   end
-  row("Income / day","$"..city:contractValue(n),y+78,P.energy)
+  local L=City.LOYALTY
+  local lv=n.loyalty or 0
+  local left=L.every-((n.streak or 0)%L.every)
+  row("Income / day","$"..city:contractValue(n)..(lv>0 and ("   loyal +$"..(lv*L.step)) or ""),y+78,P.energy,
+    not n.prospect and (lv>=L.max and ("A loyal customer: pays $"..(lv*L.step).." a unit more than it signed for.")
+      or ("Supplied in full for "..L.every.." days running, a customer pays $"..L.step.." a unit more, up to "..L.max..
+          " times. This one: "..left.." more full "..(left==1 and "day" or "days")..".")) or nil)
   row("Delivery",city:quantityPair(n.commodity,city.served[n.id] or 0,n.demand),y+104)
   marginBar(cost,rate,y+153)
   row(n.prospect and "Offer expires" or "Patience",
     n.prospect and (n.expires-city.day+1).." days" or n.grace.." days",y+130,P.warn)
+
   if n.prospect then
     local p=E.offerPreview(city,n.id)
     text(p.multipleUtilities and "Connect both water and electricity before this household can be fully supplied."
@@ -2628,7 +2636,7 @@ local function settingsMenu()
   end
   if state.showKeys then
     local keys={{"Enter","End the day"},{"B","Build menu"},{"Tab","Open or close the menu"},{"Esc","Put down, deselect, close"},
-      {"Z","Undo"},{"F","Show all buildings"},{"R","Repair the selected main, or all"},{"L","Worst leak"},
+      {"Z","Undo"},{"Y / N","Sign or decline the selected offer"},{"F","Show all buildings"},{"R","Repair the selected main, or all"},{"L","Worst leak"},
       {"U / E","Bigger main, or deepen a well"},{"Delete","Demolish the selection"},{"T","Bulk freight lines"},
       {"H","Hide other networks"},{"M","Sound"},{"1-8","Pick up a building"},{"Right drag","Pan"},{"Wheel","Zoom"}}
     local kw,kh=350,20+#keys*22
@@ -2679,6 +2687,10 @@ local function hoverCard()
     local shown=n.commodity=="power" and 5 or 1
     if n.prospect then
       add("Offer: "..City.money2(rate/shown)..unit..", "..(n.expires-city.day+1).." days to answer",P.energy)
+      local p=E.offerPreview(city,n.id)
+      if p.cost==0 then add("Ready to connect: no new pipe needed",P.good)
+      elseif p.cost then add(string.format("New pipe about $%d, then $%+d a day",p.cost,p.net or 0),(p.net or 0)>=0 and P.good or P.warn)
+      elseif not p.multipleUtilities then add("Needs more supply before it can be served",P.warn) end
     else
       local got=city.served[n.id] or 0
       add(string.upper(n.commodity).."  "..got.." / "..n.demand,got>=n.demand and P.good or P.warn)
@@ -2728,6 +2740,7 @@ function UI.draw(c,s,action)
   local RW,RH=R.dimensions()
   W,H=RW/k,RH/k
   UI.buttons={}; UI.blocks={}; scroll=false
+  state.previewRadius=nil
   lg.push(); lg.scale(k)
   local open=UI.drawerOpen()
 
@@ -2827,10 +2840,11 @@ function UI.draw(c,s,action)
       local bx,by=((open and UI.width or 0)+W)/2-bw/2,UI.BAR+40
       lg.push(); lg.translate(bx+bw/2,by+bh/2); lg.scale(0.7+0.3*pop); lg.translate(-bw/2,-bh/2)
       lg.setColor(P.with(P.bg,0.92*fade)); lg.rectangle("fill",0,0,bw,bh,12)
-      lg.setColor(P.with(P.energy,0.8*fade)); lg.setLineWidth(2); lg.rectangle("line",0,0,bw,bh,12)
-      local c1=P.with(P.energy,fade)
+      local tone=b.warn and P.warn or P.energy
+      lg.setColor(P.with(tone,0.8*fade)); lg.setLineWidth(2); lg.rectangle("line",0,0,bw,bh,12)
+      local c1=P.with(tone,fade)
       single(b.title,20,14,"big",c1,bw-40,"center")
-      single(b.sub or "",20,62,"body",P.with(P.good,fade),bw-40,"center")
+      single(b.sub or "",20,62,"body",P.with(b.warn and P.text or P.good,fade),bw-40,"center")
       lg.pop()
     end
   end
