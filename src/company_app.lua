@@ -542,6 +542,13 @@ function love.update(dt)
     if state.flashTime<=0 then state.flashTime,state.flashEdge=nil,nil end
   end
   state.hoverNode,state.hoverEdge,state.hoverLink=hit(love.mouse.getPosition())
+  -- Bare ground under the pointer, for the hover card that says what it is.
+  do
+    local mx,my=love.mouse.getPosition()
+    if state.fakeMouse then local k=UI.scale or 1; mx,my=state.fakeMouse[1]*k,state.fakeMouse[2]*k end
+    local bare=not (state.hoverNode or state.hoverEdge or state.hoverLink) and not UI.covers(mx,my)
+    state.hoverGround=bare and {cam:toWorld(mx,my)} or nil
+  end
   -- Every frame, not only when the mouse moves: whatever is under the cursor
   -- can change under a held drag, and the preview must never quote a size
   -- either end would refuse.
