@@ -1822,6 +1822,36 @@ function Draw.world(city, cam, state)
     lg.setColor(P.with(state.rail and P.accent or P.textDim,0.25)); lg.setLineWidth(1)
     lg.circle("line",x,y,city:rangeBetween(from.id,from.id,state.rail,state.commodity,drawn)*cam.scale)
     lg.setColor(err and P.bad or P.good); lg.setLineWidth(2); lg.line(x,y,mx,my)
+    -- Ground the run would cross lights up along its real outline, in what it
+    -- does to the price: red closed, amber dearer, green open.
+    local crossing = {}
+    if not state.rail then
+      local tx, ty
+      if target and city.g.nodes[target] then tx, ty = city.g.nodes[target].x, city.g.nodes[target].y
+      else tx, ty = cam:toWorld(mx, my) end
+      for _, o in ipairs(city.obstacles) do
+        if Shape.crosses(o, from.x, from.y, tx, ty) then
+          local cross = city:groundCross(o.kind, o)
+          local colour = not cross and P.bad or cross > 1 and P.warn or P.good
+          local pts = {}
+          for _, pt in ipairs(Shape.outline(o)) do
+            local sx, sy = cam:toScreen(pt[1], pt[2]); pts[#pts + 1] = sx; pts[#pts + 1] = sy
+          end
+          pts[#pts + 1] = pts[1]; pts[#pts + 1] = pts[2]
+          lg.setColor(colour[1], colour[2], colour[3], 0.18); lg.setLineWidth(8); lg.line(pts)
+          lg.setColor(colour[1], colour[2], colour[3], 0.85 + 0.15 * math.sin(R.t * 6)); lg.setLineWidth(2); lg.line(pts)
+          local name = o.massive and (o.kind == "park" and "Protected park" or "Mountain range")
+            or (o.kind == "park" and "Woodland" or "Bedrock")
+          local ox, oy = cam:toScreen(o.x, o.y)
+          label((not cross and "CLOSED" or cross > 1 and string.format("x%.1f", cross) or "open") .. "  " .. name, ox, oy - 8, colour, R.fonts.small)
+          crossing[#crossing + 1] = { name = name, cross = cross }
+        end
+      end
+      if city:segRiver(from.x, from.y, tx, ty) then
+        local cross = city:groundCross("river")
+        crossing[#crossing + 1] = { name = "the river", cross = cross }
+      end
+    end
     if target and target~=from.id then
       if err then
         label(err,(x+mx)/2,(y+my)/2-24,P.bad)
@@ -1850,6 +1880,14 @@ function Draw.world(city, cam, state)
               days<=10 and P.good or days<=30 and P.text or P.warn})
           end
           if note then rows[#rows+1]={note,R.fonts.small,P.warn} end
+          -- Why the price is what it is, when the ground is the reason.
+          local worst
+          for _, c in ipairs(crossing) do
+            if c.cross and c.cross > 1 and (not worst or c.cross > worst.cross) then worst = c end
+          end
+          if worst then
+            table.insert(rows, 3, {string.format("Crosses %s: x%.1f on this main", string.lower(worst.name) == "the river" and "the river" or string.lower(worst.name), worst.cross), R.fonts.small, P.warn})
+          end
           local qh=20
           for _,row in ipairs(rows) do
             local _,lines=row[2]:getWrap(row[1],qw-28)
