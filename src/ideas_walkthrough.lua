@@ -8,8 +8,6 @@ return function(app,capture,click,scrollTo,check)
  c.guideDismissed=true; c.permits={river=true,park=true,bedrock=true}
  for _,d in ipairs(c.districts) do d.owned=true end
  app.setTestCity(c)
- click('build-help'); check(app.state.buildHelp,'build instructions expand inline')
- click('build-help')
  -- One control on the request window, coloured by the offer on it: above the
  -- going rate is worth taking, below it is not, and at it says nothing.
  local P=require('palette')
@@ -34,7 +32,18 @@ return function(app,capture,click,scrollTo,check)
  check(app.camera().targetScale>=1.3,'and comes in closer than the map was')
  click('decline'); check(#c:clientList(true)==0,'the decision removes the current offer')
  for _=1,2 do assert(c:addClient('house',true)) end
- local best=c:nextRequest(); click('request-open'); click('accept')
+ local best=c:nextRequest(); click('request-open')
+ do
+   -- The offer must land in the middle of the map area beside the panel.
+   local cam=app.camera(); cam.scale=cam.targetScale; cam:update(1)
+   for _=1,60 do cam:update(1/60) end
+   local sx,sy=cam:toScreen(best.x,best.y)
+   local k=UI.effectiveScale(); local left=UI.width*k
+   local mid=left+(cam.vx+cam.vw-left)/2
+   check(math.abs(sx-mid)<40 and math.abs(sy-(cam.vy+cam.vh/2))<40,'the best offer is centred in the visible map')
+   check(cam.scale>=1.3,'and shown close up')
+ end
+ click('accept')
  check(not best.prospect,'the highest premium offer is the one signed')
  check(c:nextRequest()~=best,'next request appears immediately')
  click('back-to-build')

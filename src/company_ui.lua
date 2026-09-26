@@ -907,10 +907,6 @@ end
 
 local function buildPanel()
   local y=TOP-state.scroll
-  heading("BUILD YOUR NETWORK",y)
-  button("build-help","i",M+CW-22,y-4,22,22,function() state.buildHelp=not state.buildHelp end,true,"Building and network controls",state.buildHelp)
-  y=y+26
-  if state.buildHelp then single("Drag between buildings to connect",M,y,"small",P.textDim,CW); y=y+26 end
   -- The trades the company holds, and the one it could take on next. Nothing
   -- further out than that: a price you cannot pay for a trade you have not
   -- reached is not information, it is wallpaper.
@@ -963,11 +959,7 @@ local function buildPanel()
   y=y+4
   if not state.people then
   if state.commodity=="power" then
-    heading("VOLTAGES",y)
-    button("voltage-help","i",M+CW-22,y-4,22,22,function() state.voltageHelp=not state.voltageHelp end,true,
-      state.voltageHelp and "Hide how voltage works" or "How voltage works",state.voltageHelp,P.accent)
-    y=y+24
-    if state.voltageHelp then
+    if false then
       local V=City.INFRA.voltages
       text("span  /  booster",M+152,y,"tiny",P.textFaint,CW-152)
       y=y+16
@@ -1139,7 +1131,7 @@ local function buildPanel()
   end -- commodity supply
   -- Supply and maintenance sit above the structures: how full each trade is and
   -- whether anything needs mending is checked far more often than a new building.
-  if not state.people then
+  if false then
     local drawn,capacity=city:supplyFor(state.commodity)
     button("supply-detail",city:quantityPair(state.commodity,drawn,capacity).."    "..S.get("crews").." "..(city.crews or 0).."/"..City.crewMax,M,y,CW,30,function() state.showSupply=not state.showSupply end,true,"Expand supply totals for every utility",state.showSupply)
     y=y+38
@@ -1153,7 +1145,7 @@ local function buildPanel()
     end
   end
   if not state.people and state.commodity=="power" then
-    heading("TOWER VOLTAGE",y); y=y+24
+
     for i,key in ipairs(City.INFRA.voltageOrder) do
       local v=City.INFRA.voltages[key]
       button("voltage-"..key,(v.name:gsub(" voltage","")),M+(i-1)*102,y,96,30,
@@ -1164,7 +1156,7 @@ local function buildPanel()
     end
     y=y+42
   end
-  heading(state.people and "PASSENGER BUILDINGS" or "EVERYDAY STRUCTURES",y); y=y+24
+  y=y+4
   -- Every building the company has unlocked is on the panel. Hiding half of
   -- them behind a toggle only made the player press the toggle.
   local advanced=true
@@ -2344,9 +2336,9 @@ function UI.effectiveScale()
   return math.max(1,math.min(UI.pref or 1,w/1120,h/690))
 end
 
+-- The build panel is always open: the map is everything to its right.
 function UI.drawerOpen(s)
-  s=s or state
-  return (s and (s.drawer or s.node or s.edge or s.link or s.district)) and true or false
+  return true
 end
 
 local function inside(x,y,r) return x>=r[1] and x<=r[1]+r[3] and y>=r[2] and y<=r[2]+r[4] end
@@ -2366,8 +2358,9 @@ function UI.overDrawer(x,y)
   return UI.drawerOpen() and x/k<UI.width and y/k>=UI.BAR
 end
 
+-- "Closing" a menu means going back to Build.
 local function closeDrawer()
-  state.drawer=nil
+  state.tab="network"; state.drawer=true
   state.node,state.edge,state.link,state.district=nil,nil,nil,nil
   state.scroll=0; state.rename=nil
 end
@@ -2375,7 +2368,7 @@ UI.closeDrawer=function(s) state=s or state; closeDrawer() end
 
 local function openTab(key)
   state.rename=nil
-  if UI.drawerOpen() and state.tab==key and not (state.node or state.edge or state.link or state.district) then
+  if state.tab==key and key~="network" and not (state.node or state.edge or state.link or state.district) then
     closeDrawer(); return
   end
   state.node,state.edge,state.link,state.district=nil,nil,nil,nil
@@ -2398,22 +2391,27 @@ local function topBar(open)
   lg.setColor(P.panel); lg.rectangle("fill",0,0,W,UI.BAR)
   lg.setColor(P.panelEdge); lg.setLineWidth(1); lg.line(0,UI.BAR,W,UI.BAR)
 
+  -- Build is the panel itself. The other menus are small buttons that open
+  -- in its place; pressing the lit one again goes back to Build.
   local tabX=10
-  for i,t in ipairs(TABS) do
-    local tw=({76,98,82,70})[i]
-    local here=state.tab==t[1] or (t[1]=="stats" and (state.tab=="ambitions" or state.tab=="ledger" or state.tab=="advisor"))
-      or (t[1]=="network" and state.tab=="map")
-    local offers=t[1]=="customers" and #city:clientList(true) or 0
-    button("tab-"..t[1],t[2],tabX,11,tw,38,function() openTab(t[1]) end,true,
-      ({network="Build pipes and buildings (B)",finance="Money, loans, staff and licences",
-        customers="Offers and contracts",stats="Results, goals, advisor and history"})[t[1]],open and here)
-    if offers>0 then
-      -- A dot with the number of open offers, the one reason to look in there.
-      local bx,by=tabX+tw-6,13
-      lg.setColor(P.energy); lg.circle("fill",bx,by,9)
-      single(tostring(offers),bx-9,by-7,"tiny",P.bg,18,"center")
+  local away=state.tab~="network" and state.tab~="map" and not (state.node or state.edge or state.link or state.district)
+  if away then
+    button("tab-network","< Build",tabX,16,72,28,function() closeDrawer() end,true,nil,false,P.good)
+    tabX=tabX+76
+  end
+  for _,t in ipairs(TABS) do
+    if t[1]~="network" then
+      local here=state.tab==t[1] or (t[1]=="stats" and (state.tab=="ambitions" or state.tab=="ledger" or state.tab=="advisor"))
+      local tw=({finance=84,customers=70,stats=58})[t[1]]
+      local offers=t[1]=="customers" and #city:clientList(true) or 0
+      button("tab-"..t[1],t[2],tabX,16,tw,28,function() openTab(t[1]) end,true,nil,here)
+      if offers>0 then
+        local bx,by=tabX+tw-4,17
+        lg.setColor(P.energy); lg.circle("fill",bx,by,8)
+        single(tostring(offers),bx-8,by-7,"tiny",P.bg,16,"center")
+      end
+      tabX=tabX+tw+4
     end
-    tabX=tabX+tw+5
   end
 
   -- From the right: the day, the settings, then whatever wants deciding.
@@ -2822,8 +2820,6 @@ function UI.draw(c,s,action)
       lg.setColor(P.textFaint)
       lg.rectangle("fill",UI.width-9,UI.BAR+8+(track-thumb)*math.min(1,state.scroll/UI.maxScroll),3,thumb,1)
     end
-    -- A tab on the drawer's edge that folds it away again.
-    button("drawer-close","<",UI.width-1,UI.BAR+12,24,46,function() closeDrawer() end,true,"Close the panel (Esc)")
   else
     UI.maxScroll=0
   end
