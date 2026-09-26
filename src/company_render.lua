@@ -1887,8 +1887,10 @@ function Draw.world(city, cam, state)
       local grow = city:regrowthProgress(w)
       local x, y = cam:toScreen(w.x, w.y)
       Scenery.boundary(w, x, y, cam.scale, P.good, 0.25)
-      local step = 24
-      for gx = -w.r, w.r, step do
+      -- Spacing grows with the wood so a huge one costs no more than a small
+      -- one, and from far out only the outline is drawn.
+      local step = math.max(24, w.r / 12)
+      for gx = -w.r, cam.scale >= 0.3 and w.r or -w.r - 1, step do
         for gy = -w.r, w.r, step do
           local h = Shape.hash(w.x + gx, w.y + gy, 200)
           local px, py = w.x + gx + (h - 0.5) * step * 0.8, w.y + gy + (Shape.hash(w.x + gx, w.y + gy, 201) - 0.5) * step * 0.8
