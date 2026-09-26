@@ -1150,7 +1150,7 @@ function Draw.world(city, cam, state)
       Scenery.boundary(o, x, y, cam.scale, freed and P.good or spec.color, freed and 0.45 or (o.massive and 0.5 or 0.3))
     end
     -- Ground that reaches the coast stops at it: no trees in the sea.
-    if o.y - o.r < 0 then
+    if o.y >= 0 and o.y - o.r < 0 then
       local _, coast = cam:toScreen(0, 0)
       withinRows(coast, cam.vy + cam.vh, terrain)
     else terrain() end

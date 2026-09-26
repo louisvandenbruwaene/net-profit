@@ -706,8 +706,50 @@ function City:surveyIsland(col, row)
   d.spec = { key = "island", label = "ISLAND", rough = 0, water = 0, oil = 0, bias = {},
              story = "Bare rock in the sea. The wind never stops, and nobody objects to anything." }
   d.dressed = true
+  self:growIslandGroves(d)
   self:growBounds(d)
   return d
+end
+
+-- Groves on an island: small woods round its rim, leaving the middle clear for
+-- a wind park. They are ordinary parkland, charged and permitted like any
+-- other, and they come from a hash of the island's own rectangle rather than
+-- from any random stream, so adding them moved nothing else. `careful` is for
+-- islands a company already stands on: a grove that would touch a structure,
+-- a main or a link is simply not grown.
+function City:growIslandGroves(d, careful)
+  if d.groves then return end
+  d.groves = true
+  local h = function(k) return Shape.hash(d.x, d.y, 300 + k) end
+  local cx, cy, ax, ay = d.x + d.w / 2, d.y + d.h / 2, d.w / 2 * 0.84, d.h / 2 * 0.84
+  -- Two groves at the ends of the long axis, where there is room, and
+  -- sometimes a smaller one on a flank.
+  local long = d.w >= d.h and 0 or math.pi / 2
+  local spots = { { long + math.pi + (h(3) - 0.5) * 0.7, 0.62 }, { long + (h(4) - 0.5) * 0.7, 0.62 } }
+  if h(1) < 0.5 then spots[3] = { long + math.pi / 2 * (h(5) < 0.5 and 1 or -1) + (h(6) - 0.5) * 0.6, 0.55 } end
+  for i, spot in ipairs(spots) do
+    local t, f = spot[1], spot[2] + (h(20 + i) - 0.5) * 0.08
+    local x, y = cx + math.cos(t) * ax * f, cy + math.sin(t) * ay * f
+    local r = math.min(d.w, d.h) * (i == 3 and 0.22 or 0.32) * (0.9 + h(30 + i) * 0.2)
+    -- Shrink until the whole grove sits on the island's grass.
+    while r > 40 and ((math.abs(x - cx) + r * 0.8) / ax) ^ 2 + ((math.abs(y - cy) + r * 0.8) / ay) ^ 2 > 1 do r = r * 0.92 end
+    local o = { x = x, y = y, r = r, kind = "park", grove = true }
+    local ok = r > 40
+    if ok and careful then
+      for _, n in ipairs(self.g.nodes) do
+        if n.alive and (n.x - x) ^ 2 + (n.y - y) ^ 2 < (Shape.reach(o, n.x, n.y) + 30) ^ 2 then ok = false; break end
+      end
+      for _, e in ipairs(ok and self.g.edges or {}) do
+        local a, b = self.g.nodes[e.a], self.g.nodes[e.b]
+        if e.alive and a and b and Shape.crosses(o, a.x, a.y, b.x, b.y) then ok = false; break end
+      end
+      for _, l in ipairs(ok and self.links or {}) do
+        local a, b = self.g.nodes[l.a], self.g.nodes[l.b]
+        if l.alive and a and b and Shape.crosses(o, a.x, a.y, b.x, b.y) then ok = false; break end
+      end
+    end
+    if ok then self.obstacles[#self.obstacles + 1] = o end
+  end
 end
 
 -- The ground features of a cell, in the cell's own stream so they never move.
@@ -3434,6 +3476,11 @@ end
 -- company was already standing on becomes the districts it already owns.
 function City:migrate()
   self.permits = self.permits or { park = false, river = false, bedrock = false }
+  -- Islands surveyed before they grew groves get them now, around anything
+  -- already built out there.
+  for _, d in ipairs(self.districts or {}) do
+    if d.island and not d.groves then self:growIslandGroves(d, true) end
+  end
   self.deposits = self.deposits or {}
   -- Council tenders are gone. A bond already posted on one comes back.
   for _, t in ipairs(self.tenders or {}) do

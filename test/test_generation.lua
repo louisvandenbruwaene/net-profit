@@ -248,6 +248,33 @@ do
     old.river.meander ~= nil and old:riverPath() ~= nil)
 end
 
+print("islands grow groves round a clear middle")
+do
+  local Shape=require("terrain_shape")
+  local c=City.new({seed=4242})
+  for col=0,12 do c:surveyCell(col,0); c:surveyCell(col,-1) end
+  local islands,groves,inside,clear,match=0,0,true,true,true
+  for _,d in ipairs(c.districts) do if d.island then
+    islands=islands+1
+    local cx,cy=d.x+d.w/2,d.y+d.h/2
+    for _,o in ipairs(c.obstacles) do if o.grove and c:districtAt(o.x,o.y)==d then
+      groves=groves+1
+      -- Every point of the outline on the island's grass, never on the beach.
+      for _,p in ipairs(Shape.outline(o)) do
+        if ((p[1]-cx)/(d.w/2*0.86))^2+((p[2]-cy)/(d.h/2*0.86))^2>1 then inside=false end
+      end
+      if Shape.contains(o,cx,cy) then clear=false end
+      -- The rules see exactly the drawn outline.
+      local e=c:obstacleAt(o.x,o.y)
+      if e~=o then match=false end
+    end end
+  end end
+  ok("islands occur and carry groves",islands>2 and groves>=islands*2)
+  ok("every grove lies on its island's grass",inside)
+  ok("the middle of an island stays clear for a wind park",clear)
+  ok("a grove is parkland to the rules where it is drawn",match)
+end
+
 print("distant terrain varies in size and leaves room for detours")
 do
   local c=City.new({seed=4242})
@@ -258,7 +285,7 @@ do
   local giants,kinds,small,large=0,{},0,0
   local bounded,dry,opening=true,true,true
   local giant
-  for _,o in ipairs(c.obstacles) do
+  for _,o in ipairs(c.obstacles) do if not o.grove then
     local d=c:districtAt(o.x,o.y)
     bounded=bounded and (o.massive or (o.x-o.r>=d.x+29.99 and o.x+o.r<=d.x+d.w-29.99
       and o.y-o.r>=d.y+29.99 and o.y+o.r<=d.y+d.h-29.99))
@@ -273,7 +300,7 @@ do
       local area=math.pi*o.r*o.r/(d.w*d.h)
       ok("massive features span regional boundaries",o.r>=400 and o.r<=850 and distance>=3)
     end
-  end
+  end end
   ok("both massive parks and mountains occur",giants>4 and kinds.park and kinds.bedrock)
   ok("small and large ordinary terrain also occurs",small>5 and large>5)
   ok("opening and immediate neighbours retain manageable sizes",opening)
