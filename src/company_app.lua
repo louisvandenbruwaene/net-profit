@@ -279,11 +279,35 @@ local function action(name,...)
   if city.bankrupt then return end
   local snapshot=Save.pack(city)
   local result,err
+  -- What each customer is about to pay, so the close can show it landing.
+  local paying,wasOpen
+  if name=="endDay" then
+    wasOpen={}
+    for key in pairs(City.UNLOCKS) do wasOpen[key]=city:unlocked(key) end
+    paying={}
+    for _,c in ipairs(city:clientList()) do
+      local v=city:clientIncome(c)
+      if v>0 then paying[#paying+1]={x=c.x,y=c.y,v=v} end
+    end
+  end
   result,err=city[name](city,...)
   if not result then toast(err or "Action unavailable",true); A.play("denied"); return nil end
   if name=="endDay" then
     state.undo={}; clear(); state.rename=nil; state.modal=city.bankrupt and "report" or nil; state.reportDetails=false
-    toast("Day "..city.day.." started. Results in Stats.")
+    local profit=(result.revenue or 0)-(result.expenses or 0)-(result.crewCost or 0)
+    local opened={}
+    for key,spec in pairs(City.UNLOCKS) do
+      if not wasOpen[key] and city:unlocked(key) then opened[#opened+1]=spec.name end
+    end
+    table.sort(opened)
+    toast(string.format("Day %d closed: %s%d.",city.day-1,profit>=0 and "+$" or "-$",math.abs(profit))..
+      (#opened>0 and ("  New: "..table.concat(opened,", ").."!") or ("  Day "..city.day.." begins.")),profit<0)
+    if #opened>0 then state.toastTime=9; A.play("unlock",0.7) end
+    table.sort(paying,function(p,q) return p.x+p.y<q.x+q.y end)
+    for i,p in ipairs(paying) do
+      if i>60 then break end
+      R.floatText(p.x,p.y-26,"+$"..p.v,P.good,math.min(0.9,i*0.035))
+    end
     for _,leak in ipairs(result.leaks) do R.ring(leak.x,leak.y,P.bad) end
     if result.arrived then R.ring(result.arrived.x,result.arrived.y,P.energy) end
     A.play(city.bankrupt and "collapse" or "held")

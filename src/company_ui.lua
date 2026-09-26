@@ -24,6 +24,8 @@ local tooltipId,tooltipSince,tooltipX,tooltipY
 -- The mouse in interface units, which differ from screen points when the
 -- interface is drawn larger.
 local function mouse()
+  -- A walkthrough can rest a pointer on the map without a real mouse.
+  if state and state.fakeMouse then return state.fakeMouse[1],state.fakeMouse[2] end
   local x,y=love.mouse.getPosition()
   local k=UI.scale or 1
   return x/k,y/k
@@ -2549,6 +2551,8 @@ local function settingsMenu()
       "The opening guide, and a short note the first time something new opens."},
     {"companies","Companies...",function() state.settings=nil; act("openSlots") end,true,
       "Six companies, kept side by side. Switch, start another, or delete one."},
+    {"keys",state.showKeys and "Hide keyboard" or "Keyboard...",function() state.showKeys=not state.showKeys end,true,
+      "Every shortcut in one list."},
   }
   local ph=16+#rows*44+30+44
   lg.setColor(P.bg); lg.rectangle("fill",px-1,py-1,pw+2,ph+2,8)
@@ -2567,6 +2571,22 @@ local function settingsMenu()
     button("size-ui-"..i,sz[1],px+10+(i-1)*(bw+6),y,bw,36,function() act("uiScale",sz[2]) end,true,
       "Draw the menus and text at "..math.floor(sz[2]*100).."%.",math.abs((UI.pref or 1)-sz[2])<0.01)
   end
+  if state.showKeys then
+    local keys={{"Enter","End the day"},{"B","Build menu"},{"Tab","Open or close the menu"},{"Esc","Put down, deselect, close"},
+      {"Z","Undo"},{"F","Show all buildings"},{"R","Repair the selected main, or all"},{"L","Worst leak"},
+      {"U / E","Bigger main, or deepen a well"},{"Delete","Demolish the selection"},{"T","Bulk freight lines"},
+      {"H","Hide other networks"},{"M","Sound"},{"1-8","Pick up a building"},{"Right drag","Pan"},{"Wheel","Zoom"}}
+    local kw,kh=350,20+#keys*22
+    local kx,ky=px-kw-10,py
+    lg.setColor(P.bg); lg.rectangle("fill",kx-1,ky-1,kw+2,kh+2,8)
+    lg.setColor(P.panel); lg.rectangle("fill",kx,ky,kw,kh,8)
+    lg.setColor(P.panelEdge); lg.rectangle("line",kx,ky,kw,kh,8)
+    UI.blocks[#UI.blocks+1]={kx,ky,kw,kh}
+    for i,k in ipairs(keys) do
+      single(k[1],kx+14,ky+10+(i-1)*22,"small",P.flow,90)
+      single(k[2],kx+110,ky+10+(i-1)*22,"small",P.text,kw-124)
+    end
+  end
 end
 
 -- A short line at the foot of the map: what just happened, or what the tool
@@ -2581,6 +2601,68 @@ local function toastPill(open)
   lg.setColor(P.with(P.bg,0.92)); lg.rectangle("fill",tx,ty,tw,34,17)
   lg.setColor(state.toastBad and P.with(P.bad,0.7) or P.panelEdge); lg.rectangle("line",tx,ty,tw,34,17)
   single(message,tx+18,ty+9,"body",state.toastBad and P.bad or P.text,tw-36)
+end
+
+-- A small card beside the pointer for whatever it rests on: the two or three
+-- numbers that matter about it, so the map can be read without opening a
+-- menu. It waits a moment, and never covers a drag or a menu.
+local hoverKey,hoverSince
+local function hoverCard()
+  if state.modal or state.drag or state.settings or state.tool then hoverKey=nil; return end
+  local n=state.hoverNode and city.g.nodes[state.hoverNode]
+  local e=not n and state.hoverEdge and city.g.edges[state.hoverEdge]
+  if (n and state.node==n.id) or (e and state.edge==e.id) then hoverKey=nil; return end
+  local key=n and ("n"..n.id) or e and ("e"..e.id) or nil
+  if key~=hoverKey then hoverKey,hoverSince=key,R.t end
+  if not key or R.t-(hoverSince or R.t)<0.3 then return end
+  local title,lines="",{}
+  local function add(text,color) lines[#lines+1]={text,color or P.textDim} end
+  if n and n.kind=="client" then
+    title=E.clientName(city,n)
+    local margin,cost,rate=city:clientMargin(n)
+    local unit=n.commodity=="power" and " / kWh" or " / unit"
+    local shown=n.commodity=="power" and 5 or 1
+    if n.prospect then
+      add("Offer: "..City.money2(rate/shown)..unit..", "..(n.expires-city.day+1).." days to answer",P.energy)
+    else
+      local got=city.served[n.id] or 0
+      add(string.upper(n.commodity).."  "..got.." / "..n.demand,got>=n.demand and P.good or P.warn)
+    end
+    add("You keep "..(margin>=0 and "+" or "-")..City.money2(math.abs(margin)/shown)..unit..
+      "  (cost "..City.money2(cost/shown)..")",margin<0 and P.bad or margin>=cost and P.good or P.text)
+  elseif n and n.kind=="source" then
+    title=n.plant and ((City.PLANTS[n.plant] or {}).name or "PLANT")
+      or ((City.LEVELS.WELL_NAMES[n.level or 1] or "Well").." ("..string.lower(n.commodity)..")")
+    local drawn=(city.produced or {})[n.id] or 0
+    local cap=n.effectiveOutput or n.output or 0
+    add("Pumping "..drawn.." of "..cap.." a day",drawn>=cap and cap>0 and P.warn or P.good)
+    local t=city:tradeCosts(n.commodity)
+    if t.perUnit then add("A unit costs "..City.money2(t.perUnit)..", sells "..City.money2(t.price)) end
+  elseif n then
+    title=city:levelFamily(n) and city:levelName(n) or (Graph.KINDS[n.kind] or {}).name or n.kind
+    if city:levelFamily(n) then add("Level "..city:levelOf(n).." of "..city:levelCount(n)) end
+    add("Carrying "..math.floor(city.detail.node[n.id] or 0)..", "..city:connectionPorts(n.id).." / "..(n.ports or 0).." connections")
+    if city:isDistribution(n) then add("Runs customers paying $"..city:hubFloor(n).." or more",P.energy) end
+  elseif e then
+    title=string.upper(e.commodity).." "..(e.rail and "LINE" or ((Graph.COMMODITIES[e.commodity] or {}).conduit or "MAIN"))
+    local flow=math.floor(math.abs((city.detail.edge or {})[e.id] or 0))
+    add("Carrying "..flow.." of "..e.cap,flow>=e.cap and P.warn or P.good)
+    if e.leaking then add(e.cap==0 and "Burst: repair it" or "Leaking: repair it",P.bad) end
+  end
+  if #lines==0 and title=="" then return end
+  local mx,my=mouse()
+  local w=0
+  w=math.max(w,SF.width(title,R.fonts.body))
+  for _,l in ipairs(lines) do w=math.max(w,SF.width(l[1],R.fonts.small)) end
+  w=math.min(w+24,W*0.5)
+  local h=30+#lines*20
+  local x,y=mx+18,my+18
+  if x+w>W-8 then x=mx-18-w end
+  if y+h>H-8 then y=my-18-h end
+  lg.setColor(P.with(P.bg,0.94)); lg.rectangle("fill",x,y,w,h,7)
+  lg.setColor(P.panelEdge); lg.setLineWidth(1); lg.rectangle("line",x,y,w,h,7)
+  single(title,x+12,y+8,"body",P.text,w-24)
+  for i,l in ipairs(lines) do single(l[1],x+12,y+10+i*20,"small",l[2],w-24) end
 end
 
 function UI.draw(c,s,action)
@@ -2665,6 +2747,7 @@ function UI.draw(c,s,action)
   end
 
   toastPill(open)
+  hoverCard()
   if state.settings and not state.modal then settingsMenu() end
 
   -- The opening guide does not only say what to press: it points at it. A
@@ -2752,7 +2835,7 @@ function UI.click(x,y)
     for _,b in ipairs(UI.buttons) do
       if x>=b.x and x<=b.x+b.w and y>=b.y and y<=b.y+b.h then
         if b.enabled then b.fn() end
-        if b.id~="settings" and not b.id:match("^size%-ui") and b.id~="mute" and b.id~="solo" and b.id~="hints" then state.settings=nil end
+        if b.id~="settings" and not b.id:match("^size%-ui") and b.id~="mute" and b.id~="solo" and b.id~="hints" and b.id~="keys" then state.settings=nil end
         return true
       end
     end
