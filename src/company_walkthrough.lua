@@ -135,9 +135,10 @@ end
 
 -- The frame a player sees: Large text, the menus folded away, the camera
 -- where it already is.
-local function playerShot(name,app)
+local function playerShot(name,app,keepSelection)
   local pref,drawer,foldAll,node,edge=UI.pref,app.state.drawer,app.state.foldAll,app.state.node,app.state.edge
-  UI.pref=1.2; app.state.drawer=nil; app.state.foldAll=nil; app.state.node=nil; app.state.edge=nil
+  UI.pref=1.2; app.state.drawer=nil; app.state.foldAll=nil
+  if not keepSelection then app.state.node=nil; app.state.edge=nil end
   capture(name,app,1440,880,true)
   UI.pref,app.state.drawer,app.state.foldAll,app.state.node,app.state.edge=pref,drawer,foldAll,node,edge
 end
@@ -1089,6 +1090,9 @@ function Walk.update(app,mode,frame)
       app.camera():centerOn(hub.x,hub.y+30)
       capture("net-profit-19-hub",app,1100,700)
       playerShot("net-profit-00-player-hub",app)
+      app.state.node=hub.id; app.state.tab="network"; app.state.scroll=0
+      playerShot("net-profit-00-player-hub-panel",app,true)
+      app.state.node=nil
       -- A pointer resting on a customer, and the close landing on the map.
       do
         local c2=app.city()
