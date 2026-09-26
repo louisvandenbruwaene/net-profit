@@ -88,9 +88,12 @@ function R.burst(x, y, color, n)
   end
 end
 
-function R.floatText(x, y, text, color)
+-- `delay` holds a text back before it rises, so a row of them can ripple
+-- across the map rather than all appearing in the same frame.
+function R.floatText(x, y, text, color, delay)
+  delay = delay or 0
   R.fx[#R.fx + 1] = { kind = "text", x = x, y = y, text = text,
-                      color = color, life = 1.3, age = 0 }
+                      color = color, life = 1.6 + delay, age = 0, delay = delay }
 end
 
 function R.ring(x, y, color)
@@ -107,7 +110,7 @@ function R.update(dt)
       f.y = f.y + f.vy * dt
       f.vx = f.vx * (1 - dt * 2.4)
       f.vy = f.vy * (1 - dt * 2.4)
-    elseif f.kind == "text" then
+    elseif f.kind == "text" and f.age >= (f.delay or 0) then
       f.y = f.y - dt * 26
     end
     if f.age >= f.life then table.remove(R.fx, i) end
@@ -125,10 +128,18 @@ function R.drawEffects(cam)
       lg.setColor(f.color[1], f.color[2], f.color[3], k * 0.8)
       lg.setLineWidth(2.5 * k + 0.5)
       lg.circle("line", sx, sy, (1 - k) * 60 * cam.scale + 6)
-    elseif f.kind == "text" then
+    elseif f.kind == "text" and f.age >= (f.delay or 0) then
+      local d = f.delay or 0
+      local kk = 1 - (f.age - d) / (f.life - d)
+      local pop = math.min(1, (f.age - d) * 8)
       lg.setFont(R.fonts.body)
-      lg.setColor(f.color[1], f.color[2], f.color[3], math.min(1, k * 1.6))
-      lg.printf(f.text, sx - 70, sy - 8, 140, "center")
+      local w = R.fonts.body:getWidth(f.text) + 12
+      lg.setColor(0.05, 0.08, 0.10, math.min(0.8, kk * 1.4))
+      lg.rectangle("fill", sx - w / 2, sy - 10, w, 22, 6)
+      lg.setColor(f.color[1], f.color[2], f.color[3], math.min(1, kk * 1.8))
+      lg.push(); lg.translate(sx, sy); lg.scale(0.6 + 0.4 * pop)
+      lg.printf(f.text, -70, -8, 140, "center")
+      lg.pop()
     end
   end
 end

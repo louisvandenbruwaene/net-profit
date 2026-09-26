@@ -110,7 +110,7 @@ local function capture(name,app,width,height,keepCamera)
     width,height=width or 1440,height or 880
     local canvas=love.graphics.newCanvas(width,height)
     R.viewportOverride={width,height}
-    if keepCamera then app.camera():setViewport(0,UI.BAR,width,height-UI.BAR) end
+    if keepCamera then local k=UI.effectiveScale(); app.camera():setViewport(0,UI.BAR*k,width,height-UI.BAR*k) end
     if not keepCamera then app.action(app.state.tab=="map" and "fitWorld" or "fit") end
     love.graphics.setCanvas(canvas)
     love.draw()
@@ -131,6 +131,15 @@ local function capture(name,app,width,height,keepCamera)
     if not keepCamera then app.action(app.state.tab=="map" and "fitWorld" or "fit") end
     canvas:release()
     data:release()
+end
+
+-- The frame a player sees: Large text, the menus folded away, the camera
+-- where it already is.
+local function playerShot(name,app)
+  local pref,drawer,foldAll,node,edge=UI.pref,app.state.drawer,app.state.foldAll,app.state.node,app.state.edge
+  UI.pref=1.2; app.state.drawer=nil; app.state.foldAll=nil; app.state.node=nil; app.state.edge=nil
+  capture(name,app,1440,880,true)
+  UI.pref,app.state.drawer,app.state.foldAll,app.state.node,app.state.edge=pref,drawer,foldAll,node,edge
 end
 
 -- The same frame as `capture`, without the PNG. The stress sweep draws a
@@ -890,9 +899,9 @@ function Walk.update(app,mode,frame)
         capture("net-profit-00-player-company",app)
         app.state.tab="customers"; capture("net-profit-00-player-clients",app)
         app.state.tab="stats"; capture("net-profit-00-player-stats",app)
-        app.state.drawer=nil; app.state.settings=true
+        app.state.drawer=nil; app.state.settings=true; app.state.showKeys=true
         capture("net-profit-00-player-settings",app)
-        app.state.settings=nil
+        app.state.settings=nil; app.state.showKeys=nil
         UI.pref,app.state.drawer,app.state.foldAll=pref,drawer,foldAll; app.state.tab="network"
         app.action("fit")
       end
@@ -1079,6 +1088,26 @@ function Walk.update(app,mode,frame)
       app.camera().targetScale=0.72; app.camera().scale=0.72
       app.camera():centerOn(hub.x,hub.y+30)
       capture("net-profit-19-hub",app,1100,700)
+      playerShot("net-profit-00-player-hub",app)
+      -- A pointer resting on a customer, and the close landing on the map.
+      do
+        local c2=app.city()
+        local target
+        for _,cl in ipairs(c2:clientList()) do if not target and c2:fullyServed(cl) then target=cl end end
+        if target then
+          UI.pref=1.2
+          local k=UI.effectiveScale()
+          local sx,sy=app.camera():toScreen(target.x,target.y)
+          app.state.fakeMouse={sx/k,sy/k}; app.state.hoverNode=target.id
+          love.draw(); R.t=R.t+1
+          playerShot("net-profit-00-player-hover",app)
+          app.state.fakeMouse=nil; app.state.hoverNode=nil
+          UI.pref=1
+        end
+        app.action("endDay")
+        for _=1,6 do R.update(0.12) end
+        playerShot("net-profit-00-player-close",app)
+      end
       app.state.node=nil
     elseif frame==36 then
       -- The sea: an island bought off the coast, with a wind park on it.
