@@ -3990,17 +3990,17 @@ end
 City.TUTORIAL = {
   {
     key = "well", title = "Build your first well",
-    body = "Choose Water well. Click a blue water mark.",
+    body = "Pick Water well, then click a blue mark.",
     done = function(c) return #c.g:nodesOfKind("source") > 0 end,
   },
   {
     key = "junction", title = "Build a T split",
-    body = "Choose T split. Place it between the well and the house.",
+    body = "Place a T split between well and house.",
     done = function(c) return #c.g:nodesOfKind("junction") > 0 end,
   },
   {
     key = "main", title = "Connect the pipes",
-    body = "Drag from the well to the junction. Then drag from the junction to the house. Pipe sizes are chosen for you.",
+    body = "Drag well to T split, then T split to house.",
     done = function(c)
       for _, n in ipairs(c.g.nodes) do
         if n.alive and n.kind == "client" and c.g:degree(n.id) > 0 then return true end
@@ -4010,12 +4010,12 @@ City.TUTORIAL = {
   },
   {
     key = "sign", title = "Sign the contract",
-    body = "Click the house. Choose Sign contract. Supplied clients pay you each day.",
+    body = "Click the house and sign.",
     done = function(c) return #c:clientList() > 0 end,
   },
   {
     key = "close", title = "End the day",
-    body = "Choose End day to collect income and pay bills. Your first supplied client earns a bonus.",
+    body = "Collect the day's income.",
     done = function(c) return c.day > 1 end,
   },
 }
@@ -4042,17 +4042,17 @@ end
 City.LESSONS = {
   {
     key = "trade", title = "A new trade",
-    body = "Buy a licence in Company. Build a source or factory. Connect the supplies it needs.",
+    body = "Buy a licence in Company.",
     when = function(c) return c:licenceCount() > 1 end,
   },
   {
-    key = "hub", title = "Automation hubs",
-    body = "An automation hub wires up nearby clients itself: real pipe, no manual laying. Connect supply to it. Range: 700m.",
+    key = "hub", title = "Distribution hubs",
+    body = "Upgrade a hub to a distribution hub: it connects nearby clients itself.",
     when = function(c) return c:unlocked("hub") end,
   },
   {
     key = "cap", title = "Source limit",
-    body = "This well has reached its limit. Build another well to get more supply.",
+    body = "This ground is maxed out. Build another well.",
     when = function(c)
       for _, n in ipairs(c.g:nodesOfKind("source")) do
         if n.cap and (n.output or 0) >= n.cap and not n.plant then return true end
@@ -4062,42 +4062,42 @@ City.LESSONS = {
   },
   {
     key = "haven", title = "Ports",
-    body = "A port imports goods for a fee. Build it on the coast. Connect it to a freight yard. Electricity cannot be imported.",
+    body = "Build a harbour on the coast to import goods.",
     when = function(c) return c:unlocked("haven") end,
   },
   {
     key = "yard", title = "Freight",
-    body = "Freight yards receive trains and trucks. Connect local pipes and roads to move goods from the yard.",
+    body = "Yards take trains and trucks.",
     when = function(c) return c:unlocked("yard") end,
   },
   {
     key = "massive", title = "Massive mains",
-    body = "You can now build pipes that carry 100 units. Open Pipe options in Build.",
+    body = "Mains that carry 100 are open in Pipe options.",
     when = function(c) return c:unlocked("massive") end,
   },
   {
     key = "orders", title = "Staff",
-    body = "Hire staff in Company: surveyors show deposits, scouts reveal land further out, analysts improve investments. Each has a daily wage.",
+    body = "Hire staff in Company.",
     when = function(c) return c:unlocked("orders") end,
   },
   {
     key = "people", title = "Roads",
-    body = "Connect houses and factories to roads. Cars use offroads too; trucks need normal roads or highways. Highway interchanges collect tolls.",
+    body = "Connect houses and factories to roads.",
     when = function(c) return c:unlocked("roads") end,
   },
   {
     key = "routes", title = "Bus, ferry and plane routes",
-    body = "Attach bus stops to normal roads and connect them with bus routes. Bus stops cannot stand on highways. Ferries use water; planes use airports.",
+    body = "Link bus stops on roads with a route.",
     when = function(c) return c:unlocked("routes") end,
   },
   {
     key = "resort", title = "Resorts",
-    body = "Build a resort by the sea or river. Visitors pay you. Upgrades attract more visitors.",
+    body = "Build a resort by the water. Visitors pay.",
     when = function(c) return c:unlocked("resort") end,
   },
   {
     key = "internet", title = "Internet",
-    body = "Buy the internet licence in Company. Data centres need water and electricity. Connect clients with fibre.",
+    body = "Buy the internet licence, then lay fibre.",
     when = function(c) return c:unlocked("internet") end,
   },
 }
