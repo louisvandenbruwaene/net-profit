@@ -1405,6 +1405,45 @@ function Draw.world(city, cam, state)
       end
     end
   end
+  -- A harbour runs a jetty across the beach into deep water, with a ship
+  -- tied up at the end of it riding the swell.
+  for _, n in ipairs(city.g:aliveNodes()) do
+    if n.kind == "terminal" and (n.haven or "port") == "port" and n.y < City.havenReach + 60
+       and cam:sees(n.x, -60, 200 * cam.scale + 40) then
+      local x0, y0 = cam:toScreen(n.x, n.y)
+      local _, y1 = cam:toScreen(n.x, -110)
+      local w = math.max(3, 16 * cam.scale)
+      -- Pilings, then the deck over them.
+      lg.setColor(0.18, 0.13, 0.09)
+      for wy = n.y - 20, -110, -24 do
+        local px, py = cam:toScreen(n.x, wy)
+        lg.circle("fill", px - w * 0.55, py, math.max(1, 2.2 * cam.scale))
+        lg.circle("fill", px + w * 0.55, py, math.max(1, 2.2 * cam.scale))
+      end
+      lg.setColor(0, 0, 0, 0.3); lg.rectangle("fill", x0 - w / 2 + 2, y1 + 3, w, y0 - y1)
+      lg.setColor(0.46, 0.35, 0.24); lg.rectangle("fill", x0 - w / 2, y1, w, y0 - y1)
+      lg.setColor(0.30, 0.22, 0.15); lg.setLineWidth(1)
+      local plank = math.max(3, 6 * cam.scale)
+      for py = y1 + plank, y0, plank do lg.line(x0 - w / 2, py, x0 + w / 2, py) end
+      -- The ship, moored alongside the jetty head.
+      local bob = math.sin(R.t * 1.3 + n.id) * 1.5 * cam.scale
+      local sx, sy = x0 + w / 2 + 22 * cam.scale, y1 + 40 * cam.scale + bob
+      local L, B = 50 * cam.scale, 14 * cam.scale
+      lg.setColor(0.85, 0.92, 0.96, 0.25)
+      lg.ellipse("line", sx, sy + L * 0.1, B * 1.6, L * 1.15)
+      lg.setColor(0.12, 0.14, 0.18)
+      lg.polygon("fill", sx - B, sy + L, sx + B, sy + L, sx + B, sy - L * 0.6, sx, sy - L, sx - B, sy - L * 0.6)
+      lg.setColor(0.62, 0.20, 0.18)
+      lg.polygon("fill", sx - B * 0.8, sy + L * 0.9, sx + B * 0.8, sy + L * 0.9, sx + B * 0.8, sy - L * 0.5, sx, sy - L * 0.85, sx - B * 0.8, sy - L * 0.5)
+      -- Containers stacked on deck, and the bridge at the stern.
+      local cols = { { 0.30, 0.55, 0.75 }, { 0.85, 0.62, 0.25 }, { 0.40, 0.65, 0.40 }, { 0.70, 0.35, 0.35 } }
+      for i = 0, 3 do
+        lg.setColor(cols[(i + n.id) % #cols + 1])
+        lg.rectangle("fill", sx - B * 0.6, sy - L * 0.45 + i * L * 0.28, B * 1.2, L * 0.24)
+      end
+      lg.setColor(0.90, 0.90, 0.88); lg.rectangle("fill", sx - B * 0.6, sy + L * 0.62, B * 1.2, L * 0.2)
+    end
+  end
   drawDistrictChrome(city, cam, state)
   drawSeams(city, cam, state)
 
