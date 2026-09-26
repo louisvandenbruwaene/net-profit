@@ -616,10 +616,13 @@ end
 function Draw.structureBuilding(kind, x, y, r, accent, level, fill, busy, seed)
   local u = r / 12
   level = level or 1
-  lg.setColor(0, 0, 0, 0.28); lg.ellipse("fill", x + 2 * u, y + 9 * u, 11 * u, 4 * u)
+  if kind ~= "tower" then lg.setColor(0, 0, 0, 0.28); lg.ellipse("fill", x + 2 * u, y + 9 * u, 11 * u, 4 * u) end
   if kind == "tower" then
+    -- The cables attach where the node is, so the top arm sits there and the
+    -- lattice stands below it.
     local h = (14 + level * 2.5) * u
-    local top, base = y - h + 6 * u, y + 7 * u
+    local top, base = y - 2 * u, y - 2 * u + h
+    lg.setColor(0, 0, 0, 0.28); lg.ellipse("fill", x + 2 * u, base + 1 * u, 9 * u, 3 * u)
     lg.setColor(0.62, 0.64, 0.68); lg.setLineWidth(math.max(1, 1.1 * u))
     lg.line(x - 7 * u, base, x - 1.5 * u, top); lg.line(x + 7 * u, base, x + 1.5 * u, top)
     -- Cross bracing up the legs.
@@ -1832,11 +1835,34 @@ function Draw.world(city, cam, state)
             lg.circle("fill", cx + ph * 14 * k, cy - 18 * k - ph * 26 * k, (5 + ph * 9) * k)
           end
         elseif n.plant == "hydro" then
+          -- The weir runs from the plant to the water: find which way the
+          -- river is and set the turbine housings along that line, the last
+          -- one on the bank with foam at its outfall.
+          local best, bestA = math.huge, 0
+          for q = 0, 15 do
+            local a = q / 16 * math.pi * 2
+            local e = city:riverEdge(n.x + math.cos(a) * 60, n.y + math.sin(a) * 60)
+            if e and e < best then best, bestA = e, a end
+          end
+          local reach = math.max(40, math.min(160, (city:riverEdge(n.x, n.y) or 60) + 10))
+          local dx, dy = math.cos(bestA), math.sin(bestA)
+          local ex, ey = x + dx * reach * k, y + dy * reach * k
+          -- A headrace: a stone-edged channel of river water up to the plant.
+          lg.setColor(0.42, 0.40, 0.36, 0.9 * fade); lg.setLineWidth(math.max(2, 7 * k)); lg.line(x, y, ex, ey)
+          lg.setColor(0.18, 0.36, 0.54, fade); lg.setLineWidth(math.max(1, 4.5 * k)); lg.line(x, y, ex, ey)
+          local flow = (R.t * 0.5) % 1
+          lg.setColor(0.60, 0.78, 0.92, 0.5 * fade); lg.setLineWidth(math.max(1, 1.2 * k))
+          for q = 0, 3 do
+            local t = (q / 4 + flow) % 1
+            local fx, fy = ex + (x - ex) * t, ey + (y - ey) * t
+            lg.line(fx, fy, fx + (x - ex) * 0.04, fy + (y - ey) * 0.04)
+          end
           for i = 1, units do
-            local hx = x - 30 * k + (i - 1) * 15 * k
-            lg.setColor(0.55, 0.56, 0.58, fade); lg.rectangle("fill", hx - 6 * k, y + 20 * k, 12 * k, 10 * k, 2 * k)
+            local t = 0.35 + 0.65 * (i / units)
+            local hx, hy = x + (ex - x) * t, y + (ey - y) * t
+            lg.setColor(0.60, 0.61, 0.63, fade); lg.rectangle("fill", hx - 6 * k, hy - 5 * k, 12 * k, 10 * k, 2 * k)
             lg.setColor(0.85, 0.92, 0.96, (0.4 + 0.3 * math.sin(R.t * 4 + i)) * fade)
-            lg.rectangle("fill", hx - 4 * k, y + 31 * k, 8 * k, 3 * k)
+            lg.circle("fill", hx - dy * 8 * k, hy + dx * 8 * k, 3 * k)
           end
         end
       end
