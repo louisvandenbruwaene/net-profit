@@ -514,7 +514,24 @@ end
 
 local function inspectSource(n,y)
   local level,trade=n.level or 1,City.trade[n.commodity]
-  if n.effectiveOutput==0 then
+  local range=city.quarryRange and city:quarryRange(n)
+  if range then
+    -- A range holds only so much rock; say how much and how long it lasts.
+    local left=city:rockLeft(range)
+    local drawnNow=(city.produced or {})[n.id] or 0
+    if left<=0 then
+      text("Range worked out: no rock left here",M,y,"small",P.bad,CW)
+      text("Build a new quarry on other bedrock.",M,y+22,"small",P.textDim,CW); y=y+52
+    else
+      local days=drawnNow>0 and math.ceil(left/drawnNow) or nil
+      row("Rock left",left..(days and ("  (~"..days.." days)") or ""),y,
+        days and days<=15 and P.warn or P.text,"What this range still holds. The quarry stops when it is cut out.")
+      y=y+30
+    end
+  end
+  if n.effectiveOutput==0 and range then
+    -- already said above
+  elseif n.effectiveOutput==0 then
     text("Production stopped: water or soil polluted",M,y,"small",P.bad,CW)
     text("Build an environment lab nearby.",M,y+22,"small",P.textDim,CW); y=y+52
   elseif n.commodity=="power" then
@@ -1920,7 +1937,7 @@ local function mapTab()
       for index,o in ipairs(city.obstacles) do
         if city:districtAt(o.x,o.y)==d and (o.kind=="park" or o.kind=="bedrock") then
           local cost=math.ceil(math.floor(o.r*o.r/100)*(o.kind=="park" and 4 or 35))
-          button("clear-terrain-"..index,(o.kind=="park" and "Harvest " or "Demolish ")..S.get(o.kind=="park" and "timber" or "rock").."  $"..cost,M,y,CW,32,function() act("clearTerrain",index) end,city.money>=cost,"Requires the permit and all covered land. Mountain demolition has a 5% gem chance.")
+          button("clear-terrain-"..index,(o.kind=="park" and "Harvest " or "Demolish ")..S.get(o.kind=="park" and "timber" or "rock").."  $"..cost,M,y,CW,32,function() act("clearTerrain",index) end,city.money>=cost,o.kind=="park" and "Requires the permit and all covered land. The wood grows back in "..City.TERRAIN_LIFE.regrowDays.." days unless something is built on it." or "Requires the permit and all covered land. Mountain demolition has a 5% gem chance.")
           y=y+38
         end
       end

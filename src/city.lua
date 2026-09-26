@@ -4314,5 +4314,6 @@ require("resilience")(City)
 require("upgrades")(City)
 require("distribution")(City)
 require("costs")(City)
+require("terrain_life")(City)
 
 return City
