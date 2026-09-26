@@ -1912,6 +1912,18 @@ function Draw.world(city, cam, state)
     end
   elseif state.tool and mx>cam.vx and my>cam.vy and my<cam.vy+cam.vh then
     local wx,wy = cam:toWorld(mx,my)
+    -- Ground that refuses the building in hand shows its whole outline, so
+    -- the refusal has a shape and not only a sentence.
+    local under = city:obstacleAt(wx, wy)
+    if under and not under.river and not (city.permits and city.permits[under.kind]) then
+      local pts = {}
+      for _, pt in ipairs(Shape.outline(under)) do
+        local sx, sy = cam:toScreen(pt[1], pt[2]); pts[#pts + 1] = sx; pts[#pts + 1] = sy
+      end
+      pts[#pts + 1] = pts[1]; pts[#pts + 1] = pts[2]
+      lg.setColor(P.bad[1], P.bad[2], P.bad[3], 0.14); lg.setLineWidth(8); lg.line(pts)
+      lg.setColor(P.bad[1], P.bad[2], P.bad[3], 0.8); lg.setLineWidth(2); lg.line(pts)
+    end
     local err, cost, seam
     if state.tool=="source" then
       err = city:sourceError(state.commodity,wx,wy,state.plant)
