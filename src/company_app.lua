@@ -182,8 +182,10 @@ local function action(name,...)
     local n=city.g.nodes[id]
     if not n then return end
     clear(); state.filter=nil; state.modal=nil; state.node=id; reveal()
+    -- Zoom first, then centre: the offset for the open panel depends on the
+    -- scale, so centring at the old scale left the house off to one side.
+    cam.targetScale=1.35
     centerOn(n.x,n.y)
-    cam.targetScale=math.min(2.2,math.max(cam.targetScale,1.35))
     return
   end
   if name=="focusEdge" then
