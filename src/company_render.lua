@@ -4,6 +4,7 @@ local City = require("city")
 local R = require("render")
 local E = require("experience")
 local Scenery = require("scenery")
+local Shape = require("terrain_shape")
 local Draw = {}
 local lg = love.graphics
 
@@ -462,6 +463,15 @@ function Draw.disc(x, y, r, color, tint)
   lg.circle("fill", x, y, r)
   lg.setColor(P.with(color, tint or 0.20))
   lg.circle("fill", x, y, r)
+  -- A bevel: light catching the upper left of the rim, shade on the lower
+  -- right, so a building stands on the ground instead of being printed on it.
+  if r >= 6 then
+    lg.setLineWidth(math.max(1, r * 0.12))
+    lg.setColor(1, 1, 1, 0.14)
+    lg.arc("line", "open", x, y, r * 0.8, math.pi * 1.05, math.pi * 1.55)
+    lg.setColor(0, 0, 0, 0.22)
+    lg.arc("line", "open", x, y, r * 0.8, math.pi * 0.05, math.pi * 0.55)
+  end
   lg.setColor(color)
   lg.setLineWidth(math.max(1, r * 0.10))
   lg.circle("line", x, y, r)
@@ -552,9 +562,9 @@ local function drawDistrictGround(city, cam)
         local px,py,pw,ph=x+m,y+m,w-m*2,h-m*2
         local round=math.max(3,18*cam.scale)
         lg.setColor(0,0,0,0.22); lg.rectangle("fill",px,py+2,pw,ph,round)
-        lg.setColor(d.owned and {P.land[1],P.land[2],P.land[3],0.96} or {0.100,0.122,0.128,0.92})
+        lg.setColor(d.owned and {P.land[1],P.land[2],P.land[3],0.96} or {0.092,0.128,0.126,0.94})
         lg.rectangle("fill",px,py,pw,ph,round)
-        Scenery.grass(d.x+10,d.y+10,d.w-20,d.h-20,px,py,cam.scale,d.owned and 1 or 0.55)
+        Scenery.grass(d.x+10,d.y+10,d.w-20,d.h-20,px,py,cam.scale,d.owned and 1 or 0.8)
         if not d.owned and cam.scale>0.22 then
           -- Lines where (x - px) + (y - py) is constant, clipped to the plot.
           lg.setColor(1,1,1,0.022); lg.setLineWidth(1)
@@ -589,7 +599,7 @@ local function drawDistrictChrome(city, cam, state)
     else
       -- Ground you do not own is visibly not yours, but still legible enough
       -- to plan towards.
-      lg.setColor(P.with(P.bg, 0.2))
+      lg.setColor(P.with(P.bg, 0.14))
       if d.island then lg.ellipse("fill", cx, cy, w / 2, h / 2)
       else lg.rectangle("fill", x, y, w, h) end
       local hot = state.district == d.id
@@ -1132,7 +1142,7 @@ function Draw.world(city, cam, state)
         local spots = {}
         for _, s in ipairs(city.deposits or {}) do
           if (s.x - o.x) ^ 2 + (s.y - o.y) ^ 2 < (o.r + City.seamRange) ^ 2 then
-            spots[#spots + 1] = { s.x - o.x, s.y - o.y, City.seamRange + 18 }
+            spots[#spots + 1] = { s.x - o.x, s.y - o.y, math.min(City.seamRange * 0.6, o.r * 0.3) }
           end
         end
         return spots
@@ -1144,10 +1154,12 @@ function Draw.world(city, cam, state)
       local _, coast = cam:toScreen(0, 0)
       withinRows(coast, cam.vy + cam.vh, terrain)
     else terrain() end
-    if cam.scale > 0.48 then
+    -- Close in only: further out the hover card says the same thing without
+    -- a tag on every wood.
+    if cam.scale > 0.95 then
       local cross = city:groundCross(o.kind, o)
       local tag = (o.massive and (o.kind=="park" and "PROTECTED PARK" or "MOUNTAIN RANGE") or spec.name) .. (cross and (cross > 1 and string.format("  x%.1f", cross) or "  OPEN") or "  CLOSED")
-      label(tag, x, y+r+3, freed and P.good or P.textDim, R.fonts.tiny)
+      label(tag, x, y+Shape.reach(o, o.x, o.y+1)*cam.scale+3, freed and P.good or P.textDim, R.fonts.tiny)
     end
     end
   end
@@ -1276,9 +1288,21 @@ function Draw.world(city, cam, state)
         lg.setLineWidth(width + 2); lg.line(ax,ay,bx,by)
       end
       if not e.rail then
+        -- A main is a pipe lying on the ground: a soft shadow under it, a dark
+        -- casing, the trade colour, and a highlight along its crown.
+        lg.setColor(0,0,0,0.30); lg.setLineWidth(width+3); lg.line(ax,ay+1.5,bx,by+1.5)
+        lg.setColor(P.with(P.bg,0.85)); lg.setLineWidth(width+2); lg.line(ax,ay,bx,by)
         lg.setColor(P.with((e.leaking or e.unboosted) and P.bad or (e.commodity == "oil" and spec.fill or c),
-          e.cap == 0 and 0.35 or (e.commodity == "oil" and 0.95 or 0.65)))
+          e.cap == 0 and 0.35 or (e.commodity == "oil" and 0.95 or 0.72)))
         lg.setLineWidth(width); lg.line(ax,ay,bx,by)
+        if width >= 3 and e.cap ~= 0 then
+          local dx, dy = bx-ax, by-ay
+          local len = math.max(1, math.sqrt(dx*dx+dy*dy))
+          local ox, oy = dy/len*width*0.18, -dx/len*width*0.18
+          if oy > 0 then ox, oy = -ox, -oy end
+          lg.setColor(1,1,1,0.16); lg.setLineWidth(math.max(1,width*0.28))
+          lg.line(ax+ox,ay+oy,bx+ox,by+oy)
+        end
       end
       -- A lined main wears a casing stripe; armour wears two.
       local grade = e.grade or 1
