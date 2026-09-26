@@ -96,6 +96,14 @@ function R.floatText(x, y, text, color, delay)
                       color = color, life = 1.6 + delay, age = 0, delay = delay }
 end
 
+-- A pulse running along a new main from one end to the other, leaving a
+-- fading glow behind it: the pipe drawing itself into the ground.
+function R.trace(ax, ay, bx, by, color, delay)
+  delay = delay or 0
+  R.fx[#R.fx + 1] = { kind = "trace", x = ax, y = ay, bx = bx, by = by, color = color,
+                      life = 0.75 + delay, age = 0, delay = delay }
+end
+
 function R.ring(x, y, color)
   R.fx[#R.fx + 1] = { kind = "ring", x = x, y = y, color = color, life = 0.6, age = 0 }
 end
@@ -128,6 +136,17 @@ function R.drawEffects(cam)
       lg.setColor(f.color[1], f.color[2], f.color[3], k * 0.8)
       lg.setLineWidth(2.5 * k + 0.5)
       lg.circle("line", sx, sy, (1 - k) * 60 * cam.scale + 6)
+    elseif f.kind == "trace" and f.age >= (f.delay or 0) then
+      local d = f.delay or 0
+      local t = math.min(1, (f.age - d) / 0.45)
+      local fade = 1 - math.max(0, (f.age - d - 0.45) / 0.3)
+      local ex, ey = cam:toScreen(f.bx, f.by)
+      local hx, hy = sx + (ex - sx) * t, sy + (ey - sy) * t
+      lg.setColor(f.color[1], f.color[2], f.color[3], 0.55 * fade)
+      lg.setLineWidth(6 * math.max(0.4, cam.scale))
+      lg.line(sx, sy, hx, hy)
+      lg.setColor(1, 1, 1, 0.9 * fade)
+      lg.circle("fill", hx, hy, 5 * math.max(0.5, cam.scale) + 1)
     elseif f.kind == "text" and f.age >= (f.delay or 0) then
       local d = f.delay or 0
       local kk = 1 - (f.age - d) / (f.life - d)

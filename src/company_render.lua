@@ -1312,6 +1312,21 @@ function Draw.world(city, cam, state)
         local x,y = (ax+bx)/2,(ay+by)/2
         lg.setColor(P.with(P.bad,0.6+0.3*math.sin(R.t*5)))
         lg.setLineWidth(2); lg.circle("line",x,y,10+2*math.sin(R.t*4))
+        -- What is escaping: droplets of whatever the main carries, thrown up
+        -- and falling back, more of them the worse it has got.
+        if cam.scale>0.3 then
+          local col=(Graph.COMMODITIES[e.commodity] or {}).color or P.flow
+          local drops=e.cap<=0 and 9 or 5
+          local reach=18*math.sqrt(cam.scale)
+          for i=1,drops do
+            local ph=(R.t*1.25+i/drops)%1
+            local ang=-math.pi/2+(i-drops/2)*0.34+math.sin(i*2.1)*0.2
+            local dx=math.cos(ang)*reach*ph*1.3
+            local dy=math.sin(ang)*reach*ph*1.6+reach*1.8*ph*ph
+            lg.setColor(col[1],col[2],col[3],0.85*(1-ph))
+            lg.circle("fill",x+dx,y+dy,math.max(1.2,2.4*math.sqrt(cam.scale)*(1-ph*0.5)))
+          end
+        end
       end
       if e.unboosted then
         label("NO BOOSTER",(ax+bx)/2,(ay+by)/2-22,P.bad,R.fonts.tiny)
