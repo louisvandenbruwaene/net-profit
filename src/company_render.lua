@@ -1619,7 +1619,12 @@ function Draw.world(city, cam, state)
         end
         return spots
       end)
-      Scenery.boundary(o, x, y, cam.scale, freed and P.good or spec.color, freed and 0.45 or (o.massive and 0.5 or 0.3))
+      -- Far out the trees and peaks already show the shape; the dashed survey
+      -- line fades in only where it can be told apart from them.
+      local line = math.min(1, (cam.scale - 0.22) / 0.15)
+      if line > 0 then
+        Scenery.boundary(o, x, y, cam.scale, freed and P.good or spec.color, line * (freed and 0.45 or (o.massive and 0.5 or 0.3)))
+      end
     end
     -- Ground that reaches the coast stops at it: no trees in the sea.
     if o.y >= 0 and o.y - o.r < 0 then
@@ -1996,8 +2001,11 @@ function Draw.world(city, cam, state)
       if not e.rail then
         -- A main is a pipe lying on the ground: a soft shadow under it, a dark
         -- casing, the trade colour, and a highlight along its crown.
-        lg.setColor(0,0,0,0.30); lg.setLineWidth(width+3); lg.line(ax,ay+1.5,bx,by+1.5)
-        lg.setColor(P.with(P.bg,0.85)); lg.setLineWidth(width+2); lg.line(ax,ay,bx,by)
+        -- Shadow and casing only once a main is wide enough to show them.
+        if width >= 3 then
+          lg.setColor(0,0,0,0.30); lg.setLineWidth(width+3); lg.line(ax,ay+1.5,bx,by+1.5)
+          lg.setColor(P.with(P.bg,0.85)); lg.setLineWidth(width+2); lg.line(ax,ay,bx,by)
+        end
         lg.setColor(P.with((e.leaking or e.unboosted) and P.bad or (e.commodity == "oil" and spec.fill or c),
           e.cap == 0 and 0.35 or (e.commodity == "oil" and 0.95 or 0.72)))
         lg.setLineWidth(width); lg.line(ax,ay,bx,by)
