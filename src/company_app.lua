@@ -41,8 +41,10 @@ end
 
 -- Centre on a point in the part of the map a menu is not covering.
 local function centerOn(x,y)
-  cam:centerOn(x,y)
-  if UI.drawerOpen(state) then cam.x=cam.x-(UI.width*UI.effectiveScale()/2)/cam.targetScale end
+  if UI.drawerOpen(state) then x=x-(UI.width*UI.effectiveScale()/2)/cam.targetScale end
+  -- Automated runs cut straight there: a check or a screenshot taken right
+  -- after the action must see the camera where it was sent.
+  if testMode then cam:centerOn(x,y) else cam:glideTo(x,y) end
 end
 
 -- The player's own preferences, kept apart from any company: the text size,
@@ -79,7 +81,7 @@ local function fitWorld()
   local covered=UI.drawerOpen(state) and UI.width*UI.effectiveScale() or 0
   cam.scale=math.max(0.12,math.min(1.45,(cam.vw-covered)/(x1-x0),cam.vh/(y1-y0)))
   cam.targetScale=cam.scale
-  cam.x,cam.y=(x0+x1)/2-covered/2/cam.scale,(y0+y1)/2
+  cam.glide=nil; cam.x,cam.y=(x0+x1)/2-covered/2/cam.scale,(y0+y1)/2
 end
 
 local function fit()
@@ -91,7 +93,7 @@ local function fit()
   local covered=UI.drawerOpen(state) and UI.width*UI.effectiveScale() or 0
   cam.scale=math.max(0.3,math.min(1.45,(cam.vw-covered)/(x1-x0+330),cam.vh/(y1-y0+330)))
   cam.targetScale=cam.scale
-  cam.x,cam.y=(x0+x1)/2-covered/2/cam.scale,(y0+y1)/2
+  cam.glide=nil; cam.x,cam.y=(x0+x1)/2-covered/2/cam.scale,(y0+y1)/2
 end
 
 local function clear()
@@ -204,6 +206,7 @@ local function action(name,...)
     local id=...
     local d=city.districts[id]
     clear(); state.district=id; reveal("district")
+    if d then centerOn(d.x+d.w/2,d.y+d.h/2) end
     return
   end
   if name=="nextLeak" then
