@@ -486,7 +486,8 @@ function Scenery.grass(wx, wy, ww, wh, sx, sy, scale, alpha)
   lg.setBlendMode("alpha", "premultiplied")
   layer(patches, PATCH_WORLD, wx, wy, ww, wh, sx, sy, scale, alpha)
   local close = math.max(0, math.min(1, (scale - 0.55) / 0.6))
-  if close > 0 then layer(tufts, TUFT_WORLD, wx, wy, ww, wh, sx, sy, scale, alpha * close) end
+  -- Kept faint even fully in: texture, not a pattern competing with pipes.
+  if close > 0 then layer(tufts, TUFT_WORLD, wx, wy, ww, wh, sx, sy, scale, alpha * close * 0.5) end
   lg.setBlendMode("alpha")
 end
 
