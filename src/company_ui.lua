@@ -713,9 +713,9 @@ local function inspectDistribution(n,y)
   local D=City.DISTRIBUTION
   heading("DISTRIBUTION",y); y=y+26
   y=y+paragraph("Every day it signs offers, connects customers and widens full mains within "..city:hubRadius(n)..
-    " m, for anyone paying at least your minimum price. You pay the normal price for everything it builds.",y,P.textDim)+8
+    " m, for anyone paying at least your minimum price. You pay the normal price for everything it builds.",y,P.textDim)+14
   local floor=city:hubFloor(n)
-  row("Minimum price","$"..floor.." / unit",y,P.energy,
+  row("Minimum a unit","$"..floor,y,P.energy,
     "Customers who pay less are left for you to decide by hand. Every customer shows what a unit costs you to deliver.")
   button("hub-floor-down","-",M+CW-80,y-4,36,30,function() act("setHubFloor",n.id,floor-D.floorStep) end,
     floor>0,"Take cheaper customers too")
@@ -1509,8 +1509,13 @@ local function inspectorPanel(n,e)
     elseif n.kind=="resort" then tail=inspectResort(n,y)
     else
       local degree=city.g:degree(n.id)
-      row("Ports",degree.." / "..n.ports,y,degree>=n.ports and P.warn or P.text)
-      row("Carrying",math.floor(city.detail.node[n.id] or 0),y+26)
+      -- A building on a ladder shows its connections in its level block.
+      if city:levelFamily(n) then
+        row("Carrying",math.floor(city.detail.node[n.id] or 0).." a day",y)
+      else
+        row("Ports",degree.." / "..n.ports,y,degree>=n.ports and P.warn or P.text)
+        row("Carrying",math.floor(city.detail.node[n.id] or 0),y+26)
+      end
       if n.kind=="tower" then row("Local leak risk","-55% within 220m",y+52,P.energy)
       elseif n.kind=="pump" then row("Reach",math.floor(City.INFRA.pumpRange*(1+city:reachBonus(n))).." m",y+52,P.flow) end
       if n.capped then
