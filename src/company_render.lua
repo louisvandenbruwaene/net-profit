@@ -1743,6 +1743,73 @@ function Draw.world(city, cam, state)
       lg.pop()
     end
   end
+  -- Power plants spread over their site: a turbine for every row of a wind
+  -- park, a bank of panels for every array, a cooling tower beside the
+  -- reactors, turbine housings along a weir. Drawn with the ground, under the
+  -- network, so no cable is ever hidden by a blade.
+  if cam.scale > 0.45 then
+    for _, n in ipairs(city.g:aliveNodes()) do
+      if n.kind == "source" and n.plant and cam:sees(n.x, n.y, 120 * cam.scale + 30) then
+        local x, y = cam:toScreen(n.x, n.y)
+        local k, units = cam.scale, math.max(1, n.level or 1)
+        local fade = math.min(1, (cam.scale - 0.45) / 0.25)
+        if n.plant == "wind" then
+          for i = 1, units do
+            local a = (i - 1) / units * math.pi * 2 + 0.6
+            local tx, ty = x + math.cos(a) * 58 * k, y + math.sin(a) * 40 * k
+            lg.setColor(0, 0, 0, 0.25 * fade); lg.ellipse("fill", tx + 6 * k, ty + 2 * k, 7 * k, 2.5 * k)
+            lg.setColor(0.88, 0.90, 0.92, fade); lg.setLineWidth(math.max(1, 2 * k))
+            lg.line(tx, ty, tx, ty - 26 * k)
+            local spin = R.t * 2.2 + i * 1.3
+            for b = 0, 2 do
+              local ba = spin + b * math.pi * 2 / 3
+              lg.setLineWidth(math.max(1, 1.6 * k))
+              lg.line(tx, ty - 26 * k, tx + math.cos(ba) * 14 * k, ty - 26 * k + math.sin(ba) * 14 * k)
+            end
+            lg.circle("fill", tx, ty - 26 * k, math.max(1, 2 * k))
+          end
+        elseif n.plant == "solar" then
+          for i = 1, units do
+            local row, col = math.floor((i - 1) / 3), (i - 1) % 3
+            local px, py = x + (col - 1) * 30 * k - 13 * k, y + 26 * k + row * 20 * k
+            lg.setColor(0, 0, 0, 0.25 * fade); lg.rectangle("fill", px + 2 * k, py + 2 * k, 26 * k, 14 * k)
+            lg.setColor(0.14, 0.22, 0.40, fade); lg.rectangle("fill", px, py, 26 * k, 14 * k)
+            lg.setColor(0.45, 0.60, 0.85, 0.6 * fade); lg.setLineWidth(1)
+            for c = 1, 3 do lg.line(px + c * 6.5 * k, py, px + c * 6.5 * k, py + 14 * k) end
+            lg.line(px, py + 7 * k, px + 26 * k, py + 7 * k)
+            lg.setColor(1, 1, 1, (0.10 + 0.08 * math.sin(R.t * 0.8 + i)) * fade)
+            lg.polygon("fill", px + 2 * k, py + 1 * k, px + 9 * k, py + 1 * k, px + 5 * k, py + 13 * k, px, py + 13 * k)
+          end
+        elseif n.plant == "nuclear" then
+          -- Reactor domes in a row, and one cooling tower breathing steam.
+          for i = 1, units do
+            local dx = x - 34 * k + (i - 1) * 17 * k
+            lg.setColor(0, 0, 0, 0.25 * fade); lg.ellipse("fill", dx + 2 * k, y + 32 * k, 8 * k, 3 * k)
+            lg.setColor(0.70, 0.72, 0.74, fade); lg.rectangle("fill", dx - 7 * k, y + 22 * k, 14 * k, 9 * k)
+            lg.arc("fill", "pie", dx, y + 22 * k, 7 * k, math.pi, math.pi * 2)
+          end
+          local cx, cy = x + 44 * k, y + 6 * k
+          lg.setColor(0, 0, 0, 0.25 * fade); lg.ellipse("fill", cx + 4 * k, cy + 22 * k, 16 * k, 5 * k)
+          lg.setColor(0.66, 0.67, 0.69, fade)
+          lg.polygon("fill", cx - 14 * k, cy + 20 * k, cx + 14 * k, cy + 20 * k, cx + 9 * k, cy, cx + 11 * k, cy - 14 * k,
+            cx - 11 * k, cy - 14 * k, cx - 9 * k, cy)
+          lg.setColor(0.50, 0.51, 0.53, fade); lg.ellipse("fill", cx, cy - 14 * k, 11 * k, 3 * k)
+          for p = 0, 3 do
+            local ph = (R.t * 0.25 + p / 4) % 1
+            lg.setColor(0.90, 0.92, 0.95, 0.35 * (1 - ph) * fade)
+            lg.circle("fill", cx + ph * 14 * k, cy - 18 * k - ph * 26 * k, (5 + ph * 9) * k)
+          end
+        elseif n.plant == "hydro" then
+          for i = 1, units do
+            local hx = x - 30 * k + (i - 1) * 15 * k
+            lg.setColor(0.55, 0.56, 0.58, fade); lg.rectangle("fill", hx - 6 * k, y + 20 * k, 12 * k, 10 * k, 2 * k)
+            lg.setColor(0.85, 0.92, 0.96, (0.4 + 0.3 * math.sin(R.t * 4 + i)) * fade)
+            lg.rectangle("fill", hx - 4 * k, y + 31 * k, 8 * k, 3 * k)
+          end
+        end
+      end
+    end
+  end
   Scenery.clouds(cam, R.t)
   drawDistrictChrome(city, cam, state)
   drawSeams(city, cam, state)
