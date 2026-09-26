@@ -2105,7 +2105,7 @@ function Draw.world(city, cam, state)
     end
     -- Close in, a customer is its building; further out, its disc.
     local building = (n.kind == "client" and not n.roundHouse and r >= 14)
-      or (n.kind == "source" and not n.plant and r >= 14)
+      or (n.kind == "source" and (not n.plant or n.plant == "wind") and r >= 14)
       or (n.kind == "works" and n.recipe ~= "forestry" and n.recipe ~= "quarry" and r >= 14)
       or ((n.kind == "tower" or n.kind == "pole" or n.kind == "pylon" or n.kind == "hvtower"
         or n.kind == "depot" or n.kind == "pump" or n.kind == "stop"
@@ -2119,6 +2119,17 @@ function Draw.world(city, cam, state)
         math.abs((city.detail.node or {})[n.id] or 0) > 0, n.id * 0.7)
     elseif building and n.kind == "client" then
       Draw.clientBuilding(n.clientType, x, y, r, color, n.commodity, n.prospect)
+    elseif building and n.kind == "source" and n.plant == "wind" then
+      -- The park's own mark is its lead turbine, a head taller than the rest.
+      local u = r / 12
+      lg.setColor(0, 0, 0, 0.28); lg.ellipse("fill", x + 8 * u, y + 2 * u, 9 * u, 3 * u)
+      lg.setColor(0.90, 0.92, 0.94); lg.setLineWidth(math.max(1.5, 1.8 * u))
+      lg.line(x, y + 2 * u, x, y - 20 * u)
+      for b = 0, 2 do
+        local ba = R.t * 2.2 + n.id + b * math.pi * 2 / 3
+        lg.line(x, y - 20 * u, x + math.cos(ba) * 13 * u, y - 20 * u + math.sin(ba) * 13 * u)
+      end
+      lg.setColor(color); lg.circle("fill", x, y - 20 * u, math.max(1.5, 2 * u))
     elseif building and n.kind == "source" then
       Draw.sourceBuilding(n.commodity, x, y, r, color, n.id)
     elseif building then
@@ -2154,8 +2165,7 @@ function Draw.world(city, cam, state)
       end
     elseif n.kind == "source" then
       if n.plant == "wind" then
-        lg.setColor(color)
-        Draw.turbine(x, y, r * 0.9)
+        if not building then lg.setColor(color); Draw.turbine(x, y, r * 0.9) end
       elseif n.plant == "nuclear" then
         lg.setColor(color)
         Draw.reactor(x, y - r * 0.04, r * 0.86)
