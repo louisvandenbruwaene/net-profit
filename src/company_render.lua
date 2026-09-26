@@ -454,6 +454,91 @@ function Draw.freightVehicle(haven, x, y, dir, s)
   lg.setColor(r, g, b, a)
 end
 
+-- A customer seen close up: the building itself, standing on the ground, in
+-- the same footprint as its disc (so the same click lands on it). Walls and
+-- roofs are the building's own colours; the trade shows in one accent -- the
+-- door, the sign, the awning -- and in a small badge on the roof, so the
+-- reading the disc gave is never lost. Far out the disc comes back.
+local WALL, ROOF_L, ROOF_D = { 0.74, 0.70, 0.62 }, { 0.58, 0.33, 0.27 }, { 0.40, 0.23, 0.20 }
+local SLATE_L, SLATE_D = { 0.46, 0.49, 0.53 }, { 0.30, 0.32, 0.36 }
+function Draw.clientBuilding(kind, x, y, r, accent, commodity, ghost)
+  local a = ghost and 0.55 or 1
+  local function c(t, k) k = k or 1; lg.setColor(t[1] * k, t[2] * k, t[3] * k, a) end
+  local u = r / 10
+  lg.setColor(0, 0, 0, 0.28 * a); lg.ellipse("fill", x + 2 * u, y + 9 * u, 13 * u, 4.5 * u)
+  local function gable(bx, by, w, h, roofL, roofD)
+    -- Front wall, then a pitched roof seen from above and in front: the
+    -- sunlit slope and the shaded one meet at the ridge.
+    c(WALL, 0.85); lg.rectangle("fill", bx - w / 2, by - h * 0.15, w, h * 0.55)
+    c(roofL); lg.polygon("fill", bx - w / 2 - u * 0.6, by - h * 0.1, bx - w / 2 + w * 0.12, by - h * 0.75, bx, by - h * 0.75, bx, by - h * 0.1)
+    c(roofD); lg.polygon("fill", bx, by - h * 0.1, bx, by - h * 0.75, bx + w / 2 - w * 0.12, by - h * 0.75, bx + w / 2 + u * 0.6, by - h * 0.1)
+  end
+  if kind == "estate" then
+    for i, b in ipairs({ { -5, 2, 9, 15 }, { 5, 4, 9, 11 } }) do
+      local bx, by, w, h = x + b[1] * u, y + b[2] * u, b[3] * u, b[4] * u
+      c(WALL, i == 1 and 0.95 or 0.85); lg.rectangle("fill", bx - w / 2, by - h / 2, w, h)
+      c(SLATE_D); lg.rectangle("fill", bx - w / 2, by - h / 2, w, 2 * u)
+      lg.setColor(0.16, 0.20, 0.26, a)
+      for row = 0, math.floor(h / (3.4 * u)) - 2 do
+        for col = 0, 1 do
+          lg.rectangle("fill", bx - w / 2 + (1.6 + col * 3.8) * u, by - h / 2 + (3.4 + row * 3.4) * u, 2 * u, 1.8 * u)
+        end
+      end
+    end
+    lg.setColor(accent[1], accent[2], accent[3], a); lg.rectangle("fill", x - 6 * u, y + 8 * u, 2.6 * u, 1.8 * u)
+  elseif kind == "workshop" or kind == "factory" then
+    local w, h = (kind == "factory" and 24 or 20) * u, 12 * u
+    c(WALL, 0.7); lg.rectangle("fill", x - w / 2, y - h / 2 + 2 * u, w, h)
+    local teeth = kind == "factory" and 4 or 3
+    for i = 0, teeth - 1 do
+      local tx = x - w / 2 + i * w / teeth
+      c(SLATE_L); lg.polygon("fill", tx, y - 1 * u, tx, y - 6 * u, tx + w / teeth, y - 1 * u)
+      c(SLATE_D); lg.rectangle("fill", tx, y - 1 * u, w / teeth, 1.2 * u)
+    end
+    if kind == "factory" then
+      for i = 0, 1 do
+        local cx = x - w / 2 + (3 + i * 5) * u
+        c(SLATE_D, 0.9); lg.rectangle("fill", cx, y - 13 * u, 3 * u, 8 * u)
+        -- Smoke drifting off each stack.
+        for p = 0, 2 do
+          local ph = (R.t * 0.4 + p / 3 + i * 0.5) % 1
+          lg.setColor(0.70, 0.70, 0.72, 0.35 * (1 - ph) * a)
+          lg.circle("fill", cx + 1.5 * u + ph * 6 * u, y - 14 * u - ph * 8 * u, (1.5 + ph * 2.5) * u)
+        end
+      end
+    end
+    lg.setColor(accent[1], accent[2], accent[3], a); lg.rectangle("fill", x - 2 * u, y + 3 * u, 4 * u, 5 * u)
+  elseif kind == "market" then
+    c(WALL, 0.8); lg.rectangle("fill", x - 9 * u, y - 2 * u, 18 * u, 9 * u)
+    -- A striped awning in the trade colour.
+    for i = 0, 5 do
+      if i % 2 == 0 then lg.setColor(accent[1], accent[2], accent[3], a) else lg.setColor(0.92, 0.90, 0.84, a) end
+      lg.polygon("fill", x - 10 * u + i * 20 / 6 * u, y - 7 * u, x - 10 * u + (i + 1) * 20 / 6 * u, y - 7 * u,
+        x - 10 * u + (i + 1) * 20 / 6 * u, y - 1 * u, x - 10 * u + i * 20 / 6 * u, y - 1 * u)
+    end
+  else
+    gable(x, y + 2 * u, 18 * u, 16 * u, ROOF_L, ROOF_D)
+    lg.setColor(accent[1], accent[2], accent[3], a); lg.rectangle("fill", x - 1.4 * u, y + 2.4 * u, 2.8 * u, 4 * u)
+    if kind == "pub" then
+      -- A hanging sign on a bracket.
+      c(SLATE_D); lg.rectangle("fill", x + 9 * u, y - 3 * u, 4 * u, 0.8 * u)
+      lg.setColor(accent[1], accent[2], accent[3], a); lg.rectangle("fill", x + 11 * u, y - 2.4 * u, 3.4 * u, 4 * u, 0.6 * u)
+    elseif kind == "subscriber" then
+      -- A dish on the roof.
+      lg.setColor(0.85, 0.86, 0.88, a); lg.arc("fill", "closed", x + 4 * u, y - 7 * u, 3 * u, math.pi * 0.1, math.pi * 1.1)
+    elseif kind == "home" then
+      c(SLATE_D); lg.rectangle("fill", x + 3 * u, y - 10 * u, 2.4 * u, 4 * u)
+    end
+  end
+  -- The trade, on a small badge at the corner, as the disc would have shown it.
+  if commodity and r >= 16 then
+    local bx, by, br = x + 10 * u, y - 9 * u, 3.6 * u
+    lg.setColor(P.bg[1], P.bg[2], P.bg[3], 0.9 * a); lg.circle("fill", bx, by, br)
+    lg.setColor(accent[1], accent[2], accent[3], a); lg.setLineWidth(1); lg.circle("line", bx, by, br)
+    Draw.mark(commodity, bx, by, br * 0.62, ghost)
+  end
+end
+
 -- Every node on the map is a disc: a dark body tinted by its trade, and a rim
 -- in the trade colour. Flat, so the symbol on top of it is what the eye finds.
 function Draw.disc(x, y, r, color, tint)
@@ -1761,11 +1846,17 @@ function Draw.world(city, cam, state)
     if n.kind == "client" and supplied then
       lg.setColor(P.with(P.good,0.10)); lg.circle("fill",x,y,r * 1.42)
     end
-    Draw.disc(x, y, r, color, n.prospect and 0.14 or 0.20)
+    -- Close in, a customer is its building; further out, its disc.
+    local building = n.kind == "client" and not n.roundHouse and r >= 14
+    if building then
+      Draw.clientBuilding(n.clientType, x, y, r, color, n.commodity, n.prospect)
+    else
+      Draw.disc(x, y, r, color, n.prospect and 0.14 or 0.20)
+    end
 
     if n.kind == "client" then
       lg.setColor(color)
-      Draw.clientGlyph(n.clientType, x, y + r * 0.06, r / 15)
+      if not building then Draw.clientGlyph(n.clientType, x, y + r * 0.06, r / 15) end
       -- An open offer carries a beating mark, so the map says where the work is.
       if n.prospect and r >= 5 then
         local br = math.max(5, r * 0.4) * (1 + 0.12 * math.sin(R.t * 4 + n.id))
