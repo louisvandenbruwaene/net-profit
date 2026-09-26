@@ -722,8 +722,7 @@ function love.keypressed(key)
     -- Esc folds things away one layer at a time: a menu, then what is in hand
     -- or selected, then the drawer.
     if state.settings then state.settings=nil
-    elseif state.tool or state.node or state.edge or state.link or state.district then
-      clear(); if not state.drawer then UI.closeDrawer(state) end
+    elseif state.tool or state.node or state.edge or state.link or state.district then clear()
     else UI.closeDrawer(state) end
   elseif key=="=" or key=="+" or key=="kp+" or key=="-" or key=="kp-" then
     local w,h=love.graphics.getDimensions()
@@ -731,10 +730,9 @@ function love.keypressed(key)
   elseif (key=="y" or key=="n") and state.node and city.g.nodes[state.node] and city.g.nodes[state.node].prospect then
     action(key=="y" and "acceptClient" or "declineClient",state.node)
   elseif key=="b" then
-    if UI.drawerOpen(state) and state.tab=="network" then UI.closeDrawer(state)
-    else state.tab="network"; state.drawer=true; state.scroll=0 end
+    UI.closeDrawer(state)
   elseif key=="tab" then
-    if UI.drawerOpen(state) then UI.closeDrawer(state) else state.drawer=true; state.scroll=0 end
+    UI.closeDrawer(state)
   elseif key=="return" then action("endDay")
   elseif key=="f" then fit()
   elseif key=="t" and (#city.g:nodesOfKind("terminal")+#city.g:nodesOfKind("dc")>0) then state.rail=(state.rail==nil) and "rail" or nil
