@@ -288,7 +288,8 @@ local function action(name,...)
     paying={}
     for _,c in ipairs(city:clientList()) do
       local v=city:clientIncome(c)
-      if v>0 then paying[#paying+1]={x=c.x,y=c.y,v=v} end
+      local missed=math.floor(math.max(0,(c.demand or 0)-(city.served[c.id] or 0))*(c.rate or 0)+0.5)
+      if v>0 or missed>0 then paying[#paying+1]={x=c.x,y=c.y,v=v,missed=missed} end
     end
   end
   result,err=city[name](city,...)
@@ -307,7 +308,12 @@ local function action(name,...)
     table.sort(paying,function(p,q) return p.x+p.y<q.x+q.y end)
     for i,p in ipairs(paying) do
       if i>60 then break end
-      R.floatText(p.x,p.y-26,"+$"..p.v,P.good,math.min(0.9,i*0.035))
+      local delay=math.min(0.9,i*0.035)
+      if p.v>0 then R.floatText(p.x,p.y-26,"+$"..p.v,P.good,delay) end
+      -- What a short customer did not pay, so the problem is on the map.
+      if p.missed>0 then R.floatText(p.x,p.y+(p.v>0 and 4 or -26),"-$"..p.missed.." short",P.warn,delay+0.1) end
+      -- A tick per landing, rising, so a good day sounds like one.
+      if i<=14 then state.sfx=state.sfx or {}; table.insert(state.sfx,{t=delay,pitch=0.85+i*0.035}) end
     end
     for _,leak in ipairs(result.leaks) do R.ring(leak.x,leak.y,P.bad) end
     if result.arrived then R.ring(result.arrived.x,result.arrived.y,P.energy) end
@@ -468,6 +474,15 @@ end
 
 function love.update(dt)
   R.update(dt); layout(); cam:update(dt)
+  -- Sounds booked for a moment from now, like the ticks of a day landing.
+  if state.sfx then
+    for i=#state.sfx,1,-1 do
+      local s=state.sfx[i]
+      s.t=s.t-dt
+      if s.t<=0 then A.play("click",0.35,s.pitch); table.remove(state.sfx,i) end
+    end
+    if #state.sfx==0 then state.sfx=nil end
+  end
   if state.flashTime then
     state.flashTime=state.flashTime-dt
     if state.flashTime<=0 then state.flashTime,state.flashEdge=nil,nil end
