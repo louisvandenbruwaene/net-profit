@@ -1475,6 +1475,57 @@ function Draw.world(city, cam, state)
       lg.setColor(0.90, 0.90, 0.88); lg.rectangle("fill", sx - B * 0.6, sy + L * 0.62, B * 1.2, L * 0.2)
     end
   end
+  -- Land gateways get ground of their own, drawn under everything built: a
+  -- road head is a loop of trunk road with its slip roads, an air freight
+  -- haven an apron and a short runway, turned to its own heading.
+  for _, n in ipairs(city.g:aliveNodes()) do
+    local kind = n.kind == "terminal" and (n.haven or "port")
+    if (kind == "highway" or kind == "airfield") and cam:sees(n.x, n.y, 140 * cam.scale + 20) then
+      local x, y = cam:toScreen(n.x, n.y)
+      local k = cam.scale
+      lg.push(); lg.translate(x, y)
+      lg.rotate((math.floor(Shape.hash(n.x, n.y, 90) * 4) - 1.5) * 0.35)
+      if kind == "highway" then
+        local w = math.max(2, 14 * k)
+        -- The trunk road running through, then the loop and its slips.
+        lg.setColor(0, 0, 0, 0.25); lg.setLineWidth(w + 4); lg.line(-130 * k, 2, 130 * k, 2)
+        lg.setColor(0.20, 0.21, 0.23); lg.setLineWidth(w); lg.line(-130 * k, 0, 130 * k, 0)
+        lg.setLineWidth(math.max(1.5, 9 * k))
+        lg.circle("line", 0, -34 * k, 26 * k)
+        lg.circle("line", 0, 34 * k, 26 * k)
+        lg.setColor(0.82, 0.72, 0.36, 0.7); lg.setLineWidth(math.max(1, 1.2 * k))
+        for dx = -124, 116, 16 do lg.line(dx * k, 0, (dx + 8) * k, 0) end
+        -- Traffic along the trunk road, both ways.
+        for i = 0, 3 do
+          local ph = ((R.t * 0.12 + i / 4 + Shape.hash(n.x, n.y, 91)) % 1) * 2 - 1
+          local dir = i % 2 == 0 and 1 or -1
+          local cx = ph * 130 * k * dir
+          lg.setColor(i % 2 == 0 and { 0.90, 0.88, 0.80 } or { 0.85, 0.45, 0.30 })
+          lg.rectangle("fill", cx - 4 * k, (dir * 3.5 - 1.5) * k, 8 * k, 3 * k, 1)
+        end
+      else
+        -- Apron, runway with its centre line and threshold bars, a parked plane.
+        lg.setColor(0, 0, 0, 0.25); lg.rectangle("fill", -40 * k + 2, -46 * k + 3, 80 * k, 44 * k, 6 * k)
+        lg.setColor(0.28, 0.29, 0.30); lg.rectangle("fill", -40 * k, -46 * k, 80 * k, 44 * k, 6 * k)
+        lg.setColor(0.18, 0.19, 0.20); lg.rectangle("fill", -140 * k, 14 * k, 280 * k, 26 * k, 3 * k)
+        lg.setColor(0.90, 0.90, 0.86, 0.8); lg.setLineWidth(math.max(1, 1.4 * k))
+        for dx = -110, 100, 20 do lg.line(dx * k, 27 * k, (dx + 10) * k, 27 * k) end
+        for side = -1, 1, 2 do
+          for j = 0, 3 do
+            local tx = side * 132 * k
+            lg.line(tx, (17 + j * 6.5) * k, tx - side * 8 * k, (17 + j * 6.5) * k)
+          end
+        end
+        lg.setColor(0.28, 0.29, 0.30); lg.rectangle("fill", -6 * k, -4 * k, 12 * k, 20 * k)
+        local px, py, q = 18 * k, -24 * k, 1.5 * k
+        lg.setColor(0.86, 0.88, 0.90)
+        lg.polygon("fill", px - 14 * q, py, px + 14 * q, py - 2 * q, px + 14 * q, py + 2 * q)
+        lg.polygon("fill", px + 2 * q, py - 12 * q, px + 6 * q, py - 12 * q, px + 5 * q, py + 12 * q, px + 1 * q, py + 12 * q)
+        lg.polygon("fill", px - 13 * q, py - 5 * q, px - 11 * q, py - 5 * q, px - 11 * q, py + 5 * q, px - 13 * q, py + 5 * q)
+      end
+      lg.pop()
+    end
+  end
   drawDistrictChrome(city, cam, state)
   drawSeams(city, cam, state)
 
