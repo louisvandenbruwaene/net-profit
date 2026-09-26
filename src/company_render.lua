@@ -655,6 +655,38 @@ function Draw.structureBuilding(kind, x, y, r, accent, level, fill, busy, seed)
     lg.setColor(0.16, 0.18, 0.22); lg.rectangle("fill", x - w / 2 + 2 * u, cy - hgt / 2 + 2 * u, 2.2 * u, hgt - 3 * u)
     local f = math.max(0, math.min(1, fill or 0))
     lg.setColor(accent); lg.rectangle("fill", x - w / 2 + 2 * u, cy + hgt / 2 - 1 * u - (hgt - 3 * u) * f, 2.2 * u, (hgt - 3 * u) * f)
+  elseif kind == "stop" then
+    -- A bus shelter: a glass box under a flat roof, and the sign on its pole.
+    lg.setColor(0.35, 0.60, 0.75, 0.55); lg.rectangle("fill", x - 8 * u, y - 3 * u, 16 * u, 8 * u)
+    lg.setColor(0.30, 0.32, 0.36); lg.rectangle("fill", x - 9 * u, y - 5 * u, 18 * u, 2.4 * u)
+    lg.setColor(0.36, 0.38, 0.42); lg.setLineWidth(math.max(1, u)); lg.line(x + 11 * u, y + 7 * u, x + 11 * u, y - 7 * u)
+    lg.setColor(accent); lg.circle("fill", x + 11 * u, y - 8 * u, 2.4 * u)
+  elseif kind == "station" then
+    -- A fuel station: canopy on columns over two pumps, and the shop behind.
+    lg.setColor(0.62, 0.60, 0.56); lg.rectangle("fill", x - 11 * u, y - 9 * u, 9 * u, 7 * u)
+    lg.setColor(0.36, 0.38, 0.42); lg.rectangle("fill", x - 1 * u, y - 1 * u, 1.4 * u, 8 * u); lg.rectangle("fill", x + 9 * u, y - 1 * u, 1.4 * u, 8 * u)
+    for i = 0, 1 do lg.setColor(accent); lg.rectangle("fill", x + (1.5 + i * 4) * u, y + 1 * u, 2.4 * u, 4 * u) end
+    lg.setColor(0.88, 0.88, 0.86); lg.rectangle("fill", x - 2 * u, y - 5 * u, 14 * u, 4 * u)
+    lg.setColor(accent); lg.rectangle("fill", x - 2 * u, y - 2 * u, 14 * u, 1 * u)
+  elseif kind == "resort" then
+    -- A hotel: a tall block with balconies, and a pool catching the light.
+    local floors = 2 + math.min(4, level)
+    lg.setColor(0.86, 0.82, 0.74); lg.rectangle("fill", x - 7 * u, y + 6 * u - floors * 3 * u, 11 * u, floors * 3 * u)
+    lg.setColor(0.28, 0.40, 0.52)
+    for f = 0, floors - 1 do lg.rectangle("fill", x - 6 * u, y + 6.8 * u - (f + 1) * 3 * u, 9 * u, 1.2 * u) end
+    lg.setColor(0.25, 0.60, 0.80); lg.rectangle("fill", x + 5 * u, y + 1 * u, 7 * u, 5 * u, 1 * u)
+    lg.setColor(1, 1, 1, 0.3 + 0.2 * math.sin(R.t * 2 + (seed or 0))); lg.rectangle("fill", x + 6 * u, y + 2 * u, 3 * u, 1 * u)
+    lg.setColor(accent); lg.rectangle("fill", x - 7 * u, y + 6 * u - floors * 3 * u - 1.5 * u, 11 * u, 1.5 * u)
+  elseif kind == "dc" then
+    -- A depot yard: a shed, and containers stacked on the hard standing.
+    lg.setColor(0.34, 0.35, 0.37); lg.rectangle("fill", x - 13 * u, y - 7 * u, 26 * u, 15 * u, 1.5 * u)
+    lg.setColor(0.52, 0.54, 0.58); lg.rectangle("fill", x - 12 * u, y - 6 * u, 10 * u, 7 * u)
+    local cols = { { 0.30, 0.55, 0.75 }, { 0.85, 0.62, 0.25 }, { 0.40, 0.65, 0.40 }, { 0.70, 0.35, 0.35 } }
+    for i = 0, 5 do
+      lg.setColor(cols[(i + math.floor((seed or 0) * 10)) % #cols + 1])
+      lg.rectangle("fill", x + (0 + (i % 3) * 4) * u, y + (-5 + math.floor(i / 3) * 5) * u, 3.4 * u, 4 * u)
+    end
+    lg.setColor(accent); lg.rectangle("fill", x - 12 * u, y + 3 * u, 10 * u, 1.2 * u)
   else
     -- Pump house: a concrete block, the main passing through its flanges,
     -- and the impeller showing through a round port.
@@ -2049,8 +2081,9 @@ function Draw.world(city, cam, state)
     local building = (n.kind == "client" and not n.roundHouse and r >= 14)
       or (n.kind == "source" and not n.plant and r >= 16)
       or (n.kind == "works" and n.recipe ~= "forestry" and n.recipe ~= "quarry" and r >= 16)
-      or ((n.kind == "tower" or n.kind == "depot" or n.kind == "pump") and r >= 16)
-    if building and (n.kind == "tower" or n.kind == "depot" or n.kind == "pump") then
+      or ((n.kind == "tower" or n.kind == "depot" or n.kind == "pump" or n.kind == "stop"
+        or n.kind == "station" or n.kind == "resort" or n.kind == "dc") and r >= 16)
+    if building and n.kind ~= "client" and n.kind ~= "source" and n.kind ~= "works" then
       Draw.structureBuilding(n.kind, x, y, r, color, n.level or 1,
         n.kind == "depot" and (n.stored or 0) / (n.capacityStore or City.depotCapacity or 1),
         math.abs((city.detail.node or {})[n.id] or 0) > 0, n.id * 0.7)
