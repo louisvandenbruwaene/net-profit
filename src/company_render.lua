@@ -1643,11 +1643,14 @@ function Draw.world(city, cam, state)
   -- Works that take from the ground leave a mark on it: a forestry fells a
   -- clearing with stumps and stacked logs, a quarry cuts a terraced pit.
   for _, n in ipairs(city.g:aliveNodes()) do
-    if (n.recipe == "forestry" or n.recipe == "quarry") and cam:sees(n.x, n.y, 80 * cam.scale + 20) then
+    -- A forestry and a quarry are sources of timber and rock on their ground.
+    local worked = n.kind == "source" and (n.commodity == "timber" and "forestry" or n.commodity == "rock" and "quarry")
+      or (n.recipe == "forestry" or n.recipe == "quarry") and n.recipe
+    if worked and cam:sees(n.x, n.y, 80 * cam.scale + 20) then
       local x, y = cam:toScreen(n.x, n.y)
-      local r = (n.recipe == "forestry" and 80 or 62) * cam.scale
+      local r = (worked == "forestry" and 80 or 62) * cam.scale
       local h = function(k) return Shape.hash(n.x, n.y, k) end
-      if n.recipe == "forestry" then
+      if worked == "forestry" then
         -- Felled ground: solid in the middle, thinning out into the trees.
         for _, ring in ipairs({ { 1.0, 0.18 }, { 0.9, 0.35 }, { 0.8, 0.6 }, { 0.7, 1 } }) do
           lg.setColor(0.15, 0.20, 0.14, ring[2])
@@ -1670,7 +1673,11 @@ function Draw.world(city, cam, state)
           end
         end
       else
-        -- Terraces stepping down into the pit, each a little darker.
+        local range = city.quarryRange and city:quarryRange(n)
+        local spent = range and (1 - city:rockLeft(range) / math.max(1, city:rockReserve(range))) or 0
+        r = r * (1 + 0.5 * spent)
+        -- Terraces stepping down into the pit, each a little darker; the pit
+        -- widens as the range is cut away.
         for i = 0, 4 do
           local k = 1 - i * 0.18
           local pts = {}
@@ -1868,6 +1875,30 @@ function Draw.world(city, cam, state)
             lg.setColor(0.60, 0.61, 0.63, fade); lg.rectangle("fill", hx - 6 * k, hy - 5 * k, 12 * k, 10 * k, 2 * k)
             lg.setColor(0.85, 0.92, 0.96, (0.4 + 0.3 * math.sin(R.t * 4 + i)) * fade)
             lg.circle("fill", hx - dy * 8 * k, hy + dx * 8 * k, 3 * k)
+          end
+        end
+      end
+    end
+  end
+  -- Harvested woods growing back: saplings over the old outline, filling in
+  -- and growing taller as the days pass.
+  for _, w in ipairs(city.regrowth or {}) do
+    if cam:sees(w.x, w.y, w.r * cam.scale + 40) then
+      local grow = city:regrowthProgress(w)
+      local x, y = cam:toScreen(w.x, w.y)
+      Scenery.boundary(w, x, y, cam.scale, P.good, 0.25)
+      local step = 24
+      for gx = -w.r, w.r, step do
+        for gy = -w.r, w.r, step do
+          local h = Shape.hash(w.x + gx, w.y + gy, 200)
+          local px, py = w.x + gx + (h - 0.5) * step * 0.8, w.y + gy + (Shape.hash(w.x + gx, w.y + gy, 201) - 0.5) * step * 0.8
+          if h < 0.25 + 0.65 * grow and Shape.contains(w, px, py) then
+            local sx, sy = cam:toScreen(px, py)
+            local sz = (3 + 9 * grow * (0.7 + 0.6 * h)) * cam.scale
+            lg.setColor(0, 0, 0, 0.25); lg.ellipse("fill", sx + sz * 0.3, sy + sz * 0.5, sz * 0.6, sz * 0.25)
+            lg.setColor(0.30, 0.22, 0.14); lg.rectangle("fill", sx - 0.5 * cam.scale, sy, math.max(1, cam.scale), sz * 0.5)
+            lg.setColor(0.16, 0.34 + 0.08 * h, 0.20); lg.circle("fill", sx, sy, sz * 0.55)
+            lg.setColor(0.30 + 0.1 * h, 0.56, 0.30); lg.circle("fill", sx - sz * 0.15, sy - sz * 0.15, sz * 0.35)
           end
         end
       end
@@ -2113,7 +2144,7 @@ function Draw.world(city, cam, state)
     end
     -- Close in, a customer is its building; further out, its disc.
     local building = (n.kind == "client" and not n.roundHouse and r >= 14)
-      or (n.kind == "source" and (not n.plant or n.plant == "wind") and r >= 14)
+      or (n.kind == "source" and (not n.plant or n.plant == "wind") and n.commodity ~= "timber" and n.commodity ~= "rock" and r >= 14)
       or (n.kind == "works" and n.recipe ~= "forestry" and n.recipe ~= "quarry" and r >= 14)
       or ((n.kind == "tower" or n.kind == "pole" or n.kind == "pylon" or n.kind == "hvtower"
         or n.kind == "depot" or n.kind == "pump" or n.kind == "stop"
