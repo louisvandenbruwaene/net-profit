@@ -12,27 +12,27 @@
 -- every order the map is looked at.
 local Scenery = {}
 local lg = love.graphics
+local Shape = require("terrain_shape")
 
 local function hash(a, b, c)
   local v = math.sin(a * 12.9898 + b * 78.233 + (c or 0) * 37.719) * 43758.5453
   return v - math.floor(v)
 end
 
--- A wobbling outline that never passes the surveyed radius, so what is drawn
--- is never bigger than the ground that charges to be crossed.
+-- The outline comes from terrain_shape, which the rules use too, so what is
+-- drawn is exactly the ground that charges to be crossed.
 local function edgeAt(o, t, k)
-  local a, b = hash(o.x, o.y, 1) * 6.28, hash(o.x, o.y, 2) * 6.28
-  return (0.93 + 0.04 * math.sin(3 * t + a) + 0.025 * math.sin(7 * t + b)) * (k or 1)
+  return Shape.fraction(o, t) * (k or 1)
 end
 
 -- A disc of ground with a feathered rim: solid inside, fading to nothing at the
 -- outline. Returns triangles for a Mesh.
-local function groundBlob(v, o, inner, outer, feather)
-  local n = 56
+local function groundBlob(v, o, inner, outer, feather, k)
+  local n = 72
   local r = o.r
   for i = 0, n - 1 do
     local t0, t1 = i / n * math.pi * 2, (i + 1) / n * math.pi * 2
-    local e0, e1 = edgeAt(o, t0), edgeAt(o, t1)
+    local e0, e1 = edgeAt(o, t0, k), edgeAt(o, t1, k)
     local c0, s0, c1, s1 = math.cos(t0), math.sin(t0), math.cos(t1), math.sin(t1)
     local ax, ay = c0 * r * e0 * (1 - feather), s0 * r * e0 * (1 - feather)
     local bx, by = c1 * r * e1 * (1 - feather), s1 * r * e1 * (1 - feather)
@@ -225,67 +225,122 @@ local function buildForest(o, clearings)
   return { ground = lg.newMesh(v, "triangles", "static"), batch = batch, trees = #trees }
 end
 
+-- A vertex-coloured triangle: each corner its own colour, so a peak can shade
+-- from rock at the top into the colour of the ground at its foot.
+local function triC(v, ax, ay, ca, bx, by, cb, cx, cy, cc)
+  v[#v + 1] = { ax, ay, 0, 0, ca[1], ca[2], ca[3], ca[4] or 1 }
+  v[#v + 1] = { bx, by, 0, 0, cb[1], cb[2], cb[3], cb[4] or 1 }
+  v[#v + 1] = { cx, cy, 0, 0, cc[1], cc[2], cc[3], cc[4] or 1 }
+end
+
+local function mix(a, b, t, alpha)
+  return { a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t, a[3] + (b[3] - a[3]) * t, alpha or 1 }
+end
+
+-- A range rises out of the ground rather than sitting on it: grassy foothills
+-- in the plot's own colour at the rim, scree and low humps further in, and
+-- only the heart carries tall peaks with snow. Pines climb the lower slopes.
+local FOOT = { 0.13, 0.19, 0.16 }
+local SCREE = { 0.19, 0.19, 0.20 }
 local function buildRange(o, clearings)
+  if not atlas then buildAtlas() end
   local v = {}
-  groundBlob(v, o, { 0.20, 0.19, 0.22, 0.95 }, { 0.15, 0.15, 0.18, 0.9 }, 0.1)
-  local spacing = o.massive and 84 or math.max(34, math.min(70, o.r * 0.55))
-  -- Ridges: a smooth field that raises some peaks, lowers others and leaves
-  -- passes between them, so a range has a spine instead of being a carpet.
+  groundBlob(v, o, { FOOT[1] + 0.02, FOOT[2] + 0.01, FOOT[3], 0.9 }, { FOOT[1], FOOT[2], FOOT[3], 0.6 }, 0.3, 1.0)
+  groundBlob(v, o, { 0.20, 0.20, 0.21, 0.9 }, { 0.16, 0.18, 0.17, 0.5 }, 0.45, 0.8)
+  groundBlob(v, o, { 0.23, 0.22, 0.24, 0.9 }, { 0.19, 0.19, 0.21, 0.4 }, 0.5, 0.58)
+  local spacing = o.massive and 84 or math.max(30, math.min(64, o.r * 0.5))
   local a1, a2 = hash(o.x, o.y, 7) * 6.28, hash(o.x, o.y, 8) * 6.28
   local function ridge(px, py)
     local n = math.sin(px / o.r * 3.3 + a1) * 0.6 + math.sin(py / o.r * 2.7 + a2) * 0.6 + math.sin((px - py) / o.r * 5.9 + a1) * 0.4
     return math.max(0, math.min(1, 0.5 + n / 3.2))
   end
-  local peaks = scatter(o, spacing, spacing * 0.55, function(px, py, edge)
+  local function clear(px, py, pad)
     for _, c in ipairs(clearings or {}) do
-      if (px - c[1]) ^ 2 + (py - c[2]) ^ 2 < (c[3] + spacing * 0.5) ^ 2 then return false end
+      if (px - c[1]) ^ 2 + (py - c[2]) ^ 2 < (c[3] + pad) ^ 2 then return false end
     end
+    return true
+  end
+  -- Pebbles over the scree.
+  for i = 1, math.floor(o.r * o.r / 700) do
+    local a, d = hash(o.x, o.y, 20 + i) * 6.28, math.sqrt(hash(o.x, o.y, 40 + i)) * o.r * edgeAt(o, hash(o.x, o.y, 20 + i) * 6.28) * 0.95
+    local x, y, sz = math.cos(a) * d, math.sin(a) * d, 1.5 + hash(o.x, o.y, 60 + i) * 3.5
+    local c = hash(o.x, o.y, 80 + i) * 0.08
+    tri(v, x - sz, y + sz * 0.5, x - sz * 0.2, y - sz * 0.7, x + sz, y + sz * 0.5, { 0.30 + c, 0.29 + c, 0.32 + c, 0.75 })
+  end
+  local peaks = scatter(o, spacing * 0.8, spacing * 0.25, function(px, py, edge)
+    if not clear(px, py, spacing * 0.4) then return false end
     local rg = ridge(px, py)
-    return rg > 0.3 or hash(o.x + px, o.y + py, 12) < rg * 1.6
+    return rg > 0.25 or hash(o.x + px, o.y + py, 12) < rg * 1.8
   end)
-  for _, p in ipairs(peaks) do p.ridge = ridge(p.x, p.y) * (1 - 0.35 * math.sqrt(p.x * p.x + p.y * p.y) / o.r) end
-  if #peaks == 0 then peaks = { { x = 0, y = o.r * 0.25, h = hash(o.x, o.y, 5), k = hash(o.x, o.y, 6), ridge = 0.7 } } end
-  -- Scree first, so every peak stands on it.
-  for i = 1, math.floor(o.r * o.r / 900) do
-    local a, d = hash(o.x, o.y, 20 + i) * 6.28, math.sqrt(hash(o.x, o.y, 40 + i)) * o.r * 0.86
-    local x, y, s = math.cos(a) * d, math.sin(a) * d, 2 + hash(o.x, o.y, 60 + i) * 4
-    tri(v, x - s, y + s * 0.5, x, y - s * 0.6, x + s, y + s * 0.5, { 0.29, 0.28, 0.32, 0.8 })
-  end
+  local pines = scatter(o, 24, 6, function(px, py, edge)
+    if not clear(px, py, 10) then return false end
+    return edge > 0.5 and hash(o.x + px, o.y + py, 13) < (edge - 0.5) * 1.3
+  end)
+  -- Peaks and pines go down together, back to front, so a pine in front of
+  -- a slope hides its foot and one behind it is hidden.
+  local items = {}
   for _, p in ipairs(peaks) do
-    local w = spacing * (0.75 + p.ridge * 0.95 + p.k * 0.35)
-    local h = w * (0.62 + p.h * 0.3 + p.ridge * 0.25)
-    local x, y = p.x, p.y + h * 0.35
-    local lean = (p.h - 0.5) * w * 0.18
-    local ax, ay = x + lean, y - h
-    local lsx, lsy = x - w * 0.29, y - h * (0.5 + p.k * 0.12)
-    local rsx, rsy = x + w * 0.27, y - h * (0.46 + p.h * 0.1)
-    local rbx = x + w * 0.06
-    local tone = 0.9 + p.k * 0.2
-    -- Foot shadow.
-    tri(v, x - w * 0.55, y + 2, x + w * 0.62, y + 2, x + w * 0.1, y + h * 0.1, { 0, 0, 0, 0.25 })
-    -- Sunlit face on the left of the ridge, shadow face on the right.
-    local lit = { 0.41 * tone, 0.40 * tone, 0.45 * tone, 1 }
-    local dark = { 0.22 * tone, 0.21 * tone, 0.26 * tone, 1 }
-    tri(v, rbx, y, x - w / 2, y, lsx, lsy, lit)
-    tri(v, rbx, y, lsx, lsy, ax, ay, lit)
-    tri(v, rbx, y, ax, ay, rsx, rsy, dark)
-    tri(v, rbx, y, rsx, rsy, x + w / 2, y, dark)
-    -- A crease down the lit face gives it a second plane.
-    tri(v, rbx, y, lsx, lsy, x - w * 0.12, y - h * 0.42, { 0.35 * tone, 0.34 * tone, 0.39 * tone, 1 })
-    -- Snow on the taller peaks, with a jagged hem.
-    if h > spacing * 1.05 then
-      local f = 0.26 + p.h * 0.08
-      local lx, ly = ax + (lsx - ax) * f * 1.6, ay + (lsy - ay) * f * 1.6
-      local rx, ry = ax + (rsx - ax) * f * 1.5, ay + (rsy - ay) * f * 1.5
-      local mx, my = ax + (rbx - ax) * f * 0.9, ay + (y - ay) * f * 0.9
-      local snowL, snowD = { 0.80, 0.83, 0.88, 1 }, { 0.54, 0.58, 0.67, 1 }
-      tri(v, ax, ay, lx, ly, (lx + mx) / 2, (ly + my) / 2 - h * 0.04, snowL)
-      tri(v, ax, ay, (lx + mx) / 2, (ly + my) / 2 - h * 0.04, mx, my, snowL)
-      tri(v, ax, ay, mx, my, (mx + rx) / 2, (my + ry) / 2 - h * 0.05, snowD)
-      tri(v, ax, ay, (mx + rx) / 2, (my + ry) / 2 - h * 0.05, rx, ry, snowD)
+    local depth = math.sqrt(p.x * p.x + p.y * p.y) / (o.r * edgeAt(o, math.atan2 and math.atan2(p.y, p.x) or math.atan(p.y, p.x)))
+    p.lift = math.max(0, 1 - depth) ^ 0.75 * (0.55 + 0.45 * ridge(p.x, p.y))
+    if p.lift > 0.06 then items[#items + 1] = p end
+  end
+  for _, t in ipairs(pines) do t.pine = true; items[#items + 1] = t end
+  table.sort(items, function(a, b) return a.y < b.y end)
+  local run = v
+  for _, p in ipairs(items) do
+    if p.pine then
+      -- A pine in the same mesh as the rock, so it takes its place in the
+      -- back-to-front order: three tiers, each dark with a sunlit left half.
+      local sz = 8 * (0.8 + p.k * 0.5)
+      local pal = CONIFER[1 + math.floor(p.k * #CONIFER) % #CONIFER]
+      local shade = 0.8 + 0.25 * p.h
+      local d, l = mix(pal[1], pal[1], 0, 1), mix(pal[2], pal[2], 0, 1)
+      for c = 1, 3 do d[c] = d[c] * shade; l[c] = l[c] * shade end
+      tri(run, p.x - sz * 0.2, p.y + sz * 0.9, p.x + sz * 1.3, p.y + sz * 0.9, p.x + sz * 0.6, p.y + sz * 0.3, { 0, 0, 0, 0.25 })
+      for i = 0, 2 do
+        local wdt = sz * (0.95 - i * 0.24)
+        local base = p.y + sz * 0.6 - i * sz * 0.55
+        local top = base - sz * (0.95 - i * 0.12)
+        tri(run, p.x - wdt, base, p.x, top, p.x + wdt, base, d)
+        tri(run, p.x - wdt, base, p.x, top, p.x + wdt * 0.05, base - sz * 0.1, l)
+      end
+    else
+      local lift = p.lift
+      local w = spacing * (0.55 + lift * 1.35 + p.k * 0.3)
+      local h = w * (0.35 + lift * 0.55 + p.h * 0.15)
+      local x, y = p.x, p.y + h * 0.3
+      local lean = (p.h - 0.5) * w * 0.18
+      local ax, ay = x + lean, y - h
+      local lsx, lsy = x - w * 0.29, y - h * (0.5 + p.k * 0.12)
+      local rsx, rsy = x + w * 0.27, y - h * (0.46 + p.h * 0.1)
+      local rbx = x + w * 0.06
+      local tone = 0.88 + p.k * 0.2
+      local lit = { 0.43 * tone, 0.42 * tone, 0.46 * tone, 1 }
+      local dark = { 0.23 * tone, 0.22 * tone, 0.27 * tone, 1 }
+      local crease = { 0.36 * tone, 0.35 * tone, 0.40 * tone, 1 }
+      -- The foot of every face fades into the ground it stands on.
+      local ground = lift < 0.35 and FOOT or SCREE
+      local litFoot, darkFoot = mix(lit, ground, 0.8), mix(dark, ground, 0.7)
+      triC(run, x - w * 0.6, y + 1, { 0, 0, 0, 0 }, x + w * 0.65, y + 1, { 0, 0, 0, 0 }, x + w * 0.12, y - h * 0.2, { 0, 0, 0, 0.22 })
+      triC(run, rbx, y, litFoot, x - w / 2, y, litFoot, lsx, lsy, mix(lit, ground, 0.3))
+      triC(run, rbx, y, litFoot, lsx, lsy, mix(lit, ground, 0.3), ax, ay, lit)
+      triC(run, rbx, y, darkFoot, ax, ay, dark, rsx, rsy, mix(dark, ground, 0.25))
+      triC(run, rbx, y, darkFoot, rsx, rsy, mix(dark, ground, 0.25), x + w / 2, y, darkFoot)
+      triC(run, rbx, y, mix(crease, ground, 0.8), lsx, lsy, mix(crease, ground, 0.3), x - w * 0.12, y - h * 0.42, crease)
+      if lift > 0.55 and h > spacing * 0.75 then
+        local f = 0.24 + p.h * 0.08
+        local lx, ly = ax + (lsx - ax) * f * 1.6, ay + (lsy - ay) * f * 1.6
+        local rx, ry = ax + (rsx - ax) * f * 1.5, ay + (rsy - ay) * f * 1.5
+        local mx, my = ax + (rbx - ax) * f * 0.9, ay + (y - ay) * f * 0.9
+        local snowL, snowD = { 0.80, 0.83, 0.88, 1 }, { 0.54, 0.58, 0.67, 1 }
+        tri(run, ax, ay, lx, ly, (lx + mx) / 2, (ly + my) / 2 - h * 0.04, snowL)
+        tri(run, ax, ay, (lx + mx) / 2, (ly + my) / 2 - h * 0.04, mx, my, snowL)
+        tri(run, ax, ay, mx, my, (mx + rx) / 2, (my + ry) / 2 - h * 0.05, snowD)
+        tri(run, ax, ay, (mx + rx) / 2, (my + ry) / 2 - h * 0.05, rx, ry, snowD)
+      end
     end
   end
-  return { ground = lg.newMesh(v, "triangles", "static") }
+  return { ground = lg.newMesh(v, "triangles", "static"), trees = #pines }
 end
 
 local function buildPond(o)
@@ -315,6 +370,7 @@ function Scenery.draw(o, x, y, scale, t, dim, clearings)
   dim = dim or 1
   lg.setColor(1, 1, 1, dim)
   lg.draw(b.ground, x, y, 0, scale, scale)
+  for _, layer in ipairs(b.layers or {}) do lg.draw(layer.mesh, x, y, 0, scale, scale) end
   if b.batch then
     -- The atlas was painted onto a clear canvas, so it holds premultiplied
     -- colour and is drawn that way; the fade is premultiplied to match.
@@ -341,9 +397,11 @@ function Scenery.boundary(o, x, y, scale, color, alpha)
   local segs = 2 * math.max(12, math.min(160, math.floor(math.pi * r / 14)))
   lg.setColor(color[1], color[2], color[3], alpha)
   lg.setLineWidth(1)
+  local shaped = o.kind ~= nil
   for i = 0, segs - 1, 2 do
     local a0, a1 = i / segs * math.pi * 2, (i + 1) / segs * math.pi * 2
-    lg.line(x + math.cos(a0) * r, y + math.sin(a0) * r, x + math.cos(a1) * r, y + math.sin(a1) * r)
+    local f0, f1 = shaped and edgeAt(o, a0) or 1, shaped and edgeAt(o, a1) or 1
+    lg.line(x + math.cos(a0) * r * f0, y + math.sin(a0) * r * f0, x + math.cos(a1) * r * f1, y + math.sin(a1) * r * f1)
   end
 end
 

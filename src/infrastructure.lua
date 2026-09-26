@@ -52,7 +52,7 @@ return function(City)
       if math.abs(n.x-x)<radius and math.abs(n.y-y)<radius then return 'farm fields need more open space' end
     end
     for _,o in ipairs(self.obstacles) do
-      if dist(o,{x=x,y=y})<r+o.r then return 'farm fields overlap protected terrain' end
+      if dist(o,{x=x,y=y})<r*1.2+require('terrain_shape').reach(o,x,y) then return 'farm fields overlap protected terrain' end
     end
   end
   function City:placementError(x,y)

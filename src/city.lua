@@ -7,6 +7,7 @@
 -- which is the point.
 local Graph = require("graph")
 local NB = require("network_builder")
+local Shape = require("terrain_shape")
 
 local City = {}
 City.__index = City
@@ -1291,7 +1292,7 @@ function City:scatterDeposits(district, spec)
         if far then
           local buried
           for _,o in ipairs(self.obstacles) do
-            if self:districtAt(o.x,o.y)==district and (o.x-x)^2+(o.y-y)^2<=o.r^2 then buried=o; break end
+            if self:districtAt(o.x,o.y)==district and Shape.contains(o,x,y) then buried=o; break end
           end
           if not buried and self:riverAt(x,y) then buried={kind="river",r=60} end
           local dep = {
@@ -1318,20 +1319,12 @@ function City:seamAt(x, y)
   return nil
 end
 
-local function segCircle(ax, ay, bx, by, cx, cy, r)
-  local dx, dy = bx - ax, by - ay
-  local l2 = dx * dx + dy * dy
-  local t = 0
-  if l2 > 1e-9 then
-    t = math.max(0, math.min(1, ((cx - ax) * dx + (cy - ay) * dy) / l2))
-  end
-  local px, py = ax + dx * t, ay + dy * t
-  return (px - cx) ^ 2 + (py - cy) ^ 2 <= r * r
-end
-
+-- Woods and ranges are lobed blobs, not circles: the outline in
+-- terrain_shape.lua is the one the map draws, so the ground that charges is
+-- exactly the ground that looks like it.
 function City:obstacleAt(x, y)
   for _, o in ipairs(self.obstacles) do
-    if (x - o.x) ^ 2 + (y - o.y) ^ 2 <= o.r * o.r then return o end
+    if Shape.contains(o, x, y) then return o end
   end
   -- The river reads as an obstacle to every caller that asks "what is standing
   -- here", so the park/river/bedrock permit machinery does not need to know it
@@ -1354,7 +1347,7 @@ end
 function City:crossingCost(ax, ay, bx, by)
   local mult = 1
   for _, o in ipairs(self.obstacles) do
-    if segCircle(ax, ay, bx, by, o.x, o.y, o.r) then
+    if Shape.crosses(o, ax, ay, bx, by) then
       local cross = self:groundCross(o.kind, o)
       if not cross then return nil, o end
       mult = math.max(mult, cross)
