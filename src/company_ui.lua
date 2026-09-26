@@ -2391,28 +2391,27 @@ local function topBar(open)
   lg.setColor(P.panel); lg.rectangle("fill",0,0,W,UI.BAR)
   lg.setColor(P.panelEdge); lg.setLineWidth(1); lg.line(0,UI.BAR,W,UI.BAR)
 
-  -- Build is the panel itself. The other menus are small buttons that open
-  -- in its place; pressing the lit one again goes back to Build.
-  local tabX=10
-  local away=state.tab~="network" and state.tab~="map" and not (state.node or state.edge or state.link or state.district)
-  if away then
-    button("tab-network","< Build",tabX,16,72,28,function() closeDrawer() end,true,nil,false,P.good)
-    tabX=tabX+76
-  end
-  for _,t in ipairs(TABS) do
-    if t[1]~="network" then
-      local here=state.tab==t[1] or (t[1]=="stats" and (state.tab=="ambitions" or state.tab=="ledger" or state.tab=="advisor"))
-      local tw=({finance=84,customers=70,stats=58})[t[1]]
-      local offers=t[1]=="customers" and #city:clientList(true) or 0
-      button("tab-"..t[1],t[2],tabX,16,tw,28,function() openTab(t[1]) end,true,nil,here)
-      if offers>0 then
-        local bx,by=tabX+tw-4,17
-        lg.setColor(P.energy); lg.circle("fill",bx,by,8)
-        single(tostring(offers),bx-8,by-7,"tiny",P.bg,16,"center")
-      end
-      tabX=tabX+tw+4
+  -- The four menus as one fixed segmented control over the panel. Nothing in
+  -- it appears or disappears, so nothing to its right ever moves.
+  local navW=UI.width-20
+  local segW=(navW-6)/4
+  lg.setColor(P.bg); lg.rectangle("fill",10,14,navW,34,8)
+  for i,t in ipairs(TABS) do
+    local here=(t[1]=="network" and (state.tab=="network" or state.tab=="map"))
+      or state.tab==t[1] or (t[1]=="stats" and (state.tab=="ambitions" or state.tab=="ledger" or state.tab=="advisor"))
+    if state.node or state.edge or state.link then here=t[1]=="network" end
+    local bx=13+(i-1)*(segW+0)
+    button("tab-"..t[1],t[2],bx,17,segW-2,28,function()
+      if t[1]=="network" then closeDrawer() else openTab(t[1]) end
+    end,true,nil,here)
+    local offers=t[1]=="customers" and #city:clientList(true) or 0
+    if offers>0 then
+      local cx,cy=bx+segW-9,19
+      lg.setColor(P.energy); lg.circle("fill",cx,cy,8)
+      single(tostring(offers),cx-8,cy-7,"tiny",P.bg,16,"center")
     end
   end
+  local tabX=UI.width-4
 
   -- From the right: the day, the settings, then whatever wants deciding.
   local rx=W-10
@@ -2476,8 +2475,10 @@ local function topBar(open)
     local flash=UI.cashFlash and math.max(0,1-(R.t-UI.cashFlash)/0.9) or 0
     local cashColor=flash>0 and P.mix and P.mix(P.energy,UI.cashFlashUp and P.good or P.bad,flash)
       or (flash>0.3 and (UI.cashFlashUp and P.good or P.bad)) or P.energy
-    local cashW=math.min(room*0.55,math.max(90,SF.width(cash,R.fonts.big)+28))
+    -- A fixed width, so the per-day figure never shifts as cash changes.
+    local cashW=math.min(room*0.55,160)
     single(cash,x0,20,UI.headerFont(cash,cashW),cashColor,cashW)
+    UI.cashX=x0
     single("CASH",x0,8,"tiny",P.textDim,cashW)
     local dx=x0+cashW+12
     local dayW=rx-dx-8
