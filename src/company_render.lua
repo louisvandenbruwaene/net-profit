@@ -703,20 +703,56 @@ local function drawSea(city, cam, state)
       lg.line(smooth)
     end
   end)
-  -- The coastline itself.
-  local cx0, cy = cam:toScreen(left - 200, 0)
-  local cx1 = cam:toScreen(right + 200, 0)
-  lg.setColor(P.with({ 0.40, 0.64, 0.88 }, 0.6)); lg.setLineWidth(2)
-  -- Broken where the river runs out into the sea: an estuary has no shore
-  -- across it.
+  -- The shore: shallows lightening toward land, a beach whose edge wanders,
+  -- wet sand at the waterline and surf running up it. All of it is on the sea
+  -- side of the line, so nothing drawn here is ground anyone could build on.
+  -- The estuary has no shore across it.
   local p = city:riverPath()
-  if p and p.n > 0 then
-    local mx0 = cam:toScreen(p.x[1] - p.hw[1], 0)
-    local mx1 = cam:toScreen(p.x[1] + p.hw[1], 0)
-    if mx0 > cx0 then lg.line(cx0, cy, math.min(mx0, cx1), cy) end
-    if mx1 < cx1 then lg.line(math.max(mx1, cx0), cy, cx1, cy) end
-  else
-    lg.line(cx0, cy, cx1, cy)
+  local gapA, gapB = math.huge, -math.huge
+  if p and p.n > 0 then gapA, gapB = p.x[1] - p.hw[1], p.x[1] + p.hw[1] end
+  local function edge(wx) return -20 - 7 * math.sin(wx / 90) - 4 * math.sin(wx / 37 + 1) end
+  local step = math.max(12, 18 / math.max(0.2, cam.scale))
+  local x0w = math.floor((left - 200) / step) * step
+  withinRows(0, coast, function()
+    for i = 1, 14 do
+      local _, ty = cam:toScreen(0, -i * 14)
+      lg.setColor(0.16, 0.34, 0.46, 0.032)
+      lg.rectangle("fill", cam.vx, ty, cam.vw, math.max(0, coast - ty))
+    end
+  end)
+  local function runs(fn)
+    local wx = x0w
+    while wx < right + 200 do
+      local nx = wx + step
+      if nx <= gapA or wx >= gapB then fn(wx, nx) end
+      wx = nx
+    end
+  end
+  runs(function(a, b)
+    local ax, ay = cam:toScreen(a, edge(a))
+    local bx, by = cam:toScreen(b, edge(b))
+    local _, base = cam:toScreen(0, 0)
+    lg.setColor(0.52, 0.48, 0.36, 0.92)
+    lg.polygon("fill", ax, ay, bx, by, bx, base, ax, base)
+    lg.setColor(0.36, 0.34, 0.28, 0.9)
+    local _, wy1 = cam:toScreen(0, edge(a) + 5)
+    local _, wy2 = cam:toScreen(0, edge(b) + 5)
+    lg.polygon("fill", ax, ay, bx, by, bx, wy2, ax, wy1)
+  end)
+  -- Surf: a foam line that runs up the sand and slides back, and a fainter
+  -- one further out.
+  lg.setLineWidth(math.max(1, 2 * cam.scale))
+  for k = 0, 1 do
+    runs(function(a, b)
+      local function surf(wx)
+        local surge = (0.5 + 0.5 * math.sin(R.t * 0.8 + wx / 260 + k * 2.1)) * (k == 0 and 8 or 12)
+        return edge(wx) - (k == 0 and 2 or 22) - surge * (k == 0 and 1 or -0.3)
+      end
+      local ax, ay = cam:toScreen(a, surf(a))
+      local bx, by = cam:toScreen(b, surf(b))
+      lg.setColor(0.85, 0.92, 0.96, k == 0 and 0.55 or 0.18)
+      lg.line(ax, ay, bx, by)
+    end)
   end
 
   -- Where a harbour may stand, shown only while the tool is in hand.
