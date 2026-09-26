@@ -153,9 +153,13 @@ return function(app,capture,click,scrollTo,check)
   show:refresh()
   local cam=app.camera()
   cam:centerOn(cx,cy+40); cam.scale=1.0; cam.targetScale=1.0
+  -- The map alone: no banner, no floating numbers, the panel folded away for
+  -- this one frame and put back after, since later steps expect it open.
+  local drawer=app.state.drawer
   app.state.banner=nil; app.state.dusk=nil; app.state.toast=nil; app.state.drawer=nil
   require('render').fx={}
   capture('net-profit-40-closeup-buildings',app,1440,880,true)
+  app.state.drawer=drawer
   check(show:quarryRange(quarry) ~= nil,'the showcase quarry stands on its range')
 
 end
