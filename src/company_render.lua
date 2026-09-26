@@ -461,31 +461,60 @@ end
 -- reading the disc gave is never lost. Far out the disc comes back.
 local WALL, ROOF_L, ROOF_D = { 0.74, 0.70, 0.62 }, { 0.58, 0.33, 0.27 }, { 0.40, 0.23, 0.20 }
 local SLATE_L, SLATE_D = { 0.46, 0.49, 0.53 }, { 0.30, 0.32, 0.36 }
-function Draw.clientBuilding(kind, x, y, r, accent, commodity, ghost)
+function Draw.clientBuilding(kind, x, y, r, accent, commodity, ghost, lit)
   local a = ghost and 0.55 or 1
   local function c(t, k) k = k or 1; lg.setColor(t[1] * k, t[2] * k, t[3] * k, a) end
   local u = r / 10
   lg.setColor(0, 0, 0, 0.28 * a); lg.ellipse("fill", x + 2 * u, y + 9 * u, 13 * u, 4.5 * u)
-  local function gable(bx, by, w, h, roofL, roofD)
-    -- Front wall, then a pitched roof seen from above and in front: the
-    -- sunlit slope and the shaded one meet at the ridge.
-    c(WALL, 0.85); lg.rectangle("fill", bx - w / 2, by - h * 0.15, w, h * 0.55)
-    c(roofL); lg.polygon("fill", bx - w / 2 - u * 0.6, by - h * 0.1, bx - w / 2 + w * 0.12, by - h * 0.75, bx, by - h * 0.75, bx, by - h * 0.1)
-    c(roofD); lg.polygon("fill", bx, by - h * 0.1, bx, by - h * 0.75, bx + w / 2 - w * 0.12, by - h * 0.75, bx + w / 2 + u * 0.6, by - h * 0.1)
+  local ink = { 0.10, 0.09, 0.08 }
+  local function outline(mode, ...)
+    lg.setColor(ink[1], ink[2], ink[3], 0.85 * a); lg.setLineWidth(math.max(1, 0.55 * u)); lg.rectangle(mode, ...)
+  end
+  -- A house seen from above and a little in front: the roof is most of what
+  -- you see, lit on its upper slope and shaded on the lower, over a strip of
+  -- front wall with a door and two windows. Windows glow when supplied.
+  local function house(hx, hy, w, roof1, roof2, wall, chimney)
+    local top, eave, base = hy - 12 * u, hy - 1 * u, hy + 7 * u
+    c(wall); lg.rectangle("fill", hx - w / 2, eave, w, base - eave)
+    c(wall, 0.8); lg.rectangle("fill", hx + w / 2 - 2 * u, eave, 2 * u, base - eave)
+    outline("line", hx - w / 2, eave, w, base - eave)
+    -- Roof: two slopes meeting at the ridge, overhanging the walls.
+    local ridge = top + (eave - top) * 0.42
+    c(roof1); lg.rectangle("fill", hx - w / 2 - u, top, w + 2 * u, ridge - top)
+    c(roof2); lg.rectangle("fill", hx - w / 2 - u, ridge, w + 2 * u, eave - ridge + u)
+    lg.setColor(0, 0, 0, 0.12 * a); lg.setLineWidth(math.max(1, 0.4 * u))
+    for ty = ridge + 1.8 * u, eave, 1.8 * u do lg.line(hx - w / 2 - u, ty, hx + w / 2 + u, ty) end
+    lg.setColor(1, 1, 1, 0.18 * a); lg.line(hx - w / 2 - u, ridge, hx + w / 2 + u, ridge)
+    outline("line", hx - w / 2 - u, top, w + 2 * u, eave - top + u)
+    if chimney then
+      c({ 0.45, 0.28, 0.22 }); lg.rectangle("fill", hx + w * 0.22, top - 2.5 * u, 2.6 * u, 4.5 * u)
+      outline("line", hx + w * 0.22, top - 2.5 * u, 2.6 * u, 4.5 * u)
+    end
+    -- Door and windows.
+    c({ 0.32, 0.22, 0.15 }); lg.rectangle("fill", hx - 1.4 * u, base - 4.6 * u, 2.8 * u, 4.6 * u)
+    local glass = lit and { 1.0, 0.84, 0.46 } or { 0.20, 0.26, 0.32 }
+    for _, wx in ipairs({ hx - w / 2 + 2 * u, hx + w / 2 - 5.2 * u }) do
+      c(glass); lg.rectangle("fill", wx, eave + 2.2 * u, 3 * u, 2.6 * u)
+      outline("line", wx, eave + 2.2 * u, 3 * u, 2.6 * u)
+    end
   end
   if kind == "estate" then
-    for i, b in ipairs({ { -5, 2, 9, 15 }, { 5, 4, 9, 11 } }) do
-      local bx, by, w, h = x + b[1] * u, y + b[2] * u, b[3] * u, b[4] * u
-      c(WALL, i == 1 and 0.95 or 0.85); lg.rectangle("fill", bx - w / 2, by - h / 2, w, h)
-      c(SLATE_D); lg.rectangle("fill", bx - w / 2, by - h / 2, w, 2 * u)
-      lg.setColor(0.16, 0.20, 0.26, a)
-      for row = 0, math.floor(h / (3.4 * u)) - 2 do
-        for col = 0, 1 do
-          lg.rectangle("fill", bx - w / 2 + (1.6 + col * 3.8) * u, by - h / 2 + (3.4 + row * 3.4) * u, 2 * u, 1.8 * u)
+    -- Two blocks of flats: flat roofs with a parapet, and a front face of
+    -- windows, the taller block behind.
+    for _, bk in ipairs({ { -4.5, -2, 10, 10 }, { 5, 1, 9, 7 } }) do
+      local bx, by, w, h = x + bk[1] * u, y + bk[2] * u, bk[3] * u, bk[4] * u
+      local roofTop = by - h / 2 - 5 * u
+      c({ 0.52, 0.54, 0.56 }); lg.rectangle("fill", bx - w / 2, roofTop, w, 5 * u)
+      c({ 0.40, 0.42, 0.44 }); lg.rectangle("fill", bx - w / 2 + u, roofTop + u, w - 2 * u, 3 * u)
+      c({ 0.80, 0.76, 0.68 }); lg.rectangle("fill", bx - w / 2, by - h / 2, w, h + 7 * u)
+      outline("line", bx - w / 2, roofTop, w, h + 12 * u)
+      local glass = lit and { 1.0, 0.84, 0.46 } or { 0.20, 0.26, 0.32 }
+      for ry = by - h / 2 + 1.5 * u, by + h / 2 + 3 * u, 3 * u do
+        for rx = bx - w / 2 + 1.5 * u, bx + w / 2 - 3 * u, 3 * u do
+          c(glass); lg.rectangle("fill", rx, ry, 1.8 * u, 1.8 * u)
         end
       end
     end
-    lg.setColor(accent[1], accent[2], accent[3], a); lg.rectangle("fill", x - 6 * u, y + 8 * u, 2.6 * u, 1.8 * u)
   elseif kind == "workshop" or kind == "factory" then
     local w, h = (kind == "factory" and 24 or 20) * u, 12 * u
     c(WALL, 0.7); lg.rectangle("fill", x - w / 2, y - h / 2 + 2 * u, w, h)
@@ -517,25 +546,20 @@ function Draw.clientBuilding(kind, x, y, r, accent, commodity, ghost)
         x - 10 * u + (i + 1) * 20 / 6 * u, y - 1 * u, x - 10 * u + i * 20 / 6 * u, y - 1 * u)
     end
   else
-    gable(x, y + 2 * u, 18 * u, 16 * u, ROOF_L, ROOF_D)
-    lg.setColor(accent[1], accent[2], accent[3], a); lg.rectangle("fill", x - 1.4 * u, y + 2.4 * u, 2.8 * u, 4 * u)
+    local roofs = { house = { { 0.66, 0.36, 0.28 }, { 0.50, 0.26, 0.21 } },
+                    home = { { 0.44, 0.48, 0.54 }, { 0.32, 0.35, 0.40 } },
+                    pub = { { 0.36, 0.30, 0.24 }, { 0.26, 0.21, 0.17 } },
+                    subscriber = { { 0.58, 0.44, 0.30 }, { 0.44, 0.32, 0.22 } } }
+    local rf = roofs[kind] or roofs.house
+    house(x, y, kind == "pub" and 20 * u or 17 * u, rf[1], rf[2], { 0.88, 0.82, 0.70 }, kind ~= "subscriber")
     if kind == "pub" then
-      -- A hanging sign on a bracket.
-      c(SLATE_D); lg.rectangle("fill", x + 9 * u, y - 3 * u, 4 * u, 0.8 * u)
-      lg.setColor(accent[1], accent[2], accent[3], a); lg.rectangle("fill", x + 11 * u, y - 2.4 * u, 3.4 * u, 4 * u, 0.6 * u)
+      c({ 0.30, 0.22, 0.15 }); lg.rectangle("fill", x + 10 * u, y + 0.5 * u, 3.5 * u, 0.7 * u)
+      c({ 0.80, 0.62, 0.22 }); lg.rectangle("fill", x + 11.4 * u, y + 1.2 * u, 3 * u, 3.4 * u, 0.5 * u)
+      outline("line", x + 11.4 * u, y + 1.2 * u, 3 * u, 3.4 * u)
     elseif kind == "subscriber" then
-      -- A dish on the roof.
-      lg.setColor(0.85, 0.86, 0.88, a); lg.arc("fill", "closed", x + 4 * u, y - 7 * u, 3 * u, math.pi * 0.1, math.pi * 1.1)
-    elseif kind == "home" then
-      c(SLATE_D); lg.rectangle("fill", x + 3 * u, y - 10 * u, 2.4 * u, 4 * u)
+      lg.setColor(0.88, 0.89, 0.90, a); lg.ellipse("fill", x - 3 * u, y - 9 * u, 2.6 * u, 1.6 * u)
+      lg.setColor(0.4, 0.4, 0.42, a); lg.setLineWidth(math.max(1, 0.5 * u)); lg.line(x - 3 * u, y - 9 * u, x - 1.5 * u, y - 10.5 * u)
     end
-  end
-  -- The trade, on a small badge at the corner, as the disc would have shown it.
-  if commodity and r >= 16 then
-    local bx, by, br = x + 10 * u, y - 9 * u, 3.6 * u
-    lg.setColor(P.bg[1], P.bg[2], P.bg[3], 0.9 * a); lg.circle("fill", bx, by, br)
-    lg.setColor(accent[1], accent[2], accent[3], a); lg.setLineWidth(1); lg.circle("line", bx, by, br)
-    Draw.mark(commodity, bx, by, br * 0.62, ghost)
   end
 end
 
@@ -561,21 +585,47 @@ function Draw.sourceBuilding(commodity, x, y, r, accent, seed)
     lg.setColor(0.25, 0.26, 0.29); lg.circle("fill", tx + 1 * u, ty + 3 * u, 3 * u)
     lg.setColor(0.42, 0.44, 0.48); lg.setLineWidth(1); lg.line(hx - 1 * u, hy + 2 * u, hx - 1 * u, y + 5 * u)
   else
-    -- Stone ring, the water in it, two posts and a windlass across.
-    lg.setColor(0.52, 0.50, 0.47); lg.circle("fill", x, y + 2 * u, 8 * u)
-    lg.setColor(0.36, 0.35, 0.33); lg.setLineWidth(math.max(1, u)); lg.circle("line", x, y + 2 * u, 8 * u)
-    lg.setColor(accent[1] * 0.8, accent[2] * 0.8, accent[3] * 0.8); lg.circle("fill", x, y + 2 * u, 5 * u)
-    lg.setColor(1, 1, 1, 0.25 + 0.15 * math.sin(R.t * 2 + (seed or 0))); lg.ellipse("fill", x - 1.5 * u, y + 0.5 * u, 2 * u, 1 * u)
-    lg.setColor(0.36, 0.26, 0.17)
-    lg.rectangle("fill", x - 9 * u, y - 8 * u, 2 * u, 12 * u); lg.rectangle("fill", x + 7 * u, y - 8 * u, 2 * u, 12 * u)
-    lg.rectangle("fill", x - 9 * u, y - 8 * u, 18 * u, 2 * u)
-    lg.setColor(0.58, 0.33, 0.27); lg.polygon("fill", x - 11 * u, y - 7 * u, x, y - 13 * u, x + 11 * u, y - 7 * u)
-  end
-  if r >= 16 then
-    local bx, by, br = x + 10 * u, y - 10 * u, 3.6 * u
-    lg.setColor(P.bg[1], P.bg[2], P.bg[3], 0.9); lg.circle("fill", bx, by, br)
-    lg.setColor(accent); lg.setLineWidth(1); lg.circle("line", bx, by, br)
-    Draw.mark(commodity, bx, by, br * 0.62)
+    -- A stone well seen from above and in front: the round wall with its
+    -- coursed stones, the water inside catching the light, two posts on the
+    -- rim holding a little pitched roof, and a bucket on its rope.
+    local ink = { 0.10, 0.09, 0.08 }
+    local lw = math.max(1, 0.55 * u)
+    local rx, ry, wall = 8 * u, 3.6 * u, 5 * u
+    local top = y + 1 * u
+    -- Wall: front half of a cylinder, in two courses of stone.
+    lg.setColor(0.56, 0.54, 0.50); lg.rectangle("fill", x - rx, top, rx * 2, wall)
+    lg.ellipse("fill", x, top + wall, rx, ry)
+    lg.setColor(0.44, 0.42, 0.39)
+    for course = 0, 1 do
+      local cy = top + wall * (course + 0.5) / 2
+      for k = -3, 3 do
+        local sx = x + (k + (course % 2) * 0.5) * rx / 3.5
+        if math.abs(sx - x) < rx - u then lg.line(sx, cy - wall / 4, sx, cy + wall / 4) end
+      end
+      lg.line(x - rx, top + wall * (course + 1) / 2, x + rx, top + wall * (course + 1) / 2)
+    end
+    lg.setColor(ink[1], ink[2], ink[3], 0.85); lg.setLineWidth(lw)
+    lg.line(x - rx, top, x - rx, top + wall); lg.line(x + rx, top, x + rx, top + wall)
+    lg.arc("line", "open", x, top + wall, rx, 0, math.pi)
+    -- Rim and water.
+    lg.setColor(0.70, 0.68, 0.63); lg.ellipse("fill", x, top, rx, ry)
+    lg.setColor(0.10, 0.22, 0.34); lg.ellipse("fill", x, top, rx - 1.6 * u, ry - 1 * u)
+    lg.setColor(0.45, 0.70, 0.90, 0.55 + 0.25 * math.sin(R.t * 2 + (seed or 0)))
+    lg.ellipse("fill", x - 2 * u, top - 0.6 * u, 2.2 * u, 0.8 * u)
+    lg.setColor(ink[1], ink[2], ink[3], 0.85); lg.ellipse("line", x, top, rx, ry)
+    -- Posts, beam, rope and bucket.
+    lg.setColor(0.40, 0.28, 0.18)
+    lg.rectangle("fill", x - rx + 0.5 * u, top - 12 * u, 1.6 * u, 12 * u)
+    lg.rectangle("fill", x + rx - 2.1 * u, top - 12 * u, 1.6 * u, 12 * u)
+    lg.rectangle("fill", x - rx, top - 10 * u, rx * 2, 1.2 * u)
+    lg.setColor(0.75, 0.70, 0.58); lg.setLineWidth(math.max(1, 0.35 * u)); lg.line(x, top - 9 * u, x, top - 4 * u)
+    lg.setColor(0.48, 0.34, 0.22); lg.rectangle("fill", x - 1.2 * u, top - 4 * u, 2.4 * u, 2 * u)
+    -- The roof, lit on the left slope.
+    local ry0, peak = top - 11 * u, top - 17 * u
+    lg.setColor(0.64, 0.36, 0.28); lg.polygon("fill", x - rx - 2 * u, ry0, x, peak, x, ry0 + 0.5 * u)
+    lg.setColor(0.48, 0.25, 0.20); lg.polygon("fill", x, peak, x + rx + 2 * u, ry0, x, ry0 + 0.5 * u)
+    lg.setColor(ink[1], ink[2], ink[3], 0.85); lg.setLineWidth(lw)
+    lg.polygon("line", x - rx - 2 * u, ry0, x, peak, x + rx + 2 * u, ry0)
   end
 end
 
@@ -600,12 +650,6 @@ function Draw.worksBuilding(makes, x, y, r, accent, busy, seed)
       lg.setColor(0.72, 0.72, 0.74, 0.35 * (1 - ph))
       lg.circle("fill", sx + 1.5 * u + ph * 6 * u, y - 17 * u - ph * 8 * u, (1.5 + ph * 2.5) * u)
     end
-  end
-  if r >= 16 and makes then
-    local bx, by, br = x + 11 * u, y - 11 * u, 3.6 * u
-    lg.setColor(P.bg[1], P.bg[2], P.bg[3], 0.9); lg.circle("fill", bx, by, br)
-    lg.setColor(accent); lg.setLineWidth(1); lg.circle("line", bx, by, br)
-    Draw.mark(makes, bx, by, br * 0.62)
   end
 end
 
@@ -2133,7 +2177,7 @@ function Draw.world(city, cam, state)
         n.kind == "depot" and (n.stored or 0) / (n.capacityStore or City.depotCapacity or 1),
         math.abs((city.detail.node or {})[n.id] or 0) > 0, n.id * 0.7)
     elseif building and n.kind == "client" then
-      Draw.clientBuilding(n.clientType, x, y, r, color, n.commodity, n.prospect)
+      Draw.clientBuilding(n.clientType, x, y, r, color, n.commodity, n.prospect, supplied)
     elseif building and n.kind == "source" and n.plant == "wind" then
       -- The park's own mark is its lead turbine, a head taller than the rest.
       local u = r / 12
