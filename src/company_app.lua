@@ -50,8 +50,9 @@ end
 local SETTINGS_FILE="settings.lua"
 local function saveSettings()
   if testMode or not (love.filesystem and love.filesystem.write) then return end
-  love.filesystem.write(SETTINGS_FILE,string.format("return {ui=%.2f,hints=%s,muted=%s}",
-    UI.pref or 1.2,state.hintsChosen and tostring(state.buildHelp and true or false) or "nil",tostring(state.muted and true or false)))
+  love.filesystem.write(SETTINGS_FILE,string.format("return {ui=%.2f,hints=%s,muted=%s,minimap=%s}",
+    UI.pref or 1.2,state.hintsChosen and tostring(state.buildHelp and true or false) or "nil",tostring(state.muted and true or false),
+    tostring(state.minimap and true or false)))
 end
 local function loadSettings()
   if testMode or not (love.filesystem and love.filesystem.getInfo) or not love.filesystem.getInfo(SETTINGS_FILE) then return end
@@ -62,6 +63,7 @@ local function loadSettings()
     state.buildHelp=t.hints==true
     state.hintsChosen=type(t.hints)=="boolean"
     if t.muted==true then state.muted=true; A.setEnabled(false) end
+    state.minimap=t.minimap==true
   end
 end
 
@@ -157,6 +159,8 @@ end
 local function action(name,...)
   if name=="fit" then fit(); return end
   if name=="fitWorld" then fitWorld(); return end
+  if name=="lookAt" then local x,y=...; centerOn(x,y); return end
+  if name=="minimap" then state.minimap=not state.minimap; saveSettings(); return end
   if name=="mute" then state.muted=not state.muted; A.setEnabled(not state.muted); saveSettings(); return end
   if name=="uiScale" then UI.pref=...; saveSettings(); layout(); return end
   if name=="hints" then state.buildHelp=not state.buildHelp; state.hintsChosen=true; saveSettings(); return end
@@ -490,6 +494,7 @@ function love.load(args)
   city=city or City.new(testMode and {seed=24,obstacles=4} or nil)
   city.slot=city.slot or (testMode and 1 or Save.readCurrent())
   cam=Camera.new(city.bounds.w,city.bounds.h); cam:follow(city.bounds); fit()
+  UI.camera=cam
   if err then
     saveBlocked=true
     toast("Saved company is damaged and protected. Open Companies to choose another slot.",true)
@@ -730,6 +735,7 @@ function love.keypressed(key)
   elseif key=="t" and (#city.g:nodesOfKind("terminal")+#city.g:nodesOfKind("dc")>0) then state.rail=(state.rail==nil) and "rail" or nil
   elseif key=="z" then action("undo")
   elseif key=="m" then action("mute")
+  elseif key=="o" then action("minimap")
   elseif key=="h" then action("solo")
   elseif key=="u" and state.edge then action("upgradePipe",state.edge)
   elseif key=="r" then

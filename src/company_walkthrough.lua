@@ -1126,6 +1126,20 @@ function Walk.update(app,mode,frame)
           app.state.fakeMouse=nil; app.state.hoverGround=nil
           UI.pref=1
         end
+        -- The overview map: on, a click in it moves the camera, off again.
+        app.action("minimap")
+        love.draw()
+        local mm
+        for _,b in ipairs(UI.buttons) do if b.id=="minimap" then mm=b end end
+        check(mm~=nil,"the overview map draws when switched on")
+        if mm then
+          local cam=app.camera(); local before=cam.x
+          app.state.fakeMouse={mm.x+4,mm.y+mm.h/2}; mm.fn(); app.state.fakeMouse=nil
+          check(math.abs(cam.x-before)>1,"a click on the overview map moves the camera")
+          app.action("fit")
+          playerShot("net-profit-00-player-minimap",app)
+        end
+        app.action("minimap")
         app.action("endDay")
         for _=1,6 do R.update(0.12) end
         playerShot("net-profit-00-player-close",app)
