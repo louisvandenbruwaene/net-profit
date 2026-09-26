@@ -138,6 +138,7 @@ Requests expire after five days.
 | Switch or start a company | Companies, in the bottom bar |
 | Cancel a tool or selection | Escape |
 | Mute | M, or the sound button |
+| Overview map (corner minimap; click it to jump) | O, or the gear menu |
 | Filter the map by trade | All trades / Water / Power / Beer / Oil above the map |
 | Show full or damaged mains and a selected customer's route | Supply overlay above the map |
 | Return to construction from any panel | Build tools above the map |

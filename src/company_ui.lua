@@ -2690,6 +2690,7 @@ local function settingsMenu()
     {"fit","Show all buildings   F",function() act("fit") end,true,"Zoom out to show all your buildings."},
     {"undo","Undo last decision   Z",function() act("undo") end,#state.undo>0,"Closing a day is final."},
     {"mute",state.muted and "Sound off   M" or "Sound on   M",function() act("mute") end,true,"Toggle sound."},
+    {"minimap-toggle",state.minimap and "Overview map: on   O" or "Overview map: off   O",function() act("minimap") end,true,"A small map of everything surveyed, in the corner."},
     {"solo",city.hideUnfocusedNetworks and "Other networks: hidden   H" or "Other networks: dimmed   H",
       function() act("solo") end,true,"Hide every network but the one you are working on, instead of dimming it."},
     {"hints",state.buildHelp and "Hints: on" or "Hints: off",function() act("hints") end,true,
@@ -2720,7 +2721,7 @@ local function settingsMenu()
     local keys={{"Enter","End the day"},{"B","Build menu"},{"Tab","Open or close the menu"},{"Esc","Put down, deselect, close"},
       {"Z","Undo"},{"Y / N","Sign or decline the selected offer"},{"F","Show all buildings"},{"R","Repair the selected main, or all"},{"L","Worst leak"},
       {"U / E","Bigger main, or deepen a well"},{"Delete","Demolish the selection"},{"T","Bulk freight lines"},
-      {"H","Hide other networks"},{"M","Sound"},{"1-8","Pick up a building"},{"Right drag","Pan"},{"Wheel","Zoom"}}
+      {"H","Hide other networks"},{"O","Overview map"},{"M","Sound"},{"1-8","Pick up a building"},{"Right drag","Pan"},{"Wheel","Zoom"}}
     local kw,kh=350,20+#keys*22
     local kx,ky=px-kw-10,py
     lg.setColor(P.bg); lg.rectangle("fill",kx-1,ky-1,kw+2,kh+2,8)
@@ -2752,6 +2753,92 @@ end
 -- numbers that matter about it, so the map can be read without opening a
 -- menu. It waits a moment, and never covers a drag or a menu.
 local hoverKey,hoverSince
+
+-- The whole surveyed map in a corner: sea, plots, river, terrain, the network
+-- and the frame the camera is looking through. A click there jumps the camera.
+-- Off unless the player asks for it (O), because the map is the screen.
+local function minimap()
+  if not state.minimap or state.modal or not UI.camera then return end
+  local cam=UI.camera
+  -- Framed on the plots the company can see, not the whole surveyed extent,
+  -- which runs on past them in every direction.
+  local x0,y0,x1,y1
+  for _,d in ipairs(city.districts) do
+    if city:districtVisible(d) then
+      x0=math.min(x0 or d.x,d.x); y0=math.min(y0 or d.y,d.y)
+      x1=math.max(x1 or d.x+d.w,d.x+d.w); y1=math.max(y1 or d.y+d.h,d.y+d.h)
+    end
+  end
+  if not x0 then return end
+  x0,y0,x1,y1=x0-120,y0-120,x1+120,y1+120
+  local mw,mh=260,170
+  local px,py=W-mw-14,H-mh-14
+  local s=math.min((mw-12)/(x1-x0),(mh-12)/(y1-y0))
+  local ox,oy=px+(mw-(x1-x0)*s)/2,py+(mh-(y1-y0)*s)/2
+  local function at(wx,wy) return ox+(wx-x0)*s,oy+(wy-y0)*s end
+  UI.blocks[#UI.blocks+1]={px,py,mw,mh}
+  lg.setColor(0,0,0,0.35); lg.rectangle("fill",px+2,py+4,mw,mh,8)
+  lg.setColor(P.panel); lg.rectangle("fill",px,py,mw,mh,8)
+  lg.setScissor(px*UI.scale,py*UI.scale,mw*UI.scale,mh*UI.scale)
+  -- Sea north of the coast.
+  local _,coast=at(0,0)
+  if coast>py then lg.setColor(0.07,0.14,0.22); lg.rectangle("fill",px,py,mw,coast-py) end
+  for _,d in ipairs(city.districts) do
+    if city:districtVisible(d) then
+      local ax,ay=at(d.x,d.y)
+      local w,h=d.w*s,d.h*s
+      local colour=d.owned and {P.land[1]*1.5,P.land[2]*1.5,P.land[3]*1.5} or {0.10,0.13,0.13}
+      lg.setColor(colour)
+      if d.island then lg.ellipse("fill",ax+w/2,ay+h/2,w/2,h/2)
+      else lg.rectangle("fill",ax+0.6,ay+0.6,w-1.2,h-1.2,1.5) end
+      if not d.owned and not city:districtError(d.id) then
+        lg.setColor(P.with(P.good,0.6)); lg.setLineWidth(1)
+        if d.island then lg.ellipse("line",ax+w/2,ay+h/2,w/2,h/2) else lg.rectangle("line",ax+0.6,ay+0.6,w-1.2,h-1.2,1.5) end
+      end
+    end
+  end
+  local path=city:riverPath()
+  if path and path.n>1 then
+    lg.setColor(0.20,0.38,0.60)
+    for i=1,path.n-1 do
+      local ax,ay=at(path.x[i],path.y[i]); local bx,by=at(path.x[i+1],path.y[i+1])
+      lg.setLineWidth(math.max(1,path.hw[i]*2*s)); lg.line(ax,ay,bx,by)
+    end
+  end
+  for _,o in ipairs(city.obstacles) do
+    local d=city:districtAt(o.x,o.y)
+    if d and city:districtVisible(d) then
+      local ax,ay=at(o.x,o.y)
+      if o.kind=="park" then lg.setColor(0.20,0.40,0.24) else lg.setColor(0.34,0.33,0.38) end
+      lg.circle("fill",ax,ay,math.max(1,o.r*s*0.8))
+    end
+  end
+  for _,e in ipairs(city.g.edges) do
+    if e.alive then
+      local a,c=city.g.nodes[e.a],city.g.nodes[e.b]
+      local spec=Graph.COMMODITIES[e.commodity] or Graph.COMMODITIES.water
+      lg.setColor(spec.color); lg.setLineWidth(1)
+      local ax,ay=at(a.x,a.y); local bx,by=at(c.x,c.y)
+      lg.line(ax,ay,bx,by)
+    end
+  end
+  -- What the camera sees.
+  local k=UI.scale or 1
+  local vx0,vy0=cam:toWorld(cam.vx,cam.vy)
+  local vx1,vy1=cam:toWorld(cam.vx+cam.vw,cam.vy+cam.vh)
+  local ax,ay=at(vx0,vy0); local bx,by=at(vx1,vy1)
+  lg.setColor(P.with(P.text,0.1)); lg.rectangle("fill",ax,ay,bx-ax,by-ay)
+  lg.setColor(P.text); lg.setLineWidth(1.5); lg.rectangle("line",ax,ay,bx-ax,by-ay,2)
+  lg.setScissor()
+  lg.setColor(P.panelEdge); lg.setLineWidth(1); lg.rectangle("line",px,py,mw,mh,8)
+  UI.buttons[#UI.buttons+1]={id="minimap",x=px,y=py,w=mw,h=mh,enabled=true,
+    tip="Click to look there (O hides the map)",
+    fn=function()
+      local mx,my=mouse()
+      act("lookAt",x0+(mx-ox)/s,y0+(my-oy)/s)
+    end}
+end
+
 local function hoverCard()
   if state.modal or state.drag or state.settings or state.tool then hoverKey=nil; return end
   local n=state.hoverNode and city.g.nodes[state.hoverNode]
@@ -2940,6 +3027,7 @@ function UI.draw(c,s,action)
   end
 
   toastPill(open)
+  minimap()
   hoverCard()
   -- A milestone or an ambition reached gets a banner of its own for a moment.
   if state.banner and not state.drag and not state.tool then
@@ -3048,7 +3136,7 @@ function UI.click(x,y)
     for _,b in ipairs(UI.buttons) do
       if x>=b.x and x<=b.x+b.w and y>=b.y and y<=b.y+b.h then
         if b.enabled then b.fn() end
-        if b.id~="settings" and not b.id:match("^size%-ui") and b.id~="mute" and b.id~="solo" and b.id~="hints" and b.id~="keys" then state.settings=nil end
+        if b.id~="settings" and not b.id:match("^size%-ui") and b.id~="mute" and b.id~="minimap-toggle" and b.id~="solo" and b.id~="hints" and b.id~="keys" then state.settings=nil end
         return true
       end
     end
