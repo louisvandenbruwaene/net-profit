@@ -3035,18 +3035,42 @@ function UI.draw(c,s,action)
     local age=R.t-b.t
     if age>3.2 then state.banner=nil
     else
-      local pop=math.min(1,age*6)
-      local fade=math.min(1,(3.2-age)/0.5)
-      local bw,bh=math.min(560,W-40),96
-      local bx,by=((open and UI.width or 0)+W)/2-bw/2,UI.BAR+40
-      lg.push(); lg.translate(bx+bw/2,by+bh/2); lg.scale(0.7+0.3*pop); lg.translate(-bw/2,-bh/2)
-      lg.setColor(P.with(P.bg,0.92*fade)); lg.rectangle("fill",0,0,bw,bh,12)
+      -- A ribbon that drops from under the top bar, holds, and goes back up:
+      -- one line, title and what it paid, so the map below stays in view.
       local tone=b.warn and P.warn or P.energy
-      lg.setColor(P.with(tone,0.8*fade)); lg.setLineWidth(2); lg.rectangle("line",0,0,bw,bh,12)
-      local c1=P.with(tone,fade)
-      single(b.title,20,14,"big",c1,bw-40,"center")
-      single(b.sub or "",20,62,"body",P.with(b.warn and P.text or P.good,fade),bw-40,"center")
-      lg.pop()
+      local tf,sf=R.fonts.mid,R.fonts.body
+      local tw,sw=SF.width(b.title,tf),SF.width(b.sub or "",sf)
+      local bw=math.min(W-40,tw+(sw>0 and sw+28 or 0)+64)
+      local bh=44
+      local drop=age<0.25 and 1-(1-age/0.25)^3 or age>2.8 and math.max(0,1-((age-2.8)/0.4)^2) or 1
+      local bx=((open and UI.width or 0)+W)/2-bw/2
+      local by=UI.BAR-bh+(bh+10)*drop
+      lg.setScissor(0,UI.BAR*(UI.scale or 1),W*(UI.scale or 1),H*(UI.scale or 1))
+      lg.setColor(0,0,0,0.35); lg.rectangle("fill",bx+2,by+4,bw,bh,10)
+      lg.setColor(P.with(P.bg,0.96)); lg.rectangle("fill",bx,by,bw,bh,10)
+      lg.setColor(P.with(tone,0.16)); lg.rectangle("fill",bx,by,bw,bh,10)
+      -- A shine crossing once, just after it lands.
+      local sweep=(age-0.25)/0.7
+      if sweep>0 and sweep<1 then
+        local sx=bx-40+(bw+80)*sweep
+        lg.setColor(1,1,1,0.10*math.sin(sweep*math.pi))
+        lg.polygon("fill",sx,by,sx+26,by,sx+6,by+bh,sx-20,by+bh)
+      end
+      lg.setColor(P.with(tone,0.9)); lg.setLineWidth(2); lg.rectangle("line",bx,by,bw,bh,10)
+      -- A star mark, then the title, then what it brought in.
+      local cx,cy=bx+24,by+bh/2
+      local star={}
+      for i=0,9 do
+        local r=(i%2==0) and 9 or 4
+        local ang=-math.pi/2+i*math.pi/5+R.t*0.6
+        star[#star+1]=cx+math.cos(ang)*r; star[#star+1]=cy+math.sin(ang)*r
+      end
+      lg.setColor(tone); lg.polygon("fill",star)
+      single(b.title,bx+44,by+(bh-tf:getHeight())/2,"mid",tone,tw+4)
+      if sw>0 then
+        single(b.sub,bx+44+tw+24,by+(bh-sf:getHeight())/2+1,"body",b.warn and P.text or P.good,sw+4)
+      end
+      lg.setScissor()
     end
   end
   if state.settings and not state.modal then settingsMenu() end
