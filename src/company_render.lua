@@ -883,6 +883,72 @@ function Draw.fittingBuilding(kind, x, y, r, accent, level, busy, seed)
   end
 end
 
+-- A deposit seen close up, as the ground it is: a spring for water, a black
+-- seep with a sheen for oil, a rusty outcrop for ore, crystals for the rest.
+-- Shapes come from the deposit's own position, so each one is its own.
+function Draw.deposit(commodity, x, y, rr, colour, seed, alpha)
+  alpha = math.max(0.35, math.min(1, alpha or 1))
+  local h = function(k) return Shape.hash(seed, k, 400) end
+  local function blob(kx, ky, jag, n)
+    local pts = {}
+    for i = 0, (n or 14) - 1 do
+      local t = i / (n or 14) * math.pi * 2
+      local f = 1 + jag * (h(i) - 0.5)
+      pts[#pts + 1] = x + math.cos(t) * rr * kx * f; pts[#pts + 1] = y + math.sin(t) * rr * ky * f
+    end
+    return pts
+  end
+  local ink = { 0.10, 0.09, 0.08 }
+  if commodity == "water" or commodity == "saltwater" then
+    lg.setColor(0.30, 0.28, 0.22, 0.8 * alpha); lg.polygon("fill", blob(1.25, 0.85, 0.25))
+    lg.setColor(0.16, 0.36, 0.52, alpha); lg.polygon("fill", blob(1.0, 0.65, 0.3))
+    lg.setColor(0.28, 0.52, 0.70, alpha); lg.polygon("fill", blob(0.6, 0.38, 0.2))
+    for i = 0, 1 do
+      local ph = (R.t * 0.35 + i * 0.5 + h(30)) % 1
+      lg.setColor(0.75, 0.88, 0.98, 0.5 * (1 - ph) * alpha); lg.setLineWidth(1)
+      lg.ellipse("line", x, y, rr * (0.2 + 0.7 * ph), rr * (0.12 + 0.45 * ph))
+    end
+    lg.setColor(0.52, 0.50, 0.46, alpha)
+    for i = 1, 6 do
+      local a = h(40 + i) * 6.28
+      lg.circle("fill", x + math.cos(a) * rr * 1.1, y + math.sin(a) * rr * 0.75, rr * (0.07 + 0.05 * h(50 + i)))
+    end
+    lg.setColor(0.36, 0.52, 0.30, alpha); lg.setLineWidth(math.max(1, rr * 0.04))
+    for i = 1, 5 do
+      local a = h(60 + i) * 6.28
+      local bx, by = x + math.cos(a) * rr * 0.95, y + math.sin(a) * rr * 0.62
+      lg.line(bx, by, bx - rr * 0.05, by - rr * 0.3); lg.line(bx, by, bx + rr * 0.08, by - rr * 0.25)
+    end
+  elseif commodity == "oil" then
+    lg.setColor(0.18, 0.15, 0.12, 0.7 * alpha); lg.polygon("fill", blob(1.3, 0.9, 0.35))
+    lg.setColor(0.05, 0.05, 0.06, alpha); lg.polygon("fill", blob(0.95, 0.6, 0.4))
+    local sh = 0.5 + 0.5 * math.sin(R.t * 0.7 + h(31) * 6)
+    lg.setColor(0.45, 0.25 + 0.2 * sh, 0.55, 0.35 * alpha); lg.ellipse("fill", x - rr * 0.2, y - rr * 0.1, rr * 0.35, rr * 0.12)
+    lg.setColor(0.25, 0.55, 0.45, 0.3 * alpha); lg.ellipse("fill", x + rr * 0.15, y + rr * 0.05, rr * 0.25, rr * 0.08)
+    local ph = (R.t * 0.3 + h(32)) % 1
+    lg.setColor(0.2, 0.2, 0.22, (1 - ph) * alpha); lg.circle("fill", x + rr * 0.3, y - rr * 0.1, rr * 0.08 * (0.5 + ph))
+  elseif commodity == "ore" then
+    for i = 1, 5 do
+      local a, d = h(70 + i) * 6.28, rr * 0.5 * h(80 + i)
+      local bx, by, bs = x + math.cos(a) * d, y + math.sin(a) * d * 0.6, rr * (0.3 + 0.2 * h(90 + i))
+      lg.setColor(0.42, 0.38, 0.36, alpha)
+      lg.polygon("fill", bx - bs, by + bs * 0.4, bx - bs * 0.4, by - bs * 0.7, bx + bs * 0.5, by - bs * 0.5, bx + bs, by + bs * 0.4)
+      lg.setColor(0.66, 0.36, 0.20, alpha); lg.setLineWidth(math.max(1, rr * 0.05))
+      lg.line(bx - bs * 0.5, by, bx + bs * 0.3, by - bs * 0.3)
+      lg.setColor(ink[1], ink[2], ink[3], 0.7 * alpha); lg.setLineWidth(1)
+      lg.polygon("line", bx - bs, by + bs * 0.4, bx - bs * 0.4, by - bs * 0.7, bx + bs * 0.5, by - bs * 0.5, bx + bs, by + bs * 0.4)
+    end
+  else
+    lg.setColor(0.36, 0.32, 0.26, 0.8 * alpha); lg.polygon("fill", blob(1.1, 0.75, 0.3))
+    for i = 1, 7 do
+      local a, d = h(100 + i) * 6.28, rr * 0.7 * h(110 + i)
+      local bx, by, bs = x + math.cos(a) * d, y + math.sin(a) * d * 0.6, rr * (0.1 + 0.08 * h(120 + i))
+      lg.setColor(colour[1], colour[2], colour[3], alpha)
+      lg.polygon("fill", bx, by - bs * 1.6, bx + bs, by, bx, by + bs * 0.6, bx - bs, by)
+    end
+  end
+end
+
 -- Every node on the map is a disc: a dark body tinted by its trade, and a rim
 -- in the trade colour. Flat, so the symbol on top of it is what the eye finds.
 function Draw.disc(x, y, r, color, tint)
@@ -1454,7 +1520,8 @@ local function drawSeams(city, cam, state)
         end
         local mr=math.max(2.5,R.sym(9,cam.scale))
         occupied[#occupied+1]={x=x-mr-3,y=y-mr-5,w=mr*2+6,h=mr*2+6}
-        Draw.mark(s.commodity, x, y - 2, mr)
+        if r >= 26 then Draw.deposit(s.commodity, x, y, r * 0.42, spec.color, s.x + s.y, dim / (focused and 1 or 0.45))
+        else Draw.mark(s.commodity, x, y - 2, mr) end
         if focused and cam.scale > 0.45 then
           label(string.upper(s.commodity) .. "  x" .. string.format("%.1f", s.yield),
             x, y + (focused and r or 20) + 4, P.with(spec.color,focused and 1 or 0.7), R.fonts.tiny)
