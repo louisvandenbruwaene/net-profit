@@ -130,7 +130,7 @@ local function demolishBlock(n,y,label,tip)
     tip or "Removes this structure and cuts every main tied into it",
     false,c.cut>0 and P.bad or P.flow,false)
   if c.cut<=0 then return y+48 end
-  single(c.cut.." clients lose supply",M,y+42,"small",P.bad,CW)
+  single(c.cut..(c.cut==1 and " client loses supply" or " clients lose supply"),M,y+42,"small",P.bad,CW)
   return y+66
 end
 
@@ -290,7 +290,7 @@ local function levelBlock(n,y)
     err and (err..". Level "..nxt.level..": "..gives..".") or ("Level "..nxt.level..": "..gives..". "..(gain or "")),
     false,P.good,full)
   y=y+44
-  if err then single(err,M,y,"small",P.textFaint,CW); y=y+22 end
+  if err and err~="not enough cash" then single(err,M,y,"small",P.textFaint,CW); y=y+22 end
   return y+4
 end
 
@@ -307,23 +307,22 @@ local function inspectClient(n,y)
   local premium=city:ratePremium(n)
   local margin,cost,rate=city:clientMargin(n)
   local bad=margin<0
-  row("Delivery",city:quantityPair(n.commodity,city.served[n.id] or 0,n.demand),y)
-  row("Pays",n.commodity=="power" and string.format("$%.2f / kWh",n.rate/5) or ("$"..n.rate.." / unit"),y+26,
-    premium>0.10 and P.good or premium<-0.10 and P.warn or P.text,
-    string.format("%+.0f%% against the going rate",premium*100))
+  local pays=(n.commodity=="power" and string.format("Pays $%.2f / kWh",n.rate/5) or ("Pays $"..n.rate.." / unit"))
+    ..string.format(", %+.0f%% against the going rate. ",premium*100)
+  y=y-52
   if n.secure then
     local exposure=(not n.prospect) and city:exposureOf(n.id)
     row("Contract","SECURE"..(n.prospect and "" or exposure and " (exposed)" or ""),y+52,exposure and P.bad or P.energy,
-      "Pays more; refunds every short day")
+      pays.."Pays more; refunds every short day")
   else
     row("You keep",marginText(n.commodity,margin),y+52,bad and P.bad or margin>0 and P.good or P.textDim,
-      "After your cost of "..perUnit(n.commodity,cost))
+      pays.."After your cost of "..perUnit(n.commodity,cost))
   end
   local L=City.LOYALTY
   local lv=n.loyalty or 0
   row("Income / day","$"..city:contractValue(n)..(lv>0 and ("  loyal +$"..(lv*L.step)) or ""),y+78,P.energy)
   row(n.prospect and "Expires" or "Patience",
-    n.prospect and (n.expires-city.day+1).." days" or n.grace.." days",y+104,P.warn)
+    (n.prospect and (n.expires-city.day+1) or n.grace)..((n.prospect and n.expires-city.day+1 or n.grace)==1 and " day" or " days"),y+104,P.warn)
   marginBar(cost,rate,y+127)
   y=y-26
 
@@ -464,7 +463,6 @@ local function inspectSource(n,y)
       false,P.good,maxed and city.money>=upCost)
     y=y+48
   else
-    single(capacity>=ceiling and "At this ground's limit" or "Fully upgraded",M,y,"small",P.textDim,CW); y=y+28
   end
   y=economics(n.commodity,y,n)
   y=y+10
@@ -713,11 +711,6 @@ local function inspectEdge(e,y)
   elseif e.commodity=="water" then
     if not e.filtered and (e.calcification or 0)>=50 then
       single("Scaling up: "..math.floor(e.calcification).."/100",M,y,"small",P.warn,CW); y=y+26
-    end
-    if e.hydraulic then
-      local capacity,bar=city:waterRating(e)
-      row("Design pressure",string.format("%.1f bar",bar),y,P.flow)
-      row("Usable flow",capacity.." m3/h",y+26,P.flow); y=y+56
     end
   end
   local broken=e.leaking or e.cap<(e.capMax or e.cap)
@@ -1251,13 +1244,13 @@ local function inspectorPanel(n,e)
     else single(title,M,y,"mid",P.text,CW) end
     y=y+36
     if City.INFRA.kinds[n.kind] then
-      row("Connections",city:connectionPorts(n.id).." / "..n.ports,y)
-      tail=y+34
+      tail=y
+      if not city:levelFamily(n) then row("Connections",city:connectionPorts(n.id).." / "..n.ports,y); tail=y+34 end
       local carries=City.INFRA.towers[n.kind]
       if carries then
         local spec=City.INFRA.voltages[carries]
         row("Voltage",spec.kv.." kV"..(n.upgrade=="transformer" and " and lower" or ""),tail,P.accent); tail=tail+26
-        row("Upgrade",n.upgrade and City.INFRA.upgrades[n.upgrade].name or "None",tail); tail=tail+26
+        if n.upgrade and n.upgrade~="transformer" then row("Upgrade",City.INFRA.upgrades[n.upgrade].name,tail); tail=tail+26 end
         local run=city:boostRuns(carries)[n.id]
         row("Since last boost",run and (math.floor(run).." / "..spec.boost.." m") or "Not connected",tail,
           run and run>spec.boost*0.8 and P.warn or P.textDim); tail=tail+34
@@ -1299,7 +1292,7 @@ local function inspectorPanel(n,e)
       local degree=city.g:degree(n.id)
       -- A building on a ladder shows its connections in its level block.
       if city:levelFamily(n) then
-        row("Carrying",math.floor(city.detail.node[n.id] or 0).." a day",y)
+        y=y-26
       else
         row("Ports",degree.." / "..n.ports,y,degree>=n.ports and P.warn or P.text)
         row("Carrying",math.floor(city.detail.node[n.id] or 0),y+26)
