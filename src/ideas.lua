@@ -63,16 +63,6 @@ return function(City)
     if roll<.01 then return .5 elseif roll<.03 then return .4 elseif roll<.06 then return .3 elseif roll<.10 then return .2 elseif roll<.15 then return .1 end
     return 0
   end
-  local districtCost=City.districtCost
-  function City:districtCost(d) return math.ceil(districtCost(self,d)*(1-self:landDiscount(d))) end
-  local districtError=City.districtError
-  function City:districtError(id)
-    local why=districtError(self,id)
-    if why=='not next to your ground' then
-      return self:districtCost(self.districts[id])>self.money and 'not enough cash' or nil
-    end
-    return why
-  end
   function City:districtVisible(d)
     if not d or not d.col or not d.row then return false end
     if d.owned then return true end
@@ -119,26 +109,6 @@ return function(City)
       end
     end
   end
-  local leakChance=City.leakChance
-  function City:leakChance(e)
-    local chance=leakChance(self,e)
-    if e.commodity=='saltwater' then return math.min(1,chance*8*(e.filtered and .25 or 1)) end
-    if e.commodity=='water' then chance=chance+math.max(0,(e.calcification or 0)-99)*.001*self:gradeOf(e).risk end
-    return math.min(1,chance)
-  end
-  local upgradeSource=City.upgradeSource
-  function City:upgradeSource(id)
-    local n=self.g.nodes[id]
-    -- A well gives what a well gives, however deep it is sunk, and nothing
-    -- about the money changes that. An intake is not a well: it is a works on
-    -- running water, and its ceiling is the channel's, checked where every
-    -- other ceiling in the game is checked.
-    if n and n.commodity=='water' and not n.intake and not n.plant
-       and (n.output or 0)>=(n.cap or 50) then
-      return nil,'maximum well output: '..(n.cap or 50)
-    end
-    return upgradeSource(self,id)
-  end
   function City:loadDepot(id)
     local n=self.g.nodes[id]
     if not n or not n.alive or n.kind~='depot' then return nil,'select a storage depot' end
@@ -147,65 +117,6 @@ return function(City)
     if amount<=0 then return nil,'no stored goods or no room in this depot' end
     self.stock[key]=self.stock[key]-amount; n.stored=(n.stored or 0)+amount
     self:refresh(); return amount
-  end
-  local build=City.build
-  function City:build(x,y,kind,recipe)
-    if kind=='tower' then return nil,'use a filtration plant' end
-    return build(self,x,y,kind,recipe)
-  end
-  local sourceCost=City.sourceCost
-  function City:sourceCost(commodity,x,y,plant)
-    if commodity=='saltwater' then return 1600 end
-    return sourceCost(self,commodity,x,y,plant)
-  end
-  local sourceError=City.sourceError
-  function City:sourceError(commodity,x,y,plant)
-    if commodity~='saltwater' then return sourceError(self,commodity,x,y,plant) end
-    if not y or y>=0 or self:districtAt(x,y) then return 'place the seawater pump on the sea' end
-    local coast=self:districtAt(x,1)
-    if not coast or not coast.owned or y< -220 then return 'needs owned coastline within 220 m' end
-    for _,n in ipairs(self.g:aliveNodes()) do if (n.x-x)^2+(n.y-y)^2<City.rules.minSpacing^2 then return 'too close to another structure' end end
-  end
-  local buySource=City.buySource
-  function City:buySource(commodity,x,y,plant)
-    if commodity=='saltwater' then
-      local why=self:sourceError(commodity,x,y,plant); if why then return nil,why end
-      if self.money<1600 then return nil,'not enough cash' end
-      self:spend(1600)
-      local n=self.g:addNode(x,y,'source'); n.commodity=commodity; n.output=50; n.ports=1; n.paid=1600; n.plant='seapump'; n.upkeep=18
-      self:refresh(); return n
-    end
-    local n,why=buySource(self,commodity,x,y,plant)
-    if n and plant=='wind' then local d=self:districtAt(x,y); if d and d.island then n.output=math.ceil(n.output*1.5); n.islandBonus=true; self:refresh() end end
-    return n,why
-  end
-  local licensed=City.licensed
-  function City:licensed(key)
-    if key=='saltwater' or key=='gems' or key=='jewelry' then return true end
-    return licensed(self,key)
-  end
-  local replaceError=City.replaceError
-  function City:replaceError(id,size,grade)
-    local e=self.g.edges[id]
-    if e and e.commodity=='saltwater' and (grade or e.grade or 1)<3 then return 'saltwater needs armoured or sealed pipes' end
-    return replaceError(self,id,size,grade)
-  end
-  local convertError=City.convertError
-  function City:convertError(id,kind)
-    if kind=='tower' then return 'use filtration instead' end
-    return convertError(self,id,kind)
-  end
-  local layPipe=City.layPipe
-  function City:layPipe(a,b,commodity,size,rail,grade)
-    if commodity=='saltwater' then
-      local na,nb=self.g.nodes[a],self.g.nodes[b]
-      if not na or not nb then return nil,'choose two buildings' end
-      if (grade or self.lining or 1)<3 then return nil,'saltwater needs armoured or sealed pipes' end
-      local filtered=na.kind=='filtration' or nb.kind=='filtration'
-      for _,id in ipairs({a,b}) do for _,e in ipairs(self.g:edgesAt(id)) do filtered=filtered or e.commodity=='saltwater' and e.filtered end end
-      if not filtered then return nil,'route saltwater through a filter first' end
-    end
-    return layPipe(self,a,b,commodity,size,rail,grade)
   end
   function City:requestPremium(c)
     if c.powerRequest and not c.prospect then return (c.powerOfferRate or 6)/6-1 end
@@ -234,89 +145,5 @@ return function(City)
       if c.powerRequest and (not best or self:requestPremium(c)>self:requestPremium(best)) then best=c end
     end
     return best
-  end
-  local acceptClient,declineClient=City.acceptClient,City.declineClient
-  function City:acceptClient(id)
-    local c=self.g.nodes[id]
-    if c and c.powerRequest and not c.prospect then
-      c.powerAccepted=true; c.powerRequest=nil; c.utilityRates=c.utilityRates or {}; c.utilityRates.power=c.powerOfferRate or 6; c.demands=c.demands or {[c.commodity]=c.demand}; c.demands.power=c.clientType=='estate' and 4 or 2
-      self:refresh(); return c
-    end
-    return acceptClient(self,id)
-  end
-  function City:declineClient(id)
-    local c=self.g.nodes[id]
-    if c and c.powerRequest and not c.prospect then c.powerRequest=nil; c.powerDeclined=self.day; return c end
-    return declineClient(self,id)
-  end
-  local buyLicence=City.buyLicence
-  function City:buyLicence(key)
-    local ok,why=buyLicence(self,key)
-    if ok and key=='power' then
-      for _,c in ipairs(self:clientList()) do
-        if c.commodity=='water' and self:wantsSecondUtility(c) then self:offerElectricity(c) end
-      end
-      self:refresh()
-    end
-    return ok,why
-  end
-  -- What harvesting a wood or blasting a range yields, and what it costs.
-  function City:clearYield(o) return math.floor(o.r*o.r/100) end
-  function City:clearCost(o) return math.ceil(self:clearYield(o)*(o.kind=='park' and 4 or 35)) end
-  function City:clearTerrain(index)
-    local o=self.obstacles[index]
-    if not o or (o.kind~='park' and o.kind~='bedrock') then return nil,'select woodland or mountain' end
-    if not self.permits[o.kind] then return nil,'requires the terrain permit' end
-    -- Every affected region must belong to the company before a range is cleared.
-    for col=math.floor((o.x-o.r)/City.MAP.w)+1,math.floor((o.x+o.r)/City.MAP.w)+1 do
-      for row=math.floor((o.y-o.r)/City.MAP.h)+1,math.floor((o.y+o.r)/City.MAP.h)+1 do
-        local d=self:cellAt(col,row); if not d or not d.owned then return nil,'buy all regions covered by this terrain first' end
-      end
-    end
-    local units,cost=self:clearYield(o),self:clearCost(o)
-    if self.money<cost then return nil,'clearing costs $'..cost end
-    self:spend(cost); local key=o.kind=='park' and 'timber' or 'rock'; self.stock[key]=(self.stock[key] or 0)+units
-    if o.kind=='bedrock' and self:random()<.05 then self.stock.gems=(self.stock.gems or 0)+math.max(1,math.floor(units/100)) end
-    table.remove(self.obstacles,index); self:refresh(); return true
-  end
-  local dailyRevenue=City.dailyRevenue
-  function City:dailyRevenue()
-    return dailyRevenue(self)+(((self.detail or {}).yard or {}).jewelry or 0)*900
-  end
-  local endDay=City.endDay
-  function City:endDay()
-    if self.bankrupt then return nil end
-    self:updateFiltration()
-    for _,e in ipairs(self.g.edges) do if e.alive and e.commodity=='water' and not e.filtered then e.calcification=(e.calcification or 0)+1 end end
-    local report=endDay(self)
-    if report then
-      for _,c in ipairs(self:clientList()) do
-        if self.licences.power and c.commodity=='water' and self:wantsSecondUtility(c) and not (c.demands or {}).power
-          and not c.powerRequest and (not c.powerDeclined or self.day-c.powerDeclined>=7)
-          and self:random()<City.DUAL.daily then self:offerElectricity(c) end
-      end
-      self:refresh()
-    end
-    return report
-  end
-  local new=City.new
-  function City.new(opts)
-    local c=new(opts); c.ideasVersion=1; return c
-  end
-  local migrate=City.migrate
-  function City:migrate()
-    migrate(self)
-    self.analystHired=self.analystHired or {}
-    if not self.ideasVersion then
-      for _,n in ipairs(self.g:aliveNodes()) do
-        if n.kind=='tower' then n.kind='filtration'; n.ports=math.max(2,self.g:degree(n.id)) end
-        if n.kind=='depot' then n.capacityStore=math.max(100,n.capacityStore or 0) end
-        if n.kind=='source' and n.commodity=='water' then
-          n.level=math.min(4,n.level or 1); n.output=20+(n.level-1)*10; n.cap=50; n.ports=math.max(1,self:connectionPorts(n.id))
-        end
-      end
-      self.ideasVersion=1
-    end
-    self:survey()
   end
 end

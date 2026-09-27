@@ -151,6 +151,13 @@ end
 
 -- Whether a mode may run between these two, and why not.
 function City:bulkError(a, b, mode)
+  if mode == "highway" then
+    -- Container trucks run on the road network, between freight buildings.
+    local function freight(n) return n and n.alive and (n.kind=='terminal' or n.kind=='dc' or n.kind=='depot' or n.kind=='works' or n.kind=='source' or n.kind=='exchange' or n.kind=='client' and (n.clientType=='market' or n.clientType=='factory')) end
+    if not freight(self.g.nodes[a]) or not freight(self.g.nodes[b]) then return 'container trucks serve depots, factories, food stores and freight sources' end
+    if not self:roadPath(a,b,'truck') then return 'connect these buildings with normal roads or highways first' end
+    return nil
+  end
   local spec = City.MODES[mode]
   if not spec then return "no such mode" end
   local na, nb = self.g.nodes[a], self.g.nodes[b]
@@ -275,6 +282,9 @@ City.SIZE_LIMIT = require("data.pipes").SIZE_LIMIT
 -- them and change the pipe's size.
 function City:sizeRange(a, b)
   local lo, hi = 1, #City.PIPE_SIZES
+  local na, nb = self.g.nodes[a], self.g.nodes[b]
+  -- A power tower takes a cable of any size.
+  if na and nb and (City.INFRA.towers[na.kind] or City.INFRA.towers[nb.kind]) then return lo, hi end
   for _, id in ipairs({ a, b }) do
     local n = self.g.nodes[id]
     local lim = n and City.SIZE_LIMIT[n.kind]
@@ -393,6 +403,7 @@ function City.new(opts)
   self.firstSource = first
 
   self:refresh()
+  self.infrastructureVersion, self.ideasVersion = 3, 1
   return self
 end
 
@@ -869,12 +880,13 @@ function City:districtCost(d)
   -- Waterfront still tempts the routes in cheapest, but the ground itself is
   -- the one everybody else wants too, and it prices accordingly.
   local coastal = (row == 1) and 1.15 or 1
-  return math.ceil(City.districtPrice.base
+  local price = math.ceil(City.districtPrice.base
     * (City.districtPrice.growth ^ self.districtsBought)
     * (1 + 0.55 * ring)
     * inland
     * coastal
     * ((d and d.island) and 1.9 or 1))
+  return math.ceil(price * (1 - self:landDiscount(d)))
 end
 
 function City:districtError(id)
@@ -885,7 +897,8 @@ function City:districtError(id)
     -- Ships do not care what is next door. A harbour is what an island is next
     -- to, so a company without one has no way to land on it.
     if not self:havenOf("port") then return "an island needs a harbour to reach it" end
-  elseif not self:districtAdjacent(d) then return "not next to your ground" end
+  end
+  -- Holdings need not touch: a disconnected district is bought like any other.
   if self:districtCost(d) > self.money then return "not enough cash" end
   return nil
 end
@@ -1410,6 +1423,10 @@ function City:placementError(x, y)
       return "too close to another structure"
     end
   end
+  local farmR = City.INFRA.farmRadius
+  for _, n in ipairs(self.g:aliveNodes()) do
+    if City.isFarm(n) and math.abs(n.x - x) < farmR and math.abs(n.y - y) < farmR then return "that land is used by a farm" end
+  end
   return nil
 end
 
@@ -1417,7 +1434,34 @@ function City:rangeBetween(a, b, rail, commodity, size)
   local mode = City.modeOf(rail)
   if mode then return City.MODES[mode].range end
   if rail then return City.rail.range end
-  return City.rules.linkRange * City.reachFor(size)
+  local D = City.INFRA
+  local na, nb = self.g.nodes[a], self.g.nodes[b]
+  local range
+  if commodity == "power" then
+    -- Electricity has a size ladder of its own in the voltages, so the pipe
+    -- sizes do not reach any further on a cable than they already do in kV.
+    if na.kind=='transformer' or nb.kind=='transformer' then
+      range = 95
+    else
+      local voltage=a~=b and self:cableVoltage(a,b)
+      if not voltage then
+        local set=self:voltagesAt(na)
+        for i=#D.voltageOrder,1,-1 do if set[D.voltageOrder[i]] then voltage=D.voltageOrder[i]; break end end
+      end
+      -- Farms connect at the field boundary, not at the central map badge.
+      range = D.voltages[voltage or 'low'].span+((City.isFarm(na) or City.isFarm(nb)) and D.farmRadius or 0)
+    end
+  elseif (na.kind=='binder')~=(nb.kind=='binder') then
+    -- An attachment to a binder is a short spur by design, so it does not get
+    -- the trunk's reach however wide it is.
+    range = D.binderRange
+  elseif na.kind=='pump' or nb.kind=='pump' then
+    range = D.pumpRange * City.reachFor(size)
+  else
+    range = City.rules.linkRange * City.reachFor(size)
+  end
+  -- Longer reach for the better buildings on either end.
+  return range * (1 + math.max(self:reachBonus(na), self:reachBonus(nb)))
 end
 
 -- `true` still means rail, because that is what the toggle used to be.
@@ -1429,6 +1473,12 @@ end
 -- A bulk line is priced as infrastructure: two terminals, the run itself, and
 -- one charge per wagon or hold fitted to it.
 function City:railQuote(a, b, wagons, mode)
+  if mode == "highway" then
+    -- Container trucks pay by the road they drive, not by track laid.
+    local _,metres=self:roadPath(a,b,'truck')
+    local q={metres=metres or self:nodeDistance(a,b),ground=1,capacity=wagons or 1,rail=true,mode=mode,tiein=City.MODES.highway.tiein*2,trench=0,bore=math.max(1,wagons or 1)*City.MODES.highway.perWagon}
+    q.total=q.tiein+q.bore; return q
+  end
   mode = City.modeOf(mode) or "rail"
   local spec = City.MODES[mode]
   wagons = math.max(1, wagons or 1)
@@ -1457,40 +1507,66 @@ function City:licensed(commodity)
 end
 
 function City:pipeError(a, b, commodity, rail, size)
-  if not self:licensed(commodity) then return "no licence for that" end
-  local mode = City.modeOf(rail)
-  if rail and not mode then return "no such mode" end
-  if mode then
+  if rail == "highway" then
+    -- Container trucks: any freight but current and signal, over roads.
+    if not self:licensed(commodity) then return 'no licence for that' end
+    if Graph.formOf(commodity)=='energy' or Graph.formOf(commodity)=='data' then return 'electricity and data cannot travel in containers' end
+    local why=self:bulkError(a,b,'highway'); if why then return why end
+    if a==b then return 'a truck route needs two different buildings' end
+    if self:pipeBetween(a,b,commodity) then return 'that freight service already exists' end
+    if self.g:freePorts(a)<1 or self.g:freePorts(b)<1 then return 'no free freight ports' end
+    return nil
+  end
+  local na, nb = self.g.nodes[a], self.g.nodes[b]
+  if rail then
+    if not self:licensed(commodity) then return "no licence for that" end
+    local mode = City.modeOf(rail)
+    if not mode then return "no such mode" end
     local why = self:bulkError(a, b, mode)
     if why then return why end
-  else
-    -- Freight is handled at a freight terminal. A main running straight out of
-    -- a haven would be a pipeline to a port that has no pipeline, and it would
-    -- dodge the haulage bill that makes distance cost something.
-    if self:isBulkNode(self.g.nodes[a]) and self.g.nodes[a].kind == "terminal"
-       or self:isBulkNode(self.g.nodes[b]) and self.g.nodes[b].kind == "terminal" then
-      return "a haven ships by bulk line only"
+    local ok, linkWhy = self.g:canLink(a, b)
+    -- Two structures may carry one line of each commodity between them.
+    if not ok and linkWhy ~= "link already exists" then return linkWhy end
+    if self:pipeBetween(a, b, commodity) then return "that pipe already exists" end
+    if self.g:freePorts(a) < 1 or self.g:freePorts(b) < 1 then return "no free ports there" end
+    if math.sqrt((na.x - nb.x) ^ 2 + (na.y - nb.y) ^ 2) > self:rangeBetween(a, b, rail, commodity) then
+      return "too far even for " .. string.lower(City.MODES[mode].name)
     end
+    local mult, blocker = self:crossingCost(na.x, na.y, nb.x, nb.y)
+    if not mult then return "cannot cross " .. string.lower(City.OBSTACLES[blocker.kind].name) end
+    return nil
   end
-  local ok, why = self.g:canLink(a, b)
-  -- Two structures may carry one pipe of each commodity between them.
-  if not ok and why ~= "link already exists" then return why end
-  if self:pipeBetween(a, b, commodity) then return "that pipe already exists" end
-  if self.g:freePorts(a) < 1 then return "no free ports there" end
-  if self.g:freePorts(b) < 1 then return "no free ports there" end
-
-  local na, nb = self.g.nodes[a], self.g.nodes[b]
-  local d = math.sqrt((na.x - nb.x) ^ 2 + (na.y - nb.y) ^ 2)
-  if d > self:rangeBetween(a, b, rail, commodity, size) then
-    return mode and ("too far even for " .. string.lower(City.MODES[mode].name))
-      or "too far: use a pump, or lay a bigger main"
+  -- A main or a cable.
+  local D = City.INFRA
+  if not na or not nb or not na.alive or not nb.alive or a==b then return 'choose two different live buildings' end
+  if not self:licensed(commodity) then return 'no licence for that' end
+  -- A haven ships by bulk line: a main out of it would dodge the haulage bill.
+  if na.kind=='terminal' or nb.kind=='terminal' then return 'a haven ships by bulk line only' end
+  local voltage
+  if commodity=='power' then
+    if not City.isElectrical(na) or not City.isElectrical(nb) then return 'electricity needs power towers, not water fittings' end
+    local why
+    voltage,why=self:cableVoltage(a,b)
+    if not voltage then return why end
+  elseif D.towers[na.kind] or D.towers[nb.kind] or na.kind=='transformer' or nb.kind=='transformer' then return 'power towers carry electricity only'
+  elseif (na.kind=='filtration' or nb.kind=='filtration') and commodity~='water' and commodity~='saltwater' then return 'filtration treats water only' end
+  local count=0
+  for _,e in ipairs(self.g:edgesAt(a)) do
+    if e.commodity==commodity and ((e.a==a and e.b==b) or (e.b==a and e.a==b)) then count=count+1 end
   end
-  local mult, blocker = self:crossingCost(na.x, na.y, nb.x, nb.y)
-  if not mult then return "cannot cross " .. string.lower(City.OBSTACLES[blocker.kind].name) end
-  if not mode and not self:sizeRange(a, b) then
-    return "needs a structure between them to change pipe size"
+  if count>=self:parallelLimit(a,b) then return count>0 and 'parallel limit reached: use or upgrade pipe binders' or 'that pipe already exists' end
+  for _,id in ipairs({a,b}) do
+    if count==0 and self:connectionPorts(id)>=self.g.nodes[id].ports then return 'no free connections there' end
   end
-  return nil
+  local reach=self:rangeBetween(a,b,nil,commodity,size)
+  if math.sqrt((na.x-nb.x)^2+(na.y-nb.y)^2)>reach then
+    return voltage and ('too long at '..D.voltages[voltage].kv..' kV: a tower every '..reach..' m')
+      or 'too far: use a pump, lay a bigger main, or keep binder spurs short'
+  end
+  local mult,blocker=self:crossingCost(na.x,na.y,nb.x,nb.y)
+  if not mult then return 'cannot cross '..string.lower(City.OBSTACLES[blocker.kind].name) end
+  if not self:sizeRange(a,b) then return 'needs a structure between them to change pipe size' end
+  if voltage then return self:boostError(a,b,voltage) end
 end
 
 function City:pipeBetween(a, b, commodity)
@@ -1524,6 +1600,7 @@ function City:nodeDistance(a, b)
 end
 
 function City:pipeLength(e)
+  if e.bulk=='highway' then local path,metres=self:roadPath(e.a,e.b,'truck'); if path then return metres end end
   return self:nodeDistance(e.a, e.b)
 end
 
@@ -1547,6 +1624,13 @@ function City:pipeQuote(a, b, commodity, size, rail, grade)
     size = spec.key, capacity = spec.cap, grade = grade or 1,
     tiein = math.ceil(tiein), trench = math.ceil(trench), bore = math.ceil(bore),
   }
+  if commodity == "power" then
+    -- A cable is priced by the voltage it carries.
+    q.voltage=self.quoteVoltage or self:cableVoltage(a,b) or 'low'
+    local multiplier=City.INFRA.voltageCost[q.voltage]
+    q.tiein=math.ceil(q.tiein*multiplier); q.trench=math.ceil(q.trench*multiplier); q.bore=math.ceil(q.bore*multiplier)
+    q.capacity=self:powerRating({a=a,b=b,cap=1,capMax=1,size=spec.key,voltage=q.voltage})
+  end
   q.total = q.tiein + q.trench + q.bore
   return q
 end
@@ -1594,7 +1678,13 @@ function City:pipeUpkeep(e)
 end
 
 function City:sourceCost(commodity, x, y, plant)
-  if commodity == "power" then return self:plantCost(plant or "nuclear") end
+  if commodity == "saltwater" then return 1600 end
+  if commodity == "power" then
+    local cost = self:plantCost(plant or "nuclear")
+    -- Offshore wind costs more than the same park on land.
+    if plant == "wind" and y and y < 0 and not self:districtAt(x, y) then cost = math.ceil(cost * 1.6) end
+    return cost
+  end
   local trade = City.trade[commodity] or City.trade.water
   -- An intake is counted, and charged, on a ladder of its own. A company that
   -- has one and wants a second is asking for a second heart, and the price
@@ -1692,6 +1782,7 @@ City.SOLVE_ORDER, City.SOLVE_LEVEL = solveOrder()
 -- no malt makes no beer at all, which is what makes the chain behind it worth
 -- building rather than an optimisation to get round to.
 function City:worksOutput(n)
+  if City.isFarm(n) and self:pollutionAt(n.x,n.y)>=City.INFRA.pollution.stopAt then return 0 end
   local recipe = City.RECIPES[n.recipe or ""]
   if not recipe then return 0 end
   local got = (self.detail.works or {})[n.id] or {}
@@ -1812,6 +1903,12 @@ end
 
 function City:upgradeSource(id)
   local n = self.g.nodes[id]
+  -- A well gives what a well gives, however deep it is sunk. An intake is not
+  -- a well: its ceiling is the channel's, checked below with every other one.
+  if n and n.commodity=='water' and not n.intake and not n.plant
+     and (n.output or 0)>=(n.cap or 50) then
+    return nil,'maximum well output: '..(n.cap or 50)
+  end
   if not (n and n.alive and n.kind == "source") then return nil, "no such source" end
   local level = n.level or 1
   local cost = self:sourceUpgradeCost(n)
@@ -1934,7 +2031,7 @@ end
 
 City.terminalUpkeep = require("data.freight").terminalUpkeep
 
-function City:build(x, y, kind, commodity)
+local function buildPlain(self, x, y, kind, commodity)
   if not City.BUILDABLE[kind] then return nil, "choose a structure" end
   local err = self:placementError(x, y)
   if err then return nil, err end
@@ -2008,6 +2105,31 @@ function City:build(x, y, kind, commodity)
   return n
 end
 
+function City:build(x, y, kind, recipe)
+  if kind=='tower' then return nil,'use a filtration plant' end
+  local n, err
+  if kind=='works' and recipe=='turbine' then
+    n, err = self:buySource('power',x,y,'hydro')
+  else
+    local spec=City.RECIPES[recipe or '']
+    local farm=kind=='works' and spec and spec.farm
+    if farm then
+      local why=self:farmSiteError(x,y)
+      if why then return nil,why end
+    end
+    n, err = buildPlain(self,x,y,kind,recipe)
+    if n then
+      if kind=='binder' then n.bundleLanes=2 end
+      if farm then n.farm=true end
+      if kind=='lab' then self:note('Lab protects its district and eight adjacent districts; cleanup runs at day close.') end
+      self:refresh()
+    end
+  end
+  -- A building with levels starts at its first.
+  if n and self:levelFamily(n) then self:setLevel(n, City.LEVELS.MIN_LEVEL[n.kind] or 1, true) end
+  return n, err
+end
+
 City.depotCapacity = require("data.freight").depotCapacity
 City.depotFillRate = require("data.freight").depotFillRate
 
@@ -2024,7 +2146,7 @@ function City:setGate(id, value)
   return n
 end
 
-function City:layPipe(a, b, commodity, size, rail, grade)
+local function layPipePlain(self, a, b, commodity, size, rail, grade)
   local mode = City.modeOf(rail)
   local wagons = mode and math.max(1, math.min(8, math.floor(tonumber(size) or 1))) or nil
   grade = math.max(1, math.min(self.lining or 1, grade or self.lining or 1))
@@ -2082,6 +2204,31 @@ function City:layPipe(a, b, commodity, size, rail, grade)
   return e
 end
 
+function City:layPipe(a, b, commodity, size, rail, grade)
+  if commodity=='saltwater' then
+    -- Brine needs armour and a filter upstream.
+    local na,nb=self.g.nodes[a],self.g.nodes[b]
+    if not na or not nb then return nil,'choose two buildings' end
+    if (grade or self.lining or 1)<3 then return nil,'saltwater needs armoured or sealed pipes' end
+    local filtered=na.kind=='filtration' or nb.kind=='filtration'
+    for _,id in ipairs({a,b}) do for _,e in ipairs(self.g:edgesAt(id)) do filtered=filtered or e.commodity=='saltwater' and e.filtered end end
+    if not filtered then return nil,'route saltwater through a filter first' end
+  end
+  -- Parallel mains must have the same bore and lining.
+  if not rail and self:pipeBetween(a,b,commodity) then
+    local existing=self.g.edges[self:pipeBetween(a,b,commodity)]
+    if existing.size~=City.asSize(size).key or existing.grade~=(grade or self.lining or 1) then return nil,'parallel mains must use identical size and lining' end
+  end
+  local voltage=commodity=='power' and not rail and self:cableVoltage(a,b) or nil
+  local e,err=layPipePlain(self,a,b,commodity,size,rail,grade)
+  if e then
+    if voltage then e.voltage=voltage end
+    if commodity=='water' then e.hydraulic=true; e.filtered=self:treatedWater(a) or self:treatedWater(b) end
+    self:refresh()
+  end
+  return e,err
+end
+
 --------------------------------------------------------------------------------
 -- Replacing a main
 --
@@ -2098,7 +2245,10 @@ function City:replaceQuote(id, size, grade)
   if not (e and e.alive) then return nil end
   if e.bulk then return nil end
   grade = math.max(1, math.min(self.lining or 1, grade or e.grade or 1))
+  local held = self.quoteVoltage
+  self.quoteVoltage = e.voltage
   local q = self:pipeQuote(e.a, e.b, e.commodity, size or e.size or (e.capMax or e.cap), false, grade)
+  self.quoteVoltage = held
   q.salvage = math.floor((e.paid or 0) * City.salvage)
   q.net = math.max(0, q.total - q.salvage)
   return q
@@ -2106,6 +2256,7 @@ end
 
 function City:replaceError(id, size, grade)
   local e = self.g.edges[id]
+  if e and e.commodity=='saltwater' and (grade or e.grade or 1)<3 then return 'saltwater needs armoured or sealed pipes' end
   if not (e and e.alive) then return "no such main" end
   if e.bulk then return "a freight line is fitted with wagons, not replaced" end
   local spec = City.asSize(size or e.size)
@@ -2138,6 +2289,9 @@ function City:replacePipe(id, size, grade)
   e.leaking, e.burstReported, e.decayTick, e.fullFor = false, nil, nil, 0
   self:note("A %s main was dug out and replaced with %s %s pipe for $%d",
     e.commodity, string.lower(spec.name), string.lower(City.GRADES[grade].name), q.net)
+  self:refresh()
+  e.calcification=0
+  if e.commodity=='water' then e.filtered=self:treatedWater(e.a) end
   self:refresh()
   return e
 end
@@ -2458,7 +2612,9 @@ function City:convertCost(id, kind)
 end
 
 function City:convertError(id, kind)
+  if kind == "tower" then return "use filtration instead" end
   local n = self.g.nodes[id]
+  if n and (n.kind == "binder" or City.INFRA.towers[n.kind]) then return "demolish and rebuild specialist equipment" end
   if not (n and n.alive) then return "no such structure" end
   if not City.CONVERTIBLE[n.kind] then
     return n.kind == "source" and "a well must be capped, not replaced"
@@ -2479,6 +2635,7 @@ function City:convertNode(id, kind, commodity)
   local err = self:convertError(id, kind)
   if err then return nil, err end
   local n = self.g.nodes[id]
+  local wasFamily, wasLevel = self:levelFamily(n), self:levelOf(n)
   local was = Graph.KINDS[n.kind].name
   local cost = self:convertCost(id, kind)
   self:spend(cost)
@@ -2501,6 +2658,14 @@ function City:convertNode(id, kind, commodity)
   self:note("%s %d replaced with a %s for $%d, mains left connected",
     was, id, string.lower(Graph.KINDS[kind].name), cost)
   self:refresh()
+  -- A level carries over only inside its own family: a level 3 junction does
+  -- not become a level 3 pump for free.
+  if self:levelFamily(n) then
+    local level = wasFamily == self:levelFamily(n) and wasLevel or 1
+    level = math.max(level, City.LEVELS.MIN_LEVEL[n.kind] or 1)
+    if n.kind == "junction" then level = 1 end
+    self:setLevel(n, level, level == 1)
+  end
   return n
 end
 
@@ -2515,6 +2680,23 @@ end
 -- reactor answers to no deposit, only to ground. And nobody brews: beer comes
 -- off a ship like everything else the city does not make for itself.
 function City:sourceError(commodity, x, y, plant)
+  if commodity == "saltwater" then
+    -- A seawater pump stands in the sea, off coast the company owns.
+    if not y or y>=0 or self:districtAt(x,y) then return 'place the seawater pump on the sea' end
+    local coast=self:districtAt(x,1)
+    if not coast or not coast.owned or y< -220 then return 'needs owned coastline within 220 m' end
+    for _,n in ipairs(self.g:aliveNodes()) do if (n.x-x)^2+(n.y-y)^2<City.rules.minSpacing^2 then return 'too close to another structure' end end
+    return nil
+  end
+  if commodity=='wheat' then return 'choose Crop farm under More buildings; farms need utilities' end
+  if commodity=='power' and plant=='wind' and y<0 and not self:districtAt(x,y) then
+    -- Offshore wind, off coast the company owns.
+    if not self:licensed('power') then return 'no licence for power' end
+    local coast=self:districtAt(x,1)
+    if not coast or not coast.owned or y < -220 then return 'offshore wind needs owned coastline within 220m' end
+    for _,n in ipairs(self.g:aliveNodes()) do if (n.x-x)^2+(n.y-y)^2<City.rules.minSpacing^2 then return 'too close to another structure' end end
+    return nil
+  end
   if not self:licensed(commodity) then return "no licence for that" end
   -- Water is both dug and desalinated: an extractor for a commodity always
   -- wins this check, because a recipe existing besides it does not mean the
@@ -2542,10 +2724,13 @@ function City:sourceError(commodity, x, y, plant)
   else
     return string.lower(commodity) .. " is not taken out of the ground: land it or make it"
   end
+  if commodity=='power' and plant=='hydro' and (self:riverEdge(x,y) or math.huge)>100 then return 'a river turbine needs a river within 100m' end
+  if commodity=='water' and self:pollutionAt(x,y)>=City.INFRA.pollution.stopAt then return 'water polluted: an environment lab must clean the district' end
+  if commodity=='power' and plant=='solar' then return self:materialError(City.MATERIALS.solar) end
   return nil
 end
 
-function City:buySource(commodity, px, py, plant)
+local function buySourcePlain(self, commodity, px, py, plant)
   if not self:licensed(commodity) then return nil, "no licence" end
   local madeBy = commodity ~= "power" and not City.EXTRACTOR_OF[commodity]
     and City.RECIPES[City.MADE_BY[commodity] or ""]
@@ -2669,6 +2854,35 @@ function City:buySource(commodity, px, py, plant)
   return nil, "no room for a new well"
 end
 
+function City:buySource(commodity, x, y, plant)
+  if commodity=='saltwater' then
+    -- A seawater pump is bought whole: a fixed price and one pipe out.
+    local why=self:sourceError(commodity,x,y,plant); if why then return nil,why end
+    if self.money<1600 then return nil,'not enough cash' end
+    self:spend(1600)
+    local n=self.g:addNode(x,y,'source'); n.commodity=commodity; n.output=50; n.ports=1; n.paid=1600; n.plant='seapump'; n.upkeep=18
+    self:refresh(); return n
+  end
+  local n,err=buySourcePlain(self,commodity,x,y,plant)
+  if n then
+    local D = City.INFRA
+    if commodity=='water' then
+      n.output,n.level=n.intake and City.INTAKE.output or D.wellOutput,1
+      -- A well answers through one outlet, which is what stops a source
+      -- being a distribution point in its own right. An intake gets a
+      -- second, and keeps the ceiling the channel gave it.
+      n.ports=n.intake and D.intakePorts or D.wellPorts
+      n.cap=n.intake and n.cap or D.wellCap
+    end
+    if commodity=='power' then n.voltage='high' end
+    if plant=='wind' and y and y<0 and not self:districtAt(x,y) then n.offshore=true; n.upkeep=math.ceil(n.upkeep*1.5) end
+    self:refresh()
+    -- Wind blows harder over an island.
+    if plant=='wind' then local d=self:districtAt(x,y); if d and d.island then n.output=math.ceil(n.output*1.5); n.islandBonus=true; self:refresh() end end
+  end
+  return n,err
+end
+
 City.LICENSABLE = { power = true, beer = true, oil = true, food = true, internet = true }
 
 function City:buyLicence(commodity)
@@ -2682,6 +2896,13 @@ function City:buyLicence(commodity)
   self.licences[commodity] = true
   self:note("%s licence acquired: that trade can now be served",
     string.upper(commodity))
+  if commodity == "power" then
+    -- Households that would take electricity ask for it straight away.
+    for _,c in ipairs(self:clientList()) do
+      if c.commodity=='water' and self:wantsSecondUtility(c) then self:offerElectricity(c) end
+    end
+    self:refresh()
+  end
   return true
 end
 
@@ -2824,6 +3045,16 @@ function City:addClient(kind, prospect, district, near)
       n.joined = self.day
       n.prospect = prospect or false
       n.expires = self.day + 5
+      -- Some offers come as a secure contract: more per unit, less patience,
+      -- and a refund for every short day.
+      if n.prospect and #self:clientList() >= City.SECURE.clients
+         and self:unit(n.id, 77) * 100 < City.SECURE.share then
+        n.secure = true
+        n.rate = math.floor(n.rate * City.SECURE.rate + 0.5)
+        n.rateBase = math.floor((n.rateBase or n.rate) * City.SECURE.rate + 0.5)
+        n.patience = math.min(n.patience or City.SECURE.patience, City.SECURE.patience)
+        n.grace = n.patience
+      end
       self:refresh()
       return n
     end
@@ -2861,6 +3092,95 @@ end
 --------------------------------------------------------------------------------
 
 function City:refresh()
+  -- Cap each quarry by what its range has left before the flow is solved.
+  for _, n in ipairs(self.g:aliveNodes()) do
+    local o = self:quarryRange(n)
+    if o then
+      local left = self:rockLeft(o)
+      if left < (n.output or 0) then n.effectiveOutputLife = left else n.effectiveOutputLife = nil end
+    else
+      n.effectiveOutputLife = nil
+    end
+  end
+
+  -- Roads: every goods road and truck line is part of the one road network.
+  self.links=self.links or {}
+  if not self.roadModelVersion then
+    for _,e in ipairs(self.g.edges) do
+      if e.alive and e.bulk=='highway' and not self:linkBetween(e.a,e.b,'road') then
+        local id=#self.links+1; self.links[id]={id=id,a=e.a,b=e.b,mode='road',roadType='road',alive=true,toll=0,paid=0}
+      end
+    end
+    self.roadModelVersion=1
+  end
+  for _,e in ipairs(self.g.edges) do
+    if e.alive and not e.rail and Graph.formOf(e.commodity)=='solid' and not e.goodsRoad then
+      local l=self:linkBetween(e.a,e.b,'road')
+      if not l then
+        local id=#self.links+1
+        l={id=id,a=e.a,b=e.b,mode='road',roadType='road',alive=true,toll=0,paid=0,goodsEdge=e.id}
+        self.links[id]=l
+      end
+      e.goodsRoad=l.id
+    end
+  end
+  for _,l in ipairs(self.links) do
+    if l.goodsEdge and not self.g.edges[l.goodsEdge].alive then l.alive=false end
+  end
+  for _,l in ipairs(self.links) do if l.mode=='road'  then l.roadType=l.roadType or 'road'; if l.roadType~='highway' then l.toll=0 end end end
+  for _,n in ipairs(self.g:aliveNodes()) do
+    if n.kind=='client' and City.HOUSEHOLD[n.clientType] then
+      n.utilityRates=n.utilityRates or {water=4,power=6}; n.demands=n.demands or {[n.commodity]=n.demand}; n.demands[n.commodity]=n.demand
+      -- A household takes what it signed for. A second utility is a separate
+      -- offer with its own rate, so it appears here only once that offer has
+      -- been accepted -- and a saved company that was given one by the old rule
+      -- has it taken back off, because nobody ever agreed to it.
+      if n.powerAccepted and self:licensed('power') then
+        n.demands.power=n.demands.power or (n.clientType=='estate' and 4 or 2)
+      end
+      for key in pairs(n.demands) do
+        if key~=n.commodity and not (key=='power' and n.powerAccepted and self:licensed('power')) then n.demands[key]=nil end
+      end
+    end
+  end
+  for _,n in ipairs(self.g:nodesOfKind('depot')) do
+    n.freightStorage=true; n.intakeRequest=nil
+    if (n.stored or 0)==0 then n.intakeRequest=math.min(City.depotFillRate,n.capacityStore or City.depotCapacity) end
+  end
+  for _,e in ipairs(self.g.edges) do
+    if e.alive and (e.bulk=='highway' or e.goodsRoad) then
+      e.transportBlocked=not self:roadPath(e.a,e.b,'truck')
+      for _,id in ipairs({e.a,e.b}) do
+        local n=self.g.nodes[id]
+        if n.kind=='depot' then
+          n.freightStorage=true
+          if (n.stored or 0)==0 then n.intakeRequest=math.min(City.depotFillRate,n.capacityStore or City.depotCapacity) end
+        end
+      end
+    end
+  end
+
+  -- Engineering: shocks and pollution on sources, ratings on cables and mains.
+  local D = City.INFRA
+  for _,n in ipairs(self.g:aliveNodes()) do
+    n.effectiveOutput=self:shockOutput(n)
+    if n.kind=='source' and (n.commodity=='water' or n.commodity=='wheat') and self:pollutionAt(n.x,n.y)>=D.pollution.stopAt then n.effectiveOutput=0 end
+  end
+  local runs={}
+  for _,key in ipairs(D.voltageOrder) do runs[key]=self:boostRuns(key) end
+  for _,e in ipairs(self.g.edges) do
+    e.effectiveCap=nil; e.unboosted=nil
+    e.spillWanted=e.alive and ((e.bulk=='sea' and e.shipSpill) or (e.commodity=='oil' and not e.bulk and e.leaking and math.max(0,(e.capMax or e.cap)-e.cap))) or nil
+    if e.alive and e.commodity=='power' and e.voltage and not e.rail then
+      e.effectiveCap=self:powerRating(e)
+      local r=runs[e.voltage]
+      local near=math.min(r[e.a] or math.huge,r[e.b] or math.huge)
+      -- A booster that has been demolished leaves the cable beyond it dead.
+      if near<math.huge and near+self:cableLength(e)>D.voltages[e.voltage].boost then e.unboosted=true; e.effectiveCap=0 end
+    end
+    if e.alive and e.commodity=='water' and e.hydraulic then e.effectiveCap=self:waterRating(e) end
+  end
+
   self.served = {}
   self.servedBy = {}
   self.detail = { edge = {}, node = {}, hub = {}, works = {} }
@@ -3032,6 +3352,7 @@ function City:refresh()
   for _, c in ipairs(self:clientList()) do
     if not self:fullyServed(c) then self.unserved = self.unserved + 1 end
   end
+  self:updateFiltration()
   return self.served
 end
 
@@ -3065,7 +3386,10 @@ end
 City.LOYALTY = { every = 10, step = 1, max = 3 }
 
 function City:clientIncome(c)
-  return math.floor((self.served[c.id] or 0) * c.rate * self:eventRate(c.commodity) + 0.5)
+  local total = math.floor((self.served[c.id] or 0) * c.rate * self:eventRate(c.commodity) + 0.5)
+  -- A household's second utility is paid at its own rate.
+  for key in pairs(c.demands or {}) do if key~=c.commodity then total=total+math.floor((((self.servedBy or {})[c.id] or {})[key] or 0)*(c.utilityRates[key] or c.rate)*self:eventRate(key)+.5) end end
+  return total
 end
 
 --------------------------------------------------------------------------------
@@ -3149,6 +3473,8 @@ function City:dailyRevenue()
   for _, c in ipairs(self:clientList()) do
     rev = rev + self:clientIncome(c)
   end
+  -- Jewelry is sold at the yard it reaches.
+  rev = rev + (((self.detail or {}).yard or {}).jewelry or 0) * 900
   return rev + self:transitIncome()
 end
 
@@ -3160,7 +3486,9 @@ function City:leakChance(e)
   -- A road is not a pipe. It never leaks, which is what its higher running cost
   -- is buying.
   if (City.trade[e.commodity] or {}).noLeak then return 0 end
-  local g = self:gradeOf(e).risk
+  local risk = self:gradeOf(e).risk
+  if e.commodity == "power" and e.voltage then return math.min(1, City.rules.leakBase * 0.55 * risk) end
+  local g = risk
   local a, b = self.g.nodes[e.a], self.g.nodes[e.b]
   for _, n in ipairs(self.g:nodesOfKind("tower")) do
     if (n.x - (a.x + b.x) / 2)^2 + (n.y - (a.y + b.y) / 2)^2 <= 220^2 then
@@ -3168,7 +3496,15 @@ function City:leakChance(e)
       break
     end
   end
-  return City.rules.leakBase * g
+  local chance = City.rules.leakBase * g
+  -- Water under pressure bursts more, and filtered water less.
+  if e.commodity == "water" and e.hydraulic then local _, bar = self:waterRating(e); chance = chance * math.max(1, bar / 3) end
+  if e.commodity == "water" and e.filtered then chance = chance * City.INFRA.filterRisk end
+  chance = math.min(1, chance)
+  -- Brine eats pipe unless it has been filtered; limescale builds on untreated water.
+  if e.commodity == "saltwater" then return math.min(1, chance * 8 * (e.filtered and .25 or 1)) end
+  if e.commodity == "water" then chance = chance + math.max(0, (e.calcification or 0) - 99) * .001 * risk end
+  return math.min(1, chance)
 end
 
 -- What replacing this main with a better lined one would save per day: the
@@ -3193,7 +3529,20 @@ end
 --------------------------------------------------------------------------------
 
 function City:endDay()
+  -- What each quarry cut today, counted before the day turns over.
+  self:refresh()
+  local cut = {}
+  for _, n in ipairs(self.g:aliveNodes()) do
+    local o = self:quarryRange(n)
+    if o then cut[#cut + 1] = { o = o, n = n, v = (self.produced or {})[n.id] or 0 } end
+  end
   if self.bankrupt then return nil end
+  -- Untreated water scales its pipes a little more every day.
+  self:updateFiltration()
+  for _,e in ipairs(self.g.edges) do if e.alive and e.commodity=='water' and not e.filtered then e.calcification=(e.calcification or 0)+1 end end
+  -- Spills and cleanup settle once; previews and refresh never change pollution.
+  self:refresh()
+  local spill=self:environmentDay()
   self:refresh()
 
   local report = {
@@ -3439,6 +3788,35 @@ function City:endDay()
   report.money = self.money
   report.bankrupt = self.bankrupt
   self.lastReport = report
+
+  report.pollution=spill
+  if spill>0 then report.event=string.format('Oil pollution added: %.1f. Inspect affected districts and cleanup labs.',spill) end
+  -- Households that would take electricity ask now and then.
+  for _,c in ipairs(self:clientList()) do
+    if self.licences.power and c.commodity=='water' and self:wantsSecondUtility(c) and not (c.demands or {}).power
+      and not c.powerRequest and (not c.powerDeclined or self.day-c.powerDeclined>=7)
+      and self:random()<City.DUAL.daily then self:offerElectricity(c) end
+  end
+  self:refresh()
+
+  for _, c in ipairs(cut) do
+    local before = self:rockLeft(c.o)
+    c.o.mined = (c.o.mined or 0) + c.v
+    if before > 0 and self:rockLeft(c.o) <= 0 then
+      self:note("A quarry has worked its range out: no more rock there")
+    end
+  end
+  local still = {}
+  for _, w in ipairs(self.regrowth or {}) do
+    if self:regrowthProgress(w) >= 1 and not self:groundInUse(w) then
+      self.obstacles[#self.obstacles + 1] = { x = w.x, y = w.y, r = w.r, kind = w.kind, grove = w.grove, massive = w.massive }
+      self:note("A harvested wood has grown back")
+    else
+      still[#still + 1] = w
+    end
+  end
+  self.regrowth = #still > 0 and still or nil
+  self:refresh()
   return report
 end
 
@@ -3743,6 +4121,47 @@ function City:migrate()
   end
   for _, e in ipairs(self.g.edges) do e.grade = e.grade or 1 end
   self:rebaseOrigin()
+
+  for _,n in ipairs(self.g:aliveNodes()) do
+    if n.kind=='binder' then n.bundleLanes=n.bundleLanes or 2 end
+  end
+  -- Existing infrastructure keeps its installed ports, siting and cable capacity.
+  if (self.infrastructureVersion or 0)<3 then
+    -- Pylons and transformers become towers of the highest voltage they carry,
+    -- and a transformer becomes that tower's upgrade. Their cables keep working
+    -- at whatever length they were laid.
+    local rank={low=1,medium=2,high=3}
+    for _,n in ipairs(self.g.nodes) do
+      if n.kind=='pylon' or n.kind=='transformer' then
+        local top
+        for _,e in ipairs(self.g:edgesAt(n.id)) do
+          if e.voltage and (not top or rank[e.voltage]>rank[top]) then top=e.voltage end
+        end
+        if n.kind=='transformer' then n.upgrade='transformer' end
+        n.kind=City.INFRA.voltages[top or 'medium'].tower
+        n.ports=math.max(n.ports or 0,Graph.KINDS[n.kind].ports)
+      end
+    end
+    for _,e in ipairs(self.g.edges) do
+      if e.commodity=='power' and e.voltage then e.legacySpan=true end
+    end
+    self.lineVoltage=nil
+  end
+  self.infrastructureVersion=3
+
+  self.analystHired=self.analystHired or {}
+  if not self.ideasVersion then
+    -- Treatment towers became filters, and wells were re-levelled.
+    for _,n in ipairs(self.g:aliveNodes()) do
+      if n.kind=='tower' then n.kind='filtration'; n.ports=math.max(2,self.g:degree(n.id)) end
+      if n.kind=='depot' then n.capacityStore=math.max(100,n.capacityStore or 0) end
+      if n.kind=='source' and n.commodity=='water' then
+        n.level=math.min(4,n.level or 1); n.output=20+(n.level-1)*10; n.cap=50; n.ports=math.max(1,self:connectionPorts(n.id))
+      end
+    end
+    self.ideasVersion=1
+  end
+  self:survey()
   return self
 end
 
@@ -3809,6 +4228,11 @@ end
 
 function City:acceptClient(id)
   local c = self.g.nodes[id]
+  -- A customer taking electricity as well: their second utility is signed.
+  if c and c.powerRequest and not c.prospect then
+    c.powerAccepted=true; c.powerRequest=nil; c.utilityRates=c.utilityRates or {}; c.utilityRates.power=c.powerOfferRate or 6; c.demands=c.demands or {[c.commodity]=c.demand}; c.demands.power=c.clientType=='estate' and 4 or 2
+    self:refresh(); return c
+  end
   if not (c and c.alive and c.prospect) then return nil, "no open offer" end
   c.prospect, c.joined = false, self.day
   self:note("%s contract signed: %d days to deliver", City.CLIENTS[c.clientType].name, c.grace)
@@ -3866,6 +4290,7 @@ end
 
 function City:declineClient(id)
   local c = self.g.nodes[id]
+  if c and c.powerRequest and not c.prospect then c.powerRequest=nil; c.powerDeclined=self.day; return c end
   if not (c and c.alive and c.prospect) then return nil, "no open offer" end
   self:retireClient(c)
   self.reputation=math.max(0,self.reputation-City.rules.repDecline)
@@ -3891,6 +4316,7 @@ function City:licenceCount()
 end
 
 function City:unlocked(key)
+  if key=='roads' and (#self.g:nodesOfKind('terminal')>0 or #self.g:nodesOfKind('dc')>0) then return true end
   local spec = City.UNLOCKS[key]
   if not spec then return true end
   if spec.haven and #self.g:nodesOfKind("terminal") == 0 then return false end
@@ -4212,6 +4638,7 @@ function City:expenseBreakdown()
   for _, e in ipairs(self.g.edges) do
     if e.alive then b.pipes = b.pipes + self:pipeUpkeep(e) end
   end
+  b.structures = b.structures + #self.g:nodesOfKind('lab') * (City.INFRA.pollution.labUpkeep - 1) + #self.g:nodesOfKind('filtration') * 3
   b.crews = (self.crews or 0) * City.crewWage + self:orderWages()
   b.interest = self:loanInterest()
   b.total = math.ceil(b.office + b.sources + b.structures + b.pipes + b.crews
@@ -4258,6 +4685,9 @@ function City:awardMilestones()
   return total
 end
 
+-- Each of these adds methods and data of its own. None redefines a City
+-- method: every method has exactly one definition, so a behaviour is read in
+-- one place. Put a new rule into the method itself, not a wrapper around it.
 require("people")(City)
 require("infrastructure")(City)
 require("road_model")(City)

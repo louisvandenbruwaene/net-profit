@@ -25,11 +25,15 @@ return function(City)
 
   -- What a source gives while a shock is on, or nil when nothing touches it.
   function City:shockOutput(n)
+    local v
     local s = self.shock
-    if not (s and s.output and n.kind == "source" and n.commodity == s.commodity) then return nil end
-    local full = n.output
-    if not full then return nil end
-    return math.max(1, math.floor(full * s.output))
+    if s and s.output and n.kind == "source" and n.commodity == s.commodity and n.output then
+      v = math.max(1, math.floor(n.output * s.output))
+    end
+    -- A quarry on a nearly worked-out range gives only what is left of it
+    -- (terrain_life.lua sets the cap before every solve).
+    if n.effectiveOutputLife then return math.min(v or n.output or 0, n.effectiveOutputLife) end
+    return v
   end
 
   local function applies(self, spec)
@@ -98,21 +102,7 @@ return function(City)
   --------------------------------------------------------------------------
   -- Secure contracts
   --------------------------------------------------------------------------
-
-  local plain = City.addClient
-  function City:addClient(...)
-    local n = plain(self, ...)
-    if n and n.prospect and not n.secure
-       and #self:clientList() >= D.SECURE.clients
-       and self:unit(n.id, 77) * 100 < D.SECURE.share then
-      n.secure = true
-      n.rate = math.floor(n.rate * D.SECURE.rate + 0.5)
-      n.rateBase = math.floor((n.rateBase or n.rate) * D.SECURE.rate + 0.5)
-      n.patience = math.min(n.patience or D.SECURE.patience, D.SECURE.patience)
-      n.grace = n.patience
-    end
-    return n
-  end
+  -- An offer becomes secure in City:addClient.
 
   -- What a secure customer is refunded for a day they were not fully supplied:
   -- the missing units at their rate, on top of the income they never paid.

@@ -70,6 +70,7 @@ return function(City)
     end
     return spec
   end
+  City.setLevel = apply
 
   function City:levelError(id)
     local n = self.g.nodes[id]
@@ -107,6 +108,13 @@ return function(City)
     self:note("%s %d upgraded to level %d, %s, for $%d", Graph.KINDS[n.kind].name, id,
       spec.level, spec.name, spec.cost)
     self:refresh()
+    -- A hub that reaches the top level starts work straight away, so the
+    -- upgrade shows what it bought the moment it is paid for.
+    if self:isDistribution(n) then
+      n.floor = n.floor or City.DISTRIBUTION.floor
+      n.radius = City.DISTRIBUTION.radius
+      n.lastRun = self:runDistribution()
+    end
     return n
   end
 
@@ -119,43 +127,5 @@ return function(City)
     if not n.level then return 0 end
     local spec = self:levelSpec(n, self:levelOf(n))
     return spec and spec.reach or 0
-  end
-
-  -- New buildings start at level 1 (a manifold, which is a hub by definition,
-  -- at the level that gives it its six ports).
-  local plainBuild = City.build
-  function City:build(...)
-    local n, err = plainBuild(self, ...)
-    if n and family(n) then
-      local level = D.MIN_LEVEL[n.kind] or 1
-      apply(self, n, level, true)
-    end
-    return n, err
-  end
-
-  -- Swapping a building for another kind keeps its level only inside its own
-  -- family: a level 3 junction does not become a level 3 pump for free.
-  local plainConvert = City.convertNode
-  function City:convertNode(id, kind, ...)
-    local before = self.g.nodes[id]
-    local wasFamily, wasLevel = family(before), before and self:levelOf(before)
-    local n, err = plainConvert(self, id, kind, ...)
-    if n and family(n) then
-      local level = wasFamily == family(n) and wasLevel or 1
-      level = math.max(level, D.MIN_LEVEL[n.kind] or 1)
-      if n.kind == "junction" then level = 1 end
-      apply(self, n, level, level == 1)
-    end
-    return n, err
-  end
-
-  -- Longer reach for the better buildings on either end.
-  local plainRange = City.rangeBetween
-  function City:rangeBetween(a, b, rail, commodity, size)
-    local range = plainRange(self, a, b, rail, commodity, size)
-    if rail then return range end
-    local na, nb = self.g.nodes[a], self.g.nodes[b]
-    if not (na and nb) then return range end
-    return range * (1 + math.max(self:reachBonus(na), self:reachBonus(nb)))
   end
 end

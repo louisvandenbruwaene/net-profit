@@ -239,7 +239,7 @@ end
 -- driver compares tolls and petrol with the fares, somebody without a car can
 -- only take the fares. Every road and route has a daily capacity, and what does
 -- not fit waits, the way an unsupplied customer does.
-function City:routeTrips()
+local function demandTrips(self)
   local P = City.PEOPLE
   local T = { trips = 0, carried = 0, waiting = 0, tolls = 0, fares = 0, fuel = 0, resorts = 0, total = 0,
               byLink = {}, byEdge = {}, byNode = {}, byDistrict = {} }
@@ -428,11 +428,70 @@ function City:routeTrips()
   return T
 end
 
+-- The day's travel: the demand model above, then every car, truck and bus
+-- driven over the road network it actually has, paying tolls and buying fuel.
+function City:routeTrips()
+  local T=demandTrips(self)
+  local places={}; local attached={}
+  for _,l in ipairs(self.links or {}) do if l.alive and l.mode=='road' then attached[l.a]=true; attached[l.b]=true end end
+  for _,n in ipairs(self.g:aliveNodes()) do if attached[n.id] and City.TRANSIT_NODES[n.kind] and not City.ROAD_JUNCTIONS[n.kind] and not n.prospect then places[#places+1]=n end end
+  local tank={}
+  for _,n in ipairs(self.g:nodesOfKind('station')) do tank[n.id]=self.served[n.id] or 0 end
+  local function travel(path,count,vehicle)
+   local distance,stations,seen=0,{},{}
+   for _,l in ipairs(path) do
+    distance=distance+self:nodeDistance(l.a,l.b)/1000
+    for _,id in ipairs({l.a,l.b}) do if tank[id] and not seen[id] then stations[#stations+1]=id; seen[id]=true end end
+    local rec=T.byLink[l.id] or {trips=0,income=0}; T.byLink[l.id]=rec
+    rec.trips=rec.trips+count; rec[vehicle]=(rec[vehicle] or 0)+count
+    local toll=l.roadType=='highway' and (l.toll or City.PEOPLE.tollDefault)*count or 0
+    rec.income=rec.income+toll; T.tolls=T.tolls+toll
+   end
+   local want=distance*count*City.PEOPLE.fuelPerKm
+   for _,id in ipairs(stations) do
+    local take=math.min(tank[id],want); tank[id]=tank[id]-take; want=want-take
+    T.fuel=T.fuel+take*(self.g.nodes[id].price or City.PEOPLE.pumpPrice)
+    T.byNode[id]=T.byNode[id] or {}; T.byNode[id].sold=(T.byNode[id].sold or 0)+take
+   end
+  end
+  for _,n in ipairs(places) do
+   local vehicle=n.kind=='client' and City.HOUSEHOLD[n.clientType] and 'car' or (n.kind=='works' or n.kind=='depot' or n.kind=='dc' or n.kind=='client' and (n.clientType=='factory' or n.clientType=='market')) and 'truck'
+   if vehicle and #places>1 then
+    -- Stable for a day and save/load; refresh never advances the world's RNG.
+    local seed=(((self.seed or 1)+n.id*104729+(self.day or 1)*13007)*48271)%2147483647
+    local choices={}
+    for _,d in ipairs(places) do
+     if d.id~=n.id and self:dailyDestinationAllowed(d,vehicle) then choices[#choices+1]=d end
+    end
+    -- Retire saved choices that were made under the old utility-inclusive rule.
+    if not self:dailyDestinationAllowed(self.g.nodes[n.dailyDestination],vehicle) then n.dailyDestination=nil end
+    if #choices>0 and (n.destinationDay~=self.day or not n.dailyDestination) then
+     n.dailyDestination=choices[seed%#choices+1].id; n.destinationDay=self.day
+    end
+    local target=self.g.nodes[n.dailyDestination]
+    local path=target and target.alive and self:roadPath(n.id,target.id,vehicle)
+    if n.dailyDestination then T.trips=T.trips+1 end
+    if path then travel(path,1,vehicle); T.carried=T.carried+1 end
+    T.byNode[n.id]=T.byNode[n.id] or {}; T.byNode[n.id].destination=n.dailyDestination
+   end
+  end
+  for _,e in ipairs(self.g.edges) do
+   if e.alive and (e.bulk=='highway' or e.goodsRoad) and not e.transportBlocked then
+    local trucks=0; for key in pairs(e.wagons or {[e.commodity]=e.cap}) do trucks=trucks+math.ceil(math.abs((self.edgeFlowBy[key] or {})[e.id] or 0)/City.MODES.highway.wagonCap) end
+    local path=self:roadPath(e.a,e.b,'truck'); if path and trucks>0 then travel(path,trucks,'truck') end
+   end
+  end
+  for _,l in ipairs(self.links) do if l.alive and l.mode=='bus' then local path=self:roadPath(l.a,l.b,'bus'); if path then travel(path,l.vehicles or 1,'bus') end end end
+  T.waiting=T.trips-T.carried; T.total=T.tolls+T.fares+T.fuel+T.resorts; return T
+end
+
 function City:transitIncome()
   return math.floor(((self.transit or {}).total or 0) + 0.5)
 end
 
 function City:linkUpkeep(l)
+  -- A goods road is paid for as the freight line it carries.
+  if l.goodsEdge then return 0 end
   if l.mode == "road" then
     return City.PEOPLE.roadUpkeep + self:nodeDistance(l.a, l.b) * City.PEOPLE.roadUpkeepPerM
   end
@@ -478,12 +537,30 @@ function City:linkQuote(a, b, mode)
   if mode == "road" then
     local na, nb = self.g.nodes[a], self.g.nodes[b]
     local mult = self:crossingCost(na.x, na.y, nb.x, nb.y) or 1
-    return math.ceil(City.PEOPLE.roadTiein * 2 + self:nodeDistance(a, b) * City.PEOPLE.roadPerM * mult)
+    local cost = math.ceil(City.PEOPLE.roadTiein * 2 + self:nodeDistance(a, b) * City.PEOPLE.roadPerM * mult)
+    return math.ceil(cost * (City.ROAD_TYPES[self.buildRoadType or 'road'] or City.ROAD_TYPES.road).factor)
   end
   return (City.ROUTES[mode] or {}).vehicle or 0
 end
 
 function City:linkError(a, b, mode)
+  do
+    local na,nb=self.g.nodes[a],self.g.nodes[b]
+    if not (na and nb and na.alive and nb.alive) then return 'choose two live buildings' end
+    if mode=='road' then
+      -- Each road variant meets its own kind of junction.
+      local variant=self.buildRoadType or 'road'
+      if not City.ROAD_TYPES[variant] then return 'choose a road variant' end
+      for _,n in ipairs({na,nb}) do
+        if n.kind=='stop' and variant~='road' then return 'bus stops attach to normal roads only' end
+        if n.kind=='intersection' and variant~='offroad' then return 'offroad intersections take offroads only' end
+        if n.kind=='roundabout' and variant=='highway' then return 'highways require a highway interchange' end
+        if variant=='highway' and n.kind~='interchange' then return 'highways join highway interchanges; use normal roads for building access' end
+      end
+    elseif mode=='bus' then
+      if na.kind~='stop' or nb.kind~='stop' then return 'buses board only at bus stops' end
+    elseif na.kind=='stop' or nb.kind=='stop' then return 'bus stops work only for buses' end
+  end
   local na, nb = self:transitNode(a), self:transitNode(b)
   if not (na and nb) then return "roads connect houses, businesses and road junctions; bus services connect bus stops" end
   if a == b then return "a route needs two ends" end
@@ -533,6 +610,7 @@ end
 
 function City:setLinkPrice(id, value)
   local l = (self.links or {})[id]
+  if l and l.mode=='road' and l.roadType~='highway' then return nil,'only highways charge tolls' end
   if not (l and l.alive) then return nil, "no such road or route" end
   if type(value) ~= "number" or value ~= value then return nil, "invalid price" end
   local max = l.mode == "road" and City.PEOPLE.tollMax or City.ROUTES[l.mode].max
