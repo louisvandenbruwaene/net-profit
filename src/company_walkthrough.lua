@@ -408,7 +408,10 @@ function Walk.start(app,mode)
     local depot=assert(c:build(src.x+160,src.y-160,"depot","water"))
     app.action("focusNode",depot.id)
     check(findButton("demolish-node")~=nil,"a depot reports its holding")
-    c:demolishNode(gate.id); c:demolishNode(depot.id)
+    -- The key a Mac labels delete sends backspace.
+    love.keypressed("backspace")
+    check(not depot.alive,"the delete key demolishes the selection")
+    c:demolishNode(gate.id)
   end
 
   -- Credit: fixed rate, capped at half of what the company owns.

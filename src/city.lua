@@ -4613,18 +4613,31 @@ function City:fuelBill()
   return total
 end
 
+-- What one building costs a day to keep, on the structures line. The build
+-- tips quote it, so the price on the tile is the price on the books. Stations
+-- and resorts pay their own rates with the transit bill instead.
+function City:structureUpkeep(n)
+  local k = n.kind
+  if k == "works" then return (City.RECIPES[n.recipe or ""] or {}).upkeep or 20
+  elseif k == "dc" then return 12
+  elseif k == "terminal" then return City.terminalUpkeep
+  elseif k == "depot" then return 3
+  elseif k == "lab" then return City.INFRA.pollution.labUpkeep
+  elseif k == "filtration" then return 4
+  elseif k == "client" or k == "source" or k == "station" or k == "resort" then return 0
+  end
+  return 1
+end
+
 function City:expenseBreakdown()
   local b = { office = 6, sources = 0, structures = 0, pipes = 0, crews = 0 }
   for _, n in ipairs(self.g:aliveNodes()) do
     if n.kind == "source" then
       local trade = City.trade[n.commodity] or City.trade.water
       b.sources = b.sources + (n.upkeep or trade.sourceUpkeep) + ((n.level or 1) - 1) * 2
-    elseif n.kind == "works" then
-      b.structures = b.structures + ((City.RECIPES[n.recipe or ""] or {}).upkeep or 20)
-    elseif n.kind == "dc" then b.structures = b.structures + 12
-    elseif n.kind == "terminal" then b.structures = b.structures + City.terminalUpkeep
-    elseif n.kind == "depot" then b.structures = b.structures + 3
-    elseif n.kind ~= "client" then b.structures = b.structures + 1 end
+    else
+      b.structures = b.structures + self:structureUpkeep(n)
+    end
   end
   b.imports = self:importBill()
   b.haulage = self:haulageBill()
@@ -4635,7 +4648,6 @@ function City:expenseBreakdown()
   for _, e in ipairs(self.g.edges) do
     if e.alive then b.pipes = b.pipes + self:pipeUpkeep(e) end
   end
-  b.structures = b.structures + #self.g:nodesOfKind('lab') * (City.INFRA.pollution.labUpkeep - 1) + #self.g:nodesOfKind('filtration') * 3
   b.crews = (self.crews or 0) * City.crewWage + self:orderWages()
   b.interest = self:loanInterest()
   b.total = math.ceil(b.office + b.sources + b.structures + b.pipes + b.crews

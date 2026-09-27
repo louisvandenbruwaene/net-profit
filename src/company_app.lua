@@ -747,7 +747,8 @@ function love.keypressed(key)
   elseif key=="e" and state.edge then action("upgradePipe",state.edge)
   elseif key=="e" and state.node and city.g.nodes[state.node].kind=="source" then
     action("upgradeSource",state.node)
-  elseif key=="delete" then
+  -- A Mac's delete key sends "backspace"; "delete" is fn+delete.
+  elseif key=="delete" or key=="backspace" then
     if state.edge then action("demolishPipe",state.edge)
     elseif state.link then action("demolishLink",state.link)
     elseif state.node then action("demolishNode",state.node) end
