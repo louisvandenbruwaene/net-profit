@@ -2369,20 +2369,20 @@ function Draw.world(city, cam, state)
     if n.kind == "client" and supplied then
       lg.setColor(P.with(P.good,0.10)); lg.circle("fill",x,y,r * 1.42)
     end
-    -- Close in, a customer is its building; further out, its disc.
-    local building = (n.kind == "client" and r >= 14)
-      or (n.kind == "source" and (not n.plant or n.plant == "wind") and n.commodity ~= "timber" and n.commodity ~= "rock" and r >= 14)
-      or (n.kind == "works" and n.recipe ~= "forestry" and n.recipe ~= "quarry" and r >= 14)
-      or ((n.kind == "pole" or n.kind == "pylon" or n.kind == "hvtower"
-        or n.kind == "depot" or n.kind == "pump" or n.kind == "stop"
-        or n.kind == "station" or n.kind == "resort" or n.kind == "dc") and r >= 14)
-    -- Everything else built is drawn as what it is too.
-    local fitting = r >= 14 and ((n.kind == "junction" or n.kind == "manifold" or n.kind == "gate"
+    -- Every built thing is drawn as its building at every zoom; only the
+    -- corner (a bend the road draws itself) is left as a plain disc.
+    local building = n.kind == "client"
+      or (n.kind == "source" and (not n.plant or n.plant == "wind") and n.commodity ~= "timber" and n.commodity ~= "rock")
+      or (n.kind == "works" and n.recipe ~= "forestry" and n.recipe ~= "quarry")
+      or n.kind == "tower" or n.kind == "pole" or n.kind == "pylon" or n.kind == "hvtower"
+      or n.kind == "depot" or n.kind == "pump" or n.kind == "stop"
+      or n.kind == "station" or n.kind == "resort" or n.kind == "dc"
+    local fitting = (n.kind == "junction" or n.kind == "manifold" or n.kind == "gate"
       or n.kind == "filtration" or n.kind == "terminal" or n.kind == "lab" or n.kind == "transformer"
       or n.kind == "binder" or n.kind == "interchange") and n.kind
       or (n.kind == "source" and n.plant and n.plant ~= "wind") and "plant"
       or (n.kind == "source" and n.commodity == "timber") and "sawmill"
-      or (n.kind == "source" and n.commodity == "rock") and "crusher")
+      or (n.kind == "source" and n.commodity == "rock") and "crusher"
     if fitting then
       building = true
       Draw.fittingBuilding(fitting, x, y, r, color, city:levelFamily(n) and city:levelOf(n) or 1,
