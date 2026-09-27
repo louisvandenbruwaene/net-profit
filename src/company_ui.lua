@@ -2384,18 +2384,18 @@ local function settingsMenu()
   local pw=270
   local px,py=W-10-pw,UI.BAR+8
   local rows={
-    {"fit","Show all buildings   F",function() act("fit") end,true,"Zoom out to show all your buildings."},
-    {"undo","Undo last decision   Z",function() act("undo") end,#state.undo>0,"Closing a day is final."},
-    {"mute",state.muted and "Sound off   M" or "Sound on   M",function() act("mute") end,true,"Toggle sound."},
-    {"minimap-toggle",state.minimap and "Overview map: on   O" or "Overview map: off   O",function() act("minimap") end,true,"A small map of everything surveyed, in the corner."},
-    {"solo",city.hideUnfocusedNetworks and "Other networks: hidden   H" or "Other networks: dimmed   H",
-      function() act("solo") end,true,"Hide every network but the one you are working on, instead of dimming it."},
-    {"hints",state.buildHelp and "Hints: on" or "Hints: off",function() act("hints") end,true,
-      "The opening guide, and a short note the first time something new opens."},
-    {"companies","Companies...",function() state.settings=nil; act("openSlots") end,true,
+    {"fit","Show all   F",function() act("fit") end,true,"Zoom out to show all your buildings."},
+    {"undo","Undo   Z",function() act("undo") end,#state.undo>0,"Closing a day is final."},
+    {"mute","Sound   M",function() act("mute") end,true,"Toggle sound.",not state.muted},
+    {"minimap-toggle","Minimap   O",function() act("minimap") end,true,"A small map of everything surveyed, in the corner.",state.minimap},
+    {"solo","Hide others   H",
+      function() act("solo") end,true,"Hide every network but the one you are working on, instead of dimming it.",city.hideUnfocusedNetworks},
+    {"hints","Hints",function() act("hints") end,true,
+      "The opening guide, and a short note the first time something new opens.",state.buildHelp},
+    {"companies","Companies",function() state.settings=nil; act("openSlots") end,true,
       "Six companies, kept side by side. Switch, start another, or delete one."},
-    {"keys",state.showKeys and "Hide keyboard" or "Keyboard...",function() state.showKeys=not state.showKeys end,true,
-      "Every shortcut in one list."},
+    {"keys","Keys",function() state.showKeys=not state.showKeys end,true,
+      "Every shortcut in one list.",state.showKeys},
   }
   local ph=16+#rows*44+30+44
   lg.setColor(P.bg); lg.rectangle("fill",px-1,py-1,pw+2,ph+2,8)
@@ -2404,10 +2404,10 @@ local function settingsMenu()
   UI.blocks[#UI.blocks+1]={px,py,pw,ph}
   local y=py+10
   for _,r in ipairs(rows) do
-    button(r[1],r[2],px+10,y,pw-20,38,r[3],r[4],r[5],r[1]=="hints" and state.buildHelp)
+    button(r[1],r[2],px+10,y,pw-20,38,r[3],r[4],r[5],r[6] and true or false)
     y=y+44
   end
-  single("TEXT SIZE",px+12,y+6,"tiny",P.textDim,pw-24)
+  single("TEXT",px+12,y+6,"tiny",P.textDim,pw-24)
   y=y+24
   local bw=(pw-20-12)/3
   for i,sz in ipairs(UI.SIZES) do
@@ -2415,11 +2415,11 @@ local function settingsMenu()
       "Draw the menus and text at "..math.floor(sz[2]*100).."%.",math.abs((UI.pref or 1)-sz[2])<0.01)
   end
   if state.showKeys then
-    local keys={{"Enter","End the day"},{"B","Build menu"},{"Tab","Open or close the menu"},{"Esc","Put down, deselect, close"},
-      {"Z","Undo"},{"Y / N","Sign or decline the selected offer"},{"F","Show all buildings"},{"R","Repair the selected main, or all"},{"L","Worst leak"},
-      {"U / E","Bigger main, or deepen a well"},{"Delete","Demolish the selection"},{"T","Bulk freight lines"},
-      {"H","Hide other networks"},{"O","Overview map"},{"M","Sound"},{"1-9","Pick up a building"},{"WASD","Pan (arrows, right drag)"},{"+ / -","Zoom (wheel)"}}
-    local kw,kh=350,20+#keys*22
+    local keys={{"Enter","End day"},{"B","Build"},{"Tab","Menu"},{"Esc","Close"},
+      {"Z","Undo"},{"Y / N","Sign / decline"},{"F","Show all"},{"R","Repair"},{"L","Worst leak"},
+      {"U / E","Upgrade"},{"Delete","Demolish"},{"T","Freight"},
+      {"H","Hide others"},{"O","Minimap"},{"M","Sound"},{"1-9","Building"},{"WASD","Pan"},{"+ / -","Zoom"}}
+    local kw,kh=240,20+#keys*22
     local kx,ky=px-kw-10,py
     lg.setColor(P.bg); lg.rectangle("fill",kx-1,ky-1,kw+2,kh+2,8)
     lg.setColor(P.panel); lg.rectangle("fill",kx,ky,kw,kh,8)
@@ -2566,35 +2566,35 @@ local function hoverCard()
     local unit=n.commodity=="power" and " / kWh" or " / unit"
     local shown=n.commodity=="power" and 5 or 1
     if n.prospect then
-      add("Offer: "..City.money2(rate/shown)..unit..", "..(n.expires-city.day+1).." days to answer",P.energy)
+      local left=n.expires-city.day+1
+      add(City.money2(rate/shown)..unit.."  "..left..(left==1 and " day" or " days"),P.energy)
       local p=E.offerPreview(city,n.id)
-      if p.cost==0 then add("Ready to connect: no new pipe needed",P.good)
-      elseif p.cost then add(string.format("New pipe about $%d, then %s a day",p.cost,City.signed(p.net or 0)),(p.net or 0)>=0 and P.good or P.warn)
-      elseif not p.multipleUtilities then add("Needs more supply before it can be served",P.warn) end
+      if p.cost==0 then add("Ready",P.good)
+      elseif p.cost then add(string.format("Pipe ~$%d  %s/day",p.cost,City.signed(p.net or 0)),(p.net or 0)>=0 and P.good or P.warn)
+      elseif not p.multipleUtilities then add("Needs supply",P.warn) end
     else
       local got=city.served[n.id] or 0
       add(string.upper(n.commodity).."  "..got.." / "..n.demand,got>=n.demand and P.good or P.warn)
     end
-    add("You keep "..(margin>=0 and "+" or "-")..City.money2(math.abs(margin)/shown)..unit..
-      "  (cost "..City.money2(cost/shown)..")",margin<0 and P.bad or margin>=cost and P.good or P.text)
+    add("keep "..(margin>=0 and "+" or "-")..City.money2(math.abs(margin)/shown)..unit,
+      margin<0 and P.bad or margin>=cost and P.good or P.text)
   elseif n and n.kind=="source" then
     title=n.plant and ((City.PLANTS[n.plant] or {}).name or "PLANT")
       or ((City.LEVELS.WELL_NAMES[n.level or 1] or "Well").." ("..string.lower(n.commodity)..")")
     local drawn=(city.produced or {})[n.id] or 0
     local cap=n.effectiveOutput or n.output or 0
-    add("Pumping "..drawn.." of "..cap.." a day",drawn>=cap and cap>0 and P.warn or P.good)
+    add(drawn.." / "..cap.." a day",drawn>=cap and cap>0 and P.warn or P.good)
     local t=city:tradeCosts(n.commodity)
-    if t.perUnit then add("A unit costs "..City.money2(t.perUnit)..", sells "..City.money2(t.price)) end
+    if t.perUnit then add(City.money2(t.perUnit).." > "..City.money2(t.price)) end
   elseif n then
-    title=city:levelFamily(n) and city:levelName(n) or (Graph.KINDS[n.kind] or {}).name or n.kind
-    if city:levelFamily(n) then add("Level "..city:levelOf(n).." of "..city:levelCount(n)) end
-    add("Carrying "..math.floor(city.detail.node[n.id] or 0)..", "..city:connectionPorts(n.id).." / "..(n.ports or 0).." connections")
-    if city:isDistribution(n) then add("Runs customers paying $"..city:hubFloor(n).." or more",P.energy) end
+    title=city:levelFamily(n) and (city:levelName(n).."  "..city:levelOf(n).."/"..city:levelCount(n)) or (Graph.KINDS[n.kind] or {}).name or n.kind
+    add(math.floor(city.detail.node[n.id] or 0).." a day   "..city:connectionPorts(n.id).."/"..(n.ports or 0).." links")
+    if city:isDistribution(n) then add("Signs $"..city:hubFloor(n).."+",P.energy) end
   elseif e then
     title=string.upper(e.commodity).." "..(e.rail and "LINE" or ((Graph.COMMODITIES[e.commodity] or {}).conduit or "MAIN"))
     local flow=math.floor(math.abs((city.detail.edge or {})[e.id] or 0))
-    add("Carrying "..flow.." of "..e.cap,flow>=e.cap and P.warn or P.good)
-    if e.leaking then add(e.cap==0 and "Burst: repair it" or "Leaking: repair it",P.bad) end
+    add(flow.." / "..e.cap,flow>=e.cap and P.warn or P.good)
+    if e.leaking then add(e.cap==0 and "Burst" or "Leaking",P.bad) end
   end
   if ground then
     local spec=City.OBSTACLES[ground.kind] or {}
@@ -2602,20 +2602,20 @@ local function hoverCard()
       or ground.massive and (ground.kind=="park" and "Protected park" or "Mountain range")
       or ground.kind=="park" and "Woodland" or ground.kind=="bedrock" and "Bedrock outcrop" or (spec.name or "Ground")
     local cross=city:groundCross(ground.kind,ground)
-    if not cross then add("Closed: no main may cross it",P.bad)
-    elseif cross>1 then add(string.format("Mains across it cost x%.1f",cross),P.warn)
-    else add("Open: mains cross at the normal price",P.good) end
+    if not cross then add("Closed",P.bad)
+    elseif cross>1 then add(string.format("Crossing x%.1f",cross),P.warn)
+    else add("Open",P.good) end
     local permit=City.PERMITS[ground.kind]
     if permit and not (city.permits or {})[ground.kind] and not ground.massive then
-      add(permit.name..": $"..permit.cost.." lowers it to "..(permit.cross>1 and string.format("x%.1f",permit.cross) or "normal"),P.textDim)
+      add("Permit $"..permit.cost..": "..(permit.cross>1 and string.format("x%.1f",permit.cross) or "x1"),P.textDim)
     end
-    if plot and not plot.owned then add(plot.name..": not yours yet",P.textFaint) end
+    if plot and not plot.owned then add("Not yours",P.textFaint) end
   elseif plot and not plot.owned then
     title=plot.name
     local err=city:districtError(plot.id)
-    add("$"..city:districtCost(plot)..(err and "" or "  click to open the sale"),err and P.textDim or P.energy)
-    if (plot.population or 0)>0 then add("Population "..plot.population) end
-    if not city:districtAdjacent(plot) then add("Not next to your land",P.textFaint) end
+    add("$"..city:districtCost(plot),err and P.textDim or P.energy)
+    if (plot.population or 0)>0 then add("Pop. "..plot.population) end
+    if not city:districtAdjacent(plot) then add("Not adjacent",P.textFaint) end
   end
   if #lines==0 and title=="" then return end
   local mx,my=mouse()
