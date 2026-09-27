@@ -105,18 +105,10 @@ return function(City)
   -- An offer becomes secure in City:addClient.
 
   -- What a secure customer is refunded for a day they were not fully supplied:
-  -- the missing units at the rate each one is paid at (clientIncome), on top of
-  -- the income they never paid. A household that wants water and power is
-  -- short when either is, and its power is priced as power.
+  -- a share of the income they never paid, each trade at its own rate.
   function City:serviceCredit(c)
     if not c.secure or c.prospect or self:fullyServed(c) then return 0 end
-    local credit = 0
-    for key, want in pairs(c.demands or { [c.commodity] = c.demand or 0 }) do
-      local got = key == c.commodity and (self.served[c.id] or 0) or (((self.servedBy or {})[c.id] or {})[key] or 0)
-      local rate = key == c.commodity and c.rate or (c.utilityRates or {})[key] or c.rate
-      credit = credit + math.max(0, want - got) * rate * self:eventRate(key)
-    end
-    return math.floor(credit * D.SECURE.credit + 0.5)
+    return math.floor((self:clientIncome(c, true) - self:clientIncome(c)) * D.SECURE.credit + 0.5)
   end
 
   --------------------------------------------------------------------------

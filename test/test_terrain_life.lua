@@ -47,6 +47,9 @@ do
   check(used>0,"a cement works takes rock from the quarry")
   c:endDay()
   check((o.mined or 0)==used,"a day's cut is taken off the range")
+  local full=math.floor(o.r*o.r/100)
+  o.mined=c:rockReserve(o)-3
+  check(c:clearYield(o)==math.min(full,3),"a worked range yields only the rock it has left")
 end
 
 print("a harvested wood grows back where nothing is built")

@@ -15,6 +15,7 @@ return function(City)
   City.TERRAIN_LIFE = {
     rockPerArea = 1 / 8,   -- units of rock per square metre of radius^2
     regrowDays = 40,       -- days from Harvest until a wood can stand again
+    gemChance = 0.05,      -- chance that demolishing a range turns up gems
   }
   local L = City.TERRAIN_LIFE
 
@@ -35,8 +36,13 @@ return function(City)
   end
 
 
-  -- What harvesting a wood or blasting a range yields, and what it costs.
-  function City:clearYield(o) return math.floor(o.r*o.r/100) end
+  -- What harvesting a wood or blasting a range yields, and what it costs. A
+  -- range a quarry has cut into gives no more than it has left.
+  function City:clearYield(o)
+    local units=math.floor(o.r*o.r/100)
+    if o.kind=='bedrock' then units=math.min(units,self:rockLeft(o)) end
+    return units
+  end
   function City:clearCost(o) return math.ceil(self:clearYield(o)*(o.kind=='park' and 4 or 35)) end
   function City:clearTerrain(index)
     local o=self.obstacles[index]
@@ -51,7 +57,7 @@ return function(City)
     local units,cost=self:clearYield(o),self:clearCost(o)
     if self.money<cost then return nil,'clearing costs $'..cost end
     self:spend(cost); local key=o.kind=='park' and 'timber' or 'rock'; self.stock[key]=(self.stock[key] or 0)+units
-    if o.kind=='bedrock' and self:random()<.05 then self.stock.gems=(self.stock.gems or 0)+math.max(1,math.floor(units/100)) end
+    if o.kind=='bedrock' and self:random()<L.gemChance then self.stock.gems=(self.stock.gems or 0)+math.max(1,math.floor(units/100)) end
     table.remove(self.obstacles,index)
     -- A harvested wood is remembered, and grows back where nothing is built.
     if o.kind=='park' then

@@ -28,6 +28,7 @@ hooks:
 
 # Pure Lua rules, persistence and economy.
 test:
+	@for f in main.lua conf.lua src/*.lua src/data/*.lua; do $(LUA) -e "assert(loadfile('$$f'))" || exit 1; done
 	@$(LUA) test/test_graph.lua
 	@$(LUA) test/test_city.lua
 	@$(LUA) test/test_generation.lua
