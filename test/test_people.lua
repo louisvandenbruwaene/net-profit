@@ -134,6 +134,14 @@ do
  road(c,a,station); road(c,station,b)
  check(c.served[station.id]>0,'a station receives gasoline through its service drain')
  check(c.transit.fuel>0 and c.transit.byNode[station.id].sold<=c.served[station.id],'daily traffic buys no more fuel than was delivered')
+ -- Every dollar over the going rate turns away its share of the drivers.
+ local P=City.PEOPLE
+ local fair=c.transit.byNode[station.id].sold
+ assert(c:setStationPrice(station.id,P.pumpPrice+2))
+ local dear=c.transit.byNode[station.id].sold or 0
+ check(math.abs(dear-fair*(1-2*P.priceSensitivity))<1e-9,'two dollars over sells '..math.floor(200*P.priceSensitivity)..'% less')
+ assert(c:setStationPrice(station.id,P.tollMax))
+ check((c.transit.byNode[station.id].sold or 0)<=fair*math.max(0,1-(P.tollMax-P.pumpPrice)*P.priceSensitivity)+1e-9,'and at the top price hardly anyone stops')
 end
 -- Passenger destinations exclude utility access, including saved old choices.
 do

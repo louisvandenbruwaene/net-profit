@@ -387,11 +387,21 @@ function City:routeTrips()
     local toll=l.roadType=='highway' and (l.toll or City.PEOPLE.tollDefault)*count or 0
     rec.income=rec.income+toll; T.tolls=T.tolls+toll
    end
-   local want=distance*count*City.PEOPLE.fuelPerKm
+   -- Drivers fill up at the going rate without a second thought; every dollar
+   -- over it turns a share of them away, to try the next station on the way.
+   local P=City.PEOPLE
+   local want=distance*count*P.fuelPerKm
    for _,id in ipairs(stations) do
-    local take=math.min(tank[id],want); tank[id]=tank[id]-take; want=want-take
-    T.fuel=T.fuel+take*(self.g.nodes[id].price or City.PEOPLE.pumpPrice)
-    T.byNode[id]=T.byNode[id] or {}; T.byNode[id].sold=(T.byNode[id].sold or 0)+take
+    if want<=0 then break end
+    local price=self.g.nodes[id].price or P.pumpPrice
+    local keen=math.max(0,1-P.priceSensitivity*math.max(0,price-P.pumpPrice))
+    local take=math.min(tank[id],want*keen)
+    T.byNode[id]=T.byNode[id] or {}
+    if take>0 then
+     tank[id]=tank[id]-take; want=want-take/keen
+     T.fuel=T.fuel+take*price
+     T.byNode[id].sold=(T.byNode[id].sold or 0)+take
+    end
    end
   end
   for _,n in ipairs(places) do
