@@ -1764,15 +1764,18 @@ local function ledger()
       city.shock.output,city.shock.left,city.shock.left==1 and "" or "s"),M+10,y+53,"tiny",P.bad)
     y=y+88
   end
-  heading("COMPANY JOURNAL",y)
-  y=y+34
-  if #city.log==0 then text("The company opened today.",M,y,"body",P.textDim) end
+  local day
   for _,entry in ipairs(city.log) do
-    text("DAY "..entry.day,M,y,"tiny",P.flow)
-    local _,lines=R.fonts.body:getWrap(entry.text,CW-6)
-    text(entry.text,M,y+18,"body",P.text,CW-6)
-    y=y+26+#lines*R.fonts.body:getHeight()+15
+    if entry.day~=day then
+      if day then y=y+10 end
+      day=entry.day
+      heading("DAY "..day,y); y=y+28
+    end
+    local _,lines=R.fonts.small:getWrap(entry.text,CW-6)
+    text(entry.text,M,y,"small",P.text,CW-6)
+    y=y+#lines*R.fonts.small:getHeight()+8
   end
+  if #city.log==0 then text("Nothing yet",M,y,"small",P.textDim) end
   UI.contentBottom=y+state.scroll
 end
 
@@ -2057,32 +2060,33 @@ local function goals()
   for _,a in ipairs(E.ambitions) do
     local done=city.ambitionsDone and city.ambitionsDone[a.id]
     local value=math.min(a.target,E.progress(city,a))
-    single(a.name,M,y,"mid",done and P.good or P.text,CW)
-    text(a.description,M,y+28,"small",P.textDim,CW)
-    lg.setColor(P.panelEdge); lg.rectangle("fill",M,y+67,CW,5,2)
-    lg.setColor(P.good); lg.rectangle("fill",M,y+67,CW*value/a.target,5,2)
-    text(done and "ACHIEVED" or (value.." / "..a.target),M,y+80,"small",P.good)
-    button("ambition-"..a.id,done and "Grant earned" or city.ambition==a.id and "Pursuing" or ("Choose  +$"..a.reward),
-      M+150,y+78,150,30,function() act("chooseAmbition",a.id) end,not done,nil,city.ambition==a.id,P.good)
-    y=y+132
+    single(a.name,M,y,"body",done and P.good or P.text,CW)
+    lg.setColor(P.panelEdge); lg.rectangle("fill",M,y+30,CW,5,2)
+    lg.setColor(P.good); lg.rectangle("fill",M,y+30,CW*value/a.target,5,2)
+    text(done and "Done" or (value.." / "..a.target),M,y+45,"small",P.good)
+    button("ambition-"..a.id,done and "Earned" or city.ambition==a.id and "Pursuing" or ("Choose  +$"..a.reward),
+      M+150,y+42,150,30,function() act("chooseAmbition",a.id) end,not done,a.description,city.ambition==a.id,P.good)
+    y=y+90
   end
-  heading("YOUR NEXT TOOLS",y); y=y+28
+  heading("NEXT",y); y=y+28
   local nextTools=0
   for _,key in ipairs({"everyday","hub","orders","haven","yard","works","massive","trunk","roads","routes","internet"}) do
     local hint=city:unlockHint(key)
     if hint and nextTools<3 then
-      text(City.UNLOCKS[key].name,M,y,"body",P.flow)
-      local _,wrapped=R.fonts.small:getWrap(hint,CW)
-      text(hint,M,y+24,"small",P.textDim,CW)
-      y=y+34+#wrapped*R.fonts.small:getHeight(); nextTools=nextTools+1
+      single(City.UNLOCKS[key].name,M,y,"small",P.flow,CW)
+      single((hint:gsub("^Requires ","needs ")),M,y+22,"small",P.textDim,CW)
+      y=y+50; nextTools=nextTools+1
     end
   end
-  if nextTools==0 then text("Every system is open. Build your own city.",M,y,"small",P.good); y=y+32 end
+  if nextTools==0 then text("All open",M,y,"small",P.good); y=y+32 end
   y=y+16
-  heading("BONUSES",y); y=y+30
+  local shown=false
   for i,m in ipairs(City.MILESTONES) do
-    row(m.name,city.milestones[i] and "Earned" or (m.target.." clients / $"..m.reward),y,city.milestones[i] and P.good or P.textDim)
-    y=y+30
+    if not city.milestones[i] then
+      if not shown then heading("BONUSES",y); y=y+30; shown=true end
+      row(m.name,m.target.." clients  +$"..m.reward,y,P.textDim)
+      y=y+30
+    end
   end
   UI.contentBottom=y+state.scroll+20
 end
