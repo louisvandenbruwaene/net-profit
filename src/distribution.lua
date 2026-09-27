@@ -109,7 +109,7 @@ return function(City)
     for _, c in ipairs(self:hubClients(h, true)) do
       if trades[c.commodity] and (c.rate or 0) >= floor and not c.secure
          and self.licences[c.commodity] then
-        c.prospect, c.joined = false, self.day
+        c.prospect = false
         out.signed = out.signed + 1
       end
     end

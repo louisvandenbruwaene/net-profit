@@ -306,7 +306,7 @@ do
   assert(c:layPipe(src.id,trunk.id,"water","large"))
   local e1=assert(c:layPipe(trunk.id,near.id,"water","small"))
   local e2=assert(c:layPipe(trunk.id,far.id,"water","small"))
-  check(c:boreCost(e2,1)>c:boreCost(e1,1),"replacing a long main costs more than replacing a stub")
+  check(c:boreCost(e2)>c:boreCost(e1),"replacing a long main costs more than replacing a stub")
   check(c:repairCost(e2)>c:repairCost(e1),"repairing a long main costs more")
   check(c:pipeUpkeep(e2)>c:pipeUpkeep(e1),"and it costs more to run every day")
 end
@@ -758,7 +758,7 @@ do
   -- delivered as one thing. It used to charge that whole quote for a single
   -- unit of capacity.
   local wide=narrow.cap
-  local quote,cash=c:boreCost(narrow,1),c.money
+  local quote,cash=c:boreCost(narrow),c.money
   assert(c:upgradePipe(narrow.id))
   check(narrow.cap>wide and narrow.cap==City.sizeOf(narrow.size).cap,
     "boring a main up delivers the whole size it quoted for")
@@ -841,7 +841,7 @@ for _,seed in ipairs({4,17,31,52}) do
       local why,eid=c:constraintFor(short.id)
       -- A main with nothing wider to become -- a stub into a house is a small
       -- main by rule -- has no price, and the answer to it is not money.
-      local bore=why=="main" and c:boreCost(c.g.edges[eid],1) or nil
+      local bore=why=="main" and c:boreCost(c.g.edges[eid]) or nil
       if why=="repair" then
         if c.money>=c:repairCost(c.g.edges[eid]) then c:repairPipe(eid) end
       elseif bore and c.money>bore+60 then
