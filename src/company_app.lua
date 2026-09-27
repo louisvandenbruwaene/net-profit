@@ -118,7 +118,7 @@ local function resetSession()
   state.borrow=500
   state.invest=100
   state.rail=nil; state.transit=nil
-  state.filter=nil; state.bottlenecks=nil; state.spof=nil; state.advisorFocus=nil; state.job=nil; state.rename=nil; state.lineOptions=nil; state.jump=nil
+  state.filter=nil; state.spof=nil; state.advisorFocus=nil; state.job=nil; state.rename=nil; state.lineOptions=nil; state.jump=nil
 end
 
 -- Putting a different trade in hand. Used when the structures being joined
@@ -366,6 +366,12 @@ local function action(name,...)
       if i>20 then break end
       R.floatText(l.x,l.y-52,"Loyal +$"..City.LOYALTY.step,P.energy,1+i*0.05)
       R.ring(l.x,l.y,P.energy)
+    end
+  end
+  if name=="endDay" and result.grew then
+    for i,g in ipairs(result.grew) do
+      if i>20 then break end
+      R.floatText(g.x,g.y-52,"Wants +1",P.flow,1.1+i*0.05)
     end
   end
   if name=="endDay" and result.achievement then

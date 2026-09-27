@@ -3472,6 +3472,11 @@ end
 -- A customer supplied in full for `every` closes running raises its rate by
 -- `step`, at most `max` times.
 City.LOYALTY = { every = 10, step = 1, max = 3 }
+-- Growth: a customer kept supplied slowly wants more, one unit at a time,
+-- every `every` full days (staggered by id so a street does not grow at once),
+-- up to `max` times what they signed for and never past what their own service
+-- main carries. It is what makes a network that was right last month choke.
+City.GROWTH = { every = 30, max = 1.5, patience = 7 }
 
 -- What a customer pays today, or with `full` what they would pay if supplied
 -- in full. A household's second utility is paid at its own rate.
@@ -3491,14 +3496,6 @@ end
 -- Why is this customer short?
 --------------------------------------------------------------------------------
 
--- A customer showing 1/4 is a question, and the answer is almost always one
--- specific main that is already carrying everything it can. The flow solver
--- knows which one; there is no reason to make the player find it by eye.
---
--- Walks outward from the customer over mains of its own trade, in order of
--- distance, and reports the first constraint it meets: a shut valve, no route
--- to a well at all, wells already at full output, or -- most often -- the
--- nearest main running full.
 -- The trade a short customer is short of: its own, or the first add-on
 -- demand that is not being met.
 function City:shortTrade(c)
@@ -3564,6 +3561,14 @@ function City:flowNetworks(com)
   return of
 end
 
+-- A customer showing 1/4 is a question, and the answer is almost always one
+-- specific main that is already carrying everything it can. The flow solver
+-- knows which one; there is no reason to make the player find it by eye.
+--
+-- Walks outward from the customer over mains of its own trade, in order of
+-- distance, and reports the first constraint it meets: a shut valve, no route
+-- to a well at all, wells already at full output, a valve at its setting, or
+-- -- most often -- the nearest main running full.
 function City:constraintFor(id)
   local c = self.g.nodes[id]
   if not (c and c.alive and c.kind == "client" and not c.prospect) then return nil end
@@ -3645,16 +3650,17 @@ function City:chokes()
     if at and (why == "main" or why == "repair") then edges[at] = (edges[at] or 0) + 1
     elseif at and why == "gate" then nodes[at] = (nodes[at] or 0) + 1
     elseif why == "output" then
-      local com = self:shortTrade(c)
-      dry[com] = (dry[com] or 0) + 1
+      local net = self:flowNetworks(self:shortTrade(c))[c.id]
+      if net then dry[net] = (dry[net] or 0) + 1 end
     end
   end
-  -- Short of output: every well of that trade already pumping flat out is
-  -- the limit, and each carries the count of customers waiting on the trade.
+  -- Short of output: every well on that customer's own network already pumping
+  -- flat out is the limit, and carries the count of customers waiting on it.
   for _, n in ipairs(self.g:nodesOfKind("source")) do
     local cap = n.effectiveOutput or n.output or 0
-    if dry[n.commodity] and cap > 0 and ((self.produced or {})[n.id] or 0) >= cap then
-      nodes[n.id] = dry[n.commodity]
+    local net = n.commodity and self:flowNetworks(n.commodity)[n.id]
+    if net and dry[net] and cap > 0 and ((self.produced or {})[n.id] or 0) >= cap then
+      nodes[n.id] = dry[net]
     end
   end
   chokeCache[self] = { detail = self.detail, edges = edges, nodes = nodes }
@@ -3749,6 +3755,15 @@ function City:endDay()
         report.loyal = report.loyal or {}
         report.loyal[#report.loyal + 1] = { x = c.x, y = c.y, id = c.id }
       end
+      c.baseDemand = c.baseDemand or c.demand
+      local ceiling = math.min(City.PIPE_SIZES[1].cap,
+        math.max(c.baseDemand + 1, math.floor(c.baseDemand * City.GROWTH.max)))
+      if (c.streak + c.id) % City.GROWTH.every == 0 and (c.demand or 0) < ceiling then
+        c.demand = c.demand + 1
+        c.grewOn = self.day
+        report.grew = report.grew or {}
+        report.grew[#report.grew + 1] = { x = c.x, y = c.y, id = c.id }
+      end
     else
       c.streak = 0
       -- A secure contract refunds what it was not given.
@@ -3757,7 +3772,9 @@ function City:endDay()
         report.expenses = report.expenses + credit
         report.credits = (report.credits or 0) + credit
       end
-      c.grace = c.grace - 1
+      -- A customer who has just grown out of their supply waits a week for the
+      -- network to catch up before their patience starts running down.
+      if not (c.grewOn and self.day - c.grewOn < City.GROWTH.patience) then c.grace = c.grace - 1 end
       report.unhappy = report.unhappy + 1
       if c.grace <= 0 then
         report.left[#report.left + 1] = { name = City.CLIENTS[c.clientType].name, x = c.x, y = c.y }

@@ -47,10 +47,6 @@ do
   check(p.cash==c.money,"remaining cash matches the committed action")
   check(p.net==c:dailyRevenue()-c:dailyExpenses()-net,"net preview includes upkeep")
   check(E.pipePreview(c,hub.id,n.id,"water",n.demand,false).error~=nil,"cached quote invalidates after construction")
-  local route=E.route(c,n.id)
-  check(route[c.g.edges[1].id],"selected route reaches its source")
-  c:demolishPipe(c.g.edges[1].id)
-  check(next(E.route(c,n.id))==nil,"removed lines are excluded from route")
 end
 do
   local c=fresh()

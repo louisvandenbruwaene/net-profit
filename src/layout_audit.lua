@@ -145,8 +145,21 @@ function A.cover(x, y, w, h)
   local ex, ey = toScreen(x + w, y + h)
   local kept = {}
   for _, r in ipairs(A.rects) do
-    if not (r.x >= sx - 1 and r.y >= sy - 1 and r.x + r.w <= ex + 1 and r.y + r.h <= ey + 1) then
-      kept[#kept + 1] = r
+    local rx, ry, rex, rey = r.x, r.y, r.x + r.w, r.y + r.h
+    if rx >= sx - 1 and ry >= sy - 1 and rex <= ex + 1 and rey <= ey + 1 then
+      -- Hidden entirely.
+    else
+      -- Partly hidden: where the cover spans the text in one direction, only
+      -- the part sticking out is still on screen, so only that part is kept.
+      if rx >= sx - 1 and rex <= ex + 1 and ry < ey and rey > sy then
+        if ry < sy then rey = math.min(rey, sy) else ry = math.max(ry, ey) end
+      elseif ry >= sy - 1 and rey <= ey + 1 and rx < ex and rex > sx then
+        if rx < sx then rex = math.min(rex, sx) else rx = math.max(rx, ex) end
+      end
+      if rex - rx >= 1 and rey - ry >= 1 then
+        r.x, r.y, r.w, r.h = rx, ry, rex - rx, rey - ry
+        kept[#kept + 1] = r
+      end
     end
   end
   A.rects = kept

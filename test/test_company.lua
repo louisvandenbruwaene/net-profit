@@ -724,6 +724,34 @@ do
   check(c:expenseBreakdown().crews<wages,"and comes off when they are stood down")
 end
 
+print("a customer kept supplied slowly wants more, and waits a week for it")
+do
+  local c=fresh()
+  c.money=1e6
+  local leak,shocks=City.rules.leakBase,require("data.resilience").SHOCK_CHANCE
+  City.rules.leakBase,require("data.resilience").SHOCK_CHANCE=0,0
+  supply(c)
+  local cl
+  for _,x in ipairs(c:clientList()) do if c:fullyServed(x) then cl=x end end
+  check(cl,"a supplied customer to watch")
+  local base=cl.demand
+  c.firstSource.output,c.firstSource.cap=1000,1000
+  for _=1,City.GROWTH.every do c.money=1e6; c:repairAll(); c:endDay() end
+  check(cl.demand==base+1,"after one growth period they want one more unit")
+  check(cl.baseDemand==base,"what they signed for is remembered")
+  for _=1,City.GROWTH.every*6 do c.money=1e6; c:repairAll(); c:endDay() end
+  local ceiling=math.min(City.PIPE_SIZES[1].cap,math.max(base+1,math.floor(base*City.GROWTH.max)))
+  check(cl.demand==ceiling,"growth stops at the ceiling")
+  -- Grown out of supply: patience holds for the grace week, then runs down.
+  cl.demand=cl.demand+50; cl.grewOn=c.day; c:refresh()
+  local grace=cl.grace
+  for _=1,City.GROWTH.patience do c.money=1e6; c:endDay() end
+  check(cl.alive and cl.grace==grace,"a customer who just grew waits a week")
+  c.money=1e6; c:endDay()
+  check(cl.grace<grace,"and then their patience runs down as usual")
+  City.rules.leakBase,require("data.resilience").SHOCK_CHANCE=leak,shocks
+end
+
 print("the game tells a customer why they are short, and the fix works")
 do
   local c=fresh()

@@ -470,10 +470,20 @@ local function inspectSource(n,y)
   row("Upkeep","-$"..city:sourceUpkeep(n).." / day",y,P.warn); y=y+34
   local step=city:upgradeStep(n)
   local upCost=city:sourceUpgradeCost(n)
-  if upCost and level<city:maxLevel(n) and capacity<ceiling then
+  local deepen=upCost and level<city:maxLevel(n) and capacity<ceiling
+  -- A glowing well: who is waiting on it, and whether deepening can help.
+  local _,chokedNodes=city:chokes()
+  local starved=chokedNodes[n.id]
+  if starved then
+    row("Starves",starved..(deepen and "" or "  (another well)"),y,P.warn,
+      not deepen and "This one is as deep as it goes: sink another on this network." or nil)
+    y=y+28
+  end
+  if deepen then
     local verb=n.plant and "Expand" or n.intake and "Add a stage"
       or ("To "..string.lower(names[level+1] or "deeper"))
-    button("upgrade-source",verb.."   +"..step.."   $"..upCost,
+    local back=starved and E.sourcePreview(city,n.id).payback
+    button("upgrade-source",verb.."   +"..step.."   $"..upCost..(back and ("   ·   "..back.."d back") or ""),
       M,y,CW,38,function() act("upgradeSource",n.id) end,city.money>=upCost,
       "+"..step.." a day"..(maxed and gainText(E.sourcePreview(city,n.id)) or ""),
       false,P.good,maxed and city.money>=upCost)
@@ -501,12 +511,15 @@ end
 
 local function inspectGate(n,y)
   local t=n.throughput or 0
+  local _,chokedNodes=city:chokes()
+  local starved=chokedNodes[n.id]
+  if starved then row("Starves",starved,y,P.warn); y=y+26 end
   row("Throughput limit",t.." units",y,t==0 and P.bad or P.warn)
   row("Carrying",math.floor(city.detail.node[n.id] or 0),y+26)
   row("Ports",city.g:degree(n.id).." / "..n.ports,y+52)
   button("gate-minus","-",M,y+90,44,36,function() act("setGate",n.id,t-1) end,t>0,"One unit tighter")
   button("gate-shut","Shut",M+52,y+90,74,36,function() act("setGate",n.id,0) end,t>0,"Close this branch entirely")
-  button("gate-open","Open",M+134,y+90,74,36,function() act("setGate",n.id,100) end,t<100,"Open fully")
+  button("gate-open","Open",M+134,y+90,74,36,function() act("setGate",n.id,100) end,t<100,"Open fully",false,P.good,starved~=nil)
   button("gate-plus","+",M+216,y+90,44,36,function() act("setGate",n.id,t+1) end,t<100,"One unit looser")
   text("Limits supply through this pipe. Lower it to save supply for other clients.",
     M,y+138,"small",P.textDim,CW)
@@ -1980,8 +1993,8 @@ local function advisor()
     single(adviceLabel(item),M+10,y+6,"small",item.affordable and P.text or P.textFaint,CW-84)
     lg.setFont(R.fonts.small); lg.setColor(item.affordable and P.energy or P.textFaint)
     lg.printf("$"..item.cost,M+CW-76,y+6,66,"right")
-    single(string.format("+$%d/day   %s",math.floor(item.net+0.5),
-      item.payback and (item.payback.."d payback") or ""),
+    single(string.format("+$%d/day   %s   starves %d",math.floor(item.net+0.5),
+      item.payback and (item.payback.."d payback") or "",item.starved),
       M+10,y+28,"tiny",P.good,CW-20)
     y=y+60
   end
@@ -2458,6 +2471,10 @@ local function settingsMenu()
   end
 end
 
+-- Things drawn over the map that do not block clicks (the day pill, a banner),
+-- collected each frame so map labels can keep out from under them.
+local overlays={}
+
 -- A short line at the foot of the map: what just happened, or what the tool
 -- in hand does. It is the only text that is not in a menu.
 local function toastPill(open)
@@ -2471,6 +2488,7 @@ local function toastPill(open)
   local choke=state.toast and state.toastChoke
   local mx,my=mouse()
   local hot=choke and mx>=tx and mx<tx+tw and my>=ty and my<ty+34
+  overlays[#overlays+1]={tx,ty,tw,34}
   lg.setColor(hot and P.hover or P.with(P.bg,0.92)); lg.rectangle("fill",tx,ty,tw,34,17)
   lg.setColor(state.toastBad and P.with(P.bad,0.7) or choke and P.with(P.warn,0.8) or P.panelEdge); lg.rectangle("line",tx,ty,tw,34,17)
   single(message,tx+18,ty+9,"body",state.toastBad and P.bad or P.text,tw-36)
@@ -2689,7 +2707,7 @@ function UI.draw(c,s,action)
   local RW,RH=R.dimensions()
   W,H=RW/k,RH/k
   UI.buttons={}; UI.blocks={}; scroll=false
-  state.previewRadius=nil; state.offerHover=nil
+  state.previewRadius=nil; state.offerHover=nil; overlays={}
   lg.push(); lg.scale(k)
   local open=UI.drawerOpen()
 
@@ -2789,6 +2807,7 @@ function UI.draw(c,s,action)
       local bx=((open and UI.width or 0)+W)/2-bw/2
       local by=UI.BAR-bh+(bh+10)*drop
       lg.setScissor(0,UI.BAR*(UI.scale or 1),W*(UI.scale or 1),H*(UI.scale or 1))
+      overlays[#overlays+1]={bx,by,bw,bh}
       lg.setColor(0,0,0,0.35); lg.rectangle("fill",bx+2,by+4,bw,bh,10)
       lg.setColor(P.with(P.bg,0.96)); lg.rectangle("fill",bx,by,bw,bh,10)
       lg.setColor(P.with(tone,0.16)); lg.rectangle("fill",bx,by,bw,bh,10)
@@ -2890,6 +2909,15 @@ function UI.draw(c,s,action)
   end
   if not hovered then tooltipId=nil end
   lg.pop()
+  -- Everything drawn over the map this frame, in screen pixels: map labels
+  -- under any of it step aside next frame rather than peek out from beneath.
+  R.coverBoxes={}
+  for _,list in ipairs({UI.blocks,overlays}) do
+    for _,bl in ipairs(list) do
+      R.coverBoxes[#R.coverBoxes+1]={x=bl[1]*k,y=bl[2]*k,w=bl[3]*k,h=bl[4]*k}
+    end
+  end
+  if R.hoverBox then R.coverBoxes[#R.coverBoxes+1]=R.hoverBox end
 end
 
 -- Scroll straight to the inspector. Called whenever a selection is made, so a
