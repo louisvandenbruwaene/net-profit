@@ -79,7 +79,6 @@ Data.trade = {
 
 Data.rules = {
   linkRange = 300,
-  pumpRange = 520,
   minSpacing = 46,
   leakBase = 0.07,          -- per pipe per day, before quality and grade
   adDays = 5,

@@ -110,6 +110,12 @@ return function(City)
     return rate - cost, cost, rate, costs.perUnit == nil
   end
 
+  -- A change in money, always with its sign in front: "+$30", "-$10".
+  function City.signed(v)
+    local n = math.floor(v + 0.5)
+    return (n < 0 and "-$" or "+$") .. math.abs(n)
+  end
+
   -- Money as it reads everywhere: whole dollars when it is big, cents when a
   -- unit of water is worth less than one.
   function City.money2(v)

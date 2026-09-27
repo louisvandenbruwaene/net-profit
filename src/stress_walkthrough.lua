@@ -118,10 +118,10 @@ return function(app, capture, click, scrollTo, check)
       app.state.modal = nil; app.state.node = nil; app.state.edge = nil
       app.state.tab = "network"; app.state.commodity = trade
       app.state.lineOptions = true; app.state.showSupply = true
-      app.state.voltageHelp = true; app.state.ampereHelp = true; app.state.buildHelp = true
+      app.state.buildHelp = true
     end)
   end
-  app.state.lineOptions = nil; app.state.voltageHelp = nil; app.state.ampereHelp = nil
+  app.state.lineOptions = nil
   app.state.commodity = "water"
   -- Every inspector, on a real building of that kind.
   local seen = {}

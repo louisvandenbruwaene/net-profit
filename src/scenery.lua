@@ -14,10 +14,7 @@ local Scenery = {}
 local lg = love.graphics
 local Shape = require("terrain_shape")
 
-local function hash(a, b, c)
-  local v = math.sin(a * 12.9898 + b * 78.233 + (c or 0) * 37.719) * 43758.5453
-  return v - math.floor(v)
-end
+local hash = Shape.hash
 
 -- The outline comes from terrain_shape, which the rules use too, so what is
 -- drawn is exactly the ground that charges to be crossed.

@@ -103,7 +103,6 @@ return function(City)
   if not freight(self.g.nodes[a]) or not freight(self.g.nodes[b]) then return 'container trucks serve depots, factories, food stores and freight sources' end
   if not self:roadPath(a,b,'truck') then return 'connect these buildings with normal roads or highways first' end
  end
- function City:setEdgeToll() return nil,'set tolls on physical highways, not truck services' end
  local length=City.pipeLength
  function City:pipeLength(e)
   if e.bulk=='highway' then local path,metres=self:roadPath(e.a,e.b,'truck'); if path then return metres end end
