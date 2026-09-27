@@ -50,6 +50,8 @@ local function crossesBox(line,x,y,w,h)
   return true
 end
 local function drawLabels(cam)
+  R.labelBoxes={}
+  if R.hoverBox then occupied[#occupied+1]=R.hoverBox end
   table.sort(labels,function(a,b) return a.priority>b.priority or (a.priority==b.priority and a.order<b.order) end)
   for _,item in ipairs(labels) do
     local f=item.font
@@ -66,6 +68,7 @@ local function drawLabels(cam)
     end
     if clear then
       occupied[#occupied+1]={x=x,y=y,w=w,h=h}
+      R.labelBoxes[#R.labelBoxes+1]={x=x+w/2,y=y+h/2,w=w}
       local c=item.color
       lg.setColor(P.with(P.bg,0.94*item.fade)); lg.rectangle("fill",x,y,w,h,3)
       lg.setFont(f); lg.setColor(c[1],c[2],c[3],(c[4] or 1)*item.fade); lg.print(item.text,x+4,y+2)
@@ -1167,7 +1170,9 @@ local function drawDistrictChrome(city, cam, state)
     local w, h = d.w * cam.scale, d.h * cam.scale
     local cx, cy = x + w / 2, y + h / 2
     if d.owned then
-      lg.setColor(P.with(P.panelEdge, 0.55))
+      -- Plot edges step back as the camera pulls out, so the network, not
+      -- the survey grid, is the brightest thing on a zoomed-out map.
+      lg.setColor(P.with(P.panelEdge, cam.scale < 0.6 and 0.2 or 0.4))
       if d.island then lg.ellipse("line", cx, cy, w / 2, h / 2)
       else lg.rectangle("line", x, y, w, h) end
     else
@@ -1179,7 +1184,7 @@ local function drawDistrictChrome(city, cam, state)
       local hot = state.district == d.id
       local buyable = not city:districtError(d.id)
       do
-        lg.setColor(P.with(hot and P.energy or buyable and P.good or P.textFaint, hot and 0.9 or 0.25))
+        lg.setColor(P.with(hot and P.energy or buyable and P.good or P.textFaint, hot and 0.9 or cam.scale < 0.6 and 0.14 or 0.25))
         lg.setLineWidth(hot and 2 or 1)
         local m = math.max(2, 10 * cam.scale)
         if d.island then lg.ellipse("line", cx, cy, w / 2 - 2, h / 2 - 2)
@@ -2124,6 +2129,7 @@ function Draw.world(city, cam, state)
   end
 
   local route=state.bottlenecks and E.route(city,state.node) or {}
+  local chokes=city:chokes()
   local grid=Draw.focusGrid(state)
   for _, e in ipairs(city.g.edges) do
     local ea, eb = city.g.nodes[e.a], city.g.nodes[e.b]
@@ -2138,8 +2144,21 @@ function Draw.world(city, cam, state)
       local power = e.commodity == "power" and not e.rail
       local wires = power and (VOLT_WIRES[e.voltage or "medium"] or 2) or 0
       local width = power and (wires * 3.4 + 1) * cam.scale + 2
-        or (PIPE_WIDTH[sizeKey] or 3) * cam.scale + 1
+        or math.max(2.5, (PIPE_WIDTH[sizeKey] or 3) * cam.scale + 1)
       segments[#segments+1]={ax=ax,ay=ay,bx=bx,by=by,pad=width/2+4}
+      -- A main that is leaving customers short glows under the pipe, always,
+      -- brighter the more customers are waiting behind it: the solver's own
+      -- answer to "where is this network choking", put where the eye already is.
+      local starved=chokes[e.id]
+      if starved and not state.bottlenecks then
+        local pulse=0.5+0.5*math.sin(R.t*3.2+e.id)
+        local glow=math.min(1,0.75+0.08*starved)
+        local path=Draw.edgePath(cam,city,e)
+        lg.setLineJoin("bevel")
+        lg.setColor(P.with(e.leaking and P.bad or P.warn,(0.22+0.16*pulse)*glow)); lg.setLineWidth(width+18+8*pulse); lg.line(path)
+        lg.setColor(P.with(e.leaking and P.bad or P.warn,(0.60+0.35*pulse)*glow)); lg.setLineWidth(width+7); lg.line(path)
+        lg.setLineJoin("miter")
+      end
       if state.bottlenecks and (route[e.id] or e.leaking or math.abs(city.detail.edge[e.id] or 0)>=(e.effectiveCap or e.cap)) then
         lg.setColor(P.with((e.leaking or math.abs(city.detail.edge[e.id] or 0)>=(e.effectiveCap or e.cap)) and P.warn or P.flow,0.3))
         lg.setLineWidth(width+10); lg.line(Draw.edgePath(cam,city,e))
@@ -2211,7 +2230,7 @@ function Draw.world(city, cam, state)
           lg.setColor(P.with(P.bg,0.85)); lg.setLineWidth(width+2); lg.line(ax,ay,bx,by)
         end
         lg.setColor(P.with(e.leaking and P.bad or (e.commodity == "oil" and spec.fill or c),
-          e.cap == 0 and 0.35 or (e.commodity == "oil" and 0.95 or 0.72)))
+          e.cap == 0 and 0.35 or (e.commodity == "oil" and 0.95 or cam.scale < 0.6 and 0.92 or 0.72)))
         lg.setLineWidth(width); lg.line(ax,ay,bx,by)
         local dx, dy = bx-ax, by-ay
         local len = math.max(1, math.sqrt(dx*dx+dy*dy))
@@ -2619,7 +2638,7 @@ function Draw.world(city, cam, state)
     if state.advisorFocus then mark(state.advisorFocus.kind,state.advisorFocus.id,P.good) end
     lg.setLineWidth(1)
   end
-  R.drawEffects(cam)
+  R.drawEffects(cam,"shapes")
   local mx,my = love.mouse.getPosition()
   if state.drag and state.transit then
     local from = city.g.nodes[state.drag]
@@ -2787,6 +2806,7 @@ function Draw.world(city, cam, state)
   end
   fading(false)
   drawLabels(cam)
+  R.drawEffects(cam,"text")
   lg.setScissor()
 end
 

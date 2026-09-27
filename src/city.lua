@@ -3563,6 +3563,23 @@ function City:shortCustomers()
   return t
 end
 
+-- The mains the map should light up: each one constraintFor blames for a
+-- customer going short, with how many customers it is starving. Worked out
+-- once per solve (refresh() replaces self.detail) and kept off the City so the
+-- save never sees it.
+local chokeCache = setmetatable({}, { __mode = "k" })
+function City:chokes()
+  local hit = chokeCache[self]
+  if hit and hit.detail == self.detail then return hit.edges end
+  local edges = {}
+  for _, c in ipairs(self:shortCustomers()) do
+    local why, eid = self:constraintFor(c.id)
+    if eid and (why == "main" or why == "repair") then edges[eid] = (edges[eid] or 0) + 1 end
+  end
+  chokeCache[self] = { detail = self.detail, edges = edges }
+  return edges
+end
+
 function City:dailyRevenue()
   local rev = 0
   for _, c in ipairs(self:clientList()) do

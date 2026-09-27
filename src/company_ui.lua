@@ -924,8 +924,19 @@ local function buildPanel()
     shown=shown+1
     local bx,by=M+col*(TS+4),y+rw*(TS+4)
     button(id,"",bx,by,TS,TS,press,afford,name.."  $"..price..(tip and tip~="" and ("\n"..tip) or ""),active,colour)
+    -- With hints on, each tile carries its name under the icon until the
+    -- icons are learnt; with hints off the grid is icons only.
+    local named=state.buildHelp or not state.hintsChosen
     lg.setColor(afford and colour or P.textFaint)
-    icon(bx+TS/2,by+TS/2)
+    icon(bx+TS/2,by+TS/2-(named and 7 or 0))
+    if named then
+      local f=R.fonts.tiny
+      local s=math.min(1,(TS-6)/math.max(1,f:getWidth(name)))
+      lg.setFont(f); lg.setColor(afford and P.textDim or P.textFaint)
+      lg.push(); lg.translate(bx+TS/2,by+TS-f:getHeight()*s-4); lg.scale(s)
+      lg.print(name,-f:getWidth(name)/2,0)
+      lg.pop()
+    end
   end
   if not state.people then
     if state.commodity=="power" then
@@ -2486,6 +2497,7 @@ local function minimap()
 end
 
 local function hoverCard()
+  R.hoverBox=nil
   if state.modal or state.drag or state.settings or state.tool then hoverKey=nil; return end
   -- Only while the pointer is on the map: never over the panel or the bar.
   do
@@ -2545,6 +2557,8 @@ local function hoverCard()
     local flow=math.floor(math.abs((city.detail.edge or {})[e.id] or 0))
     add(flow.." / "..e.cap,flow>=e.cap and P.warn or P.good)
     if e.leaking then add(e.cap==0 and "Burst" or "Leaking",P.bad) end
+    local starved=city:chokes()[e.id]
+    if starved then add("Starves "..starved,P.warn) end
   end
   if ground then
     local spec=City.OBSTACLES[ground.kind] or {}
@@ -2577,7 +2591,10 @@ local function hoverCard()
   local x,y=mx+18,my+18
   if x+w>W-8 then x=mx-18-w end
   if y+h>H-8 then y=my-18-h end
-  lg.setColor(P.with(P.bg,0.94)); lg.rectangle("fill",x,y,w,h,7)
+  -- Map labels under the card step aside next frame rather than show through.
+  local k=UI.scale or 1
+  R.hoverBox={x=x*k,y=y*k,w=w*k,h=h*k}
+  lg.setColor(P.with(P.bg,0.97)); lg.rectangle("fill",x,y,w,h,7)
   lg.setColor(P.panelEdge); lg.setLineWidth(1); lg.rectangle("line",x,y,w,h,7)
   single(title,x+12,y+8,"body",P.text,w-24)
   for i,l in ipairs(lines) do single(l[1],x+12,y+10+i*20,"small",l[2],w-24) end
