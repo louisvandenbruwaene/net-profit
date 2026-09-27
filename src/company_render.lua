@@ -301,11 +301,6 @@ function Draw.structureGlyph(kind, x, y, s)
     lg.circle("fill", 0, 0, 3.4 * s)
     lg.setColor(r, g, b, a)
     lg.rectangle("fill", -3.4 * s, -10.5 * s, 6.8 * s, 4.6 * s, 0.6 * s)
-  elseif kind == "tower" then
-    -- A tank up a column on a footing: a water tower.
-    lg.rectangle("fill", -8 * s, -11 * s, 16 * s, 7 * s, 1.6 * s)
-    lg.rectangle("fill", -2.2 * s, -4.6 * s, 4.4 * s, 11.6 * s)
-    lg.rectangle("fill", -7 * s, 7 * s, 14 * s, 2.2 * s, 0.8 * s)
   elseif kind == "gate" then
     -- A valve on a line, with the handwheel you set it by.
     lg.rectangle("fill", -10 * s, -1.6 * s, 20 * s, 3.2 * s, 0.8 * s)
@@ -346,21 +341,6 @@ function Draw.structureGlyph(kind, x, y, s)
     end
     lg.rectangle("fill", 5.4 * s, -11.4 * s, 3 * s, 10 * s)
     lg.rectangle("fill", 4.6 * s, -12.4 * s, 4.6 * s, 1.4 * s, 0.35 * s)
-  elseif kind == "exchange" then
-    -- A hub: a depot building with four spurs running off it to the streets.
-    -- Nothing else in the set has arms ending in dots, which is what says "this
-    -- one reaches things you did not draw a pipe to".
-    stroke(span, 0.085)
-    for i = 0, 3 do
-      local t = math.pi / 4 + i * math.pi / 2
-      local ax, ay = math.cos(t) * 10 * s, math.sin(t) * 10 * s
-      lg.line(0, 0, ax, ay)
-      lg.circle("fill", ax, ay, 2.1 * s)
-    end
-    lg.rectangle("fill", -6.4 * s, -5 * s, 12.8 * s, 10 * s, 1.4 * s)
-    lg.setColor(P.bg)
-    lg.rectangle("fill", -3.4 * s, -2.4 * s, 6.8 * s, 4.8 * s, 0.8 * s)
-    lg.setColor(r, g, b, a)
   elseif kind == "corner" then
     -- The road arrives from the left and leaves downward: a bend, drawn as one.
     lg.setLineWidth(3*s); lg.line(-12*s,-6*s,0,-6*s); lg.line(0,-6*s,0,12*s)
@@ -2170,13 +2150,6 @@ function Draw.world(city, cam, state)
     end
   end
 
-  local selected = city.g.nodes[state.node or 0]
-  if selected and selected.alive and selected.kind == "tower" then
-    local x,y = cam:toScreen(selected.x,selected.y)
-    lg.setColor(P.with(P.energy,0.10)); lg.circle("fill",x,y,220*cam.scale)
-    lg.setColor(P.with(P.energy,0.45)); lg.circle("line",x,y,220*cam.scale)
-  end
-
   local route=state.bottlenecks and E.route(city,state.node) or {}
   local grid=Draw.focusGrid(state)
   for _, e in ipairs(city.g.edges) do
@@ -2346,13 +2319,12 @@ function Draw.world(city, cam, state)
     local color = spec and spec.color or Graph.KINDS[n.kind].color
     local served = city.served[n.id] or 0
     if n.prospect then color = P.textDim end
-    if n.roundHouse and n.dry then color = P.bad end
     local supplied = not n.prospect and (n.kind=="client" and city:fullyServed(n) or n.kind~="client" and served >= (n.demand or 0))
     if state.node == n.id or state.hoverNode == n.id then
       lg.setColor(P.text); lg.setLineWidth(math.max(1, r * 0.09))
       lg.circle("line", x, y, r + math.max(4, r * 0.5))
     end
-    if n.kind == "client" and not n.prospect and not n.roundHouse and not city:fullyServed(n) then
+    if n.kind == "client" and not n.prospect and not city:fullyServed(n) then
       lg.setColor(P.with(n.grace == 1 and P.bad or P.warn,0.65))
       lg.setLineWidth(math.max(1.3, r * 0.13))
       lg.arc("line","open",x,y,r + math.max(3, r * 0.3),
@@ -2362,10 +2334,10 @@ function Draw.world(city, cam, state)
       lg.setColor(P.with(P.good,0.10)); lg.circle("fill",x,y,r * 1.42)
     end
     -- Close in, a customer is its building; further out, its disc.
-    local building = (n.kind == "client" and not n.roundHouse and r >= 14)
+    local building = (n.kind == "client" and r >= 14)
       or (n.kind == "source" and (not n.plant or n.plant == "wind") and n.commodity ~= "timber" and n.commodity ~= "rock" and r >= 14)
       or (n.kind == "works" and n.recipe ~= "forestry" and n.recipe ~= "quarry" and r >= 14)
-      or ((n.kind == "tower" or n.kind == "pole" or n.kind == "pylon" or n.kind == "hvtower"
+      or ((n.kind == "pole" or n.kind == "pylon" or n.kind == "hvtower"
         or n.kind == "depot" or n.kind == "pump" or n.kind == "stop"
         or n.kind == "station" or n.kind == "resort" or n.kind == "dc") and r >= 14)
     -- Everything else built is drawn as what it is too.
@@ -2815,7 +2787,7 @@ function Draw.world(city, cam, state)
     lg.setColor(P.with(color,0.3)); lg.setLineWidth(1)
     local carries = City.INFRA.towers[state.tool=="grid" and City.INFRA.voltages[state.voltage or "low"].tower or state.tool]
     local range = state.tool=="pump" and City.INFRA.pumpRange or carries and City.INFRA.voltages[carries].span
-      or state.tool=="binder" and City.INFRA.binderRange or state.tool=="tower" and 220
+      or state.tool=="binder" and City.INFRA.binderRange
       or 300
     lg.circle("line",mx,my,range*cam.scale)
     if state.tool=='works' and (City.RECIPES[state.recipe or ''] or {}).farm then

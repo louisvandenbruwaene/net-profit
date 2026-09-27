@@ -752,7 +752,8 @@ function love.keypressed(key)
     elseif state.link then action("demolishLink",state.link)
     elseif state.node then action("demolishNode",state.node) end
   elseif tonumber(key) and tonumber(key)>=1 and tonumber(key)<=9 then
-    state.tool=({"junction","grid","pump","tower","gate","depot","terminal","dc"})[tonumber(key)]
+    local name=(UI.toolKeys or {})[tonumber(key)]
+    if name then state.tool=state.tool~=name and name or nil end
   end
 end
 

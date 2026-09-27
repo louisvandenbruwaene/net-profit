@@ -54,7 +54,7 @@ return function(app, capture, click, scrollTo, check)
 
   local built, placed = {}, 0
   for _, kind in ipairs({ "junction", "manifold", "pump", "gate", "depot", "filtration", "binder",
-                          "tower", "lab", "dc", "stop", "station", "resort",
+                          "lab", "dc", "stop", "station", "resort",
                           "pole", "pylon", "hvtower", "corner", "roundabout", "interchange" }) do
     built[kind] = place(kind, ox + (placed % 5) * 240 - 400, oy + math.floor(placed / 5) * 240 - 300)
     placed = placed + 1

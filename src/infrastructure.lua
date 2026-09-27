@@ -29,7 +29,7 @@ return function(City)
   local function farm(n) return (City.RECIPES[n.recipe or ''] or {}).farm end
   City.isFarm = farm
   local function electrical(n)
-    return n.kind=='transformer' or D.towers[n.kind] or (n.commodity=='power' or (n.demands and n.demands.power)) or n.kind=='works' or n.kind=='exchange' or n.kind=='dc'
+    return n.kind=='transformer' or D.towers[n.kind] or (n.commodity=='power' or (n.demands and n.demands.power)) or n.kind=='works' or n.kind=='dc'
   end
   City.isElectrical = electrical
   function City:pollutionAt(x,y)
@@ -72,7 +72,7 @@ return function(City)
   -- tower with a transformer that carries their own voltage.
   function City:customerVoltage(n)
     if n.kind=='client' then return (n.commodity=='power' or (n.demands and n.demands.power)) and (D.customerVoltage[n.clientType] or 'medium') or nil end
-    if n.kind=='works' or n.kind=='exchange' or n.kind=='dc' then return 'medium' end
+    if n.kind=='works' or n.kind=='dc' then return 'medium' end
   end
   function City:voltagesAt(n)
     if n.kind=='transformer' then return {low=true,medium=true,high=true} end

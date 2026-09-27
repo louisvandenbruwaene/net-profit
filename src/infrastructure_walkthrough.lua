@@ -133,7 +133,7 @@ return function(app,capture,click,scrollTo,check)
     {'client',{clientType='workshop',commodity='power',demand=2}},{'client',{clientType='pub',commodity='beer',demand=2}},
     {'client',{clientType='factory',commodity='oil',demand=2}},{'client',{clientType='market',commodity='food',demand=2}},
     {'source',{commodity='water',output=10}},{'source',{commodity='oil',output=10}},
-    {'tower',{level=3,commodity='power'}},{'depot',{level=4,commodity='water',stored=10}},{'pump',{}},
+    {'pylon',{level=3,commodity='power'}},{'depot',{level=4,commodity='water',stored=10}},{'pump',{}},
     {'stop',{}},{'station',{}},{'resort',{level=2}},{'dc',{}},
   }
   for i,spec in ipairs(row) do

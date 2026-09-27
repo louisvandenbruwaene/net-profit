@@ -193,6 +193,12 @@ function Walk.start(app,mode)
   check(E.tutorialTarget(c,app.state).button=="tab-network","the guide first clears the well's own selection")
   click("tab-network")
   check(E.tutorialTarget(c,app.state).button=="tool-junction","then points at the junction tool")
+  love.draw()
+  for i,name in ipairs(UI.toolKeys) do
+    love.keypressed(tostring(i))
+    check(app.state.tool==name and findButton("tool-"..name),"number key "..i.." picks up the "..name.." tile shown there")
+    if i==3 then break end
+  end
   app.state.tool="junction"
   local jaim=E.tutorialTarget(c,app.state)
   check(jaim.x==(well.x+offerHouse.x)/2 and jaim.y==(well.y+offerHouse.y)/2,
