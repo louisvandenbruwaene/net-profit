@@ -259,8 +259,12 @@ local function levelBlock(n,y)
   row("Connections",used.." / "..n.ports,y,used>=n.ports and P.warn or P.text); y=y+24
   local through=n.throughput or 999
   local carried=math.floor(city.detail.node[n.id] or 0)
+  -- What it carries, in the unit of what it carries: bolts for a tower.
+  local tower=City.INFRA.towers[n.kind]
+  local com=tower and "power" or n.commodity or "water"
+  local function amount(a,b) return b and city:quantityPair(com,a,b,tower) or city:quantity(com,a,tower) end
   if through<999 then
-    row("Capacity",carried.." / "..through.." a day",y,carried>=through and P.bad or P.text); y=y+24
+    row("Capacity",amount(carried,through),y,carried>=through and P.bad or P.text); y=y+24
   end
   if n.capacityStore and city:levelFamily(n)=="storage" then
     row("Holds",(n.capacityStore).."  +"..(n.fillRate or City.depotFillRate).."/day",y); y=y+24
@@ -282,7 +286,7 @@ local function levelBlock(n,y)
       gain=string.format("Earns about %s/day, pays back in %s days.",City.signed(p.net),p.payback or "many")
     end
   end
-  local gives=(nxt.store and "" or (nxt.ports.." connections, "..(nxt.throughput>=999 and "unlimited" or nxt.throughput).." a day"))
+  local gives=(nxt.store and "" or (nxt.ports.." connections, "..(nxt.throughput>=999 and "unlimited" or amount(nxt.throughput))))
     ..(nxt.reach and nxt.reach>0 and string.format(", +%d%% reach",nxt.reach*100+0.5) or "")
     ..(nxt.radius and (", runs everything within "..nxt.radius.." m") or "")
     ..(nxt.store and ("holds "..nxt.store..", takes in "..nxt.fill.." a day") or "")
@@ -994,7 +998,7 @@ local function buildPanel()
           function()
             if state.tool=="source" and state.plant==key then state.tool=nil
             else state.tool,state.plant="source",key end
-          end,spec.output.." a day, "..({nuclear="burns fuel",wind="on an island",hydro="by the river",solar="needs panels"})[key],
+          end,city:quantity("power",spec.output,"high")..", "..({nuclear="burns fuel",wind="on an island",hydro="by the river",solar="needs panels"})[key],
           function(ix,iy)
             if key=="wind" then Draw.turbine(ix,iy,14) elseif key=="nuclear" then Draw.reactor(ix,iy,13)
             elseif key=="solar" then lg.setLineWidth(1.5); lg.rectangle("line",ix-8,iy-6,16,12); lg.line(ix,iy-6,ix,iy+6); lg.line(ix-8,iy,ix+8,iy)
@@ -1312,7 +1316,7 @@ local function inspectorPanel(n,e)
         for i,key in ipairs(higher) do
           local w=(CW-8*(#higher-1))/#higher
           local price=city:towerVoltageCost(n,key)
-          button("voltage-"..key,City.bolts(key).."  $"..price,M+(i-1)*(w+8),tail,w,34,
+          button("voltage-"..key,"Raise to "..City.bolts(key).."  $"..price,M+(i-1)*(w+8),tail,w,34,
             function() act("raiseTowerVoltage",n.id,key) end,not city:towerVoltageError(n.id,key),
             "Cables on it keep their voltage until upgraded",false,Graph.KINDS[City.INFRA.voltages[key].tower].color)
         end
@@ -2645,7 +2649,10 @@ local function hoverCard()
     if nodes[n.id] then add("Starves "..nodes[n.id],P.warn) end
   elseif n then
     title=city:levelFamily(n) and (city:levelName(n).."  "..city:levelOf(n).."/"..city:levelCount(n)) or (Graph.KINDS[n.kind] or {}).name or n.kind
-    add(math.floor(city.detail.node[n.id] or 0).." a day   "..city:connectionPorts(n.id).."/"..(n.ports or 0).." links")
+    local tower=City.INFRA.towers[n.kind]
+    local com=tower and "power" or n.commodity or n.makes
+    local flow=math.floor(city.detail.node[n.id] or 0)
+    add((com and city:quantity(com,flow,tower) or tostring(flow)).."   "..city:connectionPorts(n.id).."/"..(n.ports or 0).." links")
     if city:isDistribution(n) then add("Signs $"..city:hubFloor(n).."+",P.energy) end
     local _,nodes=city:chokes()
     if nodes[n.id] then add("Starves "..nodes[n.id],P.warn) end

@@ -2748,7 +2748,18 @@ function Draw.world(city, cam, state)
     end
     if target and target~=from.id then
       if err then
-        label(err,(x+mx)/2,(y+my)/2-24,P.bad)
+        -- Why the line is refused, always shown by the pointer: as a map label
+        -- it gave way to the lines around it and could vanish.
+        local SF=require("symbol_font")
+        local f=R.fonts.small
+        local ew=math.min(SF.width(err,f)+24,cam.vw-32)
+        local ex=math.max(cam.vx+16,math.min(cam.vx+cam.vw-ew-16,mx+20))
+        local ey=math.max(cam.vy+12,my-48)
+        occupied[#occupied+1]={x=ex-4,y=ey-4,w=ew+8,h=f:getHeight()+20}
+        cards[#cards+1]={x=ex+ew/2,y=ey+(f:getHeight()+12)/2,w=ew+8,h=f:getHeight()+20}
+        lg.setColor(P.panel); lg.rectangle("fill",ex,ey,ew,f:getHeight()+12,6)
+        lg.setColor(P.with(P.bad,0.8)); lg.setLineWidth(1); lg.rectangle("line",ex,ey,ew,f:getHeight()+12,6)
+        lg.setFont(f); lg.setColor(P.bad); lg.print(err,ex+12,ey+6)
       else
         -- The quote, itemised, right where the pipe is being drawn.
         local want = state.rail and state.capacity or (state.size or "small")
@@ -2762,7 +2773,8 @@ function Draw.world(city, cam, state)
           local qw=math.min(350,cam.vw-32)
           local rows={
             {"Build for $"..q.total,R.fonts.mid,P.energy},
-            {string.format("%d m  /  Capacity %s",math.floor(q.metres),q.capacity),R.fonts.small,P.textDim},
+            {string.format("%d m  /  Capacity ",math.floor(q.metres))..(q.rail and tostring(q.capacity)
+              or city:quantity(state.commodity,q.capacity,q.voltage)),R.fonts.small,P.textDim},
             {(p.demand and (p.delivery.."/"..p.demand.." supplied  /  ") or "")..
               "Profit "..City.signed(p.net).."/day",R.fonts.body,p.net>0 and P.good or p.net<0 and P.bad or P.textDim},
             {p.cash<0 and ("Need $"..(-p.cash).." more") or ("Cash remaining: $"..p.cash),R.fonts.body,p.cash<0 and P.bad or P.text},
