@@ -928,8 +928,9 @@ function Draw.deposit(commodity, x, y, rr, colour, seed, alpha)
     local ph = (R.t * 0.3 + h(32)) % 1
     lg.setColor(0.2, 0.2, 0.22, (1 - ph) * alpha); lg.circle("fill", x + rr * 0.3, y - rr * 0.1, rr * 0.08 * (0.5 + ph))
   elseif commodity == "ore" then
+    lg.setColor(0.34, 0.26, 0.20, 0.8 * alpha); lg.polygon("fill", blob(1.2, 0.8, 0.3))
     for i = 1, 5 do
-      local a, d = h(70 + i) * 6.28, rr * 0.5 * h(80 + i)
+      local a, d = (i / 5 + h(70 + i) * 0.15) * 6.28, rr * (i == 5 and 0 or 0.55 + 0.2 * h(80 + i))
       local bx, by, bs = x + math.cos(a) * d, y + math.sin(a) * d * 0.6, rr * (0.3 + 0.2 * h(90 + i))
       lg.setColor(0.42, 0.38, 0.36, alpha)
       lg.polygon("fill", bx - bs, by + bs * 0.4, bx - bs * 0.4, by - bs * 0.7, bx + bs * 0.5, by - bs * 0.5, bx + bs, by + bs * 0.4)
