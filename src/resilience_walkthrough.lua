@@ -32,7 +32,7 @@ return function(app,capture,click,scrollTo,check)
   capture('net-profit-35-level-panel',app,1100,700)
   scrollTo(app,'level-up'); click('level-up')
   check(j.kind=='manifold' and c:levelOf(j)==2 and j.ports==6,'the level button turns the junction into a hub')
-  click('back-to-build')
+  click('tab-network')
 
   -- The advisor: the resilience check and the ranked upgrades.
   click('tab-stats')
@@ -60,5 +60,5 @@ return function(app,capture,click,scrollTo,check)
   -- The secure customer says whether one failure would cut it off.
   app.action('focusNode',home.id)
   capture('net-profit-38-secure-client',app,1100,700)
-  click('back-to-build')
+  click('tab-network')
 end

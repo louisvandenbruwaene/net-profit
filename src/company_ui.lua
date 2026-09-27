@@ -195,27 +195,22 @@ local function replaceStrip(n,y)
   if not City.CONVERTIBLE[n.kind] then return y end
   heading("REPLACE WITH",y)
   y=y+22
+  -- Icon-only, like the build tiles; the card on hover names it and prices it.
+  local TS=math.floor((CW+4)/6)-4
   for i,kind in ipairs(REPLACEMENTS) do
-    local col,rw=(i-1)%3,math.floor((i-1)/3)
-    local bx,by=M+col*102,y+rw*50
+    local bx=M+(i-1)*(TS+4)
     local err=city:convertError(n.id,kind)
     local cost=city:convertCost(n.id,kind)
     local here=(kind==n.kind)
-    button("replace-"..kind,"",bx,by,96,42,
+    local name=Graph.KINDS[kind].name:sub(1,1)..Graph.KINDS[kind].name:sub(2):lower()
+    button("replace-"..kind,"",bx,y,TS,TS,
       function() act("convertNode",n.id,kind,state.commodity) end,err==nil,
-      here and ("This is already a "..string.lower(Graph.KINDS[kind].name)..".")
-        or (err and (Graph.KINDS[kind].name..": "..err))
-        or ("Replace with a "..string.lower(Graph.KINDS[kind].name).." for $"..cost..
-            ", keeping every main tied in. "..Graph.KINDS[kind].ports.." ports."),
+      name..(here and "" or ("  $"..cost)).."\n"..(here and "What is here now" or err or (Graph.KINDS[kind].ports.." connections, keeps its mains")),
       here,Graph.KINDS[kind].color)
-    lg.setColor(here and Graph.KINDS[kind].color or (err==nil and P.text or P.textFaint))
-    Draw.structureGlyph(kind,bx+19,by+21)
-    text(string.upper(kind):sub(1,8),bx+33,by+6,"tiny",
-      here and Graph.KINDS[kind].color or (err==nil and P.text or P.textFaint))
-    text(here and "here" or (cost==0 and "free" or ("$"..cost)),bx+33,by+22,"small",
-      err==nil and P.energy or P.textFaint)
+    lg.setColor(here and Graph.KINDS[kind].color or (err==nil and Graph.KINDS[kind].color or P.textFaint))
+    Draw.structureGlyph(kind,bx+TS/2,y+TS/2,1.1)
   end
-  return y+100
+  return y+TS+14
 end
 
 -- The Network tab has two faces. With nothing selected it is a workshop: the
@@ -966,7 +961,12 @@ local function buildPanel()
           function(ix,iy)
             if key=="wind" then Draw.turbine(ix,iy,14) elseif key=="nuclear" then Draw.reactor(ix,iy,13)
             elseif key=="solar" then lg.setLineWidth(1.5); lg.rectangle("line",ix-8,iy-6,16,12); lg.line(ix,iy-6,ix,iy+6); lg.line(ix-8,iy,ix+8,iy)
-            else SF.mark("water",ix,iy,9) end
+            else
+              -- A water wheel: rim, hub and paddles.
+              lg.setLineWidth(1.5); lg.circle("line",ix,iy,10)
+              for k=0,5 do local a=k*math.pi/3; lg.line(ix,iy,ix+math.cos(a)*10,iy+math.sin(a)*10) end
+              lg.circle("fill",ix,iy,2.5)
+            end
           end)
       end
     elseif City.EXTRACTOR_OF[state.commodity] and state.commodity~="wheat" and state.commodity~="saltwater" then
@@ -1264,11 +1264,6 @@ local function buildPanel()
 end
 local function inspectorPanel(n,e)
   local y=TOP-state.scroll
-  button("back-to-build","<   Build tools",M,y,CW,30,function()
-    state.node,state.edge,state.district=nil,nil,nil
-    state.scroll=0; state.drawer=true
-  end,true,"Clear the selection and return to the structures (Escape)")
-  y=y+42
   local tail
   if n then
     local title=n.kind=="client" and E.clientName(city,n)
@@ -1358,11 +1353,6 @@ end
 -- a route how many vehicles it runs.
 local function linkPanel(l)
   local y=TOP-state.scroll
-  button("back-to-build","<   Build tools",M,y,CW,30,function()
-    state.node,state.edge,state.link,state.district=nil,nil,nil,nil
-    state.scroll=0; state.drawer=true
-  end,true,"Clear the selection and return to the structures (Escape)")
-  y=y+42
   local road=l.mode=="road"
   local spec=City.ROUTES[l.mode]
   single((road and City.ROAD_TYPES[l.roadType or "road"].name or spec.name).." "..l.id,M,y,"mid",road and P.energy or spec.colour,CW)
@@ -2365,7 +2355,8 @@ local function topBar(open)
   for i,t in ipairs(TABS) do
     local here=(t[1]=="network" and (state.tab=="network" or state.tab=="map"))
       or state.tab==t[1] or (t[1]=="stats" and (state.tab=="ambitions" or state.tab=="ledger" or state.tab=="advisor"))
-    if state.node or state.edge or state.link then here=t[1]=="network" end
+    -- While a building is open none is lit: Build is then the way back.
+    if state.node or state.edge or state.link then here=false end
     local bx=13+(i-1)*(segW+0)
     button("tab-"..t[1],t[2],bx,17,segW-2,28,function()
       if t[1]=="network" then closeDrawer() else openTab(t[1]) end
