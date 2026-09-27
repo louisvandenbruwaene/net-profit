@@ -1011,16 +1011,6 @@ local function buildPanel()
     end
   end
   y=y+math.ceil(math.max(shown,1)/5)*(TS+4)+10
-  -- What is not here yet, and what brings it.
-  if not state.people and state.buildHelp then
-    for _,key in ipairs({"seawater","haven","yard"}) do
-      local hint=city:unlockHint(key)
-      if hint then
-        y=y+paragraph(City.UNLOCKS[key].name..": "..string.lower(hint),y,P.textFaint)+4
-      end
-    end
-    y=y+6
-  end
   -- The works. Nine buildings that turn one thing into another, listed with
   -- what they eat, because that is the only thing worth knowing about them.
   if not state.people and city:unlocked("works") then
@@ -2692,17 +2682,17 @@ function UI.draw(c,s,action)
   -- The opening guide shows by itself until the player has said either way
   -- about hints: a first company should never start with nothing to go on.
   if (state.buildHelp or not state.hintsChosen) and step and not state.modal then
-    local gx,gw=left+20,math.min(600,W-left-40)
-    local font=R.fonts.body
-    local _,lines=font:getWrap(step.body,gw-32)
-    local gh=50+#lines*22
+    local count=stepNo.."/"..steps
+    local cw=SF.width(count,R.fonts.body)+14
+    local gx,gw=left+20,math.min(600,W-left-40,cw+SF.width(step.body,R.fonts.body)+32+80)
+    local gh=46
     local gy=H-66-gh
     UI.blocks[#UI.blocks+1]={gx,gy,gw,gh}
     lg.setColor(P.panel); lg.rectangle("fill",gx,gy,gw,gh,8)
     lg.setColor(P.with(P.good,0.6)); lg.rectangle("line",gx,gy,gw,gh,8)
-    single(stepNo.." / "..steps.."   "..step.title,gx+16,gy+12,"mid",P.good,gw-32)
-    text(step.body,gx+16,gy+40,"body",P.text,gw-32)
-    button("dismiss-guide","Skip",gx+gw-70,gy+10,58,24,
+    single(count,gx+16,gy+12,"body",P.good,cw)
+    single(step.body,gx+16+cw,gy+12,"body",P.text,gw-32-cw-66)
+    button("dismiss-guide","Skip",gx+gw-70,gy+11,58,24,
       function() act("dismissGuide") end,true,"Stop showing the opening steps")
   end
 
@@ -2711,17 +2701,14 @@ function UI.draw(c,s,action)
   -- not in the middle of something.
   local lesson=not state.modal and not step and city:pendingLesson()
   if state.buildHelp and lesson and (city.day>2 or city.guideDismissed) then
-    local gx,gw=left+20,math.min(620,W-left-40)
-    local font=R.fonts.body
-    local _,lines=font:getWrap(lesson.body,gw-32)
-    local gh=84+#lines*20
+    local gx,gw=left+20,math.min(620,W-left-40,SF.width(lesson.body,R.fonts.body)+32+80)
+    local gh=46
     local gy=H-66-gh
     UI.blocks[#UI.blocks+1]={gx,gy,gw,gh}
     lg.setColor(P.panel); lg.rectangle("fill",gx,gy,gw,gh,8)
     lg.setColor(P.with(P.energy,0.6)); lg.rectangle("line",gx,gy,gw,gh,8)
-    single(lesson.title,gx+16,gy+12,"mid",P.energy,gw-32)
-    text(lesson.body,gx+16,gy+38,"body",P.text,gw-32)
-    button("lesson-ok","Got it",gx+gw-78,gy+gh-34,66,26,
+    single(lesson.body,gx+16,gy+12,"body",P.text,gw-32-80)
+    button("lesson-ok","OK",gx+gw-70,gy+11,58,24,
       function() act("teach",lesson.key) end,true,"Understood: do not show this again")
   end
 

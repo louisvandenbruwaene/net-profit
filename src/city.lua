@@ -4375,17 +4375,17 @@ end
 City.TUTORIAL = {
   {
     key = "well", title = "Build your first well",
-    body = "Pick Water well, then click a blue mark.",
+    body = "Pick Water well, click a blue mark",
     done = function(c) return #c.g:nodesOfKind("source") > 0 end,
   },
   {
     key = "junction", title = "Build a T split",
-    body = "Place a T split between well and house.",
+    body = "Place a T split between well and house",
     done = function(c) return #c.g:nodesOfKind("junction") > 0 end,
   },
   {
     key = "main", title = "Connect the pipes",
-    body = "Drag well to T split, then T split to house.",
+    body = "Drag well > T split > house",
     done = function(c)
       for _, n in ipairs(c.g.nodes) do
         if n.alive and n.kind == "client" and c.g:degree(n.id) > 0 then return true end
@@ -4395,12 +4395,12 @@ City.TUTORIAL = {
   },
   {
     key = "sign", title = "Sign the contract",
-    body = "Click the house and sign.",
+    body = "Click the house, then Sign",
     done = function(c) return #c:clientList() > 0 end,
   },
   {
     key = "close", title = "End the day",
-    body = "Collect the day's income.",
+    body = "End the day",
     done = function(c) return c.day > 1 end,
   },
 }
@@ -4427,17 +4427,17 @@ end
 City.LESSONS = {
   {
     key = "trade", title = "A new trade",
-    body = "Buy a licence in Company.",
+    body = "New trade: buy a licence in Company",
     when = function(c) return c:licenceCount() > 1 end,
   },
   {
     key = "hub", title = "Distribution hubs",
-    body = "Upgrade a hub to a distribution hub: it connects nearby clients itself.",
+    body = "Distribution hubs connect nearby clients themselves",
     when = function(c) return c:unlocked("hub") end,
   },
   {
     key = "cap", title = "Source limit",
-    body = "This ground is maxed out. Build another well.",
+    body = "A well is maxed out: build another",
     when = function(c)
       for _, n in ipairs(c.g:nodesOfKind("source")) do
         if n.cap and (n.output or 0) >= n.cap and not n.plant then return true end
@@ -4447,42 +4447,42 @@ City.LESSONS = {
   },
   {
     key = "haven", title = "Ports",
-    body = "Build a harbour on the coast to import goods.",
+    body = "Harbours on the coast import goods",
     when = function(c) return c:unlocked("haven") end,
   },
   {
     key = "yard", title = "Freight",
-    body = "Yards take trains and trucks.",
+    body = "Yards take trains and trucks",
     when = function(c) return c:unlocked("yard") end,
   },
   {
     key = "massive", title = "Massive mains",
-    body = "Mains that carry 100 are open in Pipe options.",
+    body = "Massive mains (100) are in Pipe options",
     when = function(c) return c:unlocked("massive") end,
   },
   {
     key = "orders", title = "Staff",
-    body = "Hire staff in Company.",
+    body = "Staff: hire in Company",
     when = function(c) return c:unlocked("orders") end,
   },
   {
     key = "people", title = "Roads",
-    body = "Connect houses and factories to roads.",
+    body = "Roads: connect houses and factories",
     when = function(c) return c:unlocked("roads") end,
   },
   {
     key = "routes", title = "Bus, ferry and plane routes",
-    body = "Link bus stops on roads with a route.",
+    body = "Routes link bus stops on roads",
     when = function(c) return c:unlocked("routes") end,
   },
   {
     key = "resort", title = "Resorts",
-    body = "Build a resort by the water. Visitors pay.",
+    body = "Resorts by the water: visitors pay",
     when = function(c) return c:unlocked("resort") end,
   },
   {
     key = "internet", title = "Internet",
-    body = "Buy the internet licence, then lay fibre.",
+    body = "Internet: buy the licence, lay fibre",
     when = function(c) return c:unlocked("internet") end,
   },
 }
