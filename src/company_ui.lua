@@ -304,6 +304,18 @@ local function inspectClient(n,y)
       end
     end
   end
+  -- A signed customer asking for electricity as well: the request is shown
+  -- beside what they already take, and answered here.
+  if n.powerRequest and not n.prospect then
+    local want=City.DUAL.demand[n.clientType] or City.DUAL.demand.house
+    local premium=city:requestPremium(n)
+    row("POWER",S.get("power")..(want*5).."  "..string.format("%+.0f%%",premium*100),y,Graph.COMMODITIES.power.color,
+      "Wants electricity too, at $"..string.format("%.2f",(n.powerOfferRate or City.DUAL.rate)/5).." / kWh")
+    y=y+26
+    button("accept-power","Add power",M,y,190,36,function() act("acceptClient",n.id) end,true,nil,false,P.good)
+    button("decline-power","Decline",M+198,y,102,36,function() act("declineClient",n.id) end,true,nil,false,P.bad)
+    y=y+44
+  end
   local premium=city:ratePremium(n)
   local margin,cost,rate=city:clientMargin(n)
   local bad=margin<0
