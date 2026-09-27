@@ -119,7 +119,7 @@ return function(City)
     self:refresh(); return amount
   end
   function City:requestPremium(c)
-    if c.powerRequest and not c.prospect then return (c.powerOfferRate or 6)/6-1 end
+    if c.powerRequest and not c.prospect then return (c.powerOfferRate or City.DUAL.rate)/City.DUAL.rate-1 end
     return self:ratePremium(c)
   end
   -- Whether this household would ever take a second utility. Decided from a
@@ -134,7 +134,7 @@ return function(City)
     return self:unit(c.id,29)<City.DUAL.share
   end
   function City:offerElectricity(c)
-    c.powerRequest=true; c.powerOfferRate=self:offerRate(6)
+    c.powerRequest=true; c.powerOfferRate=self:offerRate(City.DUAL.rate)
   end
   function City:nextRequest()
     local best
