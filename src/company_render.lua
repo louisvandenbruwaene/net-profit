@@ -1683,12 +1683,12 @@ end
 function Draw.landStatus(city, d)
   local err = city:districtError(d.id)
   if d.owned then return "owned", P.flow, "Yours" end
-  if not err then return "buy", P.good, "Click to buy" end
+  if not err then return "buy", P.good, "Buy" end
   if err == "not enough cash" then
-    return "short", P.warn, "Need $" .. (city:districtCost(d) - math.floor(city.money)) .. " more"
+    return "short", P.warn, "$" .. (city:districtCost(d) - math.floor(city.money)) .. " short"
   end
   if d.island then return "far", P.textFaint, "Needs a harbour" end
-  return "far", P.textFaint, "Not next to your land"
+  return "far", P.textFaint, "Not adjacent"
 end
 
 -- What a plot holds, as the deed lists it. Deposits only if the company has
@@ -1756,13 +1756,14 @@ local function drawLandView(city, cam, state)
           -- Name, price, and one line only when there is something to say:
           -- how much short, or why it is out of reach. The colour already
           -- says "buy". Deposits show as their marks.
-          local note = kind == "short" and words or kind == "far" and words or nil
+          local note = kind == "short" and words or nil
           local marks = {}
           if f.surveyed then
             for _, name in ipairs(Graph.TRADES) do if f.deposits[name] then marks[#marks + 1] = name end end
           end
           local ch = 52 + (note and 20 or 0) + (#marks > 0 and 18 or 0)
-          cw = math.min(cw, 190)
+          cw = math.min(cw, 190, math.max(R.fonts.body:getWidth(d.name), R.fonts.mid:getWidth(price) + (disc > 0 and 40 or 0),
+            note and R.fonts.small:getWidth(note) or 0, #marks * 16) + 24)
           local bx, by = math.floor(cx - cw / 2), math.floor(cy - ch / 2)
           lg.setColor(0, 0, 0, 0.35); lg.rectangle("fill", bx + 2, by + 4, cw, ch, 8)
           lg.setColor(P.bg[1], P.bg[2], P.bg[3], kind == "far" and 0.82 or 0.94); lg.rectangle("fill", bx, by, cw, ch, 8)
@@ -1794,9 +1795,6 @@ local function drawLandView(city, cam, state)
           lg.print(price, bx + 7, by + 3)
           occupied[#occupied + 1] = { x = bx, y = by, w = tw, h = 20 }
         end
-      elseif cam.scale > 0.12 then
-        lg.setFont(R.fonts.tiny); lg.setColor(P.flow[1], P.flow[2], P.flow[3], 0.8)
-        lg.print("YOURS", x + m + 8, y + m + 6)
       end
     end
   end

@@ -1640,7 +1640,7 @@ local function mapTab()
       single(d.name,M,y,"mid",P.energy,CW)
       y=y+30
       local _,colour,words=Draw.landStatus(city,d)
-      single(((d.island and "ISLAND") or (d.spec and d.spec.label) or "TOWN").."  ·  "..words,M,y,"small",colour,CW)
+      single(words,M,y,"small",colour,CW)
       y=y+22
       local f=Draw.landContents(city,d)
       local parts={}
@@ -1671,7 +1671,7 @@ local function mapTab()
   local d=city.districts[state.district or 0]
   if d then
     local err=city:districtError(d.id)
-    if not d.owned and city:landDiscount(d)>0 then row("Today",math.floor(city:landDiscount(d)*100).."% off",y,P.energy); y=y+28 end
+    if not d.owned and city:landDiscount(d)>0 then row("Discount","-"..math.floor(city:landDiscount(d)*100).."%",y,P.energy); y=y+28 end
     if not d.owned then
       button("district-"..d.id,"Buy land  $"..city:districtCost(d),M,y,CW,36,
         function() act("buyDistrict",d.id) end,not err,err)
@@ -1691,11 +1691,6 @@ local function mapTab()
   else
     -- Nothing picked yet: what the colours on the map mean, and the plots
     -- that can be bought, cheapest first, one click from their deed.
-    for _,k in ipairs({{P.good,"Buy now"},{P.warn,"Needs cash"},{P.textFaint,"Out of reach"}}) do
-      lg.setColor(k[1]); lg.rectangle("fill",M,y+4,14,14,3)
-      text(k[2],M+22,y+2,"small",P.textDim,CW-22); y=y+22
-    end
-    y=y+12
     local near={}
     for _,pl in ipairs(city.districts) do
       if not pl.owned and city:districtVisible(pl) then
@@ -1709,7 +1704,7 @@ local function mapTab()
       for i,pl in ipairs(near) do
         if i>8 then break end
         local short=city:districtError(pl.id)
-        button("near-"..pl.id,pl.name..(pl.island and "  (island)" or "").."  $"..city:districtCost(pl),M,y,CW,30,
+        button("near-"..pl.id,pl.name.."  $"..city:districtCost(pl),M,y,CW,30,
           function() act("focusDistrict",pl.id) end,true,short and "Needs more cash" or "Show its deed",nil,short and P.warn or P.good)
         y=y+36
       end
