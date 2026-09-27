@@ -749,7 +749,7 @@ do
   local packed=require("company_save").pack(c)
   check(not packed:find("chokes"),"the choke set never reaches the save")
   assert(c:replacePipe(eid,"medium"))
-  check(next(c:chokes())==nil,"once it is widened nothing on the map glows")
+  check(next((c:chokes()))==nil,"once it is widened nothing on the map glows")
   check(c.served[b.id]==b.demand,"replacing the named main with a bigger one supplies them")
   check(c:constraintFor(b.id)==nil,"and there is nothing left to explain")
   -- The other shapes of the same question.

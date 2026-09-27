@@ -18,6 +18,7 @@ local saveBlocked=false
 
 local function toast(message,bad)
   state.toast,state.toastBad,state.toastTime=tostring(message),bad,5
+  state.toastChoke=nil
 end
 
 local function save()
@@ -383,9 +384,19 @@ local function action(name,...)
       if not wasOpen[key] and city:unlocked(key) then opened[#opened+1]=spec.name end
     end
     table.sort(opened)
+    -- What the chokes cost today, and a click away from the worst of them.
+    local missed=0
+    for _,p in ipairs(paying) do missed=missed+p.missed end
+    missed=math.floor(missed+0.5)
     toast("Day "..(city.day-1)..": "..City.signed(profit)..
+      (missed>0 and ("   -$"..missed.." short") or "")..
       (#opened>0 and ("  New: "..table.concat(opened,", ")) or ""),profit<0)
     if #opened>0 then state.toastTime=9; A.play("unlock",0.7) end
+    local edges,nodes=city:chokes()
+    local worst,most=nil,0
+    for id,n in pairs(edges) do if n>most or (n==most and worst and worst.edge and id<worst.edge) then worst,most={edge=id},n end end
+    for id,n in pairs(nodes) do if n>most then worst,most={node=id},n end end
+    if worst and missed>0 then state.toastChoke=worst; state.toastTime=9 end
     table.sort(paying,function(p,q) return p.x+p.y<q.x+q.y end)
     for i,p in ipairs(paying) do
       if i>60 then break end

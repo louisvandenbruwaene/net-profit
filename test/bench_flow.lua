@@ -31,7 +31,9 @@ local function opened()
     end
   end
   local well = assert(c:buySource("water", spring.x, spring.y))
-  well.output, well.cap = 1e6, 1e6
+  -- Room for every spoke: a well's real four-port limit would leave all but
+  -- a handful of these customers off the network, and the solver idle.
+  well.output, well.cap, well.ports = 1e6, 1e6, 1e6
   c:rebaseOrigin()
   for _, cl in ipairs(c.g.nodes) do
     if cl.alive and cl.kind == "client" then c.g:killNode(cl.id) end
@@ -53,8 +55,8 @@ local function handWired(clients)
     local cl = c.g:addNode(node.x + 40, node.y + 40, "client")
     cl.commodity, cl.demand, cl.rate, cl.clientType = "water", 2, 5, "house"
     cl.grace, cl.patience = 3, 3
-    c.g:addEdge(src.id, node.id, 8)
-    c.g:addEdge(node.id, cl.id, 4)
+    assert(c.g:addEdge(src.id, node.id, 8)).commodity = "water"
+    assert(c.g:addEdge(node.id, cl.id, 4)).commodity = "water"
   end
   return c
 end
@@ -74,6 +76,37 @@ end
 print("a full resolve, all four trades")
 bench("one main each", handWired(600))
 local big = bench("one main each, five thousand", handWired(5000))
+
+-- Every customer short at once, behind a main too narrow for it: the map's
+-- choke overlay asks each of them what is holding them back, once per solve.
+print()
+print("what the map lights up, every customer short")
+local function chokes(label, city, stub)
+  for _, e in ipairs(city.g.edges) do
+    if e.alive and city.g.nodes[e.b].kind == "client" then e.cap, e.capMax = stub, stub end
+  end
+  city:refresh()
+  local t0 = clock()
+  local edges = city:chokes()
+  local ms = clock() - t0
+  local n = 0
+  for _ in pairs(edges) do n = n + 1 end
+  local _, nodes = city:chokes()
+  local w = 0
+  for _ in pairs(nodes) do w = w + 1 end
+  print(string.format("  %-22s %5d short  %5d mains, %d wells lit  %6.2f ms", label, #city:shortCustomers(), n, w, ms))
+  return ms
+end
+chokes("five thousand", handWired(5000), 1)
+local dry = handWired(5000)
+local well = dry.firstSource
+well.output, well.cap = 5000, 5000
+local worst = math.max(chokes("five thousand, dry well", dry, 4), 0)
+print()
+if worst > BUDGET_MS then
+  print(string.format("FAIL  the choke overlay took %.2f ms, over the %d ms budget", worst, BUDGET_MS))
+  os.exit(1)
+end
 
 print()
 if big > BUDGET_MS then

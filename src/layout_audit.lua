@@ -76,7 +76,19 @@ function A.enable(on)
       -- what stopped it, but it is the same fault seen a moment earlier.
       if scale < 0.92 and #text > 1 and not A.seen["squeeze|" .. text] then
         A.seen["squeeze|" .. text] = true
-        A.squeezed[#A.squeezed + 1] = { s = text, scale = scale, tag = A.tag }
+        -- The first caller outside the text helpers, so the report says
+        -- which line to fix.
+        local where
+        for level = 2, 8 do
+          local info = debug.getinfo(level, "Sl")
+          if not info then break end
+          where = info.short_src:match("[^/]+$") .. ":" .. info.currentline
+          if not info.short_src:match("layout_audit") and not info.short_src:match("symbol_font") then
+            local name = debug.getinfo(level, "n").name
+            if name ~= "single" and name ~= "text" and name ~= "button" then break end
+          end
+        end
+        A.squeezed[#A.squeezed + 1] = { s = text, scale = scale, tag = A.tag, where = where }
       end
       -- One box per line: a two-line string with a short second line does not
       -- occupy the rectangle its longest line implies.
@@ -202,7 +214,7 @@ function A.report()
   end
   table.sort(A.squeezed, function(p, q) return p.scale < q.scale end)
   for _, f in ipairs(A.squeezed) do
-    print(string.format("  [squeezed %.2f] %s  %q", f.scale, f.tag, f.s))
+    print(string.format("  [squeezed %.2f] %s  %q  %s", f.scale, f.tag, f.s, f.where or ""))
   end
   for _, f in ipairs(A.broken) do
     print(string.format("  [word broken at %d] %s  %q -> %q", f.limit, f.tag, f.s,
