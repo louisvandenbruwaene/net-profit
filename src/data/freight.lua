@@ -21,7 +21,7 @@ Data.MODES = {
 }
 
 Data.rail = {
-  tiein = 240, perM = 0.52, bore = 4, borePerM = 0.011,
+  tiein = 240, perM = 0.52,
   upkeep = 1.4, upkeepPerM = 0.0038, range = 1400,
   haulPerUnit = 0.18, haulPerM = 0.0016,
 }
