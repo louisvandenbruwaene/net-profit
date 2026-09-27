@@ -6,7 +6,6 @@
 -- on nothing at all so it can earn interest. There is no single right answer,
 -- which is the point.
 local Graph = require("graph")
-local NB = require("network_builder")
 local Shape = require("terrain_shape")
 
 local City = {}
@@ -448,10 +447,6 @@ function City.ringOf(col, row)
   local dr = math.max(1 - row, 0, row - City.MAP.rows)
   return math.max(dc, dr)
 end
-
--- Ground the company can see. Two rings past what it owns: enough to plan a
--- direction, not enough to survey the whole world from the yard.
-City.surveyRadius = 2
 
 -- Names for generated ground. Two halves and a handful of whole names, which is
 -- how English towns are built anyway.
@@ -1455,8 +1450,6 @@ function City:railQuote(a, b, wagons, mode)
   return q
 end
 
-function City:bulkQuote(a, b, wagons, mode) return self:railQuote(a, b, wagons, mode) end
-
 -- Only the trades the company sells by the day are licensed. Feedstock and
 -- materials are things you buy, make and move: nobody licenses a lorry load of
 -- sand.
@@ -1909,9 +1902,6 @@ City.GATEWAYS = { "port", "highway", "airfield" }
 
 -- How close to the water a harbour has to be.
 City.havenReach = require("data.freight").havenReach
-
--- Where the sea starts. Everything above it is water forever.
-function City.coastLine() return 0 end
 
 function City:onCoast(x, y)
   return y >= 0 and y <= City.havenReach
@@ -3178,7 +3168,6 @@ function City:leakChance(e)
   -- A road is not a pipe. It never leaks, which is what its higher running cost
   -- is buying.
   if (City.trade[e.commodity] or {}).noLeak then return 0 end
-  local q = 1 - City.rules.qualityStep * self.quality
   local g = self:gradeOf(e).risk
   local a, b = self.g.nodes[e.a], self.g.nodes[e.b]
   for _, n in ipairs(self.g:nodesOfKind("tower")) do
@@ -3274,7 +3263,7 @@ function City:endDay()
   --    capacity every day until somebody pays to fix it.
   for _, e in ipairs(self.g.edges) do
     if e.alive then
-      if not e.leaking and self:random() < self:leakChance(e) and true then
+      if not e.leaking and self:random() < self:leakChance(e) then
         e.leaking = true
         self:note("Leak found on a %s main", e.commodity)
       end
@@ -3496,6 +3485,11 @@ function City:migrate()
   -- The automation hub is gone too. One already standing becomes what it
   -- always was in spirit: a distribution hub at the top of the fitting ladder,
   -- keeping its floor, and its mains exactly where they are.
+  -- A customer who left used to keep their demand list on the junction left
+  -- behind, which painted it into the old trade's grid.
+  for _, n in ipairs(self.g.nodes) do
+    if n.kind ~= "client" and n.kind ~= "sink" then n.demands = nil end
+  end
   for _, n in ipairs(self.g.nodes) do
     if n.kind == "exchange" then
       n.kind, n.level = "manifold", 4
@@ -3873,7 +3867,7 @@ function City:retireClient(c)
   else
     -- The customer leaves the company; their installed through-pipes remain.
     c.kind, c.paid = "junction", 0
-    c.commodity, c.demand, c.prospect, c.supplyClosed = nil, nil, nil, nil
+    c.commodity, c.demand, c.demands, c.prospect, c.supplyClosed = nil, nil, nil, nil, nil
   end
 end
 
@@ -4129,7 +4123,7 @@ end
 -- money.
 --------------------------------------------------------------------------------
 City.ORDERS = require("data.progression").ORDERS
-City.ORDER_LIST = { "surveyors", "dispatchers", "analysts" }
+City.ORDER_LIST = require("data.progression").ORDER_LIST
 
 -- How big the company is, for the gates that open stronger buildings.
 function City:progress() return #self:clientList() end
@@ -4138,35 +4132,6 @@ function City:orderAvailable(key)
   local spec = City.ORDERS[key]
   if not spec then return false end
   return self:progress() >= spec.clients
-end
-
-function City:hireOrder(key)
-  local spec = City.ORDERS[key]
-  if not spec then return nil, "no such department" end
-  self.orders = self.orders or {}
-  if self.orders[key] then return nil, "already on the books" end
-  if not self:orderAvailable(key) then
-    return nil, spec.name .. " are worth hiring at " .. spec.clients .. " customers"
-  end
-  if spec.hire > self.money then return nil, "not enough cash" end
-  self:spend(spec.hire)
-  self.orders[key] = true
-  self:note("%s hired: $%d a day", spec.name, spec.wage)
-  return true
-end
-
-function City:dismissOrder(key)
-  self.orders = self.orders or {}
-  if not self.orders[key] then return nil, "not on the books" end
-  self.orders[key] = nil
-  self:note("%s stood down", City.ORDERS[key].name)
-  return true
-end
-
-function City:orderWages()
-  local total = 0
-  for key in pairs(self.orders or {}) do total = total + (City.ORDERS[key] or {}).wage end
-  return total
 end
 
 City.crewWage = require("data.economy").crewWage

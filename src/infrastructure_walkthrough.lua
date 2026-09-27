@@ -1,6 +1,5 @@
 -- Isolated, real-callback coverage for the engineering controls.
 local City=require('city')
-local Draw=require('company_render')
 return function(app,capture,click,scrollTo,check)
   local c=City.new({seed=24,obstacles=0})
   c.money=50000; c.obstacles={}; c.stock={steel=500,concrete=500,panels=24}

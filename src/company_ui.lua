@@ -17,7 +17,6 @@ local CW  = 300          -- sidebar content width
 -- on the line under it. The name used to share a line with the icon, in 64
 -- points, which broke "Roundabout" into "Roundab / out".
 local TILE_W, TILE_H = 96, 50
-local TILE_TEXT = TILE_W - 8
 local TOP = 78         -- first content line, before scrolling
 local tooltipId,tooltipSince,tooltipX,tooltipY
 

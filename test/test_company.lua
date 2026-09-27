@@ -1046,4 +1046,20 @@ do
   check(not c:convertNode(j.id,"tower"),"and it has to be paid for")
 end
 
+do
+  -- A customer who leaves takes their demand list with them: the junction left
+  -- behind carries nothing that paints it into an old trade's grid.
+  local c=City.new({seed=5})
+  local n=assert(c:addClient("house"))
+  c.money=c.money+500
+  local j=assert(c:build(n.x+60,n.y,"junction"))
+  assert(c:layPipe(j.id,n.id,"water","small"))
+  n.demands={water=n.demand}
+  c:retireClient(n)
+  check(n.kind=="junction" and n.demands==nil and n.commodity==nil,"a customer who leaves leaves no demand behind")
+  n.demands={water=3}
+  c:migrate()
+  check(n.demands==nil,"and an old save loses the stale demand list on load")
+end
+
 print(checks.." company checks passed")

@@ -37,7 +37,11 @@ Data.ORDERS = {
                   blurb = "Shows deposits on land you do not own." },
   dispatchers = { name = "Scouts",      hire = 900,  wage = 30, clients = 12,
                   blurb = "Each scout reveals one more ring of regions around your land, up to four." },
+  analysts    = { name = "Market analysts", hire = 1000, wage = 25, clients = 0,
+                  blurb = "+10 percentage points expected return per analyst, +1 per week of service; wages grow 1% weekly." },
 }
+
+Data.ORDER_LIST = { "surveyors", "dispatchers", "analysts" }
 
 Data.PERMITS = {
   park    = { name = "Parkland easement",  cost = 760,  cross = 1.0, order = 1 },

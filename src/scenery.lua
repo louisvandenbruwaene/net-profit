@@ -546,9 +546,4 @@ function Scenery.clouds(cam, t)
   lg.setBlendMode("alpha")
 end
 
--- How many trees a forest was built with; used by the checks.
-function Scenery.treeCount(o)
-  return built(o).trees or 0
-end
-
 return Scenery

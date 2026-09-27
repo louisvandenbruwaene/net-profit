@@ -13,7 +13,6 @@
 --                  over every unit it delivered: the true cost of a unit
 --   price          what customers of this trade pay on average
 --   margin         price minus unit cost
-local Graph = require("graph")
 
 return function(City)
   local function trade(t) return City.trade[t] or City.trade.water end

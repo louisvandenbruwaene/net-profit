@@ -98,8 +98,8 @@ return function(City)
     return NB.connectPipe(self, c, want, key)
   end
 
-  -- One hub's day. `budget` caps what it may spend, so a hub can never take
-  -- the company below the cash the player keeps back.
+  -- One hub's day. It lays at most `perDay` connections and widens at most
+  -- `perDay` mains, each paid for out of cash on hand.
   function City:runHub(h, out)
     local floor, trades = self:hubFloor(h), self:hubTrades(h)
     if not next(trades) then return end
