@@ -343,4 +343,33 @@ do
   p1.kind,p2.kind='pylon','pylon'
   check(c:pipeError(p1.id,p2.id,'power')==nil,'a medium line passes over it')
 end
+-- An older save is brought under the line rules: chained houses get a
+-- T split beside the neighbour, lines through buildings a dogleg, and every
+-- house that was supplied still is.
+do
+  local c=city()
+  local well=node(c,'source',1200,2400,'water',30); well.ports=4
+  local j=node(c,'junction',1320,2400)
+  local function house(x,y) local n=node(c,'client',x,y,'water'); n.clientType='house'; n.demand=2; n.rate=5; n.grace=3; n.patience=3; n.demands={water=2}; return n end
+  local a,b=house(1480,2400),house(1600,2400)
+  local far=node(c,'junction',1320,2600); local d=house(1320,2800)
+  node(c,'depot',1320,2700,'water')
+  local function raw(x,y) local e=assert(c.g:addEdge(x.id,y.id,10)); e.commodity,e.capMax,e.size,e.grade='water',10,'small',1; return e end
+  raw(well,j); raw(j,a); raw(a,b); raw(well,far); raw(far,d)
+  c:refresh()
+  check(c.served[b.id]==2 and c.served[d.id]==2,'fixture: a chained house and a house fed through a depot')
+  local r=assert(Save.unpack(Save.pack(c)))
+  r:enforceLineRules(); r:refresh()
+  local ok=true
+  for _,n in ipairs(r:clientList()) do
+    local count=0
+    for _,e in ipairs(r.g:edgesAt(n.id)) do if e.commodity=='water' then count=count+1 end end
+    if count~=1 or (r.served[n.id] or 0)<2 then ok=false end
+  end
+  check(ok,'after loading, every house has one water line and is still supplied')
+  local through=false
+  for _,e in ipairs(r.g.edges) do if e.alive and City.lineBlockedByBuildings(e) and r:buildingInTheWay(e.a,e.b) then through=true end end
+  check(not through,'and no main runs under a building')
+  check(r:enforceLineRules()==nil and Save.unpack(Save.pack(r)).lineRules==1,'the fix runs once and saves')
+end
 print(T.checks..' infrastructure checks passed')

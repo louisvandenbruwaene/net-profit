@@ -3894,6 +3894,230 @@ end
 -- mechanic has to arrive around them rather than in place of them. Everything
 -- here is additive: missing fields get sensible defaults, and the ground the
 -- company was already standing on becomes the districts it already owns.
+-- Brings an older network under the line rules (2026-09-27): a customer takes
+-- one line of each trade, and buried mains and low lines do not run through a
+-- building. A customer keeps its busiest line from a fitting; every line
+-- between two customers, every extra line and every line through a building
+-- goes. Anything that was supplied before and is cut off by that is tied, free,
+-- to the nearest fitting that still carries the trade, when a legal line fits;
+-- otherwise it is left for the player. Run by hand on a loaded save (it needs
+-- a first solve, so the line kept is the one that actually carries the
+-- water), never on every load: the big old test companies would lose too
+-- much to it. Returns what changed.
+function City:enforceLineRules()
+  if self.lineRules then return nil end
+  self.lineRules = 1
+  local report = { removed = 0, rewired = 0, cut = {} }
+  local function other(e, id) return e.a == id and e.b or e.a end
+  local function isClient(id) return self.g.nodes[id].kind == "client" end
+  local function flow(e) return math.abs(self.detail.edge[e.id] or 0) end
+  local function reached(id, key)
+    local n = self.g.nodes[id]
+    if n.kind == "client" then
+      return (key == n.commodity and (self.served[id] or 0) or ((self.servedBy or {})[id] or {})[key] or 0) > 0
+    end
+    for _, e in ipairs(self.g:edgesAt(id)) do if e.commodity == key and flow(e) > 0 then return true end end
+    return false
+  end
+  local dropped, orphans, seen = {}, {}, {}
+  local function drop(e)
+    if not e.alive then return end
+    e.alive = false; report.removed = report.removed + 1
+    for _, id in ipairs({ e.a, e.b }) do
+      local k = id .. ":" .. e.commodity
+      if not seen[k] and reached(id, e.commodity) then
+        seen[k] = true
+        orphans[#orphans + 1] = { id = id, key = e.commodity, like = e, before = self.served[id] }
+      end
+    end
+  end
+  for _, c in ipairs(self:clientList()) do
+    local by = {}
+    for _, e in ipairs(self.g:edgesAt(c.id)) do
+      if not e.rail then by[e.commodity] = by[e.commodity] or {}; table.insert(by[e.commodity], e) end
+    end
+    for _, list in pairs(by) do
+      table.sort(list, function(x, y)
+        local cx, cy = isClient(other(x, c.id)), isClient(other(y, c.id))
+        if cx ~= cy then return not cx end
+        if flow(x) ~= flow(y) then return flow(x) > flow(y) end
+        return x.id < y.id
+      end)
+      for i, e in ipairs(list) do
+        if i > 1 or isClient(other(e, c.id)) then dropped[#dropped + 1] = e end
+      end
+    end
+  end
+  for _, e in ipairs(self.g.edges) do
+    if e.alive and City.lineBlockedByBuildings(e) and self:buildingInTheWay(e.a, e.b) then dropped[#dropped + 1] = e end
+  end
+  for _, e in ipairs(dropped) do drop(e) end
+  if report.removed == 0 then return report end
+  self.revision = (self.revision or 0) + 1
+  self:refresh()
+  local function open(o) return not o.done and self.g.nodes[o.id].alive and not reached(o.id, o.key) end
+  -- First the fixes that keep the old layout: a T split beside a neighbour
+  -- that used to pass the water on, or a dogleg round the building a line
+  -- crossed. A fixed fitting can carry the trade on, so go round again.
+  for _ = 1, 4 do
+    local joined = false
+    for _, o in ipairs(orphans) do
+      if open(o) and (self:spliceBeside(o, report) or self:detourAround(o, report)) then
+        o.done = true; joined = true
+      end
+    end
+    if not joined then break end
+    self:refresh()
+  end
+  -- Then the nearest fitting that still carries the trade, kept only if it
+  -- supplies the orphan and takes nothing from anyone already supplied.
+  local function servedNow()
+    local t = {}
+    for _, c in ipairs(self:clientList()) do t[c.id] = self.served[c.id] or 0 end
+    return t
+  end
+  for _, o in ipairs(orphans) do
+    if open(o) then
+      local n, best = self.g.nodes[o.id], {}
+      for _, m in ipairs(self.g:aliveNodes()) do
+        if m.id ~= o.id and m.kind ~= "client" and reached(m.id, o.key) then best[#best + 1] = m end
+      end
+      table.sort(best, function(x, y)
+        local dx, dy = (x.x - n.x) ^ 2 + (x.y - n.y) ^ 2, (y.x - n.x) ^ 2 + (y.y - n.y) ^ 2
+        if dx ~= dy then return dx < dy end
+        return x.id < y.id
+      end)
+      for i = 1, math.min(#best, 40) do
+        local m = best[i]
+        if not self:pipeError(m.id, o.id, o.key, nil, o.like.size) then
+          local was = servedNow()
+          local e = self:copyLine(o.like, m.id, o.id)
+          self:refresh()
+          local fair = n.kind ~= "client" and reached(o.id, o.key) or (self.served[o.id] or 0) >= (o.before or 0)
+          for _, c in ipairs(self:clientList()) do
+            if c.id ~= o.id and (self.served[c.id] or 0) < was[c.id] then fair = false end
+          end
+          if fair then report.rewired = report.rewired + 1; o.done = true; break end
+          e.alive = false
+          self:refresh()
+        end
+      end
+    end
+  end
+  for _, o in ipairs(orphans) do
+    if not o.done and not reached(o.id, o.key) then report.cut[#report.cut + 1] = o.id end
+  end
+  return report
+end
+
+-- A free copy of an old line between two new ends, for the line-rules
+-- migration: same trade, bore, lining and voltage, at full health.
+function City:copyLine(from, a, b)
+  local e = { id = #self.g.edges + 1, a = a, b = b, alive = true }
+  for k, v in pairs(from) do if e[k] == nil and k ~= "id" and k ~= "a" and k ~= "b" and k ~= "alive" then e[k] = v end end
+  e.cap, e.leaking, e.legacySpan = from.capMax or from.cap, false, nil
+  if e.commodity == "power" then e.voltage = self:cableVoltage(a, b) or e.voltage end
+  self.g.edges[e.id] = e
+  table.insert(self.g.adj[a], e.id); table.insert(self.g.adj[b], e.id)
+  return e
+end
+
+-- A line that ran through a building: the same two ends, with a free T split
+-- off to one side so the two halves go round it.
+function City:detourAround(o, report)
+  local like = o.like
+  if like.alive then return false end
+  return self:dogleg(like.a == o.id and like.b or like.a, o, report)
+end
+
+-- A line from fitting B to o by way of a free T split off to one side.
+function City:dogleg(B, o, report)
+  local like, key = o.like, o.key
+  local bn, on = self.g.nodes[B], self.g.nodes[o.id]
+  if not (bn and bn.alive and bn.kind ~= "client") then return false end
+  local mx, my = (bn.x + on.x) / 2, (bn.y + on.y) / 2
+  local dx, dy = on.x - bn.x, on.y - bn.y
+  local len = math.sqrt(dx * dx + dy * dy)
+  if len < 1 then return false end
+  local px, py = -dy / len, dx / len
+  for _, off in ipairs({ 40, -40, 60, -60, 80, -80, 100, -100, 130, -130 }) do
+    for _, along in ipairs({ 0, -0.2, 0.2 }) do
+      local x, y = mx + px * off + dx * along, my + py * off + dy * along
+      if not self:placementError(x, y, "junction") then
+        local j = self.g:addNode(x, y, "junction")
+        City.setLevel(self, j, 1, true)
+        if not self:pipeError(B, j.id, key, nil, like.size) then
+          self:copyLine(like, B, j.id)
+          if not self:pipeError(j.id, o.id, key, nil, like.size) then
+            self:copyLine(like, j.id, o.id)
+            report.detoured = (report.detoured or 0) + 1
+            return true, j.id
+          end
+        end
+        self.g:killNode(j.id)
+      end
+    end
+  end
+  return false
+end
+
+-- A house that was fed through its neighbour: the neighbour's own feeder is
+-- cut next to the neighbour and a free T split put there (a hub when more
+-- than one house hung off it), so both houses hang off a fitting as before.
+function City:spliceBeside(o, report)
+  local like, key = o.like, o.key
+  local u = like.a == o.id and like.b or like.a
+  local un = self.g.nodes[u]
+  if not (un and un.alive and un.kind == "client") then return false end
+  local feeder
+  for _, e in ipairs(self.g:edgesAt(u)) do if e.commodity == key and not e.rail then feeder = e end end
+  if not feeder then return false end
+  local F = feeder.a == u and feeder.b or feeder.a
+  local fn = self.g.nodes[F]
+  if fn.kind == "client" then return false end
+  -- A fitting already put beside this neighbour takes the house straight on.
+  if fn.spliced then
+    if not self:pipeError(F, o.id, key, nil, like.size) then
+      self:copyLine(like, F, o.id)
+      report.spliced = (report.spliced or 0) + 1
+      return true
+    end
+    if self:dogleg(F, o, report) then return true end
+  end
+  local len = math.sqrt((fn.x - un.x) ^ 2 + (fn.y - un.y) ^ 2)
+  local function copy(from, a, b) return self:copyLine(from, a, b) end
+  feeder.alive = false
+  local spots = {}
+  for d = 44, len - 40, 4 do spots[#spots + 1] = { d, 0 } end
+  for _, turn in ipairs({ 0.35, -0.35, 0.7, -0.7, 1.05, -1.05 }) do
+    for d = 46, 70, 8 do spots[#spots + 1] = { d, turn } end
+  end
+  local heading = math.atan2(fn.y - un.y, fn.x - un.x)
+  for _, spot in ipairs(spots) do
+    local x, y = un.x + math.cos(heading + spot[2]) * spot[1], un.y + math.sin(heading + spot[2]) * spot[1]
+    if not self:placementError(x, y, "junction") then
+      local j, bend = self.g:addNode(x, y, "junction"), nil
+      City.setLevel(self, j, 2, true)
+      j.spliced = true
+      local ok = not self:pipeError(F, j.id, key, nil, feeder.size)
+      if ok then copy(feeder, F, j.id)
+      else ok, bend = self:dogleg(F, { id = j.id, like = feeder, key = key }, report) end
+      ok = ok and not self:pipeError(j.id, u, key, nil, feeder.size)
+      if ok then copy(feeder, j.id, u) end
+      ok = ok and not self:pipeError(j.id, o.id, key, nil, like.size)
+      if ok then
+        copy(like, j.id, o.id)
+        report.spliced = (report.spliced or 0) + 1
+        return true
+      end
+      self.g:killNode(j.id)
+      if bend then self.g:killNode(bend) end
+    end
+  end
+  feeder.alive = true
+  return false
+end
+
 function City:migrate()
   self.permits = self.permits or { park = false, river = false, bedrock = false }
   -- Islands surveyed before they grew groves get them now, around anything
