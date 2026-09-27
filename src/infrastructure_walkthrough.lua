@@ -164,4 +164,28 @@ return function(app,capture,click,scrollTo,check)
   app.state.drawer=drawer
   check(show:quarryRange(quarry) ~= nil,'the showcase quarry stands on its range')
 
+  -- Every kind of line side by side: cables at each voltage, then mains at
+  -- each size, so each reads differently at a glance.
+  local lines=City.new({seed=24,obstacles=0})
+  lines.guideDismissed=true; lines.obstacles={}
+  local lh=lines.districts[City.MAP.start]
+  local lx,ly=lh.x+lh.w/2,lh.y+lh.h/2
+  local function span(kind,commodity,row,size,voltage,x0,x1)
+    local a=lines.g:addNode(lx+x0,ly+row,kind); local b=lines.g:addNode(lx+x1,ly+row,kind)
+    local cap=City.sizeOf(size).cap
+    local e=lines.g:addEdge(a.id,b.id,cap); e.commodity=commodity; e.size=size; e.capMax=cap; e.grade=1; e.voltage=voltage
+    return e
+  end
+  for i,v in ipairs({{'pole','low'},{'pylon','medium'},{'hvtower','high'}}) do
+    span(v[1],'power',-210+i*70,'medium',v[2],-360,-60)
+  end
+  for i,size in ipairs({'small','medium','large','massive','trunk'}) do
+    span('junction','water',-170+i*55,size,nil,60,380)
+  end
+  app.setTestCity(lines); lines:refresh()
+  cam=app.camera(); cam:centerOn(lx-120,ly); cam.scale=1.2; cam.targetScale=1.2
+  app.state.drawer=nil
+  capture('net-profit-40b-line-kinds',app,1440,880,true)
+  app.state.drawer=drawer
+
 end
