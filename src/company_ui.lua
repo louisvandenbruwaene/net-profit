@@ -1764,10 +1764,8 @@ end
 -- game makes you walk through every launch.
 local function slotsPanel(x,y,w,h)
   text("Companies",x+32,y+26,"big")
-  text("Up to six saved companies. Changes save automatically.",
-    x+32,y+68,"small",P.textDim,w-64)
   local slots=state.slots or {}
-  local y0,rowH=y+106,74
+  local y0,rowH=y+84,74
   for i=1,Save.SLOTS do
     local info=slots[i] or {slot=i,empty=true}
     local active=(city.slot or 1)==i
@@ -1781,8 +1779,7 @@ local function slotsPanel(x,y,w,h)
     local confirm=state.slotConfirm
     local confirming=confirm and confirm.slot==i
     if confirming then
-      text(confirm.mode=="restart" and "Start over? This company is lost."
-        or "Delete this company? It cannot be undone.",x+72,ry+24,"body",P.bad,w-260)
+      text(confirm.mode=="restart" and "Start over?" or "Delete for good?",x+72,ry+20,"body",P.bad,w-260)
       button("slot-yes-"..i,confirm.mode=="restart" and "Start over" or "Delete",
         x+w-208,ry+16,84,32,function()
           act(confirm.mode=="restart" and "newSlot" or "deleteSlot",i)
@@ -1790,11 +1787,9 @@ local function slotsPanel(x,y,w,h)
       button("slot-no-"..i,"Cancel",x+w-116,ry+16,80,32,
         function() state.slotConfirm=nil end,true)
     elseif info.error then
-      text("Company could not be loaded",x+72,ry+14,"body",P.bad)
-      text("Save kept intact. Choose another slot or restore a backup.",x+72,ry+36,"small",P.textDim,w-110)
+      text("Could not load (save kept)",x+72,ry+20,"body",P.bad)
     elseif info.empty then
-      text("Empty",x+72,ry+14,"body",P.textFaint)
-      text("Start a new company here",x+72,ry+36,"small",P.textFaint)
+      text("Empty",x+72,ry+20,"body",P.textFaint)
       button("slot-new-"..i,"New company",x+w-176,ry+16,140,32,
         function() act("newSlot",i) end,true,
         "Begins a fresh company in this slot. The one you are playing is saved first.",
@@ -1808,12 +1803,11 @@ local function slotsPanel(x,y,w,h)
       for _,name in ipairs(info.trades or {}) do
         drop(name,tx,ry+21,8); tx=tx+19
       end
-      local bits={"Day "..info.day,"$"..info.money,info.clients.." clients",info.districts.." districts"}
+      local bits={"Day "..info.day,"$"..info.money,info.clients.." clients"}
       if info.bankrupt then table.insert(bits,1,"INSOLVENT") end
-      text(table.concat(bits,"   /   "),x+72,ry+36,"small",
+      text(table.concat(bits,"   "),x+72,ry+36,"small",
         info.bankrupt and P.bad or P.textDim,w-300)
       if active then
-        text("PLAYING",x+w-216,ry+18,"small",P.good,90,"right")
         button("slot-restart-"..i,"Start over",x+w-116,ry+16,80,32,
           function() state.slotConfirm={slot=i,mode="restart"} end,true,
           "Replaces this company with a new one")
@@ -1884,16 +1878,15 @@ local function advisor()
     local colour=({A=P.good,B=P.good,C=P.warn,D=P.warn,F=P.bad})[r.grade] or P.text
     text(r.grade,M,y-6,"big",colour)
     if r.worst then
-      single("Worst single failure: "..string.lower(r.worst.label),M+46,y,"small",P.textDim,CW-46)
-      text(string.format("Would cost $%d/day (%d%% of revenue), %d customer%s",
-        math.floor(r.worst.loss+0.5),math.floor(r.share*100+0.5),r.worst.hurt,r.worst.hurt==1 and "" or "s"),
+      single("Worst: "..string.lower(r.worst.label),M+46,y,"small",P.textDim,CW-46)
+      single(string.format("-$%d/day   %d customer%s",
+        math.floor(r.worst.loss+0.5),r.worst.hurt,r.worst.hurt==1 and "" or "s"),
         M+46,y+20,"small",colour,CW-46)
     else
-      text("Nothing single failure can take from you.",M+46,y+6,"small",colour,CW-46)
+      single("No weak point",M+46,y+6,"small",colour,CW-46)
     end
-    y=y+64
-    row("Checked",r.checked.." of "..r.total.." loaded items",y,P.textDim); y=y+26
-    if stale then text("Out of date: the network has changed since.",M,y,"small",P.warn,CW); y=y+24 end
+    y=y+52
+    if stale then single("Out of date",M,y,"small",P.warn,CW); y=y+24 end
   end
   button("assess",r and "Check again" or "Check resilience",M,y,r and r.grade and 150 or CW,32,
     function() act("startResilience") end,progress==nil,
@@ -1912,17 +1905,17 @@ local function advisor()
       single(p.label,M+10,y+6,"small",P.text,CW-100)
       lg.setFont(R.fonts.small); lg.setColor(P.bad)
       lg.printf(string.format("-$%d/day",math.floor(p.loss+0.5)),M+CW-96,y+6,86,"right")
-      single(p.hurt.." customer"..(p.hurt==1 and "" or "s").." would lose supply",M+10,y+25,"tiny",P.textDim,CW-20)
+      single(p.hurt.." customer"..(p.hurt==1 and "" or "s"),M+10,y+25,"tiny",P.textDim,CW-20)
       y=y+50
     end
     if #r.points>6 then text("and "..(#r.points-6).." more",M,y,"small",P.textFaint); y=y+26 end
   end
   y=y+10
 
-  heading("BEST NEXT UPGRADES",y); y=y+30
+  heading("UPGRADES",y); y=y+30
   local list=E.advise(city)
   if #list==0 then
-    single("Nothing full is holding anyone back",M,y,"small",P.good,CW); y=y+26
+    single("Nothing to upgrade",M,y,"small",P.good,CW); y=y+26
   end
   local mx,my=mouse()
   for i,item in ipairs(list) do
@@ -1936,8 +1929,8 @@ local function advisor()
     single(adviceLabel(item),M+10,y+6,"small",item.affordable and P.text or P.textFaint,CW-84)
     lg.setFont(R.fonts.small); lg.setColor(item.affordable and P.energy or P.textFaint)
     lg.printf("$"..item.cost,M+CW-76,y+6,66,"right")
-    single(string.format("+$%d/day  /  pays back in %s",math.floor(item.net+0.5),
-      item.payback and (item.payback.." day"..(item.payback==1 and "" or "s")) or "no time"),
+    single(string.format("+$%d/day   %s",math.floor(item.net+0.5),
+      item.payback and (item.payback.."d payback") or ""),
       M+10,y+28,"tiny",P.good,CW-20)
     y=y+60
   end
@@ -1964,7 +1957,7 @@ local function report()
     for _,v in ipairs(reportEntries(r)) do if (v[2] or 0)~=0 then rows=rows+1 end end
     h=136+lines*28+6+rows*24+16+((leak or enquiry) and 44 or 0)+66
   end
-  if state.modal=="slots" then w,h = 680,632 end
+  if state.modal=="slots" then w,h = 680,600 end
   local x,y=(W-w)/2,(H-h)/2
   lg.setColor(0,0,0,0.7); lg.rectangle("fill",0,0,W,H)
   lg.setColor(P.panel); lg.rectangle("fill",x,y,w,h,6)
