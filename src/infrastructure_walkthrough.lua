@@ -176,16 +176,20 @@ return function(app,capture,click,scrollTo,check)
     local e=lines.g:addEdge(a.id,b.id,cap); e.commodity=commodity; e.size=size; e.capMax=cap; e.grade=1; e.voltage=voltage
     return e
   end
+  local hv
   for i,v in ipairs({{'pole','low'},{'pylon','medium'},{'hvtower','high'}}) do
-    span(v[1],'power',-210+i*70,'medium',v[2],-360,-60)
+    hv=span(v[1],'power',-210+i*70,'medium',v[2],-360,-60)
   end
+  local hub=lines.g:addNode(lx-200,ly+200,'manifold'); hub.level=3; hub.ports=8
   for i,size in ipairs({'small','medium','large','massive','trunk'}) do
     span('junction','water',-170+i*55,size,nil,60,380)
   end
   app.setTestCity(lines); lines:refresh()
   cam=app.camera(); cam:centerOn(lx-120,ly); cam.scale=1.2; cam.targetScale=1.2
   app.state.drawer=nil
+  app.state.hoverEdge=hv.id; app.state.node=hub.id
   capture('net-profit-40b-line-kinds',app,1440,880,true)
+  app.state.hoverEdge=nil; app.state.node=nil
   app.state.drawer=drawer
 
 end

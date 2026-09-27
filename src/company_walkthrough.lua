@@ -483,6 +483,7 @@ function Walk.start(app,mode)
     check(under,"the next offer moves up under the pointer")
     click("client-"..offers[3].id)
     check(app.state.node==offers[3].id and app.state.tab=="customers","clicking an offer shows it on the map")
+    check(offers[3].prospect and app.camera().targetScale>=1.35,"and zooms in on it without answering it")
   end
 
   -- Electricity: the trade between water and beer.

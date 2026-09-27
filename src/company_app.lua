@@ -200,6 +200,8 @@ local function action(name,...)
     local n=city.g.nodes[id]
     if not n then return end
     clear(); state.filter=nil; state.node=id
+    -- Zoom first, then centre: the offset for the panel depends on the scale.
+    cam.targetScale=math.max(cam.targetScale or cam.scale,1.35)
     centerOn(n.x,n.y)
     return
   end
@@ -457,9 +459,11 @@ local function hit(x,y)
   local nearest,dist=nil,10
   for _,e in ipairs(city.g.edges) do
     if e.alive and (not state.filter or e.commodity==state.filter) then
-      local ax,ay,bx,by=Draw.edgePoints(cam,city,e)
-      local d=pointDistance(x,y,ax,ay,bx,by)
-      if d<dist then nearest,dist=e.id,d end
+      local pts=Draw.edgePath(cam,city,e)
+      for i=1,#pts-3,2 do
+        local d=pointDistance(x,y,pts[i],pts[i+1],pts[i+2],pts[i+3])
+        if d<dist then nearest,dist=e.id,d end
+      end
     end
   end
   if nearest or state.filter then return nil,nearest,nil end
