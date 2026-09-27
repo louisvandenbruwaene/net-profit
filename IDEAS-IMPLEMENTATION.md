@@ -23,13 +23,13 @@ Binder equipment attachments reach 95 m. The trunk between two binders uses the 
 
 Each untreated water main gains one mineral-deposit point per day. At 100 points, added leak risk begins; above 100, usable hydraulic capacity also declines. Filtration stops future accumulation but does not dissolve deposits already present. Repairs and replacement reset the affected pipe's accumulation.
 
-Depots fill in batches when empty. Their intake is solved after customer and factory demand, using residual network capacity, so storage cannot steal a customer's delivery or receive water from a disconnected well. Stored supply is available the following day and deducted when delivered.
+Depots fill in batches when empty, at the fill rate of their level (Tank 100 up to Water tower 900). Their intake is solved after customer and factory demand, using residual network capacity, so storage cannot steal a customer's delivery or receive water from a disconnected well. Stored supply is available the following day and deducted when delivered.
 
 Treatment is determined from the actual supplied network. A filter does not protect its incoming raw-water main. A raw-water bypass into the downstream network defeats its clean status. Removing the bypass restores protection; removing the filter removes it. Disconnected filters provide no protection. These rules also apply to existing installed mains, so rebuilding every downstream main is unnecessary.
 
 The obsolete Treat structure has been removed from the build and conversion tools. Existing treatment structures become filters on migration. Existing connected structures retain enough connections to avoid deleting their routes.
 
-Maintenance crews repair already damaged mains. Engineers intervene when the daily wear step would start a new leak, replace the threatened main before capacity is lost, and charge its replacement quote after salvage. They cannot perform unfunded work. The day report records the number and cost of preventive replacements.
+Maintenance crews repair already damaged mains.
 
 ### Saltwater and purification
 
@@ -85,11 +85,11 @@ For example, an analyst with one completed week changes the expected return from
 
 Returns can be negative. Payout is floored at zero, so an investment can lose its entire principal but cannot create a debt beyond the amount invested. Consequently the extreme tail is clipped; the underlying return draw remains normal. The Company panel shows current expected return and standard deviation.
 
-Workers have compact symbols and counts, each distinct from the others: a yellow hard hat for maintenance crews, a spanner for engineers, a signal reaching outward for dispatchers, a level on its tripod for surveyors, a house for estates, and a graduate's cap over a rising line for analysts. Hovering a hiring control identifies the role, recruitment price, daily wage and function. Clicking the hiring control adds one worker; Stop dismisses one.
+Workers have compact symbols and counts, each distinct from the others: a yellow hard hat for maintenance crews, a signal reaching outward for dispatchers, a level on its tripod for surveyors, and a graduate's cap over a rising line for analysts. Hovering a hiring control identifies the role, recruitment price, daily wage and function. Clicking the hiring control adds one worker; Stop dismisses one.
 
 Dispatchers reveal one neighboring ring each, up to four. Ownership remains visible, including disconnected holdings. Hidden neighboring terrain is generated ahead of construction so future mountain generation cannot appear on top of an established network. Dispatchers leave contract acceptance to the player.
 
-### Land discounts and estates
+### Land discounts
 
 Every region receives one stable offer for the current day:
 
@@ -104,7 +104,7 @@ Every region receives one stable offer for the current day:
 
 Prices do not reroll when the player opens an inspector, reloads or discovers a region. Day and region coordinates determine the seeded offer. The map price and land inspector display the discount.
 
-Players may buy nonadjacent regions. Islands still require a harbor. Estates staff buy qualifying offers subject to the player's **minimum discount**, **maximum purchase price** and **cash reserve**. They favor the cheapest eligible region, buy at most one region per staff member per day, and can acquire disconnected holdings.
+Players may buy nonadjacent regions. Islands still require a harbor.
 
 ## Requests and compact controls
 
@@ -131,28 +131,6 @@ Click owned ground to open its region inspector. Woodland can be harvested and m
 
 Clearing removes the obstacle and credits the resources once. A depot's **Load from inventory** action moves harvested resources into physical storage for shipping; it deducts them from inventory. The $8,000 jeweler processes up to two gems into jewelry per day, using electricity. Jewelry delivered to a freight yard sells for $900 per unit. Existing forestry and quarry extraction buildings remain available.
 
-## Temporary autoplay
-
-Open **Stats**, choose 1–120 minutes, then press **Autoplay**. Press the same button to stop. Switching companies clears the timer. The timer itself is session state and does not restart from a save.
-
-The assistant plays in the order a careful player would. It repairs damaged lines and pays down debt first. Then it restores supply to signed customers who are short, widening the full main in the way or laying a second route where a customer only takes a small one. Next it signs offers, best price first, but only when it can connect them and nobody already signed goes short, and it declines offers it cannot serve on their last day. It keeps water ahead of demand by deepening wells, sinking new ones joined to the network, and buying ground with springs when it runs out.
-
-Growth follows the order the game opens up, each project waiting for the cash and a reason, and for a price the company earns back within about six weeks:
-
-- **Electricity:** at 25 customers it takes the power licence. It builds river turbines, or wind parks from landed steel and concrete when those are cheaper per unit. All of them tie into one grid through high voltage lines, standard towers, and transformer-fitted towers and poles beside workshops, hubs and homes.
-- **Freight:** a road head and a freight yard joined by a road and container trucks landing steel, then beer and oil licences with their own trucks. Pubs and factories are piped from the yard, and it sinks its own oil rig on an owned field away from its wells.
-- **Area hubs:** where three or more household offers sit together, it builds a hub with a well of its own and brings its feed and supply up to what the neighbourhood takes.
-- **Roads:** households go on offroads to interchanges, and interchanges are joined by highways tolled at $8. A filling station supplied with landed petrol sits on the way into an interchange.
-- **Buses and resorts:** bus routes run between neighbouring towns, with more buses added when a route fills. Once passengers travel, it builds a riverside resort from landed concrete and glass.
-- **Upkeep and staff:** filters after its wells from day 60, an environment lab where the ground is being fouled, crews, surveyors, engineers, better pipe linings, parkland and river permits, and advertising when offers dry up.
-- **Cash:** part of a large surplus goes into the weekly market, one placement at a time, with an analyst.
-
-Each decision is planned on a copy of the company and discarded in full if any step fails. Networks are solved once a plan asks how much is flowing, not after every structure, and planning is spread across steps so the game does not stall. A plan is tried at most once per day, and the memory of what was tried resets for a load, an undo or another company, so days always close. The assistant pauses if it cannot establish an affordable opening or the company stops trading. All purchases use normal game cash and validation, with no free resources or unlocks.
-
-`test/test_autoplay.lua` checks each of these scenario by scenario (37 checks, part of `make test`), with planning time unlimited so every run is the same run.
-
-Autoplay is deliberately isolated in `src/autoplay.lua` and a small application/UI integration so it can be removed later. Automated verification uses test companies, never the player's slots.
-
 ## Branding and existing companies
 
 The supplied `assets/net-profit.png` is the primary app logo. The alternative `net-profit2.png` and older `net-profit4` assets are retained. The macOS `.icns` is packaged from the primary PNG at standard icon sizes. Linux and portable exports use the primary PNG.
@@ -167,7 +145,6 @@ Save files retain company money, inventory, loans, investments, staff tenure, mi
 - `src/city.lua` and `src/graph.lua`: production dependencies, both purification products, daily wear and settlement.
 - `src/company_ui.lua` and `src/company_render.lua`: controls, symbols, map status and river strokes.
 - `src/symbols.lua` and `src/symbol_font.lua`: consistent portable pictograms, independent of installed emoji fonts. Carrying drawn symbols inside ordinary text requires an image font, because LÖVE refuses fallbacks between font types, so the glyph sheets are cut at the density of the screen in use and handed to `love.font.newImageRasterizer`. Metrics stay in points and no panel moves; the pixels behind them match the display. The window declares `highdpi`, and the sheets are cut again if the window moves to a screen of a different density.
-- `src/autoplay.lua`: temporary gameplay assistant.
 - `test/test_ideas.lua` and `src/ideas_walkthrough.lua`: new simulation and real-input regression coverage.
 
-Run `make test`, `make smoke` and `make soak`. The smoke suite captures the new controls at the minimum 1100 × 700 window size, exercises actual input callbacks, and checks that every pictogram exists at every font size. The soak suite advances more than 60 days and checks save round trips. Separate autoplay runs exercise real budgets across more than 100 days.
+Run `make test`, `make smoke` and `make soak`. The smoke suite captures the new controls at the minimum 1100 × 700 window size, exercises actual input callbacks, and checks that every pictogram exists at every font size. The soak suite advances more than 60 days and checks save round trips.

@@ -453,8 +453,7 @@ local function inspectSource(n,y)
       or n.intake and (level.." / "..city:maxLevel(n))
       or ((names[level] or "Well").."  "..level.."/"..city:maxLevel(n)),y,P.accent)
   y=y+26
-  local trade=City.trade[n.commodity] or City.trade.water
-  row("Upkeep","-$"..((n.upkeep or trade.sourceUpkeep)+(level-1)*2).." / day",y,P.warn); y=y+34
+  row("Upkeep","-$"..city:sourceUpkeep(n).." / day",y,P.warn); y=y+34
   local step=city:upgradeStep(n)
   local upCost=city:sourceUpgradeCost(n)
   if upCost and level<city:maxLevel(n) and capacity<ceiling then

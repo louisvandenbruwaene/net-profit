@@ -2299,7 +2299,7 @@ function City:replacePipe(id, size, grade)
 end
 
 -- The widest a main gets without the player deciding it. A hub wires the last
--- mile and the engineers keep it flowing; laying a trunk across the city is a
+-- mile and the distribution hubs keep it flowing; laying a trunk across the city is a
 -- decision, not maintenance. Read off the ladder, which has grown a rung
 -- twice, rather than written down as a number that goes stale.
 function City.autoWidenCap()
@@ -3140,20 +3140,15 @@ function City:refresh()
       end
     end
   end
+  -- An empty tank refills at its own level's rate, from whatever customers and
+  -- works left over. It only takes in once empty, so it never feeds itself.
   for _,n in ipairs(self.g:nodesOfKind('depot')) do
-    n.freightStorage=true; n.intakeRequest=nil
-    if (n.stored or 0)==0 then n.intakeRequest=math.min(City.depotFillRate,n.capacityStore or City.depotCapacity) end
+    local cap=n.capacityStore or City.depotCapacity
+    n.intakeRequest=(n.stored or 0)==0 and math.min(n.fillRate or City.depotFillRate,cap) or nil
   end
   for _,e in ipairs(self.g.edges) do
     if e.alive and (e.bulk=='highway' or e.goodsRoad) then
       e.transportBlocked=not self:roadPath(e.a,e.b,'truck')
-      for _,id in ipairs({e.a,e.b}) do
-        local n=self.g.nodes[id]
-        if n.kind=='depot' then
-          n.freightStorage=true
-          if (n.stored or 0)==0 then n.intakeRequest=math.min(City.depotFillRate,n.capacityStore or City.depotCapacity) end
-        end
-      end
     end
   end
 
@@ -3356,6 +3351,8 @@ end
 -- A market event multiplies what one trade pays for a few days. It is the only
 -- thing in the game that changes a price without the player touching anything,
 -- and it is what makes a depot full of yesterday's beer worth having.
+City.jewelryPrice = 900
+
 City.EVENTS = {
   { key = "heatwave",  commodity = "water", rate = 1.45, days = 4,
     head = "Heatwave: households pay a premium for water" },
@@ -3471,7 +3468,7 @@ function City:dailyRevenue()
     rev = rev + self:clientIncome(c)
   end
   -- Jewelry is sold at the yard it reaches.
-  rev = rev + (((self.detail or {}).yard or {}).jewelry or 0) * 900
+  rev = rev + (((self.detail or {}).yard or {}).jewelry or 0) * City.jewelryPrice
   return rev + self:transitIncome()
 end
 
@@ -3618,18 +3615,15 @@ function City:endDay()
   self.stock = self.stock or {}
   report.delivered = {}
   for material, units in pairs((self.detail or {}).yard or {}) do
-    if units > 0 then
+    if units > 0 and material ~= "jewelry" then
       self.stock[material] = (self.stock[material] or 0) + units
       report.delivered[material] = units
     end
   end
 
-  -- Jewelry is sold at the receiving yard, once and before solvency settles.
-  report.jewelryIncome=(report.delivered.jewelry or 0)*900
-  if report.jewelryIncome>0 then
-    self.stock.jewelry=math.max(0,(self.stock.jewelry or 0)-(report.delivered.jewelry or 0))
-    self.money=self.money+report.jewelryIncome; report.revenue=report.revenue+report.jewelryIncome
-  end
+  -- Jewelry is sold at the receiving yard, never stocked.
+  report.jewelryIncome=(((self.detail or {}).yard or {}).jewelry or 0)*City.jewelryPrice
+  self.money=self.money+report.jewelryIncome; report.revenue=report.revenue+report.jewelryIncome
 
   -- 3a1b. Cars that reached a yard are sold to the districts that want them.
   report.carsSold, report.carIncome = self:sellCars()
@@ -3668,20 +3662,6 @@ function City:endDay()
     if drawn > 0 then
       n.stored = math.max(0, (n.stored or 0) - drawn)
       report.drawn = report.drawn + drawn
-    end
-  end
-  for _, name in ipairs(Graph.TRADES) do
-    local spare = self.wellSpare[name] or 0
-    for _, n in ipairs(self.g:nodesOfKind("depot")) do
-      if not n.freightStorage and n.commodity == name and spare > 0 and self.g:degree(n.id) > 0 then
-        local room = (n.capacityStore or City.depotCapacity) - (n.stored or 0)
-        local take = math.min(spare, room, n.fillRate or City.depotFillRate)
-        if take > 0 then
-          n.stored = (n.stored or 0) + take
-          spare = spare - take
-          report.stored = report.stored + take
-        end
-      end
     end
   end
 
@@ -4623,8 +4603,7 @@ function City:expenseBreakdown()
   local b = { office = 6, sources = 0, structures = 0, pipes = 0, crews = 0 }
   for _, n in ipairs(self.g:aliveNodes()) do
     if n.kind == "source" then
-      local trade = City.trade[n.commodity] or City.trade.water
-      b.sources = b.sources + (n.upkeep or trade.sourceUpkeep) + ((n.level or 1) - 1) * 2
+      b.sources = b.sources + self:sourceUpkeep(n)
     else
       b.structures = b.structures + self:structureUpkeep(n)
     end
@@ -4643,6 +4622,12 @@ function City:expenseBreakdown()
   b.total = math.ceil(b.office + b.sources + b.structures + b.pipes + b.crews
     + b.interest + b.imports + b.haulage + b.fuel + b.pumping + b.hubs + b.transit)
   return b
+end
+
+-- A source's day: its own upkeep, plus $2 for every level above the first.
+function City:sourceUpkeep(n)
+  local trade = City.trade[n.commodity] or City.trade.water
+  return (n.upkeep or trade.sourceUpkeep or 0) + ((n.level or 1) - 1) * 2
 end
 
 function City:dailyExpenses()

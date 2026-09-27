@@ -90,6 +90,7 @@ do
  local p=edge(power,h,'power'); c:refresh()
  check(c.servedBy[h.id].power==2 and c:fullyServed(h),'one house receives both commodities concurrently')
  check(c:clientIncome(h)==24,'both deliveries contribute to household income')
+ check(c:tradeCosts('power').revenue==2*h.utilityRates.power,'unit costs price a second utility at its own rate')
  p.alive=false; c:refresh(); check(c:clientIncome(h)==12 and not c:fullyServed(h),'electricity failure preserves water billing but reduces satisfaction')
  check(c:quantity('power',7)=='35 kWh/day','electricity quantities use real daily energy units')
  p.alive=true; local copy=assert(Save.unpack(Save.pack(c)))
@@ -114,6 +115,12 @@ do
  c:endDay(); check(a.stored==0 and b.stored==8,'daily close conserves cargo across depot transfers')
  local l=c:linkBetween(a.id,b.id,'road'); assert(c:demolishLink(l.id)); c:endDay()
  check(a.stored==0 and b.stored==8,'a disconnected depot cannot teleport stored cargo')
+end
+-- A tank's level sets how much it takes in when it refills.
+do
+ local c=world(); local t=node(c,'depot',1400,900); t.commodity='water'; t.stored=0
+ City.setLevel(c,t,4,true); c:refresh()
+ check(t.intakeRequest==t.fillRate and t.fillRate>City.depotFillRate,'an upgraded tank refills at its own rate')
 end
 -- Freight follows road detours even when the endpoints are far apart.
 do

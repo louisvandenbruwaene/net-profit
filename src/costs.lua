@@ -64,16 +64,14 @@ return function(City)
     local fixed, variable, units, revenue, rates, signed = 0, 0, 0, 0, 0, 0
     for _, n in ipairs(self.g:nodesOfKind("source")) do
       if n.alive and n.commodity == t then
-        fixed = fixed + (n.upkeep or spec.sourceUpkeep or 0) + ((n.level or 1) - 1) * 2
+        fixed = fixed + self:sourceUpkeep(n)
         local made = (self.produced or {})[n.id] or 0
         variable = variable + made * (n.plant and (n.fuel or spec.fuelPerUnit or 0) or (spec.extractPerUnit or 0))
       end
     end
-    local mult = 1
     for _, n in ipairs(self.g:nodesOfKind("terminal")) do
       local landed = ((self.producedBy or {})[n.id] or {})[t] or 0
-      mult = (City.HAVENS[n.haven] or {}).import or 1
-      variable = variable + landed * (spec.importCost or 0) * mult
+      variable = variable + landed * (spec.importCost or 0) * ((City.HAVENS[n.haven] or {}).import or 1)
     end
     for _, e in ipairs(self.g.edges) do
       if e.alive and not e.rail and e.commodity == t then fixed = fixed + self:pipeUpkeep(e) end
@@ -82,7 +80,9 @@ return function(City)
       local got = delivered(self, c, t)
       if got > 0 then
         units = units + got
-        revenue = revenue + got * (c.rate or 0) * self:eventRate(t)
+        -- A household's second utility is billed at its own rate, as in clientIncome.
+        local rate = t ~= c.commodity and (c.utilityRates or {})[t] or c.rate or 0
+        revenue = revenue + got * rate * self:eventRate(t)
       end
       if c.commodity == t then rates, signed = rates + (c.rate or 0), signed + 1 end
     end
