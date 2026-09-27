@@ -153,7 +153,7 @@ end
 function City:bulkError(a, b, mode)
   if mode == "highway" then
     -- Container trucks run on the road network, between freight buildings.
-    local function freight(n) return n and n.alive and (n.kind=='terminal' or n.kind=='dc' or n.kind=='depot' or n.kind=='works' or n.kind=='source' or n.kind=='exchange' or n.kind=='client' and (n.clientType=='market' or n.clientType=='factory')) end
+    local function freight(n) return n and n.alive and (n.kind=='terminal' or n.kind=='dc' or n.kind=='depot' or n.kind=='works' or n.kind=='source' or n.kind=='client' and (n.clientType=='market' or n.clientType=='factory')) end
     if not freight(self.g.nodes[a]) or not freight(self.g.nodes[b]) then return 'container trucks serve depots, factories, food stores and freight sources' end
     if not self:roadPath(a,b,'truck') then return 'connect these buildings with normal roads or highways first' end
     return nil
@@ -2106,7 +2106,6 @@ local function buildPlain(self, x, y, kind, commodity)
 end
 
 function City:build(x, y, kind, recipe)
-  if kind=='tower' then return nil,'use a filtration plant' end
   local n, err
   if kind=='works' and recipe=='turbine' then
     n, err = self:buySource('power',x,y,'hydro')
@@ -2600,7 +2599,7 @@ end
 -- replaced where it stands: the pipes never come off, and you pay the
 -- difference between what is there and what you want.
 City.CONVERTIBLE = {
-  junction = true, manifold = true, pump = true, tower = true, gate = true, depot = true,
+  junction = true, manifold = true, pump = true, gate = true, depot = true,
 }
 
 function City:convertCost(id, kind)
@@ -2612,7 +2611,6 @@ function City:convertCost(id, kind)
 end
 
 function City:convertError(id, kind)
-  if kind == "tower" then return "use filtration instead" end
   local n = self.g.nodes[id]
   if n and (n.kind == "binder" or City.INFRA.towers[n.kind]) then return "demolish and rebuild specialist equipment" end
   if not (n and n.alive) then return "no such structure" end
@@ -3488,15 +3486,7 @@ function City:leakChance(e)
   if (City.trade[e.commodity] or {}).noLeak then return 0 end
   local risk = self:gradeOf(e).risk
   if e.commodity == "power" and e.voltage then return math.min(1, City.rules.leakBase * 0.55 * risk) end
-  local g = risk
-  local a, b = self.g.nodes[e.a], self.g.nodes[e.b]
-  for _, n in ipairs(self.g:nodesOfKind("tower")) do
-    if (n.x - (a.x + b.x) / 2)^2 + (n.y - (a.y + b.y) / 2)^2 <= 220^2 then
-      g = g * 0.45
-      break
-    end
-  end
-  local chance = City.rules.leakBase * g
+  local chance = City.rules.leakBase * risk
   -- Water under pressure bursts more, and filtered water less.
   if e.commodity == "water" and e.hydraulic then local _, bar = self:waterRating(e); chance = chance * math.max(1, bar / 3) end
   if e.commodity == "water" and e.filtered then chance = chance * City.INFRA.filterRisk end
@@ -4626,7 +4616,6 @@ function City:expenseBreakdown()
     elseif n.kind == "dc" then b.structures = b.structures + 12
     elseif n.kind == "terminal" then b.structures = b.structures + City.terminalUpkeep
     elseif n.kind == "depot" then b.structures = b.structures + 3
-    elseif n.kind == "tower" then b.structures = b.structures + 2
     elseif n.kind ~= "client" then b.structures = b.structures + 1 end
   end
   b.imports = self:importBill()

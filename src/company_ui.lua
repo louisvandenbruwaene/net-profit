@@ -188,7 +188,7 @@ end
 -- the difference between buying three more ports and rebuilding a junction box
 -- from scratch with every pipe relaid by hand.
 -- A manifold is what a junction becomes by levelling up, so it is not offered here.
-local REPLACEMENTS = {"junction","pump","tower","gate","depot"}
+local REPLACEMENTS = {"junction","pump","gate","depot"}
 
 local function replaceStrip(n,y)
   if not City.CONVERTIBLE[n.kind] then return y end
@@ -983,6 +983,8 @@ local function buildPanel()
       end
     end
   end
+  -- Number keys pick up the tiles in the order they are shown.
+  UI.toolKeys={}
   for i,name in ipairs(TOOLS) do
     local form=Graph.formOf(state.commodity)
     local passenger=name=="stop" or name=="station" or name=="resort" or name=="corner" or name=="intersection" or name=="roundabout" or name=="interchange"
@@ -994,7 +996,7 @@ local function buildPanel()
       relevant=false
     elseif name=="grid" then
       relevant=state.commodity=="power"
-    elseif name=="filtration" or name=="tower" then
+    elseif name=="filtration" then
       relevant=state.commodity=="water" or state.commodity=="saltwater"
     elseif name=="lab" then
       relevant=state.commodity=="water" or state.commodity=="oil" or state.commodity=="wheat" or state.commodity=="food"
@@ -1009,12 +1011,13 @@ local function buildPanel()
       and (not City.BUILD_UNLOCK[name] or city:unlocked(City.BUILD_UNLOCK[name]))
       and (not gate[name] or city:unlocked(gate[name])) then
       local kind=toolKind(name)
-      local label=({junction="T split",grid="Tower",pump="Pump",filtration="Filter",binder="Binder",lab="Env. lab",tower="Treatment",gate="Valve",depot="Tank",terminal="Haven",dc="Yard",
+      local label=({junction="T split",grid="Tower",pump="Pump",filtration="Filter",binder="Binder",lab="Env. lab",gate="Valve",depot="Tank",terminal="Haven",dc="Yard",
              stop="Bus stop",station="Station",resort="Resort",corner="Corner",intersection="Crossing",roundabout="Roundabout",interchange="Interchange"})[name]
       local short=({junction="3 connections, upgrades to a hub",grid="Carries cables",pump="Pushes a main further",filtration="Cleans water",
-             binder="Parallel mains",lab="Cuts pollution",tower="Treats water",gate="Limits flow",depot="Stores supply",terminal="Imports goods",
+             binder="Parallel mains",lab="Cuts pollution",gate="Limits flow",depot="Stores supply",terminal="Imports goods",
              dc="Freight yard",stop="Buses stop here",station="Sells fuel",resort="Visitors pay",corner="Bends a road",intersection="Joins roads",
              roundabout="Joins roads",interchange="Joins highways"})[name]
+      UI.toolKeys[#UI.toolKeys+1]=name
       tile("tool-"..name,label,City.price[kind],city.money>=City.price[kind],state.tool==name,Graph.KINDS[kind].color,
         function() state.tool=state.tool==name and nil or name end,short,
         function(ix,iy) Draw.structureGlyph(kind,ix,iy,1.3) end)
@@ -1327,8 +1330,7 @@ local function inspectorPanel(n,e)
         row("Carrying",math.floor(city.detail.node[n.id] or 0),y+26)
       end
       local ey=y+(city:levelFamily(n) and 26 or 52)
-      if n.kind=="tower" then row("Leak risk","-55% within 220m",ey,P.energy); ey=ey+26
-      elseif n.kind=="pump" then row("Reach",math.floor(City.INFRA.pumpRange*(1+city:reachBonus(n))).." m",ey,P.flow); ey=ey+26 end
+      if n.kind=="pump" then row("Reach",math.floor(City.INFRA.pumpRange*(1+city:reachBonus(n))).." m",ey,P.flow); ey=ey+26 end
       if n.capped then single("Capped well",M,ey,"small",P.textDim,CW); ey=ey+26 end
       tail=ey+8
       if city:isDistribution(n) then tail=inspectDistribution(n,tail) end
@@ -2520,7 +2522,7 @@ local function settingsMenu()
     local keys={{"Enter","End the day"},{"B","Build menu"},{"Tab","Open or close the menu"},{"Esc","Put down, deselect, close"},
       {"Z","Undo"},{"Y / N","Sign or decline the selected offer"},{"F","Show all buildings"},{"R","Repair the selected main, or all"},{"L","Worst leak"},
       {"U / E","Bigger main, or deepen a well"},{"Delete","Demolish the selection"},{"T","Bulk freight lines"},
-      {"H","Hide other networks"},{"O","Overview map"},{"M","Sound"},{"1-8","Pick up a building"},{"Right drag","Pan"},{"Wheel","Zoom"}}
+      {"H","Hide other networks"},{"O","Overview map"},{"M","Sound"},{"1-9","Pick up a building"},{"Right drag","Pan"},{"Wheel","Zoom"}}
     local kw,kh=350,20+#keys*22
     local kx,ky=px-kw-10,py
     lg.setColor(P.bg); lg.rectangle("fill",kx-1,ky-1,kw+2,kh+2,8)

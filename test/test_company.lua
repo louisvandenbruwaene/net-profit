@@ -1043,7 +1043,7 @@ do
   assert(c:convertNode(j.id,"junction"))
   check(j.stored==nil and j.commodity==nil,"switching away clears what it was")
   c.money=0
-  check(not c:convertNode(j.id,"tower"),"and it has to be paid for")
+  check(not c:convertNode(j.id,"pump"),"and it has to be paid for")
 end
 
 do

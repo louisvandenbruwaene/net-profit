@@ -11,7 +11,7 @@ return function(City)
   Graph.KINDS[key]={name=name,ports=ports[key] or 8,throughput=999,cost=costs[key] or 80,color={.8,.75,.5}}
   City.price[key]=Graph.KINDS[key].cost; City.BUILDABLE[key]=true; City.BUILD_UNLOCK[key]='roads'; City.TRANSIT_NODES[key]=true
  end
- for _,key in ipairs({'client','works','depot','source','exchange'}) do City.TRANSIT_NODES[key]=true end
+ for _,key in ipairs({'client','works','depot','source'}) do City.TRANSIT_NODES[key]=true end
  City.MODES.highway.name='CONTAINER TRUCKS'
  City.MODES.highway.blurb='Container trucks use connected normal roads and highways.'
  local household={house=true,home=true,estate=true,subscriber=true}
