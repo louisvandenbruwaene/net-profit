@@ -65,7 +65,8 @@ local function button(id,label,x,y,w,h,fn,enabled,tip,active,color,emphasis)
   lg.setLineWidth(1)
   lg.rectangle("line",x,y,w,h,6)
   local font = R.fonts.body
-  if SF.width(label,font)>w-14 then font=R.fonts.small end
+  -- The menu row shares one size, so no label looks smaller than its neighbours.
+  if SF.width(label,font)>w-14 or id=="tab-network" or id=="tab-finance" or id=="tab-customers" or id=="tab-stats" then font=R.fonts.small end
   if SF.width(label,font)>w-6 then font=R.fonts.tiny end
   lg.setFont(font); lg.setColor(enabled and ((active or emphasis) and color or P.text) or P.textFaint)
   local labelWidth=SF.width(label,font)
