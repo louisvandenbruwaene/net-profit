@@ -160,10 +160,10 @@ return function(City)
   end
 
   -- Every distribution hub, once, in node order so two hubs sharing a street
-  -- decide who wires it the same way every time.
-  function City:runDistribution(report)
+  -- decide who wires it the same way every time. `only` runs just that hub.
+  function City:runDistribution(report, only)
     local out = { signed = 0, wired = 0, widened = 0, repaired = 0, spent = 0 }
-    local hubs = self:distributionHubs()
+    local hubs = only and { only } or self:distributionHubs()
     for _, h in ipairs(hubs) do self:runHub(h, out) end
     if #hubs > 0 then self:refresh() end
     if report then report.distribution = out end

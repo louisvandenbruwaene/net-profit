@@ -113,7 +113,7 @@ return function(City)
     if self:isDistribution(n) then
       n.floor = n.floor or City.DISTRIBUTION.floor
       n.radius = City.DISTRIBUTION.radius
-      n.lastRun = self:runDistribution()
+      n.lastRun = self:runDistribution(nil, n)
     end
     return n
   end
