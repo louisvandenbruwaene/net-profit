@@ -3,10 +3,7 @@ local Data = {}
 
 Data.price = {
   junction = 22, manifold = 46, pump = 38, tower = 92, gate = 30, depot = 190,
-  -- A hub is not a bigger junction: it is a whole neighbourhood's last mile,
-  -- bought outright and never drawn. It is priced like the business it
-  -- replaces, not like the pipe fitting it resembles.
-  exchange = 1400, dc = 1500,
+  dc = 1500,
   terminal = 2200,
   stop = 120, station = 260, resort = 4800,
   -- A licence is priced against what the trade costs to enter, not against

@@ -57,7 +57,6 @@ Data.GOODS = {
 }
 
 Data.MATERIALS = {
-  exchange = { steel = 10 },
   works    = { steel = 40, concrete = 20 },
   nuclear  = { steel = 120, concrete = 200 },
   wind     = { steel = 60, concrete = 40 },

@@ -77,11 +77,6 @@ function F.mark(key,x,y,r)
     lg.setColor(cr,cg*0.82,cb*0.2,ca)
     lg.arc('fill','pie',x,y+r*.4,r,math.pi,2*math.pi)
     lg.rectangle('fill',x-r*1.2,y+r*.3,r*2.4,r*.3)
-  elseif key=='engineers' then
-    -- A spanner. The crews mend what has broken and the engineers change a
-    -- main before it does, so they cannot both be a hard hat.
-    lg.line(x-r*.85,y+r*.85,x+r*.15,y-r*.15)
-    lg.arc('line','open',x+r*.45,y-r*.45,r*.5,math.pi*0.15,math.pi*1.6)
   elseif key=='dispatchers' then
     -- A signal reaching outward: what a dispatcher buys is how far you can see.
     local sx,sy=x-r*.5,y+r*.75
@@ -101,8 +96,6 @@ function F.mark(key,x,y,r)
     lg.polygon('line',x-r,y-r*.5,x,y-r,x+r,y-r*.5,x,y)
     lg.line(x+r*.78,y-r*.36,x+r*.78,y+r*.05)
     lg.line(x-r*.85,y+r,x-r*.3,y+r*.5,x+r*.1,y+r*.75,x+r*.85,y+r*.15)
-  elseif key=='estates' then
-    lg.polygon('line',x-r,y,x,y-r,x+r,y); lg.rectangle('line',x-r*.7,y,r*1.4,r)
   elseif key=='people' then
     lg.circle('fill',x,y-r*.65,r*.35); lg.line(x,y-r*.15,x,y+r*.5); lg.line(x-r*.6,y+r,x,y+r*.4,x+r*.6,y+r)
   elseif key=='roads' then

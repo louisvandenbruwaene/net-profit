@@ -181,7 +181,7 @@ do
  c:refresh(); check((c.detail.yard.jewelry or 0)==2,'jeweler consumes gems and power and delivers two jewelry')
  local revenue=c:dailyRevenue(); c.leakChance=function() return 0 end
  local report=c:endDay()
- check(report.jewelryIncome==1800 and report.revenue>=1800 and c.stock.jewelry==0,'jewelry is sold once and recorded in revenue')
+ check(report.jewelryIncome==1800 and report.revenue>=1800 and (c.stock.jewelry or 0)==0,'jewelry is sold once and recorded in revenue')
  check(revenue>=1800,'next-day estimate includes jewelry sales')
 end
 print(checks..' ideas checks passed')
