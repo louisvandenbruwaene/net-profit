@@ -106,7 +106,7 @@ return function(app, capture, click, scrollTo, check)
     end
   end
 
-  for _, tab in ipairs({ "network", "finance", "customers", "map", "stats", "ambitions", "ledger", "advisor" }) do
+  for _, tab in ipairs({ "network", "finance", "customers", "stats", "ambitions", "ledger", "advisor" }) do
     sweep(tab, function()
       app.state.modal = nil; app.state.node = nil; app.state.edge = nil; app.state.link = nil
       app.state.tab = tab

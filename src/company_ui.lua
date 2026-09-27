@@ -148,12 +148,12 @@ end
 --------------------------------------------------------------------------------
 
 -- Fewer buildings, each one grown by upgrading it. A junction becomes a hub at
--- level 2, and one tower is built at whichever voltage is chosen above the
--- grid (a transformer is an upgrade, not a building). The older kinds still
+-- level 2, and one tower is built at low voltage and raised to the voltage it
+-- needs in its inspector (a transformer is an upgrade, not a building). The older kinds still
 -- exist in saved companies; they are simply no longer sold as separate things.
 local TOOLS = {"junction","pump","filtration","grid","binder","lab","gate","depot","terminal","dc","stop","station","resort","corner","intersection","roundabout","interchange"}
 local function toolKind(name)
-  if name=="grid" then return City.INFRA.voltages[state.voltage or "low"].tower end
+  if name=="grid" then return "pole" end
   return name
 end
 
@@ -705,6 +705,13 @@ local function inspectEdge(e,y)
     local _,amps,kv,loss=city:powerRating(e)
     row("Rating",kv.." kV / "..amps.." A",y,P.accent,string.format("%.1f%% loss at full load",loss*100))
     y=y+30
+    local key=city:cableUpgradeTarget(e)
+    if key then
+      local err=city:cableUpgradeError(e.id)
+      button("cable-voltage","Upgrade to "..City.INFRA.voltages[key].kv.." kV  $"..city:cableUpgradeCost(e,key),M,y,CW,34,
+        function() act("upgradeCable",e.id) end,not err,err,false,P.accent)
+      y=y+42
+    end
     if e.unboosted then
       single("Too far from a booster: carries nothing",M,y,"small",P.bad,CW); y=y+26
     end
@@ -1078,18 +1085,6 @@ local function buildPanel()
       end
     end
   end
-  if not state.people and state.commodity=="power" then
-
-    for i,key in ipairs(City.INFRA.voltageOrder) do
-      local v=City.INFRA.voltages[key]
-      button("voltage-"..key,(v.name:gsub(" voltage","")),M+(i-1)*102,y,96,30,
-        function() state.voltage=key end,true,
-        v.name.." ("..v.kv.." kV): a tower every "..v.span.." m, a booster every "..v.boost..
-        " m. Carries "..(key=="high" and "generator output across the map." or key=="medium" and "power to workshops and works." or "power to homes."),
-        (state.voltage or "low")==key,City.INFRA.voltages[key] and Graph.KINDS[v.tower].color)
-    end
-    y=y+42
-  end
   if not state.people then
   if state.commodity=="power" then
     if false then
@@ -1240,6 +1235,19 @@ local function inspectorPanel(n,e)
       if carries then
         local spec=City.INFRA.voltages[carries]
         row("Voltage",spec.kv.." kV"..(n.upgrade=="transformer" and " and lower" or ""),tail,P.accent); tail=tail+26
+        -- Raised straight to the voltage wanted, one button per voltage above.
+        local higher={}
+        for _,key in ipairs(City.INFRA.voltageOrder) do
+          if City.INFRA.voltages[key].kv>spec.kv then higher[#higher+1]=key end
+        end
+        for i,key in ipairs(higher) do
+          local w=(CW-8*(#higher-1))/#higher
+          local price=city:towerVoltageCost(n,key)
+          button("voltage-"..key,City.INFRA.voltages[key].kv.." kV  $"..price,M+(i-1)*(w+8),tail,w,34,
+            function() act("raiseTowerVoltage",n.id,key) end,not city:towerVoltageError(n.id,key),
+            "Cables on it keep their voltage until upgraded",false,Graph.KINDS[City.INFRA.voltages[key].tower].color)
+        end
+        if #higher>0 then tail=tail+42 end
         if n.upgrade and n.upgrade~="transformer" then row("Upgrade",City.INFRA.upgrades[n.upgrade].name,tail); tail=tail+26 end
         local run=city:boostRuns(carries)[n.id]
         row("Since last boost",run and (math.floor(run).." / "..spec.boost.." m") or "Not connected",tail,
@@ -1591,39 +1599,42 @@ local function customers()
       text(prospect and "No open enquiries" or "No signed contracts",M,y,"small",P.textFaint); y=y+34
     end
     for _,c in ipairs(clients) do
+      if prospect then
+        -- One line per offer: the resource and the price, then the answer.
+        -- Every row is the same height and the buttons sit in the same place,
+        -- so the next offer slides up under the pointer after each answer.
+        local h,bw=40,70
+        local bodyW=CW-2*bw-12
+        button("client-"..c.id,"",M,y,bodyW,h,function() act("showClient",c.id) end,true,nil,
+          state.node==c.id,Graph.COMMODITIES[c.commodity].color)
+        single(c.demands and c.demands.water and c.demands.power and ("Water + "..city:quantity("power",c.demands.power))
+          or city:quantity(c.commodity,c.demand),M+12,y+4,"small",P.text,bodyW-20)
+        single("$"..city:contractValue(c).."/day",M+12,y+21,"small",P.energy,bodyW-20)
+        button("accept-"..c.id,"Accept",M+bodyW+6,y,bw,h,function()
+          local x,yy=c.x,c.y
+          if act("acceptClient",c.id) then act("lookAt",x,yy) end
+        end,true,nil,false,P.good)
+        button("decline-"..c.id,"Decline",M+bodyW+12+bw,y,bw,h,function() act("declineClient",c.id) end,true,nil,false,P.bad)
+        y=y+h+8
+      else
       local met=city:fullyServed(c)
-      local premium=city:ratePremium(c)
-      local status=prospect and "Offer" or met and "Supplied"
+      local status=met and "Supplied"
         or (c.supplyClosed and "Valve shut / " or "")..c.grace.." days left"
-      local h=prospect and 80 or 58
-      button("client-"..c.id,"",M,y,CW,h,function() act("focusNode",c.id) end,true,
-        "Locate and inspect this customer",state.node==c.id,Graph.COMMODITIES[c.commodity].color)
+      local h=58
+      button("client-"..c.id,"",M,y,CW,h,function() act("showClient",c.id) end,true,
+        nil,state.node==c.id,Graph.COMMODITIES[c.commodity].color)
       drop(c.commodity,M+16,y+17,8)
       single(E.clientName(city,c),M+30,y+9,"body",P.text,150)
       lg.setFont(R.fonts.body); lg.setColor(P.energy)
       lg.printf("$"..city:contractValue(c).."/day",M+CW-110,y+9,100,"right")
-      -- A badge the player can read at a glance once the spread opens up.
-      local tag = c.secure and "SECURE CONTRACT"
-        or premium>0.12 and string.format("PREMIUM %+.0f%%",premium*100)
-        or premium<-0.12 and string.format("LOWBALL %+.0f%%",premium*100)
-        or (c.commodity=="power" and string.format("$%.2f/kWh",c.rate/5) or string.format("$%d/unit",c.rate))
-      if prospect then
-        local left=math.max(0,c.expires-city.day+1)
-        status=left..(left==1 and " day left" or " days left")
-      end
       single((c.demands and c.demands.water and c.demands.power and ("Water + "..city:quantity("power",c.demands.power)) or city:quantity(c.commodity,c.demand)).."  "..status,M+12,y+35,"small",
-        prospect and P.energy or met and P.good or P.warn,prospect and CW-16 or CW-140)
-      if prospect then
-        lg.setFont(R.fonts.small)
-        lg.setColor(c.secure and P.energy or premium>0.12 and P.good or premium<-0.12 and P.bad or P.textDim)
-        lg.printf(tag,M+12,y+57,CW-24,"left")
-      end
-      -- What each unit leaves after its cost, on the right of the same line.
+        met and P.good or P.warn,CW-140)
       local margin=city:clientMargin(c)
       local shown=c.commodity=="power" and 5 or 1
-      single("keep "..(margin>=0 and "+" or "-")..City.money2(math.abs(margin)/shown),M+CW-120,y+(prospect and 57 or 35),"small",
+      single("keep "..(margin>=0 and "+" or "-")..City.money2(math.abs(margin)/shown),M+CW-120,y+35,"small",
         margin<0 and P.bad or P.good,108,"right")
       y=y+h+12
+      end
     end
     y=y+18
   end
@@ -1631,89 +1642,6 @@ local function customers()
 end
 
 --------------------------------------------------------------------------------
-
-local function mapTab()
-  local y=TOP-state.scroll
-  if state.district then
-    local d=city.districts[state.district]
-    if d then
-      single(d.name,M,y,"mid",P.energy,CW)
-      y=y+30
-      local _,colour,words=Draw.landStatus(city,d)
-      single(words,M,y,"small",colour,CW)
-      y=y+22
-      local f=Draw.landContents(city,d)
-      local parts={}
-      if f.surveyed then
-        for _,name in ipairs(Graph.TRADES) do if f.deposits[name] then parts[#parts+1]=f.deposits[name].." "..name end end
-        if #parts==0 then parts[1]="no deposits" end
-      end
-      if f.woods>0 then parts[#parts+1]=f.woods..(f.woods>1 and " woods" or " wood") end
-      if f.ranges>0 then parts[#parts+1]=f.ranges..(f.ranges>1 and " ranges" or " range") end
-      if #parts>0 then text(table.concat(parts,", "),M,y,"small",P.text,CW); y=y+26 end
-      y=y+6
-      if (d.pollution or 0)>0 then
-        row("Pollution",string.format("%.0f / 100",d.pollution),y,d.pollution>=City.INFRA.pollution.stopAt and P.bad or P.warn); y=y+30
-      end
-      if (d.population or 0)>0 then
-        row("People",d.population,y,P.text,
-          "Good supply brings more people. Poor supply makes people leave.")
-
-        local trips=(((city.transit or {}).byDistrict) or {})[d.id]
-        if trips then
-          row("Trips",(trips.carried or 0).." / "..trips.trips,y+26,
-            (trips.carried or 0)>=trips.trips and P.good or P.warn)
-        end
-        y=y+(trips and 60 or 34)
-      end
-    end
-  end
-  local d=city.districts[state.district or 0]
-  if d then
-    local err=city:districtError(d.id)
-    if not d.owned and city:landDiscount(d)>0 then row("Discount","-"..math.floor(city:landDiscount(d)*100).."%",y,P.energy); y=y+28 end
-    if not d.owned then
-      button("district-"..d.id,"Buy land  $"..city:districtCost(d),M,y,CW,36,
-        function() act("buyDistrict",d.id) end,not err,err)
-      y=y+48
-    end
-    if d.owned then
-      for index,o in ipairs(city.obstacles) do
-        if city:districtAt(o.x,o.y)==d and (o.kind=="park" or o.kind=="bedrock") then
-          local cost=city:clearCost(o)
-          button("clear-terrain-"..index,(o.kind=="park" and "Harvest " or "Demolish ")..S.get(o.kind=="park" and "timber" or "rock").."  $"..cost,M,y,CW,32,function() act("clearTerrain",index) end,city.money>=cost,o.kind=="park" and ("Regrows in "..City.TERRAIN_LIFE.regrowDays.." days if left clear") or (math.floor(City.TERRAIN_LIFE.gemChance*100).."% gem chance"))
-          y=y+38
-        end
-      end
-    end
-    button("district-permits","Land permits",M,y,CW,32,function() state.tab="finance"; state.scroll=0; state.folds=state.folds or {}; state.folds.permits=true; state.jump="permits" end,true)
-    y=y+48
-  else
-    -- Nothing picked yet: what the colours on the map mean, and the plots
-    -- that can be bought, cheapest first, one click from their deed.
-    local near={}
-    for _,pl in ipairs(city.districts) do
-      if not pl.owned and city:districtVisible(pl) then
-        local err=city:districtError(pl.id)
-        if not err or err=="not enough cash" then near[#near+1]=pl end
-      end
-    end
-    table.sort(near,function(a,b) return city:districtCost(a)<city:districtCost(b) end)
-    if #near>0 then
-      text("NEXT DOOR",M,y,"tiny",P.textFaint,CW); y=y+20
-      for i,pl in ipairs(near) do
-        if i>8 then break end
-        local short=city:districtError(pl.id)
-        button("near-"..pl.id,pl.name.."  $"..city:districtCost(pl),M,y,CW,30,
-          function() act("focusDistrict",pl.id) end,true,short and "Needs more cash" or "Show its deed",nil,short and P.warn or P.good)
-        y=y+36
-      end
-      y=y+8
-    end
-  end
-  button("district-back","Back to build",M,y,CW,32,function() state.tab="network"; state.district=nil; state.scroll=0 end)
-  UI.contentBottom=y+50+state.scroll
-end
 
 --------------------------------------------------------------------------------
 
@@ -1958,11 +1886,36 @@ local function report()
     h=136+lines*28+6+rows*24+16+((leak or enquiry) and 44 or 0)+66
   end
   if state.modal=="slots" then w,h = 680,600 end
+  if state.modal=="land" or state.modal=="terrain" then w,h = 420,200 end
   local x,y=(W-w)/2,(H-h)/2
   lg.setColor(0,0,0,0.7); lg.rectangle("fill",0,0,W,H)
   lg.setColor(P.panel); lg.rectangle("fill",x,y,w,h,6)
   lg.setColor(P.panelEdge); lg.rectangle("line",x,y,w,h,6)
   if state.modal=="slots" then slotsPanel(x,y,w,h); return end
+  -- Ground is bought from the map, through this one question.
+  if state.modal=="land" then
+    local d=city.districts[state.landId or 0]
+    if not d or d.owned then state.modal=nil; return end
+    local err=city:districtError(d.id)
+    local off=city:landDiscount(d)
+    single("Buy "..d.name.."?",x+32,y+28,"big",P.text,w-64)
+    single("$"..city:districtCost(d)..(off>0 and ("  -"..math.floor(off*100).."%") or ""),x+32,y+84,"mid",P.energy,w-64)
+    if err then single(err=="not enough cash" and ("$"..(city:districtCost(d)-math.floor(city.money)).." short") or err,x+32,y+118,"small",P.warn,w-64) end
+    button("land-cancel","Cancel",x+32,y+h-60,(w-80)/2,36,function() state.modal=nil; state.district=nil end)
+    button("land-buy","Buy",x+48+(w-80)/2,y+h-60,(w-80)/2,36,function() state.modal=nil; act("buyDistrict",d.id) end,not err,err,false,P.good)
+    return
+  end
+  if state.modal=="terrain" then
+    local o=city.obstacles[state.terrainId or 0]
+    if not o then state.modal=nil; return end
+    local cost=city:clearCost(o)
+    single((o.kind=="park" and "Harvest " or "Demolish ")..S.get(o.kind=="park" and "timber" or "rock").."?",x+32,y+28,"big",P.text,w-64)
+    single("$"..cost,x+32,y+84,"mid",P.energy,w-64)
+    button("terrain-cancel","Cancel",x+32,y+h-60,(w-80)/2,36,function() state.modal=nil end)
+    button("terrain-clear",o.kind=="park" and "Harvest" or "Demolish",x+48+(w-80)/2,y+h-60,(w-80)/2,36,function() state.modal=nil; act("clearTerrain",state.terrainId) end,
+      city.money>=cost,o.kind=="park" and ("Regrows in "..City.TERRAIN_LIFE.regrowDays.." days if left clear") or (math.floor(City.TERRAIN_LIFE.gemChance*100).."% gem chance"),false,P.good)
+    return
+  end
   if state.modal=="restart" then
     text("Start a new company?",x+32,y+34,"big")
     text("The current company save will be replaced.",x+32,y+95,"body",P.textDim,w-64)
@@ -2186,7 +2139,6 @@ local function openTab(key)
   end
   state.node,state.edge,state.link,state.district=nil,nil,nil,nil
   state.tab=key; state.scroll=0; state.drawer=true; state.settings=nil
-  if key=="map" then act("fitWorld") end
 end
 
 -- A gear, drawn rather than lettered.
@@ -2210,7 +2162,7 @@ local function topBar(open)
   local segW=(navW-6)/4
   lg.setColor(P.bg); lg.rectangle("fill",10,14,navW,34,8)
   for i,t in ipairs(TABS) do
-    local here=(t[1]=="network" and (state.tab=="network" or state.tab=="map"))
+    local here=(t[1]=="network" and state.tab=="network")
       or state.tab==t[1] or (t[1]=="stats" and (state.tab=="ambitions" or state.tab=="ledger" or state.tab=="advisor"))
     -- While a building is open none is lit: Build is then the way back.
     if state.node or state.edge or state.link then here=false end
@@ -2508,7 +2460,7 @@ local function hoverCard()
   if (n and state.node==n.id) or (e and state.edge==e.id) then hoverKey=nil; return end
   -- Bare ground: what is standing on it and what it costs to cross or buy.
   local ground,plot
-  if not n and not e and state.hoverGround and state.tab~="map" then
+  if not n and not e and state.hoverGround then
     local gx,gy=state.hoverGround[1],state.hoverGround[2]
     plot=city:districtAt(gx,gy)
     if plot and not city:districtVisible(plot) then plot=nil end
@@ -2624,7 +2576,6 @@ function UI.draw(c,s,action)
     if state.tab=="network" then network()
     elseif state.tab=="finance" then company()
     elseif state.tab=="customers" then customers()
-    elseif state.tab=="map" then mapTab()
     elseif state.tab=="stats" then stats()
     elseif state.tab=="ambitions" then goals()
     elseif state.tab=="advisor" then advisor()
@@ -2811,6 +2762,13 @@ end
 -- the top of a panel they then have to scroll.
 -- The inspector is the whole panel now, so revealing it is just going there.
 function UI.revealInspector() return 0 end
+
+-- Enter on an open buy or clear question answers yes.
+function UI.confirmModal()
+  for _,b in ipairs(UI.buttons) do
+    if (b.id=="land-buy" or b.id=="terrain-clear") and b.enabled then b.fn(); return end
+  end
+end
 
 function UI.click(x,y)
   local k=UI.scale or 1

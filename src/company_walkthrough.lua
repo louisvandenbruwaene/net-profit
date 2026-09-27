@@ -442,8 +442,13 @@ function Walk.start(app,mode)
     check(target~=nil,"an adjacent district is available to buy")
     local before=#c:ownedDistricts()
     app.action("focusDistrict",target)
-    click("district-"..target)
-    check(#c:ownedDistricts()==before+1,"a district can be bought")
+    check(app.state.modal=="land","clicking a plot asks once whether to buy it")
+    capture("net-profit-41-buy-land",app)
+    love.draw(); love.keypressed("escape")
+    check(app.state.modal==nil and #c:ownedDistricts()==before,"and Escape leaves it unbought")
+    app.action("focusDistrict",target)
+    love.draw(); click("land-buy")
+    check(#c:ownedDistricts()==before+1 and app.state.modal==nil,"a district can be bought")
     local d=c.districts[target]
     local free
     for gx=d.x+60,d.x+d.w-60,40 do
@@ -452,14 +457,32 @@ function Walk.start(app,mode)
       end
     end
     check(free,"bought ground accepts structures")
-    click("district-permits")
-    love.draw()
-    local permit=findButton("permit-park")
-    check(permit and permit.y>=0 and permit.y+permit.h<=love.graphics.getHeight(),
-      "the district's permits button lands on the permits section")
+    click("tab-finance")
+    scrollTo(app,"permit-park")
     click("permit-park")
     check(c.permits.park,"a permit can be granted")
     check(c:groundCross("park")==1.0,"and it drops the crossing charge on that ground")
+  end
+
+  -- Clients window: offers are answered one after another, and the window
+  -- stays open between answers.
+  do
+    c.money=99999
+    local offers={}
+    for i=1,3 do offers[i]=assert(c:addClient("house",true)) end
+    click("tab-customers")
+    capture("net-profit-40-clients",app,nil,nil,true)
+    local first=findButton("accept-"..offers[1].id)
+    click("accept-"..offers[1].id)
+    check(not offers[1].prospect and app.state.tab=="customers","an offer is accepted from the Clients window, which stays open")
+    click("decline-"..offers[2].id)
+    check((not c.g.nodes[offers[2].id].alive or not c.g.nodes[offers[2].id].prospect) and app.state.tab=="customers","and the next is declined straight after")
+    love.draw()
+    local under
+    for _,b in ipairs(UI.buttons) do if b.id:match("^accept%-") and first and math.abs(b.y-first.y)<1 then under=b end end
+    check(under,"the next offer moves up under the pointer")
+    click("client-"..offers[3].id)
+    check(app.state.node==offers[3].id and app.state.tab=="customers","clicking an offer shows it on the map")
   end
 
   -- Electricity: the trade between water and beer.
@@ -966,7 +989,7 @@ function Walk.update(app,mode,frame)
     elseif frame==22 then
       local c=app.city()
       c.money=99999
-      app.state.tab="map"; app.state.scroll=0
+      app.state.tab="network"; app.state.scroll=0
       app.action("fitWorld")
       capture("net-profit-06-map",app)
     elseif frame==23 then
@@ -1349,7 +1372,7 @@ function Walk.update(app,mode,frame)
     if frame%8==0 then
       check(assert(Save.unpack(Save.pack(c))).day==c.day,"soak save on day "..c.day)
       app.state.modal=nil
-      app.state.tab=({"network","finance","customers","map","ledger"})[frame%5+1]
+      app.state.tab=({"network","finance","customers","stats","ledger"})[frame%5+1]
     end
     return
   end

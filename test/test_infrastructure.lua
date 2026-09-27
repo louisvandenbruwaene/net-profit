@@ -109,6 +109,32 @@ do
   check(saved.g.nodes[std.id].upgrade=='transformer' and saved.g.edges[low.id].voltage=='low' and saved.served[home.id]==2,
     'towers, upgrades, voltages and delivery survive saving')
 end
+-- A tower is built low and raised; a cable is laid at the lowest shared
+-- voltage and upgraded once both ends take the next one.
+do
+  local c=city(); c.money=100000
+  local a=node(c,'pole',1250,1050); local b=node(c,'pole',1370,1050)
+  c.setLevel(c,a,1,true); c.setLevel(c,b,1,true)
+  assert(c:upgradeTower(a.id,'transformer')); assert(c:upgradeTower(b.id,'transformer'))
+  check(c:towerVoltageCost(a,'medium')==(65-25)+(260-90),'raising a tower costs the difference, fitted transformer included')
+  local cable=assert(c:layPipe(a.id,b.id,'power','small'))
+  check(cable.voltage=='low' and not c:cableUpgradeTarget(cable),'two poles share only low voltage')
+  local money=c.money
+  assert(c:raiseTowerVoltage(a.id,'high'))
+  check(a.kind=='hvtower' and c.money==money-c:towerVoltageCost({kind='pole',level=1,upgrade='transformer'},'high'),'a tower is raised straight to the voltage wanted')
+  check(a.throughput==40*City.LEVELS.TOWER_SCALE.hvtower,'a raised tower carries more')
+  check(cable.voltage=='low' and not c:towerVoltageError(b.id,'medium'),'its cables keep their voltage')
+  check(c:towerVoltageError(a.id,'medium')~=nil,'a tower is never lowered')
+  assert(c:raiseTowerVoltage(b.id,'high'))
+  check(c:cableVoltage(a.id,b.id)=='low','a new cable takes the lowest voltage both ends accept')
+  check(c:cableUpgradeTarget(cable)=='medium' and c:cableUpgradeCost(cable,'medium')>0,'an upgrade goes one voltage up and costs money')
+  local before=c:powerRating(cable)
+  assert(c:upgradeCable(cable.id)); assert(c:upgradeCable(cable.id))
+  check(cable.voltage=='high' and c:powerRating(cable)>before and c:cableUpgradeTarget(cable)==nil,'upgraded cables carry more, up to high voltage')
+  local far=node(c,'hvtower',1250+250,1080); c.setLevel(c,far,1,true)
+  assert(c:upgradeTower(far.id,'transformer'))
+  check(c:cableVoltage(a.id,far.id)=='high','a gap only a higher voltage spans gets that voltage')
+end
 -- Each voltage has a tower spacing and a booster distance.
 do
   local c=city()
