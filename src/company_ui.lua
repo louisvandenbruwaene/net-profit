@@ -300,7 +300,7 @@ local function inspectClient(n,y)
     for _,key in ipairs(Graph.ALL) do
       local want=n.demands[key]
       if want then
-        row(string.upper(key),city:quantityPair(key,(city.servedBy[n.id] or {})[key] or 0,want),y,Graph.COMMODITIES[key].color)
+        row(string.upper(key),city:quantityPair(key,(city.servedBy[n.id] or {})[key] or 0,want,key=="power" and city:voltageOf(n) or nil),y,Graph.COMMODITIES[key].color)
         y=y+26
       end
     end
@@ -318,26 +318,25 @@ local function inspectClient(n,y)
     y=y+44
   end
   local premium=city:ratePremium(n)
-  local margin,cost,rate=city:clientMargin(n)
-  local bad=margin<0
+  local bad=city:clientKeep(n)<0
   local pays="Pays "..perUnit(n.commodity,n.rate)
     ..string.format(", %+.0f%% against the going rate. ",premium*100)
   y=y-52
-  if n.secure then
-    local exposure=(not n.prospect) and city:exposureOf(n.id)
-    row("Contract","SECURE"..(n.prospect and "" or exposure and " (exposed)" or ""),y+52,exposure and P.bad or P.energy,
-      pays.."Pays more; refunds every short day")
-  else
-    local keep=city:clientKeep(n)
-    row("You keep",City.signed(keep).." / day",y+52,keep<0 and P.bad or keep>0 and P.good or P.textDim,
-      pays.."After what delivering it costs you.")
-  end
+  -- The same rows for every customer: what they leave you a day (a secure
+  -- contract says so in the same row), what they pay, and how long they wait.
+  local keep=city:clientKeep(n)
+  local exposure=n.secure and (not n.prospect) and city:exposureOf(n.id)
+  row("You keep",City.signed(keep).." / day"..(n.secure and "  secure" or ""),y+52,
+    keep<0 and P.bad or exposure and P.bad or keep>0 and P.good or P.textDim,
+    pays..(n.secure and ("Secure: pays more, refunds every short day"..(exposure and ", and one failure would leave it short" or "")..". ") or "")
+      .."After what delivering it costs you.")
   local L=City.LOYALTY
   local lv=n.loyalty or 0
-  row("Income / day","$"..city:contractValue(n)..(lv>0 and ("  loyal +$"..(lv*L.step)) or ""),y+78,P.energy)
+  local income=city:contractValue(n)
+  row("Income / day","$"..income..(lv>0 and ("  loyal +$"..(lv*L.step)) or ""),y+78,P.energy)
   row(n.prospect and "Expires" or "Patience",
     (n.prospect and (n.expires-city.day+1) or n.grace)..((n.prospect and n.expires-city.day+1 or n.grace)==1 and " day" or " days"),y+104,P.warn)
-  marginBar(cost,rate,y+127)
+  marginBar(math.max(0,income-keep),income,y+127)
   y=y-26
 
   if n.prospect then
@@ -433,7 +432,8 @@ local function inspectClient(n,y)
         button("inspect-bottleneck","Inspect that valve",M,dy+30,CW,30,
           function() act("focusNode",eid) end,true,"Select the valve and centre on it")
       elseif why=="unconnected" then
-        single("Not connected",M,dy,"small",P.bad,CW)
+        local com=city:shortTrade(n)
+        single("No "..(com=="power" and "electricity" or com).." connection",M,dy,"small",P.bad,CW)
       elseif why=="valve" then
         single("Supply switched off",M,dy,"small",P.warn,CW)
       end
@@ -745,9 +745,6 @@ end
 
 local function inspectEdge(e,y)
   if e.voltage then
-    row("Rating",city:quantity("power",e.effectiveCap or e.cap,e.voltage),y,P.accent,
-      City.INFRA.voltages[e.voltage].name..": what it carries at most")
-    y=y+30
     local key=city:cableUpgradeTarget(e)
     if key then
       local err=city:cableUpgradeError(e.id)
@@ -843,7 +840,7 @@ local function inspectEdge(e,y)
   end
   row("Flow",city:quantityPair(e.commodity,math.abs(city.detail.edge[e.id] or 0),e.effectiveCap or e.cap,e.voltage),y)
   local size=City.sizeOf(e.size or City.sizeFor(e.capMax or e.cap).key)
-  row("Main",size.name.." "..string.lower(grade.name)..", "..math.floor(city:pipeLength(e)).." m",y+26,
+  row(e.voltage and "Cable" or "Main",size.name.." "..string.lower(grade.name)..", "..math.floor(city:pipeLength(e)).." m",y+26,
     (e.grade or 1)>1 and P.good or P.textDim,
     string.format("%.2f%% leak risk a day",city:leakChance(e)*100))
   row("Upkeep",string.format("-$%.2f / day",city:pipeUpkeep(e)),y+52,P.warn)
@@ -1664,12 +1661,10 @@ end
 -- What an offer asks for, as symbols: the commodity's mark and the amount
 -- beside it (electricity in kWh a day), so it can be set large on one line.
 local function offerAmount(c)
-  local function q(key,v)
-    if key=="power" then return string.format("%g",v)..City.bolts(city:voltageOf(c)) end
-    return S.get(key)..string.format("%g",v)
-  end
+  -- Number first, then the symbol, the way every other amount reads.
+  local function q(key,v) return city:quantity(key,v,key=="power" and city:voltageOf(c) or nil) end
   if c.powerRequest and not c.prospect then
-    return S.get(c.commodity).." + "..q("power",City.DUAL.demand[c.clientType] or City.DUAL.demand.house)
+    return "+ "..q("power",City.DUAL.demand[c.clientType] or City.DUAL.demand.house)
   end
   if c.demands and c.demands.water and c.demands.power then return q("water",c.demands.water).." + "..q("power",c.demands.power) end
   return q(c.commodity,c.demand)
@@ -1714,9 +1709,15 @@ local function offerRow(c,x,y,w,h,prefix,onAccept)
   -- on one line where the row is wide, the asking on top and the money under
   -- it where it is not.
   local amount=offerAmount(c)
-  local pay=c.prospect and ("$"..city:contractValue(c).."/d") or ""
+  -- What answering yes adds a day: the whole contract for a new customer, the
+  -- electricity alone for one who already takes water.
+  local value=c.prospect and city:contractValue(c)
+    or (c.powerRequest and (City.DUAL.demand[c.clientType] or City.DUAL.demand.house)*(c.powerOfferRate or City.DUAL.rate))
+  local pay=value and ("$"..math.floor(value+0.5).."/d") or ""
   local payW=pay~="" and SF.width(pay,R.fonts.small) or 0
-  if bodyW-pctW-payW-34>=SF.width(amount,R.fonts[font]) then
+  -- One line or two is decided by the row's width alone, never by what this
+  -- particular offer says, so every row in a list is laid out the same way.
+  if bodyW>=260 then
     single(amount,x+10,ty,font,P.text,bodyW-pctW-payW-34)
     if pay~="" then
       single(pay,x+bodyW-pctW-payW-20,y+(h-R.fonts.small:getHeight())/2,"small",P.energy,payW)
@@ -2613,19 +2614,22 @@ local function hoverCard()
   local function add(text,color) lines[#lines+1]={text,color or P.textDim} end
   if n and n.kind=="client" then
     title=E.clientName(city,n)
-    local margin,cost,rate=city:clientMargin(n)
-    local unit=n.commodity=="power" and (" / "..S.get("power")) or " / unit"
-    local shown=1
     if n.prospect then
       local left=n.expires-city.day+1
-      add(City.money2(rate/shown)..unit.."  "..left..(left==1 and " day" or " days"),P.energy)
+      add("$"..city:contractValue(n).."/d  "..left..(left==1 and " day" or " days"),P.energy)
       local p=E.offerPreview(city,n.id)
       if p.cost==0 then add("Ready",P.good)
       elseif p.cost then add(string.format("Pipe ~$%d  %s/day",p.cost,City.signed(p.net or 0)),(p.net or 0)>=0 and P.good or P.warn)
       elseif not p.multipleUtilities then add("Needs supply",P.warn) end
     else
-      local got=city.served[n.id] or 0
-      add(string.upper(n.commodity).."  "..got.." / "..n.demand,got>=n.demand and P.good or P.warn)
+      -- One line per utility they take, each against what it delivered.
+      for _,key in ipairs(Graph.TRADES) do
+        local want=(n.demands or {})[key] or (key==n.commodity and n.demand)
+        if want then
+          local got=key==n.commodity and (city.served[n.id] or 0) or ((city.servedBy[n.id] or {})[key] or 0)
+          add(city:quantityPair(key,got,want,key=="power" and city:voltageOf(n) or nil),got>=want and P.good or P.warn)
+        end
+      end
     end
     local keep=city:clientKeep(n)
     add("keep "..City.signed(keep).." / day",keep<0 and P.bad or P.good)

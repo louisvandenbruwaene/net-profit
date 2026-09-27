@@ -8,7 +8,7 @@ local Shape = require("terrain_shape")
 local Draw = {}
 local lg = love.graphics
 
-local labels,occupied,segments={},{},{}
+local labels,occupied,segments,cards={},{},{},{}
 local labelPriority=0
 
 -- Grids other than the selected one are drawn faded, so the grid being built
@@ -51,6 +51,7 @@ local function crossesBox(line,x,y,w,h)
 end
 local function drawLabels(cam)
   R.labelBoxes={}
+  for _,card in ipairs(cards) do R.labelBoxes[#R.labelBoxes+1]=card end
   for _,box in ipairs(R.coverBoxes or {}) do occupied[#occupied+1]=box end
   table.sort(labels,function(a,b) return a.priority>b.priority or (a.priority==b.priority and a.order<b.order) end)
   for _,item in ipairs(labels) do
@@ -68,7 +69,7 @@ local function drawLabels(cam)
     end
     if clear then
       occupied[#occupied+1]={x=x,y=y,w=w,h=h}
-      R.labelBoxes[#R.labelBoxes+1]={x=x+w/2,y=y+h/2,w=w}
+      R.labelBoxes[#R.labelBoxes+1]={x=x+w/2,y=y+h/2,w=w,h=h}
       local c=item.color
       lg.setColor(P.with(P.bg,0.94*item.fade)); lg.rectangle("fill",x,y,w,h,3)
       lg.setFont(f); lg.setColor(c[1],c[2],c[3],(c[4] or 1)*item.fade); lg.print(item.text,x+4,y+2)
@@ -1780,7 +1781,7 @@ end
 
 function Draw.world(city, cam, state)
   UNFOCUSED_ALPHA = city.hideUnfocusedNetworks and 0 or 0.4
-  labels,occupied,segments={},{},{}; labelPriority=0
+  labels,occupied,segments,cards={},{},{},{}; labelPriority=0
   districtVisible = visibility(city)
   lg.setScissor(cam.vx, cam.vy, cam.vw, cam.vh)
   R.drawGrid(cam, city.bounds.w, city.bounds.h)
@@ -2790,6 +2791,8 @@ function Draw.world(city, cam, state)
           local qx=math.max(cam.vx+16,math.min(cam.vx+cam.vw-qw-16,mx+20))
           local qy=math.max(cam.vy+12,math.min(cam.vy+cam.vh-70-qh,my-qh-22))
           occupied[#occupied+1]={x=qx-4,y=qy-4,w=qw+8,h=qh+8}
+          -- Floating numbers are drawn after this card, so they are told where it is.
+          cards[#cards+1]={x=qx+qw/2,y=qy+qh/2,w=qw+8,h=qh+8}
           lg.setColor(P.panel); lg.rectangle("fill",qx,qy,qw,qh,7)
           lg.setColor(p.cash<0 and P.bad or P.flow); lg.setLineWidth(1)
           lg.rectangle("line",qx,qy,qw,qh,7)

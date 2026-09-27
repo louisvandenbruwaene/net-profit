@@ -127,7 +127,9 @@ do
  c.licences.power=false; c.wantsSecondUtility=function() return true end
  assert(c:buyLicence('power'))
  check(h.powerRequest and not h.demands.power,'licence queues electricity for a household that wants it')
- check(City.isElectrical(h),'a cable can be run to them before the request is accepted')
+ local pole=node(c,'pole',h.x+60,h.y); assert(c:upgradeTower(pole.id,'transformer'))
+ check(c:pipeError(pole.id,h.id,'power')==nil,'a cable can be run to them before the request is accepted')
+ assert(c:layPipe(pole.id,h.id,'power','small'))
  assert(c:acceptClient(h.id)); check(h.demands.power==2,'acceptance activates a 10 kWh/day demand')
  -- Which households want a second utility comes from the company and the
  -- building, so it is the same share every time and the same answer after a
