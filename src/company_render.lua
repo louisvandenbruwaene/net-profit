@@ -1003,9 +1003,31 @@ end
 -- Only what is on screen is drawn, for every pass over the map. A company on an
 -- endless map holds ground and customers it cannot see, and a frame spent
 -- drawing them is a frame spent on nothing.
+-- City:districtVisible scans every district for an owned one nearby. The map
+-- asks it for every plot and every stand of terrain in view, every frame, so
+-- the frame builds the set of owned cells once and asks that instead.
+local districtVisible
+local function visibility(city)
+  local owned = {}
+  for _, d in ipairs(city.districts) do
+    if d.owned and d.col and d.row then owned[d.col * 65536 + d.row] = true end
+  end
+  local radius = math.max(1, city:workerCount("dispatchers"))
+  return function(d)
+    if not d or not d.col or not d.row then return false end
+    if d.owned then return true end
+    for dc = -radius, radius do
+      for dr = -radius, radius do
+        if owned[(d.col + dc) * 65536 + d.row + dr] then return true end
+      end
+    end
+    return false
+  end
+end
+
 local function drawDistrictGround(city, cam)
   for _, d in ipairs(city.districts or {}) do
-    if city:districtVisible(d) and cam:seesBox(d.x, d.y, d.x + d.w, d.y + d.h) then
+    if cam:seesBox(d.x, d.y, d.x + d.w, d.y + d.h) and districtVisible(d) then
       local x, y = cam:toScreen(d.x, d.y)
       local w, h = d.w * cam.scale, d.h * cam.scale
       if d.island then
@@ -1064,7 +1086,7 @@ end
 local function drawDistrictChrome(city, cam, state)
   lg.setLineWidth(1)
   for _, d in ipairs(city.districts or {}) do
-    if city:districtVisible(d) and cam:seesBox(d.x, d.y, d.x + d.w, d.y + d.h) then
+    if cam:seesBox(d.x, d.y, d.x + d.w, d.y + d.h) and districtVisible(d) then
     local x, y = cam:toScreen(d.x, d.y)
     local w, h = d.w * cam.scale, d.h * cam.scale
     local cx, cy = x + w / 2, y + h / 2
@@ -1137,6 +1159,22 @@ local function withinRows(top, bottom, fn)
   lg.intersectScissor(0, top, width, math.max(0, bottom - top))
   fn()
   if sx then lg.setScissor(sx, sy, sw, sh) else lg.setScissor() end
+end
+
+-- Whether the bank at sample i of a channel is open water's edge, rather than
+-- where another channel runs in. It depends only on the course, so it is
+-- worked out once per course and side, not for every vertex of every frame.
+local bankOpenCache = setmetatable({}, { __mode = "k" })
+local function bankOpen(city, q, i, side)
+  local c = bankOpenCache[q]
+  if not c then c = { [-1] = {}, [1] = {} }; bankOpenCache[q] = c end
+  local v = c[side][i]
+  if v == nil then
+    local wx, wy = q.x[i] + q.nx[i] * side * q.hw[i], q.y[i] + q.ny[i] * side * q.hw[i]
+    v = (city:riverEdge(wx + q.nx[i] * side * 6, wy + q.ny[i] * side * 6) or 1) > 0
+    c[side][i] = v
+  end
+  return v
 end
 
 local function drawSea(city, cam, state)
@@ -1422,9 +1460,8 @@ local function drawRiver(city, cam)
       for _, side in ipairs({ -1, 1 }) do
         local px, py
         for i = spans[k][1], spans[k][2] do
-          local wx, wy = q.x[i] + q.nx[i] * side * q.hw[i], q.y[i] + q.ny[i] * side * q.hw[i]
-          local sx, sy = cam:toScreen(wx, wy)
-          local open = (city:riverEdge(wx + q.nx[i] * side * 6, wy + q.ny[i] * side * 6) or 1) > 0
+          local sx, sy = cam:toScreen(q.x[i] + q.nx[i] * side * q.hw[i], q.y[i] + q.ny[i] * side * q.hw[i])
+          local open = bankOpen(city, q, i, side)
           if px and open then lg.line(px, py, sx, sy) end
           if open then px, py = sx, sy else px = nil end
         end
@@ -1473,7 +1510,7 @@ local function drawSeams(city, cam, state)
       -- Surveyors report on ground the company has not bought yet, which is the
       -- whole reason to have them: you can see what a district holds before you
       -- write the cheque.
-      if d and city:districtVisible(d) and (d.owned or (city.orders or {}).surveyors) then
+      if d and districtVisible(d) and (d.owned or (city.orders or {}).surveyors) then
         -- A deposit is the only place its trade can be taken out of the
         -- ground, so it is drawn in that trade's own colour and says which
         -- trade it is. The ring is the ground a works has to stand on.
@@ -1684,7 +1721,7 @@ end
 local function drawLandView(city, cam, state)
   local hoverD = state.hoverGround and city:districtAt(state.hoverGround[1], state.hoverGround[2])
   for _, d in ipairs(city.districts or {}) do
-    if city:districtVisible(d) and cam:seesBox(d.x, d.y, d.x + d.w, d.y + d.h) then
+    if cam:seesBox(d.x, d.y, d.x + d.w, d.y + d.h) and districtVisible(d) then
       local x, y = cam:toScreen(d.x, d.y)
       local w, h = d.w * cam.scale, d.h * cam.scale
       local cx, cy = x + w / 2, y + h / 2
@@ -1776,6 +1813,7 @@ end
 function Draw.world(city, cam, state)
   UNFOCUSED_ALPHA = city.hideUnfocusedNetworks and 0 or 0.4
   labels,occupied,segments={},{},{}; labelPriority=0
+  districtVisible = visibility(city)
   lg.setScissor(cam.vx, cam.vy, cam.vw, cam.vh)
   R.drawGrid(cam, city.bounds.w, city.bounds.h)
   drawSea(city, cam, state)
@@ -1806,7 +1844,7 @@ function Draw.world(city, cam, state)
   end
 
   for _, o in ipairs(city.obstacles) do
-    if city:districtVisible(city:districtAt(o.x,o.y) or {}) and cam:sees(o.x, o.y, o.r * cam.scale + 60) then
+    if cam:sees(o.x, o.y, o.r * cam.scale + 60) and districtVisible(city:districtAt(o.x,o.y) or {}) then
     local spec = City.OBSTACLES[o.kind]
     local x, y = cam:toScreen(o.x, o.y)
     local freed = city.permits and city.permits[o.kind]
