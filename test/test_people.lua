@@ -150,6 +150,21 @@ do
  assert(c:setStationPrice(station.id,P.tollMax))
  check((c.transit.byNode[station.id].sold or 0)<=fair*math.max(0,1-(P.tollMax-P.pumpPrice)*P.priceSensitivity)+1e-9,'and at the top price hardly anyone stops')
 end
+-- Drivers turned away by a dear pump fill up at the next station on the way.
+do
+ local c=world(); local a=node(c,'client',1400,900); local b=node(c,'client',1700,900)
+ local s1=node(c,'station',1500,900); local s2=node(c,'station',1600,900)
+ for i,st in ipairs({s1,s2}) do
+  st.fuelWanted=30; st.price=City.PEOPLE.pumpPrice
+  local src=node(c,'source',st.x,950); src.commodity='gasoline'; src.output=30
+  local e=c.g:addEdge(src.id,st.id,30); e.commodity='gasoline'; e.capMax=30
+ end
+ road(c,a,s1); road(c,s1,s2); road(c,s2,b); c:refresh()
+ local function sold() local t=0; for _,st in ipairs({s1,s2}) do t=t+((c.transit.byNode[st.id] or {}).sold or 0) end; return t end
+ local fair=sold()
+ assert(c:setStationPrice(s1.id,City.PEOPLE.pumpPrice+2))
+ check(fair>0 and math.abs(sold()-fair)<1e-9,'a dear pump sends its drivers on to the next station')
+end
 -- Passenger destinations exclude utility access, including saved old choices.
 do
  local c=world(); local a=node(c,'client',1400,900); local b=node(c,'client',1600,900)

@@ -398,7 +398,7 @@ function City:routeTrips()
     local take=math.min(tank[id],want*keen)
     T.byNode[id]=T.byNode[id] or {}
     if take>0 then
-     tank[id]=tank[id]-take; want=want-take/keen
+     tank[id]=tank[id]-take; want=want-take
      T.fuel=T.fuel+take*price
      T.byNode[id].sold=(T.byNode[id].sold or 0)+take
     end
