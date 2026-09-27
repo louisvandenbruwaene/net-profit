@@ -48,6 +48,14 @@ return function(app,capture,click,scrollTo,check)
  click('accept')
  check(not best.prospect,'the highest premium offer is the one signed')
  check(c:nextRequest()~=best,'next request appears immediately')
+ do
+  -- A signed customer asking for electricity shows it in its own panel.
+  c:offerElectricity(best); app.state.node=best.id; love.draw()
+  capture('net-profit-ideas-power-request',app,1100,700)
+  click('accept-power')
+  check(best.demands.power and not best.powerRequest,'the building panel signs the electricity it asks for')
+  app.state.node=nil
+ end
  click('tab-network')
  click('power'); click('line-options')
  capture('net-profit-ideas-current-help',app,1100,700)
