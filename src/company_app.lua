@@ -328,7 +328,7 @@ local function action(name,...)
   -- A milestone reached gets its banner.
   for i,m in ipairs(City.MILESTONES) do
     if (city.milestones or {})[i] and not milestonesBefore[i] then
-      state.banner={title=m.name.."!",sub="Municipal grant  +$"..m.reward,t=R.t}
+      state.banner={title=m.name,sub="+$"..m.reward,t=R.t}
       A.play("unlock",0.9)
     end
   end
@@ -340,11 +340,11 @@ local function action(name,...)
     end
   end
   if name=="endDay" and result.achievement then
-    state.banner={title="Ambition achieved",sub=result.achievement,t=R.t}
+    state.banner={title=result.achievement,t=R.t}
   end
   -- The market and the weather are news, not a line in a log.
   if name=="endDay" and not state.banner and (result.shock or result.event) then
-    state.banner={title=result.shock and "Shock" or "Market news",sub=result.shock or result.event,t=R.t,warn=result.shock~=nil}
+    state.banner={title=result.shock or result.event,t=R.t,warn=result.shock~=nil}
   end
   if name=="endDay" then
     state.undo={}; clear(); state.rename=nil; state.modal=city.bankrupt and "report" or nil; state.reportDetails=false

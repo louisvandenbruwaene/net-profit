@@ -1951,7 +1951,24 @@ end
 
 local function report()
   local r=city.lastReport
-  local w,h = 580,state.reportDetails and 620 or 440
+  local w,h = 580,500
+  -- The results box is as tall as what it has to say.
+  local function reportEntries(r)
+    local reward=r.bonus or 0
+    return {{"Revenue",r.revenue},{"Costs",-r.expenses},{"Repairs",-(r.crewCost or 0)-(r.preventCost or 0)},
+      {"Investments",r.interest or 0},{"Grants",reward},{"Refunds",-(r.credits or 0)},{"Travel",r.transitIncome or 0}}
+  end
+  local leak,enquiry
+  if r and state.modal=="report" then
+    for _,e in ipairs(city.g.edges) do if e.alive and e.leaking then leak=e; break end end
+    for _,n in ipairs(city:clientList(true)) do
+      if r.arrived and n.x==r.arrived.x and n.y==r.arrived.y then enquiry=n; break end
+    end
+    local lines=((r.unhappy>0 or #r.left>0) and 1 or 0)+((r.bonus or 0)>0 and 1 or 0)+(r.event and 1 or 0)+(r.shock and 1 or 0)
+    local rows=0
+    for _,v in ipairs(reportEntries(r)) do if (v[2] or 0)~=0 then rows=rows+1 end end
+    h=136+lines*28+6+rows*24+16+((leak or enquiry) and 44 or 0)+66
+  end
   if state.modal=="slots" then w,h = 680,632 end
   local x,y=(W-w)/2,(H-h)/2
   lg.setColor(0,0,0,0.7); lg.rectangle("fill",0,0,W,H)
@@ -1966,69 +1983,35 @@ local function report()
     return
   end
   local profit=r.revenue-r.expenses-(r.crewCost or 0)-(r.preventCost or 0)
-  text(city.bankrupt and "Company insolvent" or "Day "..r.day.." complete",x+32,y+24,"big")
-  text("OPERATING PROFIT",x+32,y+74,"small",P.textDim)
-  single(City.signed(profit),x+32,y+96,"big",profit>=0 and P.good or P.bad,246)
-  text("CLOSING CASH",x+310,y+74,"small",P.textDim)
-  single("$"..(r.money or city.money),x+310,y+96,"big",P.energy,w-342)
-  text(string.format("%d supply shortfalls  /  %d customers lost",r.unhappy,#r.left),
-    x+32,y+144,"body",r.unhappy>0 and P.warn or P.good)
   local reward=r.bonus or 0
-  if reward>0 then
-    lg.setColor(P.with(P.good,0.12)); lg.rectangle("fill",x+24,y+174,w-48,44,5)
-    single("Bonus +$"..reward,x+32,y+186,"body",P.good,w-64)
-  else
-    text(profit>=0 and r.unhappy==0 and "A good day's work. Your city keeps moving."
-      or "A new day to get the network back on track.",x+32,y+183,"body",P.textDim,w-64)
-  end
-  local newsY=y+230
-  local leak
-  for _,e in ipairs(city.g.edges) do if e.alive and e.leaking then leak=e; break end end
-  local enquiry
-  for _,n in ipairs(city:clientList(true)) do
-    if r.arrived and n.x==r.arrived.x and n.y==r.arrived.y then enquiry=n; break end
-  end
-  if leak then
-    button("report-leak","Inspect leaking main",x+32,newsY,246,32,function() act("focusEdge",leak.id) end,true,nil,false,P.warn)
-  else text("No mains need repair",x+32,newsY+8,"small",P.good) end
-  if enquiry then
-    button("report-enquiry","View new requests",x+290,newsY,258,32,function() if #(r.arrivals or {})>1 then state.modal=nil; state.tab="customers"; state.scroll=0 else act("focusNode",enquiry.id) end end,true,nil,false,P.flow)
-  else
-    button("report-clients","Review customers",x+290,newsY,258,32,function()
-      state.modal=nil; state.tab="customers"; state.scroll=0
-    end,true,"Review offers and deadlines")
-  end
-  local event=r.event
-  if event then single(event,x+32,y+274,"small",P.energy,w-64) end
-  if r.shock then single(r.shock,x+32,y+296,"small",P.bad,w-64) end
-  button("report-details",state.reportDetails and "Hide accounting" or "Show accounting",x+32,y+316,w-64,30,
-    function() state.reportDetails=not state.reportDetails end,true,"Revenue, expenses, repairs, investments and awards")
-  if state.reportDetails then
-    local entries={
-      {"Revenue",r.revenue},{"Costs / day",-r.expenses},{"Repairs / prevention",-(r.crewCost or 0)-(r.preventCost or 0)},
-      {"Investment profit / loss",r.interest or 0},{"Grants",reward},
-    }
-    if (r.credits or 0)>0 then entries[#entries+1]={"Secure contract refunds",-r.credits} end
-    for i,v in ipairs(entries) do
-      text(v[1],x+32,y+360+(i-1)*24,"small",P.textDim)
-      text(City.signed(v[2]),x+400,y+360+(i-1)*24,"small",v[2]<0 and P.warn or P.good)
+  text(city.bankrupt and "Insolvent" or "Day "..r.day,x+32,y+24,"big")
+  single(City.signed(profit),x+32,y+80,"big",profit>=0 and P.good or P.bad,246)
+  single("$"..(r.money or city.money),x+310,y+80,"big",P.energy,w-342)
+  local ly=y+136
+  local function line(s,color) single(s,x+32,ly,"body",color,w-64); ly=ly+28 end
+  if r.unhappy>0 or #r.left>0 then line(r.unhappy.." short   "..#r.left.." lost",P.warn) end
+  if reward>0 then line("Bonus +$"..reward,P.good) end
+  if r.event then line(r.event,P.energy) end
+  if r.shock then line(r.shock,P.bad) end
+  -- The accounts, only the lines that moved.
+  ly=ly+6
+  for _,v in ipairs(reportEntries(r)) do
+    if (v[2] or 0)~=0 then
+      text(v[1],x+32,ly,"small",P.textDim)
+      text(City.signed(v[2]),x+310,ly,"small",v[2]<0 and P.warn or P.good)
+      ly=ly+24
     end
-    if (r.stored or 0)>0 or (r.drawn or 0)>0 or (r.crewFixed or 0)>0 then
-      text(string.format("Crews fixed %d mains / Depots: %d stored, %d drawn",r.crewFixed or 0,r.stored or 0,r.drawn or 0),
-        x+32,y+502,"small",P.textDim,w-64)
-    end
-    if (r.trips or 0)>0 or (r.carsSold or 0)>0 then
-      single(string.format("Trips: %d/%d. Travel income: $%d.%s",
-        r.tripsCarried or 0,r.trips or 0,r.transitIncome or 0,
-        (r.carsSold or 0)>0 and string.format(" Cars sold: %d ($%d).",r.carsSold,r.carIncome or 0) or ""),
-        x+32,y+526,"small",P.textDim,w-64)
-    end
+  end
+  local by=y+h-66
+  if leak or enquiry then
+    if leak then button("report-leak","Leak",x+32,by-44,246,32,function() act("focusEdge",leak.id) end,true,"Inspect the leaking main",false,P.warn) end
+    if enquiry then button("report-enquiry","Requests",x+290,by-44,258,32,function() if #(r.arrivals or {})>1 then state.modal=nil; state.tab="customers"; state.scroll=0 else act("focusNode",enquiry.id) end end,true,nil,false,P.flow) end
   end
   if city.bankrupt then
-    button("new-company","Companies",x+32,y+h-66,w-64,38,function() act("openSlots") end,
+    button("new-company","Companies",x+32,by,w-64,38,function() act("openSlots") end,
       true,"Start again here, or open one of your other companies")
   else
-    button("continue","Back to stats",x+32,y+h-66,w-64,38,function() state.modal=nil; state.tab="stats"; state.scroll=0 end,true,"Close these results",true,P.good)
+    button("continue","OK",x+32,by,w-64,38,function() state.modal=nil end,true,"Close these results",true,P.good)
   end
 end
 

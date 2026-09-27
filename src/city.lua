@@ -3357,17 +3357,17 @@ City.jewelryPrice = 900
 
 City.EVENTS = {
   { key = "heatwave",  commodity = "water", rate = 1.45, days = 4,
-    head = "Heatwave: households pay a premium for water" },
+    head = "Heatwave: water pays more" },
   { key = "festival",  commodity = "beer",  rate = 1.60, days = 3,
-    head = "Beer festival: the pubs will take everything you have" },
+    head = "Beer festival: beer pays more" },
   { key = "refit",     commodity = "oil",   rate = 1.55, days = 3,
-    head = "Refinery refit: oil fetches a premium across the works" },
+    head = "Refinery refit: oil pays more" },
   { key = "mains",     commodity = "water", rate = 0.75, days = 3,
-    head = "Rationing order: the council caps what water may be charged" },
+    head = "Rationing: water pays less" },
   { key = "duty",      commodity = "beer",  rate = 0.72, days = 3,
-    head = "Excise duty raised: beer margins squeezed" },
+    head = "Excise duty: beer pays less" },
   { key = "glut",      commodity = "oil",   rate = 0.70, days = 3,
-    head = "Oil glut: the factories renegotiate downward" },
+    head = "Oil glut: oil pays less" },
 }
 
 function City:eventRate(commodity)
