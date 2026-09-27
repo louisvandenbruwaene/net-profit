@@ -2155,7 +2155,7 @@ function Draw.world(city, cam, state)
       local hx, hy = cam:toScreen(h.x, h.y)
       local rr = radius * cam.scale
       local live = state.node == h.id or state.hoverNode == h.id
-      local colour = Graph.KINDS.exchange.color
+      local colour = P.hub
       lg.setColor(P.with(colour, live and 0.10 or 0.04)); lg.circle("fill", hx, hy, rr)
       lg.setColor(P.with(colour, live and 0.6 or 0.22)); lg.setLineWidth(live and 1.5 or 1)
       lg.circle("line", hx, hy, rr)
@@ -2179,8 +2179,8 @@ function Draw.world(city, cam, state)
     local pr = state.previewRadius
     local px, py = cam:toScreen(pr.x, pr.y)
     local rr = pr.r * cam.scale
-    lg.setColor(P.with(Graph.KINDS.exchange.color, 0.08 + 0.04 * math.sin(R.t * 3))); lg.circle("fill", px, py, rr)
-    lg.setColor(P.with(Graph.KINDS.exchange.color, 0.7)); lg.setLineWidth(2)
+    lg.setColor(P.with(P.hub, 0.08 + 0.04 * math.sin(R.t * 3))); lg.circle("fill", px, py, rr)
+    lg.setColor(P.with(P.hub, 0.7)); lg.setLineWidth(2)
     local segs = 64
     for i = 0, segs - 1, 2 do
       local a0, a1 = i / segs * math.pi * 2 + R.t * 0.2, (i + 1) / segs * math.pi * 2 + R.t * 0.2
@@ -2253,9 +2253,7 @@ function Draw.world(city, cam, state)
         end
       end
       -- Oil mains are drawn as their contents: a black bore in a steel casing.
-      if e.rail then
-        -- already drawn above
-      elseif e.commodity == "oil" then
+      if not e.rail and e.commodity == "oil" then
         lg.setColor(P.with(c, e.cap == 0 and 0.22 or 0.45))
         lg.setLineWidth(width + 2); lg.line(ax,ay,bx,by)
       end
@@ -2431,7 +2429,7 @@ function Draw.world(city, cam, state)
         lg.circle("fill", bx, by + br * 0.45, math.max(0.8, br * 0.14))
       end
       if r>=7.5 and (focused or (not n.prospect and (n.supplyClosed or not city:fullyServed(n)))) then
-        local title = n.prospect and "OFFER" or n.dry and "DRY" or n.supplyClosed and "SHUT"
+        local title = n.prospect and "OFFER" or n.supplyClosed and "SHUT"
           or n.demands and n.demands.water and n.demands.power and (city:fullyServed(n) and "Water + electricity supplied" or "Water / electricity short")
           or city:quantityPair(n.commodity,served,n.demand)
         label(title,x,y+r*1.5+8,n.prospect and P.energy or (city:fullyServed(n) and P.good or P.warn))
@@ -2517,7 +2515,7 @@ function Draw.world(city, cam, state)
       if family and r >= 5 then
         local level = city:levelOf(n)
         if city:isDistribution(n) then
-          lg.setColor(Graph.KINDS.exchange.color); lg.setLineWidth(math.max(1.2, r * 0.12))
+          lg.setColor(P.hub); lg.setLineWidth(math.max(1.2, r * 0.12))
           lg.circle("line", x, y, r * 1.28)
         end
         if level > 1 and fine then
@@ -2799,34 +2797,24 @@ function Draw.world(city, cam, state)
         err = city:materialError(city:materialsFor("source",state.plant))
       end
     else
-      err = city:placementError(wx,wy)
+      -- The same check the click will make, with what the click will pass.
       -- One tower tool stands for three voltages; the choice is in the panel.
       local kind = state.tool=="grid" and City.INFRA.voltages[state.voltage or "low"].tower or state.tool
-      local unlock = City.BUILD_UNLOCK[kind]
-      if not err and unlock and not city:unlocked(unlock) then err = "not available yet" end
-      if not err and state.tool=="resort" then err = city:resortSiteError(wx,wy) end
-      cost = city:nodeCost(kind)
-      if state.tool=="terminal" then
-        local haven = state.havenKind or "port"
-        cost = city:havenCost(haven)
-        if not err then err = select(2, city:havenSite(wx,wy,haven)) end
-      elseif state.tool=="works" then
-        cost = (City.RECIPES[state.recipe or ""] or {}).cost or cost
-        if not err and (City.RECIPES[state.recipe or ""] or {}).farm then err=city:farmSiteError(wx,wy) end
-      end
+      local what = state.tool=="terminal" and (state.havenKind or "port")
+        or state.tool=="works" and (state.recipe or "brewery") or state.commodity
+      local bill
+      err, cost, bill = city:buildError(wx,wy,kind,what)
       -- The bill of materials, before the click rather than after it.
-      if not err then
-        local bill = state.tool=="works" and city:materialsFor("works",state.recipe)
-          or city:materialsFor(kind)
-        err = city:materialError(bill)
-      end
+      if not err then err = city:materialError(bill) end
+      cost = cost or (state.tool=="terminal" and city:havenCost(what))
+        or (state.tool=="works" and (City.RECIPES[what] or {}).cost) or city:nodeCost(kind)
     end
     local color = (err or cost>city.money) and P.bad or P.good
     lg.setColor(P.with(color,0.3)); lg.setLineWidth(1)
     local carries = City.INFRA.towers[state.tool=="grid" and City.INFRA.voltages[state.voltage or "low"].tower or state.tool]
     local range = state.tool=="pump" and City.INFRA.pumpRange or carries and City.INFRA.voltages[carries].span
       or state.tool=="binder" and City.INFRA.binderRange
-      or 300
+      or City.rules.linkRange
     lg.circle("line",mx,my,range*cam.scale)
     if state.tool=='works' and (City.RECIPES[state.recipe or ''] or {}).farm then
       local r=City.INFRA.farmRadius*cam.scale

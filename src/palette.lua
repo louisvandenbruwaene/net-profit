@@ -20,6 +20,7 @@ P.good        = { 0.360, 0.850, 0.620 }
 P.warn        = { 0.980, 0.700, 0.330 }
 P.bad         = { 0.960, 0.370, 0.420 }
 P.accent      = { 0.620, 0.560, 0.980 }
+P.hub         = { 0.45, 0.86, 0.72 }    -- a distribution hub and its reach
 
 function P.with(c, a)
   return { c[1], c[2], c[3], a }
