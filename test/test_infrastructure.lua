@@ -1,23 +1,12 @@
-package.path='src/?.lua;'..package.path
+package.path='test/?.lua;src/?.lua;'..package.path
+local T=require('support')
 local City=require('city')
 local Graph=require('graph')
 local Save=require('company_save')
-local checks=0
-local function check(v,m) assert(v,m); checks=checks+1 end
+local check=T.check
 local function near(a,b) return math.abs(a-b)<0.001 end
-local function city()
-  local c=City.new({seed=24,obstacles=0})
-  c.money=1000000; c.obstacles={}; c.stock={steel=1000,concrete=1000,panels=100}
-  for _,d in ipairs(c.districts) do d.owned=true end
-  c.licences={water=true,power=true,oil=true,food=true,beer=true,internet=true}
-  c.permits={park=true,bedrock=true,river=true}
-  return c
-end
-local function node(c,kind,x,y,commodity,output)
-  local n=c.g:addNode(x,y,kind); n.commodity=commodity
-  if output then n.output=output; n.cap=output end
-  return n
-end
+local function city() return T.sandbox(24,true) end
+local node=T.node
 local function clients(c,count)
   for i=1,count do local n=node(c,'client',1800+i,1200,'water'); n.demand=0; n.clientType='house'; n.rate=4; n.grace=3 end
 end
@@ -303,4 +292,4 @@ do
   check(offshore.offshore and offshore.upkeep>wind.upkeep,'offshore wind requires coastal ownership and costs more to operate')
   check(c:sourceError('power',1600,-500,'wind')~=nil,'offshore construction is restricted to the leased coastal shelf')
 end
-print(checks..' infrastructure checks passed')
+print(T.checks..' infrastructure checks passed')

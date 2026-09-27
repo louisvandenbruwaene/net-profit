@@ -1,18 +1,12 @@
 -- Ground that changes with use: quarries that run out, woods that grow back.
-package.path='src/?.lua;'..package.path
+package.path='test/?.lua;src/?.lua;'..package.path
+local T=require('support')
 local City=require('city')
 local Save=require('company_save')
 local Shape=require('terrain_shape')
-local checks=0
-local function check(v,m) assert(v,m); checks=checks+1; print("  ok  "..m) end
+local function check(v,m) T.check(v,m); print("  ok  "..m) end
 
-local function city()
-  local c=City.new({seed=31,obstacles=0})
-  c.money=1000000; c.obstacles={}
-  for _,d in ipairs(c.districts) do d.owned=true end
-  c.permits={park=true,bedrock=true,river=true}
-  return c
-end
+local function city() return T.sandbox(31) end
 local function home(c) local d=c.districts[City.MAP.start]; return d.x+d.w/2,d.y+d.h/2 end
 
 print("a quarry is capped by what its range has left")
@@ -90,4 +84,4 @@ do
   check(parks==1,"the regrown wood survives a save")
 end
 
-print(checks.." terrain life checks passed")
+print(T.checks.." terrain life checks passed")

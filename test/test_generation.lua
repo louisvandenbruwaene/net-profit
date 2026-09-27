@@ -3,18 +3,11 @@
 -- The one property everything else rests on is that ground is the same ground
 -- whoever surveys it first. If generation ever drifts back onto the shared
 -- random stream, these checks are what notices.
-package.path = "src/?.lua;../src/?.lua;" .. package.path
+package.path = "test/?.lua;src/?.lua;../src/?.lua;" .. package.path
 local City = require("city")
 
-local pass, fail = 0, 0
-local function check(name, got, want)
-  if got == want then pass = pass + 1
-  else fail = fail + 1
-    print(string.format("  FAIL  %s: got %s want %s", name, tostring(got), tostring(want))) end
-end
-local function ok(name, cond)
-  if cond then pass = pass + 1 else fail = fail + 1; print("  FAIL  " .. name) end
-end
+local T = require("support")
+local check, ok = T.same, T.ok
 
 -- Everything a cell is, as one string.
 local function fingerprint(c, col, row)
@@ -323,5 +316,4 @@ do
   end
 end
 
-print(string.format("\n%d passed, %d failed", pass, fail))
-os.exit(fail == 0 and 0 or 1)
+T.finish()
