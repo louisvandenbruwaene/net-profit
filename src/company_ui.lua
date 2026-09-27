@@ -148,33 +148,6 @@ end
 
 --------------------------------------------------------------------------------
 
-local toolTips = {
-  junction="A T split: 3 connections. Upgrade it in place to a hub, a large hub and finally a distribution hub that signs, connects and widens for its neighbourhood. Every main stays tied in. Costs $1/day.",
-  manifold="6 connections. Changes pipe size. Carries several goods. Costs $1/day.",
-  pump="2 pipe ports. Boosts pressure; reaches 950m, further with each upgrade. Costs $1/day.",
-  tower="Reduces nearby leaks by 55%. Range: 220m. Costs $2/day.",
-  gate="2 pipe ports. Sets how much supply passes through. Costs $1/day.",
-  depot="A tank that stores spare supply and releases it on a short day. Upgrade it to a cistern, a reservoir and a water tower. Costs $3/day.",
-  dc="Receives freight. Sends it through local pipes and roads.",
-  terminal="Imports goods for a fee. Requires a freight route. Cannot import electricity.",
-  stop="Buses board here. Attach to normal roads, then connect a bus route.",
-  station="Requires petrol and a road. Sells petrol to drivers. Costs $5/day.",
-  filtration="2 connections. Protects downstream pipes from mineral buildup. Upstream pipes remain untreated; deposits become harmful after 100 days.",
-  binder="Short attachment range. Allows two identical parallel pipes; expensive upgrades allow up to five.",
-  lab="Cleans soil and water in this district and its eight neighbours. Costs $24/day.",
-  resort="Requires a coast or riverbank. Visitors pay you. Costs $40/day per level.",
-  corner="2 road connections. Bends a road around what is in its way. Takes offroads and normal roads.",
-}
-
-local function towerTip(kind,rest)
-  local v=City.INFRA.voltages[City.INFRA.towers[kind]]
-  return v.name.." ("..v.kv.." kV) only. One every "..v.span.." m, a booster every "..v.boost.." m. "..rest
-end
-toolTips.hvtower=towerTip("hvtower","Carries generator output across the map. A transformer steps it down to standard towers and poles.")
-toolTips.pylon=towerTip("pylon","With a transformer it feeds workshops, works and facilities, or steps down to poles.")
-toolTips.pole=towerTip("pole","With a transformer it feeds homes.")
-toolTips.grid="One tower for every voltage: choose it above. It starts with three connections and little capacity; upgrade it for more connections, capacity and reach. A transformer upgrade lets it feed customers."
-
 -- Fewer buildings, each one grown by upgrading it. A junction becomes a hub at
 -- level 2, and one tower is built at whichever voltage is chosen above the
 -- grid (a transformer is an upgrade, not a building). The older kinds still
@@ -2531,7 +2504,7 @@ local function settingsMenu()
     local keys={{"Enter","End the day"},{"B","Build menu"},{"Tab","Open or close the menu"},{"Esc","Put down, deselect, close"},
       {"Z","Undo"},{"Y / N","Sign or decline the selected offer"},{"F","Show all buildings"},{"R","Repair the selected main, or all"},{"L","Worst leak"},
       {"U / E","Bigger main, or deepen a well"},{"Delete","Demolish the selection"},{"T","Bulk freight lines"},
-      {"H","Hide other networks"},{"O","Overview map"},{"M","Sound"},{"1-9","Pick up a building"},{"Right drag","Pan"},{"Wheel","Zoom"}}
+      {"H","Hide other networks"},{"O","Overview map"},{"M","Sound"},{"1-9","Pick up a building"},{"WASD","Pan (arrows, right drag)"},{"+ / -","Zoom (wheel)"}}
     local kw,kh=350,20+#keys*22
     local kx,ky=px-kw-10,py
     lg.setColor(P.bg); lg.rectangle("fill",kx-1,ky-1,kw+2,kh+2,8)
