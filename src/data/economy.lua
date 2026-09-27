@@ -23,7 +23,7 @@ Data.price = {
 -- animal runs one heart and a pair of kidneys and not thirty of anything.
 Data.trade = {
   water = {
-    tiein = 14, trench = 0.11, bore = 7, borePerM = 0.028,
+    tiein = 14, trench = 0.11,
     repairBase = 14, repairPerLost = 6, repairPerM = 0.030,
     upkeep = 0.30, upkeepPerM = 0.0016,
     sourceBase = 260, sourceGrowth = 1.85, sourceOutput = 20,
@@ -45,7 +45,7 @@ Data.trade = {
   -- enormous cheque, a standing crew whether it runs or not, and fuel so cheap
   -- per unit that the marginal cost of the next megawatt is nearly nothing.
   power = {
-    tiein = 20, trench = 0.16, bore = 10, borePerM = 0.038,
+    tiein = 20, trench = 0.16,
     repairBase = 22, repairPerLost = 9, repairPerM = 0.044,
     upkeep = 0.45, upkeepPerM = 0.0023,
     sourceBase = 3600, sourceGrowth = 1.35, sourceOutput = 45,
@@ -55,7 +55,7 @@ Data.trade = {
     importCost = nil,
   },
   beer = {
-    tiein = 26, trench = 0.21, bore = 13, borePerM = 0.050,
+    tiein = 26, trench = 0.21,
     repairBase = 30, repairPerLost = 13, repairPerM = 0.060,
     upkeep = 0.60, upkeepPerM = 0.0030,
     sourceBase = 420, sourceGrowth = 1.55, sourceOutput = 10,
@@ -64,7 +64,7 @@ Data.trade = {
     importCost = 5.5,
   },
   oil = {
-    tiein = 44, trench = 0.34, bore = 21, borePerM = 0.085,
+    tiein = 44, trench = 0.34,
     repairBase = 52, repairPerLost = 21, repairPerM = 0.105,
     upkeep = 1.00, upkeepPerM = 0.0050,
     sourceBase = 900, sourceGrowth = 1.55, sourceOutput = 10,

@@ -3,26 +3,26 @@ local Data = {}
 
 Data.FORMS = {
   liquid = {
-    tiein = 26, trench = 0.21, bore = 13, borePerM = 0.050,
+    tiein = 26, trench = 0.21,
     repairBase = 30, repairPerLost = 13, repairPerM = 0.060,
     upkeep = 0.60, upkeepPerM = 0.0030,
   },
   energy = {
-    tiein = 20, trench = 0.16, bore = 10, borePerM = 0.038,
+    tiein = 20, trench = 0.16,
     repairBase = 22, repairPerLost = 9, repairPerM = 0.044,
     upkeep = 0.45, upkeepPerM = 0.0023,
   },
   -- Fibre is cable carrying a signal rather than a current: cheaper to dig in
   -- than a power line, and it fouls just the same.
   data = {
-    tiein = 18, trench = 0.13, bore = 9, borePerM = 0.034,
+    tiein = 18, trench = 0.13,
     repairBase = 18, repairPerLost = 7, repairPerM = 0.036,
     upkeep = 0.40, upkeepPerM = 0.0020,
   },
   -- Solids go by road, which is cheap to lay and dear to run, and short: a
   -- lorry route across three districts is a railway waiting to be built.
   solid = {
-    tiein = 34, trench = 0.30, bore = 16, borePerM = 0.058,
+    tiein = 34, trench = 0.30,
     repairBase = 0, repairPerLost = 0, repairPerM = 0,
     upkeep = 0.95, upkeepPerM = 0.0042, noLeak = true, range = 300,
   },
