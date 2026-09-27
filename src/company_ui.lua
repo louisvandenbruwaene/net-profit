@@ -908,56 +908,231 @@ end
 
 local function buildPanel()
   local y=TOP-state.scroll
-  -- The trades the company holds, and the one it could take on next. Nothing
-  -- further out than that: a price you cannot pay for a trade you have not
-  -- reached is not information, it is wallpaper.
-  local trades={}
-  for _,name in ipairs(Graph.TRADES) do
-    if city.licences[name] then trades[#trades+1]=name end
-  end
+  -- TRADE: every trade and good the company works with, as one grid of equal
+  -- chips. The lit one is what the panel below builds for.
+  heading("TRADE",y); y=y+22
+  local chips={}
+  for _,name in ipairs(Graph.TRADES) do if city.licences[name] then chips[#chips+1]={name,true} end end
   local nextTrade=city:nextLicence()
-  if nextTrade then trades[#trades+1]=nextTrade end
-  for i,name in ipairs(trades) do
-    local spec=Graph.COMMODITIES[name]
-    local bx=M+((i-1)%4)*76
-    local by=y+math.floor((i-1)/4)*40
-    button(name,S.get(name),bx,by,72,36,function() selectService(name) end,
-      city.licences[name],city.licences[name] and ("Build "..name.." lines")
-      or ("The next trade to take on. The "..name.." licence is $"..
-          City.price[name.."Licence"].." in Company, and then "..
-          select(2,E.tradeEntry(city,name)).."."),
-      not state.people and state.commodity==name,spec.color)
+  if nextTrade then chips[#chips+1]={nextTrade,false} end
+  chips[#chips+1]={"people",city:unlocked("roads")}
+  for _,name in ipairs(UI.goodsInPlay()) do chips[#chips+1]={name,true} end
+  local per,cw=6,math.floor((CW+4)/6)-4
+  for i,ch in ipairs(chips) do
+    local name,open=ch[1],ch[2]
+    local bx,by=M+((i-1)%per)*(cw+4),y+math.floor((i-1)/per)*38
+    local here=name=="people" and state.people or (not state.people and state.commodity==name)
+    local colour=name=="people" and P.energy or Graph.COMMODITIES[name].color
+    button(name=="people" and "people" or (city.licences[name] or not Graph.COMMODITIES[name].role or Graph.COMMODITIES[name].role=="utility") and name or ("good-"..name),
+      S.get(name=="people" and "roads" or name),bx,by,cw,34,function() selectService(name) end,open,
+      name=="people" and "Roads and routes" or (open and string.lower(Graph.COMMODITIES[name].name)
+        or ("Next trade: "..name.." licence in Company")),here,colour)
   end
-  local pi=#trades
-  do
-    button("people",S.get("roads"),M+(pi%4)*76,y+math.floor(pi/4)*40,72,36,
-      function() selectService("people") end,city:unlocked("roads"),
-      "Roads carry people and commodities. Available once people settle here.",state.people,P.energy)
-    pi=pi+1
+  y=y+math.ceil(#chips/per)*38+10
+  heading(state.people and "BUILD" or "BUILD",y); y=y+22
+  -- Every building the company has unlocked is on the panel. Hiding half of
+  -- them behind a toggle only made the player press the toggle.
+  local advanced=true
+  -- Which tools exist yet. The first three are always there; the rest arrive
+  -- when the company is the size where they are the obvious next move.
+  local gate={tower="everyday",gate="everyday",depot="everyday",
+              terminal="haven",dc="yard",
+              stop=City.BUILD_UNLOCK.stop,station=City.BUILD_UNLOCK.station,resort=City.BUILD_UNLOCK.resort}
+  local shown=0
+  -- The source comes first in the grid, as a tile like every other building:
+  -- a well, a rig, the power plants, or the works that makes this trade.
+  -- Icon-only tiles, five to a row. Hovering one names it, says what it is
+  -- for in a few words, and gives the price.
+  local TS=math.floor((CW+4)/5)-4
+  local function tile(id,name,price,afford,active,colour,press,tip,icon)
+    local col,rw=shown%5,math.floor(shown/5)
+    shown=shown+1
+    local bx,by=M+col*(TS+4),y+rw*(TS+4)
+    button(id,"",bx,by,TS,TS,press,afford,name.."  $"..price..(tip and tip~="" and ("\n"..tip) or ""),active,colour)
+    lg.setColor(afford and colour or P.textFaint)
+    icon(bx+TS/2,by+TS/2)
   end
-  y=y+math.ceil(pi/4)*40+2
-  -- Everything else the company moves. A commodity appears here once there is
-  -- somewhere for it to come from, so the panel is four buttons on day one and
-  -- fills up as the empire does.
-  local goods=UI.goodsInPlay()
-  if #goods>0 then
-    local col=0
-    for _,name in ipairs(goods) do
-      local spec=Graph.COMMODITIES[name]
-      local bx=M+(col%5)*61
-      local by=y+math.floor(col/5)*30
-      button("good-"..name,S.get(name),bx,by,57,26,
-        function() selectService(name) end,true,
-        spec.name..": "..({utility="sold to customers by the day",
-          feed="feedstock for a works",material="spent on building",
-          fuel="sold to drivers at a filling station",vehicle="taken in at a yard and sold to the districts"})[spec.role]..
-        ", carried by "..({liquid="main",solid="road or rail",energy="cable",data="fibre"})[spec.form]..".",
-        not state.people and state.commodity==name,spec.color)
-      col=col+1
+  if not state.people then
+    if state.commodity=="power" then
+      for _,key in ipairs(City.PLANT_ORDER) do
+        local spec=City.PLANTS[key]
+        local cost=city:plantCost(key)
+        tile("plant-"..key,({nuclear="Reactor",wind="Wind",hydro="River turbine",solar="Solar"})[key],cost,
+          city.money>=cost,state.tool=="source" and state.plant==key,P.good,
+          function()
+            if state.tool=="source" and state.plant==key then state.tool=nil
+            else state.tool,state.plant="source",key end
+          end,({nuclear="45 a day, burns fuel",wind="12 a day, on an island",hydro="8 a day, by the river",solar="10 a day, needs panels"})[key],
+          function(ix,iy)
+            if key=="wind" then Draw.turbine(ix,iy,14) elseif key=="nuclear" then Draw.reactor(ix,iy,13)
+            elseif key=="solar" then lg.setLineWidth(1.5); lg.rectangle("line",ix-8,iy-6,16,12); lg.line(ix,iy-6,ix,iy+6); lg.line(ix-8,iy,ix+8,iy)
+            else SF.mark("water",ix,iy,9) end
+          end)
+      end
+    elseif City.EXTRACTOR_OF[state.commodity] and state.commodity~="wheat" and state.commodity~="saltwater" then
+      local scost=city:sourceCost(state.commodity)
+      local ex=City.EXTRACTORS[City.EXTRACTOR_OF[state.commodity]]
+      local nm=ex.name:sub(1,1)..ex.name:sub(2):lower()
+      tile("source",nm,scost,city.money>=scost,state.tool=="source",Graph.COMMODITIES[state.commodity].color,
+        function() state.tool=state.tool=="source" and nil or "source" end,"On a marked deposit",
+        function(ix,iy) SF.mark(state.commodity,ix,iy,13) end)
+    elseif state.commodity~="beer" and state.commodity~="saltwater" then
+      local recipe=City.MADE_BY[state.commodity]
+      local spec=City.RECIPES[recipe or ""]
+      if spec then
+        local nm=spec.name:sub(1,1)..spec.name:sub(2):lower()
+        tile("source",nm,spec.cost,city.money>=spec.cost,state.tool=="works" and state.recipe==recipe,Graph.COMMODITIES[state.commodity].color,
+          function() state.tool="works"; state.recipe=recipe end,"Makes "..state.commodity,
+          function(ix,iy) SF.mark(state.commodity,ix,iy,13) end)
+      end
     end
-    y=y+math.ceil(#goods/5)*30+6
   end
-  y=y+4
+  for i,name in ipairs(TOOLS) do
+    local form=Graph.formOf(state.commodity)
+    local passenger=name=="stop" or name=="station" or name=="resort" or name=="corner" or name=="intersection" or name=="roundabout" or name=="interchange"
+    local shared=name=="terminal" or name=="dc"
+    local relevant
+    if state.people then
+      relevant=passenger or shared
+    elseif passenger then
+      relevant=false
+    elseif name=="grid" then
+      relevant=state.commodity=="power"
+    elseif name=="filtration" or name=="tower" then
+      relevant=state.commodity=="water" or state.commodity=="saltwater"
+    elseif name=="lab" then
+      relevant=state.commodity=="water" or state.commodity=="oil" or state.commodity=="wheat" or state.commodity=="food"
+    elseif name=="junction" or name=="manifold" or name=="pump" or name=="binder" or name=="gate" then
+      relevant=form=="liquid"
+    elseif name=="depot" or shared then
+      relevant=form=="liquid" or form=="solid"
+    else
+      relevant=true
+    end
+    if relevant and (i<=4 or name=="grid" or state.people or advanced)
+      and (not City.BUILD_UNLOCK[name] or city:unlocked(City.BUILD_UNLOCK[name]))
+      and (not gate[name] or city:unlocked(gate[name])) then
+      local kind=toolKind(name)
+      local label=({junction="T split",grid="Tower",pump="Pump",filtration="Filter",binder="Binder",lab="Env. lab",tower="Treatment",gate="Valve",depot="Tank",terminal="Haven",dc="Yard",
+             stop="Bus stop",station="Station",resort="Resort",corner="Corner",intersection="Crossing",roundabout="Roundabout",interchange="Interchange"})[name]
+      local short=({junction="3 connections, upgrades to a hub",grid="Carries cables",pump="Pushes a main further",filtration="Cleans water",
+             binder="Parallel mains",lab="Cuts pollution",tower="Treats water",gate="Limits flow",depot="Stores supply",terminal="Imports goods",
+             dc="Freight yard",stop="Buses stop here",station="Sells fuel",resort="Visitors pay",corner="Bends a road",intersection="Joins roads",
+             roundabout="Joins roads",interchange="Joins highways"})[name]
+      tile("tool-"..name,label,City.price[kind],city.money>=City.price[kind],state.tool==name,Graph.KINDS[kind].color,
+        function() state.tool=state.tool==name and nil or name end,short,
+        function(ix,iy) Draw.structureGlyph(kind,ix,iy,1.3) end)
+    end
+  end
+  -- The sea pump and the purifier are structures like any other, so they are
+  -- built from the same grid. Their marks are the water they handle: brine
+  -- from the sea, and the same drop with the sparkle of having been cleaned.
+  if not state.people and (state.commodity=="water" or state.commodity=="saltwater") and city:unlocked("seawater") then
+    local extras={
+      {id="seawater",name="Sea pump",mark="saltwater",price=1600,colour=Graph.COMMODITIES.saltwater.color,
+       short="On the sea by your coast",
+       active=state.commodity=="saltwater" and state.tool=="source",
+       press=function() state.commodity="saltwater"; state.tool="source"; state.grade=math.max(3,state.grade or 1) end},
+      {id="purifier",name="Purifier",mark="clean",price=City.RECIPES.purifier.cost,colour=P.good,
+       short="Saltwater to clean water",
+       active=state.tool=="works" and state.recipe=="purifier",
+       press=function() state.tool="works"; state.recipe="purifier" end},
+    }
+    for _,spec in ipairs(extras) do
+      tile(spec.id,spec.name,spec.price,city.money>=spec.price,spec.active,spec.colour,spec.press,spec.short,
+        function(ix,iy) SF.mark(spec.mark,ix,iy,13) end)
+    end
+  end
+  y=y+math.ceil(math.max(shown,1)/5)*(TS+4)+10
+  -- What is not here yet, and what brings it.
+  if advanced and not state.people and state.buildHelp then
+    for _,key in ipairs({"seawater","haven","yard"}) do
+      local hint=city:unlockHint(key)
+      if hint then
+        y=y+paragraph(City.UNLOCKS[key].name..": "..string.lower(hint),y,P.textFaint)+4
+      end
+    end
+    y=y+6
+  end
+  -- The works. Nine buildings that turn one thing into another, listed with
+  -- what they eat, because that is the only thing worth knowing about them.
+  if not state.people and advanced and city:unlocked("works") then
+    -- A works behind an unlock is not listed at all until it opens.
+    local open={}
+    for _,key in ipairs(City.RECIPE_ORDER) do
+      local unlock=City.RECIPES[key].unlock
+      -- The turbine is a power plant and the purifier is an everyday
+      -- structure with a tile of its own; neither belongs in this list twice.
+      if key~="turbine" and key~="purifier" and City.RECIPES[key].makes==state.commodity
+        and (not unlock or city:unlocked(unlock)) then open[#open+1]=key end
+    end
+    if #open>0 then heading("WORKS",y); y=y+24 end
+    for _,key in ipairs(open) do
+      local r=City.RECIPES[key]
+      local parts={}
+      for _,name in ipairs(Graph.ALL) do
+        if r.inputs[name] then parts[#parts+1]=r.inputs[name].." "..name end
+      end
+      local can=city:licensed(r.makes)
+      button("works-"..key,r.name.."   $"..r.cost,M,y,CW,30,
+        function()
+          if state.tool=="works" and state.recipe==key then state.tool=nil
+          else state.tool,state.recipe="works",key end
+        end,
+        can and city.money>=r.cost,
+        E.recipeSummary(r)..(can and "" or " Requires a licence."),
+        state.tool=="works" and state.recipe==key,Graph.COMMODITIES[r.makes].color)
+      y=y+34
+    end
+    y=y+8
+  end
+  -- Which door the haven tool builds. Three small buttons that only appear
+  -- while the tool is in hand, so the panel is no wider the rest of the time.
+  if state.tool=="terminal" then
+    for i,key in ipairs(City.GATEWAYS) do
+      local spec=City.HAVENS[key]
+      local bx=M+(i-1)*102
+      local kind=state.havenKind or "port"
+      button("haven-"..key,"",bx,y,96,46,function() state.havenKind=key end,
+        city.money>=city:havenCost(key),
+        spec.name..": "..spec.blurb..". Freight x"..string.format("%.2f",spec.import)..
+        (spec.gate=="coast" and ", coast only." or ", anywhere you hold."),
+        kind==key,P.energy)
+      text(({port="Harbour",highway="Road head",airfield="Air freight"})[key],bx+8,y+6,"tiny",P.text)
+      text("$"..city:havenCost(key),bx+8,y+24,"small",P.textDim)
+    end
+    y=y+56
+  end
+  -- LINE: how the next connection is laid. Voltage for cables, the freight
+  -- mode, and sizes and lining under Pipe options.
+  if not state.people then heading("LINE",y); y=y+22 end
+  -- Supply and maintenance sit above the structures: how full each trade is and
+  -- whether anything needs mending is checked far more often than a new building.
+  if false then
+    local drawn,capacity=city:supplyFor(state.commodity)
+    button("supply-detail",city:quantityPair(state.commodity,drawn,capacity).."    "..S.get("crews").." "..(city.crews or 0).."/"..City.crewMax,M,y,CW,30,function() state.showSupply=not state.showSupply end,true,"Expand supply totals for every utility",state.showSupply)
+    y=y+38
+    if state.showSupply then
+      for _,name in ipairs(Graph.TRADES) do
+        if city.licences[name] then
+          local used,total=city:supplyFor(name)
+          row(S.get(name),city:quantityPair(name,used,total),y,Graph.COMMODITIES[name].color); y=y+26
+        end
+      end
+    end
+  end
+  if not state.people and state.commodity=="power" then
+
+    for i,key in ipairs(City.INFRA.voltageOrder) do
+      local v=City.INFRA.voltages[key]
+      button("voltage-"..key,(v.name:gsub(" voltage","")),M+(i-1)*102,y,96,30,
+        function() state.voltage=key end,true,
+        v.name.." ("..v.kv.." kV): a tower every "..v.span.." m, a booster every "..v.boost..
+        " m. Carries "..(key=="high" and "generator output across the map." or key=="medium" and "power to workshops and works." or "power to homes."),
+        (state.voltage or "low")==key,City.INFRA.voltages[key] and Graph.KINDS[v.tower].color)
+    end
+    y=y+42
+  end
   if not state.people then
   if state.commodity=="power" then
     if false then
@@ -1084,216 +1259,6 @@ local function buildPanel()
     y=y+40
   else
     state.transit=nil
-  end
-  -- One supply button, and it says what the selected trade actually allows:
-  -- a well or a rig on a marked deposit, a reactor on any ground, and for beer
-  -- nothing at all, because beer is landed rather than made.
-  if not state.people then
-  if state.commodity=="beer" then
-    button("source","Beer is landed at a haven",M,y,CW,36,function() end,false,
-      "Import beer, or build a brewery. A brewery needs malt, water and electricity.",
-      false,P.textFaint)
-  elseif state.commodity=="power" then
-    -- Two ways to make electricity, and they want opposite ground.
-    for i,key in ipairs(City.PLANT_ORDER) do
-      local spec=City.PLANTS[key]
-      local cost=city:plantCost(key)
-      local bw=(CW-8)/2
-      button("plant-"..key,({nuclear="Reactor",wind="Wind",hydro="River turbine",solar="Solar"})[key].."  $"..cost,
-        M+((i-1)%2)*(bw+8),y+math.floor((i-1)/2)*44,bw,36,
-        function()
-          if state.tool=="source" and state.plant==key then state.tool=nil
-          else state.tool,state.plant="source",key end
-        end,
-        city.money>=cost,spec.blurb.." Output "..spec.output.." a day, upkeep $"..spec.upkeep..".",
-        state.tool=="source" and state.plant==key,P.good)
-    end
-    y=y+8+44*(math.ceil(#City.PLANT_ORDER/2)-1)
-  elseif state.commodity=="saltwater" then
-    button("source","Sea pump  $1600",M,y,CW,36,function() state.tool="source" end,city.money>=1600,"Place on the sea near your coastline. Use a filter and armoured pipes.",state.tool=="source",P.good)
-  elseif City.EXTRACTOR_OF[state.commodity] and state.commodity~="wheat" then
-    local scost=city:sourceCost(state.commodity)
-    local title=City.EXTRACTORS[City.EXTRACTOR_OF[state.commodity]].name
-    button("source",title.."  $"..scost,M,y,CW,36,
-      function() state.tool=state.tool=="source" and nil or "source" end,city.money>=scost,
-      state.commodity=="power"
-        and "Requires land you own. Produces electricity."
-        or ("Requires a marked "..state.commodity.." deposit. The buried ones yield more and need the matching permit first."),
-      state.tool=="source",P.good)
-  else
-    local recipe=City.MADE_BY[state.commodity]
-    local spec=City.RECIPES[recipe or ""]
-    button("source",spec and (spec.name.."  $"..spec.cost) or "Import through a haven",M,y,CW,36,
-      function() if spec then state.tool="works"; state.recipe=recipe end end,
-      spec~=nil and city.money>=spec.cost,
-      spec and spec.blurb or "Choose a freight mode and connect a haven to a depot yard.",false,P.good)
-  end
-  y=y+44
-  end -- commodity supply
-  -- Supply and maintenance sit above the structures: how full each trade is and
-  -- whether anything needs mending is checked far more often than a new building.
-  if false then
-    local drawn,capacity=city:supplyFor(state.commodity)
-    button("supply-detail",city:quantityPair(state.commodity,drawn,capacity).."    "..S.get("crews").." "..(city.crews or 0).."/"..City.crewMax,M,y,CW,30,function() state.showSupply=not state.showSupply end,true,"Expand supply totals for every utility",state.showSupply)
-    y=y+38
-    if state.showSupply then
-      for _,name in ipairs(Graph.TRADES) do
-        if city.licences[name] then
-          local used,total=city:supplyFor(name)
-          row(S.get(name),city:quantityPair(name,used,total),y,Graph.COMMODITIES[name].color); y=y+26
-        end
-      end
-    end
-  end
-  if not state.people and state.commodity=="power" then
-
-    for i,key in ipairs(City.INFRA.voltageOrder) do
-      local v=City.INFRA.voltages[key]
-      button("voltage-"..key,(v.name:gsub(" voltage","")),M+(i-1)*102,y,96,30,
-        function() state.voltage=key end,true,
-        v.name.." ("..v.kv.." kV): a tower every "..v.span.." m, a booster every "..v.boost..
-        " m. Carries "..(key=="high" and "generator output across the map." or key=="medium" and "power to workshops and works." or "power to homes."),
-        (state.voltage or "low")==key,City.INFRA.voltages[key] and Graph.KINDS[v.tower].color)
-    end
-    y=y+42
-  end
-  y=y+4
-  -- Every building the company has unlocked is on the panel. Hiding half of
-  -- them behind a toggle only made the player press the toggle.
-  local advanced=true
-  -- Which tools exist yet. The first three are always there; the rest arrive
-  -- when the company is the size where they are the obvious next move.
-  local gate={tower="everyday",gate="everyday",depot="everyday",
-              terminal="haven",dc="yard",
-              stop=City.BUILD_UNLOCK.stop,station=City.BUILD_UNLOCK.station,resort=City.BUILD_UNLOCK.resort}
-  local shown=0
-  for i,name in ipairs(TOOLS) do
-    local form=Graph.formOf(state.commodity)
-    local passenger=name=="stop" or name=="station" or name=="resort" or name=="corner" or name=="intersection" or name=="roundabout" or name=="interchange"
-    local shared=name=="terminal" or name=="dc"
-    local relevant
-    if state.people then
-      relevant=passenger or shared
-    elseif passenger then
-      relevant=false
-    elseif name=="grid" then
-      relevant=state.commodity=="power"
-    elseif name=="filtration" or name=="tower" then
-      relevant=state.commodity=="water" or state.commodity=="saltwater"
-    elseif name=="lab" then
-      relevant=state.commodity=="water" or state.commodity=="oil" or state.commodity=="wheat" or state.commodity=="food"
-    elseif name=="junction" or name=="manifold" or name=="pump" or name=="binder" or name=="gate" then
-      relevant=form=="liquid"
-    elseif name=="depot" or shared then
-      relevant=form=="liquid" or form=="solid"
-    else
-      relevant=true
-    end
-    if relevant and (i<=4 or name=="grid" or state.people or advanced)
-      and (not City.BUILD_UNLOCK[name] or city:unlocked(City.BUILD_UNLOCK[name]))
-      and (not gate[name] or city:unlocked(gate[name])) then
-      local col,rw=shown%3,math.floor(shown/3)
-      shown=shown+1
-      local bx,by=M+col*102,y+rw*58
-      local kind=toolKind(name)
-      local afford=city.money>=City.price[kind]
-      button("tool-"..name,"",bx,by,TILE_W,TILE_H,function() state.tool=state.tool==name and nil or name end,
-        afford,toolTips[name],state.tool==name,Graph.KINDS[kind].color)
-      -- The name owns the top of the tile, so it is never broken in the
-      -- middle of a word; the glyph and the price share the line beneath it.
-      text(({junction="Junction",grid="Tower",pump="Pump",filtration="Filter",binder="Binder",lab="Env. lab",tower="Treat",gate="Valve",depot="Tank",terminal="Haven",dc="Yard",
-             stop="Bus stop",station="Station",resort="Resort",corner="Corner",intersection="Crossing",roundabout="Roundabout",interchange="Interchange"})[name],
-        bx+4,by+5,"tiny",P.text,TILE_TEXT,"center")
-      lg.setColor(afford and Graph.KINDS[kind].color or P.textFaint)
-      Draw.structureGlyph(kind,bx+20,by+32)
-      text("$"..City.price[kind],bx+34,by+26,"small",P.textDim,TILE_W-42,"center")
-    end
-  end
-  -- The sea pump and the purifier are structures like any other, so they are
-  -- built from the same grid. Their marks are the water they handle: brine
-  -- from the sea, and the same drop with the sparkle of having been cleaned.
-  if not state.people and (state.commodity=="water" or state.commodity=="saltwater") and city:unlocked("seawater") then
-    local extras={
-      {id="seawater",name="Sea pump",mark="saltwater",price=1600,colour=Graph.COMMODITIES.saltwater.color,
-       tip="Place on the sea near your coastline. Feed it through a filter and armoured saltwater main.",
-       active=state.commodity=="saltwater" and state.tool=="source",
-       press=function() state.commodity="saltwater"; state.tool="source"; state.grade=math.max(3,state.grade or 1) end},
-      {id="purifier",name="Purifier",mark="clean",price=City.RECIPES.purifier.cost,colour=P.good,
-       tip="Saltwater in; equal clean water and salt out. Place on owned land.",
-       active=state.tool=="works" and state.recipe=="purifier",
-       press=function() state.tool="works"; state.recipe="purifier" end},
-    }
-    for _,spec in ipairs(extras) do
-      local col,rw=shown%3,math.floor(shown/3)
-      shown=shown+1
-      local bx,by=M+col*102,y+rw*58
-      local afford=city.money>=spec.price
-      button(spec.id,"",bx,by,TILE_W,TILE_H,spec.press,afford,spec.tip,spec.active,spec.colour)
-      text(spec.name,bx+4,by+5,"tiny",P.text,TILE_TEXT,"center")
-      lg.setColor(afford and spec.colour or P.textFaint)
-      SF.mark(spec.mark,bx+20,by+32,11)
-      text("$"..spec.price,bx+34,by+26,"small",P.textDim,TILE_W-42,"center")
-    end
-  end
-  y=y+math.ceil(math.max(shown,1)/3)*58+10
-  -- What is not here yet, and what brings it.
-  if advanced and not state.people and state.buildHelp then
-    for _,key in ipairs({"seawater","haven","yard"}) do
-      local hint=city:unlockHint(key)
-      if hint then
-        y=y+paragraph(City.UNLOCKS[key].name..": "..string.lower(hint),y,P.textFaint)+4
-      end
-    end
-    y=y+6
-  end
-  -- The works. Nine buildings that turn one thing into another, listed with
-  -- what they eat, because that is the only thing worth knowing about them.
-  if not state.people and advanced and city:unlocked("works") then
-    heading("WORKS",y); y=y+24
-    -- A works behind an unlock is not listed at all until it opens.
-    local open={}
-    for _,key in ipairs(City.RECIPE_ORDER) do
-      local unlock=City.RECIPES[key].unlock
-      -- The turbine is a power plant and the purifier is an everyday
-      -- structure with a tile of its own; neither belongs in this list twice.
-      if key~="turbine" and key~="purifier" and City.RECIPES[key].makes==state.commodity
-        and (not unlock or city:unlocked(unlock)) then open[#open+1]=key end
-    end
-    for _,key in ipairs(open) do
-      local r=City.RECIPES[key]
-      local parts={}
-      for _,name in ipairs(Graph.ALL) do
-        if r.inputs[name] then parts[#parts+1]=r.inputs[name].." "..name end
-      end
-      local can=city:licensed(r.makes)
-      button("works-"..key,r.name.."   $"..r.cost,M,y,CW,30,
-        function()
-          if state.tool=="works" and state.recipe==key then state.tool=nil
-          else state.tool,state.recipe="works",key end
-        end,
-        can and city.money>=r.cost,
-        E.recipeSummary(r)..(can and "" or " Requires a licence."),
-        state.tool=="works" and state.recipe==key,Graph.COMMODITIES[r.makes].color)
-      y=y+34
-    end
-    y=y+8
-  end
-  -- Which door the haven tool builds. Three small buttons that only appear
-  -- while the tool is in hand, so the panel is no wider the rest of the time.
-  if state.tool=="terminal" then
-    for i,key in ipairs(City.GATEWAYS) do
-      local spec=City.HAVENS[key]
-      local bx=M+(i-1)*102
-      local kind=state.havenKind or "port"
-      button("haven-"..key,"",bx,y,96,46,function() state.havenKind=key end,
-        city.money>=city:havenCost(key),
-        spec.name..": "..spec.blurb..". Freight x"..string.format("%.2f",spec.import)..
-        (spec.gate=="coast" and ", coast only." or ", anywhere you hold."),
-        kind==key,P.energy)
-      text(({port="Harbour",highway="Road head",airfield="Air freight"})[key],bx+8,y+6,"tiny",P.text)
-      text("$"..city:havenCost(key),bx+8,y+24,"small",P.textDim)
-    end
-    y=y+56
   end
   UI.contentBottom=y+state.scroll
 end
@@ -2686,6 +2651,11 @@ end
 
 local function hoverCard()
   if state.modal or state.drag or state.settings or state.tool then hoverKey=nil; return end
+  -- Only while the pointer is on the map: never over the panel or the bar.
+  do
+    local mx,my=mouse()
+    if mx<UI.width or my<UI.BAR then hoverKey=nil; return end
+  end
   local n=state.hoverNode and city.g.nodes[state.hoverNode]
   local e=not n and state.hoverEdge and city.g.edges[state.hoverEdge]
   if (n and state.node==n.id) or (e and state.edge==e.id) then hoverKey=nil; return end
@@ -2966,10 +2936,13 @@ function UI.draw(c,s,action)
       if tooltipId~=hovered or math.abs(mx-(tooltipX or mx))>4 or math.abs(my-(tooltipY or my))>4 then
         tooltipId,tooltipSince,tooltipX,tooltipY=hovered,R.t,mx,my
       end
-      if R.t-(tooltipSince or R.t)<0.45 then break end
-      local tw=math.min(340,W-24)
-      local _,lines=R.fonts.small:getWrap(b.tip,tw-20)
-      local th=#lines*R.fonts.small:getHeight()*R.fonts.small:getLineHeight()+20
+      if R.t-(tooltipSince or R.t)<0.25 then break end
+      -- A tip may start with a title line; the card fits its text.
+      local title,rest=b.tip:match("^([^\n]*)\n(.*)$")
+      local bodyText=rest or b.tip
+      local tw=math.min(340,W-24,math.max(title and SF.width(title,R.fonts.body) or 0,SF.width(bodyText,R.fonts.small))+22)
+      local _,lines=R.fonts.small:getWrap(bodyText,tw-20)
+      local th=#lines*R.fonts.small:getHeight()*R.fonts.small:getLineHeight()+20+(title and 22 or 0)
       local tx,ty
       if b.x+b.w+12+tw<=W-12 then
         tx=b.x+b.w+12; ty=math.max(10,math.min(H-th-12,b.y))
@@ -2980,7 +2953,8 @@ function UI.draw(c,s,action)
       end
       lg.setColor(P.bg); lg.rectangle("fill",tx,ty,tw,th,4)
       lg.setColor(P.panelEdge); lg.rectangle("line",tx,ty,tw,th,4)
-      text(b.tip,tx+10,ty+10,"small",P.text,tw-20)
+      if title then single(title,tx+10,ty+8,"body",P.text,tw-20) end
+      text(bodyText,tx+10,ty+(title and 32 or 10),"small",title and P.textDim or P.text,tw-20)
       break
     end
   end
