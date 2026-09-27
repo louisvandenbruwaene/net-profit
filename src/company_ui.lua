@@ -18,6 +18,7 @@ local CW  = 300          -- sidebar content width
 -- points, which broke "Roundabout" into "Roundab / out".
 local TILE_W, TILE_H = 96, 50
 local TOP = 78         -- first content line, before scrolling
+local suppliesCache
 local tooltipId,tooltipSince,tooltipX,tooltipY
 
 -- The mouse in interface units, which differ from screen points when the
@@ -1018,7 +1019,10 @@ local function buildPanel()
              dc="Freight yard",stop="Buses stop here",station="Sells fuel",resort="Visitors pay",corner="Bends a road",intersection="Joins roads",
              roundabout="Joins roads",interchange="Joins highways"})[name]
       UI.toolKeys[#UI.toolKeys+1]=name
-      tile("tool-"..name,label,City.price[kind],city.money>=City.price[kind],state.tool==name,Graph.KINDS[kind].color,
+      -- The price the click will charge: a haven's depends on its door and on
+      -- how many of that kind already stand.
+      local price=kind=="terminal" and city:havenCost(state.havenKind or "port") or city:nodeCost(kind)
+      tile("tool-"..name,label,price,city.money>=price,state.tool==name,Graph.KINDS[kind].color,
         function() state.tool=state.tool==name and nil or name end,short,
         function(ix,iy) Draw.structureGlyph(kind,ix,iy,1.3) end)
     end
@@ -2236,13 +2240,18 @@ local function stats()
   end
   y,open=fold("supplies","Map supplies",y,"")
   if open then
-  local free,buried={water=0,oil=0},0
-  for _,deposit in ipairs(city.deposits or {}) do
-    if not deposit.taken and free[deposit.commodity] then
-      free[deposit.commodity]=free[deposit.commodity]+1
-      if city:obstacleAt(deposit.x,deposit.y) then buried=buried+1 end
+  -- Every mark against every stand of ground: counted once per solve.
+  if not suppliesCache or suppliesCache.city~=city or suppliesCache.rev~=city.revision then
+    local free,buried={water=0,oil=0},0
+    for _,deposit in ipairs(city.deposits or {}) do
+      if not deposit.taken and free[deposit.commodity] then
+        free[deposit.commodity]=free[deposit.commodity]+1
+        if city:obstacleAt(deposit.x,deposit.y) then buried=buried+1 end
+      end
     end
+    suppliesCache={city=city,rev=city.revision,free=free,buried=buried}
   end
+  local free,buried=suppliesCache.free,suppliesCache.buried
   row("Unused water marks",free.water,y); y=y+26
   row("Unused oil marks",free.oil,y); y=y+26
   row("Need a permit",buried,y); y=y+36

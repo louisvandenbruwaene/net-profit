@@ -59,7 +59,7 @@ return function(City)
   -- Everything one trade cost today and everything it earned. `extra` adds a
   -- customer that is not signed yet, at full demand, so an offer can say what
   -- a unit would cost with it on the books.
-  function City:tradeCosts(t, extra)
+  local function tradeCosts(self, t, extra)
     local spec = trade(t)
     local fixed, variable, units, revenue, rates, signed = 0, 0, 0, 0, 0, 0
     for _, n in ipairs(self.g:nodesOfKind("source")) do
@@ -98,6 +98,18 @@ return function(City)
     out.price = units > 0 and revenue / units or (signed > 0 and rates / signed or nil)
     out.margin = out.perUnit and out.price and out.price - out.perUnit or nil
     return out
+  end
+
+  -- The clients list asks this for every row of every frame, and the answer
+  -- only changes when the network does, so it is kept until the next solve.
+  -- Held beside the company rather than on it, so it never reaches a save.
+  local cache = setmetatable({}, { __mode = "k" })
+  function City:tradeCosts(t, extra)
+    local c = cache[self]
+    if not c or c.rev ~= self.revision then c = { rev = self.revision }; cache[self] = c end
+    local key = extra and (t .. ":" .. extra.id .. ":" .. tostring(extra.demand)) or t
+    if not c[key] then c[key] = tradeCosts(self, t, extra) end
+    return c[key]
   end
 
   -- One customer's margin: their rate against what a unit of their trade
