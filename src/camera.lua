@@ -8,7 +8,6 @@ function Camera.new(fieldW, fieldH)
     scale = 0.8, targetScale = 0.8,
     fieldW = fieldW, fieldH = fieldH,
     vw = 0, vh = 0, vx = 0,
-    shake = 0,
   }, Camera)
 end
 
@@ -37,7 +36,6 @@ function Camera:update(dt)
       self.x, self.y, self.glide = self.glide.x, self.glide.y, nil
     end
   end
-  if self.shake > 0 then self.shake = math.max(0, self.shake - dt * 2.6) end
   local m = 260 / self.scale
   local b = self.field
   local x0, y0 = b and b.x or 0, b and b.y or 0
@@ -49,20 +47,9 @@ function Camera:update(dt)
   self.y = math.max(y0 - m - 700, math.min(y1 + m, self.y))
 end
 
-function Camera:shakeBy(amount)
-  self.shake = math.min(1.4, self.shake + amount)
-end
-
-function Camera:offset()
-  if self.shake <= 0 then return 0, 0 end
-  local m = self.shake * 13
-  return (math.random() * 2 - 1) * m, (math.random() * 2 - 1) * m
-end
-
 function Camera:toScreen(wx, wy)
-  local ox, oy = self:offset()
-  return self.vx + self.vw / 2 + (wx - self.x) * self.scale + ox,
-         self.vy + self.vh / 2 + (wy - self.y) * self.scale + oy
+  return self.vx + self.vw / 2 + (wx - self.x) * self.scale,
+         self.vy + self.vh / 2 + (wy - self.y) * self.scale
 end
 
 -- Is this world point worth drawing? On an endless map the answer is usually

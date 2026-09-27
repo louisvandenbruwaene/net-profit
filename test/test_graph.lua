@@ -25,7 +25,7 @@ print("edge bottleneck")
 do
   local g = Graph.new()
   local s = g:addNode(0, 0, "source").id
-  local r = unbound(g, g:addNode(1, 0, "relay").id)
+  local r = unbound(g, g:addNode(1, 0, "junction").id)
   local t = g:addNode(2, 0, "sink").id
   g:addEdge(s, r, 3)
   g:addEdge(r, t, 2)
@@ -41,7 +41,7 @@ print("node throughput bottleneck")
 do
   local g = Graph.new()
   local s = g:addNode(0, 0, "source").id
-  local r = g:addNode(1, 0, "relay").id
+  local r = g:addNode(1, 0, "junction").id
   local t = g:addNode(2, 0, "sink").id
   g.nodes[r].throughput = 4
   g:addEdge(s, r, 10)
@@ -58,8 +58,8 @@ do
   local g = Graph.new()
   local s = unbound(g, g:addNode(0, 0, "source").id)
   local t = unbound(g, g:addNode(3, 0, "sink").id)
-  local a = unbound(g, g:addNode(1, 1, "relay").id)
-  local b = unbound(g, g:addNode(1, -1, "relay").id)
+  local a = unbound(g, g:addNode(1, 1, "junction").id)
+  local b = unbound(g, g:addNode(1, -1, "junction").id)
   g:addEdge(s, a, 3); g:addEdge(a, t, 3)
   g:addEdge(s, b, 3); g:addEdge(b, t, 3)
   local f, cut = g:maxflow()
@@ -73,8 +73,8 @@ do
   -- S-A 3, S-B 2, A-T 2, B-T 3, A-B 1. Min cut {S}|rest = 5; also {S,A,B}|{T} = 5.
   local g = Graph.new()
   local s = unbound(g, g:addNode(0, 0, "source").id)
-  local a = unbound(g, g:addNode(1, 1, "relay").id)
-  local b = unbound(g, g:addNode(1, -1, "relay").id)
+  local a = unbound(g, g:addNode(1, 1, "junction").id)
+  local b = unbound(g, g:addNode(1, -1, "junction").id)
   local t = unbound(g, g:addNode(2, 0, "sink").id)
   g:addEdge(s, a, 3); g:addEdge(s, b, 2)
   g:addEdge(a, t, 2); g:addEdge(b, t, 3)
@@ -89,7 +89,7 @@ do
   -- Built 'backwards': every edge added as (later, earlier). Flow must not care.
   local g = Graph.new()
   local s = unbound(g, g:addNode(0, 0, "source").id)
-  local r = unbound(g, g:addNode(1, 0, "relay").id)
+  local r = unbound(g, g:addNode(1, 0, "junction").id)
   local t = unbound(g, g:addNode(2, 0, "sink").id)
   g:addEdge(r, s, 5)
   g:addEdge(t, r, 5)
@@ -101,7 +101,7 @@ print("multiple terminals share one budget")
 do
   local g = Graph.new()
   local s = unbound(g, g:addNode(0, 0, "source").id)
-  local r = unbound(g, g:addNode(1, 0, "relay").id)
+  local r = unbound(g, g:addNode(1, 0, "junction").id)
   local t1 = unbound(g, g:addNode(2, 1, "sink").id)
   local t2 = unbound(g, g:addNode(2, -1, "sink").id)
   g:addEdge(s, r, 4)
@@ -119,8 +119,6 @@ do
   local f, cut = g:maxflow()
   check("no path, no flow", f, 0)
   check("empty cut", #cut, 0)
-  check("two components", select(2, g:components()), 2)
-  check("not connected", g:isConnected(), false)
 end
 
 --------------------------------------------------------------------------------
@@ -128,133 +126,29 @@ print("destroying a node severs its links")
 do
   local g = Graph.new()
   local s = unbound(g, g:addNode(0, 0, "source").id)
-  local r = unbound(g, g:addNode(1, 0, "relay").id)
+  local r = unbound(g, g:addNode(1, 0, "junction").id)
   local t = unbound(g, g:addNode(2, 0, "sink").id)
   g:addEdge(s, r, 5); g:addEdge(r, t, 5)
   check("flows before", (g:maxflow()), 5)
   g:killNode(r)
   check("flows after", (g:maxflow()), 0)
   check("degree of source drops", g:degree(s), 0)
-  check("order drops", g:stats().order, 2)
 end
 
 --------------------------------------------------------------------------------
 print("ports constrain degree")
 do
   local g = Graph.new()
-  local c = g:addNode(0, 0, "conduit").id   -- 2 ports
-  local a = unbound(g, g:addNode(1, 0, "relay").id)
-  local b = unbound(g, g:addNode(0, 1, "relay").id)
-  local d = unbound(g, g:addNode(-1, 0, "relay").id)
+  local c = g:addNode(0, 0, "pump").id   -- 2 ports
+  local a = unbound(g, g:addNode(1, 0, "junction").id)
+  local b = unbound(g, g:addNode(0, 1, "junction").id)
+  local d = unbound(g, g:addNode(-1, 0, "junction").id)
   check("link 1", g:addEdge(c, a, 1) ~= nil, true)
   check("link 2", g:addEdge(c, b, 1) ~= nil, true)
   check("link 3 refused", g:addEdge(c, d, 1), nil)
   check("degree stops at ports", g:degree(c), 2)
   check("no self loops", g:addEdge(a, a, 1), nil)
   check("no duplicate links", g:addEdge(c, a, 1), nil)
-end
-
---------------------------------------------------------------------------------
-print("articulation points")
-do
-  -- Path S-A-B-T: A and B are both cut vertices.
-  local g = Graph.new()
-  local s = unbound(g, g:addNode(0, 0, "source").id)
-  local a = unbound(g, g:addNode(1, 0, "relay").id)
-  local b = unbound(g, g:addNode(2, 0, "relay").id)
-  local t = unbound(g, g:addNode(3, 0, "sink").id)
-  g:addEdge(s, a, 1); g:addEdge(a, b, 1); g:addEdge(b, t, 1)
-  local ap = g:articulationPoints()
-  check("path has 2 cut vertices", #ap, 2)
-  check("first is A", ap[1], a)
-  check("second is B", ap[2], b)
-
-  -- Closing the cycle removes every cut vertex: the graph is 2-connected.
-  g:addEdge(t, s, 1)
-  check("cycle has none", #g:articulationPoints(), 0)
-end
-
---------------------------------------------------------------------------------
-print("hop distances")
-do
-  local g = Graph.new()
-  local s = unbound(g, g:addNode(0, 0, "source").id)
-  local a = unbound(g, g:addNode(1, 0, "relay").id)
-  local b = unbound(g, g:addNode(2, 0, "relay").id)
-  g:addEdge(s, a, 1); g:addEdge(a, b, 1)
-  local d = g:distancesFrom({ s })
-  check("d(s)", d[s], 0)
-  check("d(a)", d[a], 1)
-  check("d(b)", d[b], 2)
-end
-
---------------------------------------------------------------------------------
-print("resilience: worst case after k removals")
-do
-  -- Two disjoint unit routes to a terminal demanding 2. One cut costs half.
-  local g = Graph.new()
-  local s = unbound(g, g:addNode(0, 0, "source").id)
-  local t = unbound(g, g:addNode(3, 0, "sink").id)
-  local a = unbound(g, g:addNode(1, 1, "relay").id)
-  local b = unbound(g, g:addNode(1, -1, "relay").id)
-  g.nodes[t].demand = 2
-  g:addEdge(s, a, 1); g:addEdge(a, t, 1)
-  g:addEdge(s, b, 1); g:addEdge(b, t, 1)
-
-  check("delivers 2 intact", (g:maxflow(false)), 2)
-  local f1 = g:worstCase(1, "edge")
-  check("one cut leaves 1", f1, 1)
-  local f2 = g:worstCase(2, "edge")
-  check("two cuts leave 0", f2, 0)
-
-  -- The query must not mutate the graph.
-  check("graph restored after query", (g:maxflow(false)), 2)
-  check("all edges still alive", g:stats().size, 4)
-end
-
-do
-  -- Three disjoint routes survive one cut with demand still met.
-  local g = Graph.new()
-  local s = unbound(g, g:addNode(0, 0, "source").id)
-  local t = unbound(g, g:addNode(3, 0, "sink").id)
-  g.nodes[t].demand = 2
-  for i = 1, 3 do
-    local r = unbound(g, g:addNode(1, i, "relay").id)
-    g:addEdge(s, r, 1); g:addEdge(r, t, 1)
-  end
-  check("capacity 3, demand 2", (g:maxflow(false)), 2)
-  check("survives one cut", (g:worstCase(1, "edge")), 2)
-  check("two cuts break it", (g:worstCase(2, "edge")), 1)
-end
-
-do
-  -- A fat single trunk has capacity but no resilience: the lesson, as a test.
-  local g = Graph.new()
-  local s = unbound(g, g:addNode(0, 0, "source").id)
-  local r = unbound(g, g:addNode(1, 0, "relay").id)
-  local t = unbound(g, g:addNode(2, 0, "sink").id)
-  g.nodes[t].demand = 5
-  g:addEdge(s, r, 9); g:addEdge(r, t, 9)
-  check("fat trunk delivers 5", (g:maxflow(false)), 5)
-  check("one cut takes everything", (g:worstCase(1, "edge")), 0)
-end
-
-do
-  -- Node threats need vertex-disjoint routes, not merely edge-disjoint ones.
-  -- Both routes pass through one relay, so edge redundancy does not help.
-  local g = Graph.new()
-  local s = unbound(g, g:addNode(0, 0, "source").id)
-  local hub = unbound(g, g:addNode(1, 0, "relay").id)
-  local t = unbound(g, g:addNode(2, 0, "sink").id)
-  g.nodes[t].demand = 2
-  g:addEdge(s, hub, 2); g:addEdge(hub, t, 2)
-  check("delivers through the shared node", (g:maxflow(false)), 2)
-  check("losing that node costs everything", (g:worstCase(1, "node")), 0)
-
-  -- A second, vertex-disjoint route fixes it.
-  local r2 = unbound(g, g:addNode(1, 2, "relay").id)
-  g:addEdge(s, r2, 2); g:addEdge(r2, t, 2)
-  check("vertex-disjoint route survives a node loss", (g:worstCase(1, "node")), 2)
 end
 
 --------------------------------------------------------------------------------

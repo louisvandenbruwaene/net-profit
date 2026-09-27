@@ -175,7 +175,7 @@ end
 City.rail = require("data.freight").rail
 
 -- Everything the city moves that is not one of the four original trades is
--- priced off its form, with its own landed price and its own wholesale value.
+-- priced off its form, with its own landed price.
 -- Only the numbers that actually differ are written down.
 City.GOODS = require("data.freight").GOODS
 
@@ -3062,17 +3062,6 @@ function City:clientIncome(c)
   return math.floor((self.served[c.id] or 0) * c.rate * self:eventRate(c.commodity) + 0.5)
 end
 
--- A well is paid for water somebody takes, not for water it could pump. The
--- flat fee is the standing contract with the network, so a well nobody draws
--- on earns nothing and is only an upkeep bill: customers are the business.
-function City:sourceIncome(n)
-  if n.kind ~= "source" then return 0 end
-  local delivered = (self.produced or {})[n.id] or 0
-  if delivered <= 0 then return 0 end
-  local trade = City.trade[n.commodity] or City.trade.water
-  return math.floor(trade.wholesale + delivered * trade.wholesalePerUnit)
-end
-
 --------------------------------------------------------------------------------
 -- Why is this customer short?
 --------------------------------------------------------------------------------
@@ -3153,9 +3142,6 @@ function City:dailyRevenue()
   local rev = 0
   for _, c in ipairs(self:clientList()) do
     rev = rev + self:clientIncome(c)
-  end
-  for _, n in ipairs(self.g:aliveNodes()) do
-    if n.kind == "source" then rev = rev + self:sourceIncome(n) end
   end
   return rev + self:transitIncome()
 end
@@ -3245,11 +3231,7 @@ function City:endDay()
     end
   end
 
-  -- 2. Wholesale from the wells.
-  for _, n in ipairs(self.g:aliveNodes()) do
-    if n.kind == "source" then report.revenue = report.revenue + self:sourceIncome(n) end
-  end
-  -- 2a. Everybody who travelled today paid for it on the way.
+  -- 2. Everybody who travelled today paid for it on the way.
   local transit = self.transit or {}
   report.trips, report.tripsCarried = transit.trips or 0, transit.carried or 0
   report.transitIncome = self:transitIncome()

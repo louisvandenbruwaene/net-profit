@@ -8,7 +8,6 @@ local RATE = 44100
 local enabled = true
 local master = 0.55
 
-A.muted = false
 
 --------------------------------------------------------------------------------
 -- Synthesis
@@ -183,7 +182,7 @@ end
 
 -- pitch jitter keeps repeated builds from sounding mechanical
 function A.play(name, volume, pitch)
-  if not enabled or A.muted then return end
+  if not enabled then return end
   local pool = sounds[name]
   if not pool then return end
   local src = pool[pool.idx]
@@ -218,10 +217,5 @@ function A.report()
 end
 
 function A.setEnabled(v) enabled = v and true or false end
-function A.toggleMute()
-  A.muted = not A.muted
-  if not A.muted then A.play("click", 0.7) end
-  return A.muted
-end
 
 return A

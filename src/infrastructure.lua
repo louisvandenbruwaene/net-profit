@@ -18,12 +18,12 @@ return function(City)
     blurb='Daily-average solar output. Requires 12 imported solar panels per array.'}
   City.PLANT_ORDER={'nuclear','hydro','wind','solar'}
   City.MATERIALS.solar={panels=12}
-  City.trade.panels={importCost=22,wholesale=0,wholesalePerUnit=0,sourceUpkeep=0,form='solid'}
+  City.trade.panels={importCost=22,sourceUpkeep=0,form='solid'}
   for k,v in pairs(City.FORMS.solid) do City.trade.panels[k]=v end
   City.BUILD_UNLOCK.binder='massive'
   City.BUILD_UNLOCK.lab='works'
   local base={}
-  for _,k in ipairs({'new','migrate','build','buySource','sourceCost','sourceError','placementError','pipeError','rangeBetween','sizeRange','pipeQuote','layPipe','replaceQuote','replacePipe','refresh','worksOutput','leakChance','endDay','sourceIncome','expenseBreakdown','convertError'}) do base[k]=City[k] end
+  for _,k in ipairs({'new','migrate','build','buySource','sourceCost','sourceError','placementError','pipeError','rangeBetween','sizeRange','pipeQuote','layPipe','replaceQuote','replacePipe','refresh','worksOutput','leakChance','endDay','expenseBreakdown','convertError'}) do base[k]=City[k] end
 
   local RANK={low=1,medium=2,high=3}
   local function dist(a,b) return math.sqrt((a.x-b.x)^2+(a.y-b.y)^2) end
@@ -411,10 +411,6 @@ return function(City)
   function City:worksOutput(n)
     if farm(n) and self:pollutionAt(n.x,n.y)>=D.pollution.stopAt then return 0 end
     return base.worksOutput(self,n)
-  end
-  function City:sourceIncome(n)
-    if n.effectiveOutput==0 then return 0 end
-    return base.sourceIncome(self,n)
   end
   function City:leakChance(e)
     if e.commodity=='power' and e.voltage then return City.rules.leakBase*0.55*self:gradeOf(e).risk end

@@ -44,7 +44,7 @@ Leaking oil routes pollute districts according to oil actually lost from the sup
 
 Distances are map metres. Water flow uses a per-segment Darcy–Weisbach design estimate with fixed friction and flat terrain, capped by the purchased pipe rating. This is not a full hydraulic pressure solver. Electrical capacity uses three-phase power at unity power factor, with each internal accounting increment representing 5 kWh delivered over 24 hours, and a conservative resistance-based capacity reduction at rated load. It is not an AC load-flow simulation or a separately metered energy-loss ledger.
 
-Turns represent daily averages: no weather, night cycle, animal growth or seasonal harvest scheduling. Existing wholesale contracts, material inventories and customer economics remain game abstractions. Filtration and lab coverage update with the network to avoid repetitive maintenance orders.
+Turns represent daily averages: no weather, night cycle, animal growth or seasonal harvest scheduling. Material inventories and customer economics remain game abstractions. Filtration and lab coverage update with the network to avoid repetitive maintenance orders.
 
 The design follows the physical distinctions described by the [EIA electricity delivery overview](https://www.eia.gov/energyexplained/electricity/delivery-to-consumers.php), [DOE hydropower explanation](https://www.energy.gov/cmei/water/how-hydropower-works), and [DOE pumping guide](https://www.energy.gov/sites/prod/files/2014/05/f16/pump.pdf). Numerical values are game balance choices, not engineering specifications.
 

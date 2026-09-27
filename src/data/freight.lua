@@ -27,20 +27,20 @@ Data.rail = {
 }
 
 Data.GOODS = {
-  food   = { importCost = 3.0,  wholesale = 22, wholesalePerUnit = 1.1, sourceUpkeep = 12 },
-  wheat  = { importCost = 0.9,  wholesale = 10, wholesalePerUnit = 0.35, sourceUpkeep = 7,
+  food   = { importCost = 3.0,  sourceUpkeep = 12 },
+  wheat  = { importCost = 0.9,  sourceUpkeep = 7,
              sourceBase = 620,  sourceGrowth = 1.30, sourceOutput = 14, upgradeBase = 240,
              upgradeGrowth = 1.4, upgradeStep = 4 },
-  timber = { importCost = 1.1,  wholesale = 12, wholesalePerUnit = 0.4, sourceUpkeep = 8,
+  timber = { importCost = 1.1,  sourceUpkeep = 8,
              sourceBase = 700,  sourceGrowth = 1.30, sourceOutput = 12, upgradeBase = 260,
              upgradeGrowth = 1.4, upgradeStep = 3 },
-  ore    = { importCost = 1.8,  wholesale = 16, wholesalePerUnit = 0.6, sourceUpkeep = 12,
+  ore    = { importCost = 1.8,  sourceUpkeep = 12,
              sourceBase = 1100, sourceGrowth = 1.34, sourceOutput = 10, upgradeBase = 420,
              upgradeGrowth = 1.45, upgradeStep = 3 },
-  rock   = { importCost = nil,  wholesale = 8,  wholesalePerUnit = 0.25, sourceUpkeep = 9,
+  rock   = { importCost = nil,  sourceUpkeep = 9,
              sourceBase = 820,  sourceGrowth = 1.30, sourceOutput = 12, upgradeBase = 300,
              upgradeGrowth = 1.4, upgradeStep = 3 },
-  sand   = { importCost = 0.6,  wholesale = 7,  wholesalePerUnit = 0.22, sourceUpkeep = 7,
+  sand   = { importCost = 0.6,  sourceUpkeep = 7,
              sourceBase = 600,  sourceGrowth = 1.28, sourceOutput = 12, upgradeBase = 220,
              upgradeGrowth = 1.4, upgradeStep = 3 },
   salt   = { importCost = 1.3 },
@@ -52,7 +52,7 @@ Data.GOODS = {
   planks = { importCost = 3.2 },
   glass  = { importCost = 5.5 },
   concrete = { importCost = 2.8 },
-  gasoline = { importCost = 4.5, wholesale = 20, wholesalePerUnit = 1.0, sourceUpkeep = 10 },
+  gasoline = { importCost = 4.5, sourceUpkeep = 10 },
   rubber = { importCost = 2.6 },
 }
 
@@ -90,15 +90,5 @@ Data.terminalUpkeep = 26
 Data.depotCapacity = 100
 
 Data.depotFillRate = 100
-
-Data.hub = {
-  radius = 700,          -- how far the last mile reaches
-  connect = 12,          -- kept for test/test_balance.lua's cost model; the
-                         -- hub itself now builds a real pipe run instead of
-                         -- charging this (see City:recomputeHubs)
-  perClient = 0.35,      -- per customer per day, whatever they take
-  upkeep = 6,            -- the hub itself, per day
-  floorStep = 1,         -- the rate floor moves in whole dollars
-}
 
 return Data

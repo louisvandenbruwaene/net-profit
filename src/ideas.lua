@@ -6,10 +6,10 @@ return function(City)
   City.INFRA.kinds.transformer.legacy=false
   City.BUILDABLE.transformer=true
   City.trade.saltwater={}; for k,v in pairs(City.trade.water) do City.trade.saltwater[k]=v end
-  City.trade.saltwater.sourceUpkeep=18; City.trade.saltwater.wholesale=0; City.trade.saltwater.wholesalePerUnit=0
+  City.trade.saltwater.sourceUpkeep=18
   for _,key in ipairs({'gems','jewelry'}) do
     City.trade[key]={}; for k,v in pairs(City.FORMS.solid) do City.trade[key][k]=v end
-    City.trade[key].importCost=0; City.trade[key].sourceUpkeep=0; City.trade[key].wholesale=0; City.trade[key].wholesalePerUnit=0
+    City.trade[key].importCost=0; City.trade[key].sourceUpkeep=0
   end
   function City:workerCount(key)
     local n=(self.orders or {})[key]

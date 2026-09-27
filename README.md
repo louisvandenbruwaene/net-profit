@@ -539,7 +539,7 @@ the company, so loading preserves future outcomes.
 ## Verification
 
 ```sh
-make test          # graph, contracts, company rules, save locations, persistence and growth
+make test          # graph, company rules, save locations, persistence and growth
 make smoke         # real input callbacks, company screens, save checks
 make soak          # 60+ rendered company days
 make tutorial      # the opening input walkthrough
@@ -576,9 +576,6 @@ and window tests under Xvfb and uploads the packaged game.
 | `src/distribution.lua` | The distribution hub: sign, connect and widen within its radius |
 | `src/costs.lua` | Pumping bill, cost a unit per trade, and every customer's margin |
 | `src/upgrades.lua` | Building levels (data in `src/data/upgrades.lua`) |
-
-The previous contract game is retained for comparison with
-`love . --contracts`. Its graph and generation tests remain part of the suite.
 
 This is a playable management prototype. Economy tuning and whether the choices
 stay interesting over a long human playthrough still need playtesting; passing
