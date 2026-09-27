@@ -1,21 +1,14 @@
-package.path='src/?.lua;'..package.path
+package.path='test/?.lua;src/?.lua;'..package.path
+local T=require('support')
 local City=require('city')
 local Graph=require('graph')
 local Save=require('company_save')
-local checks=0
-local function check(v,m) assert(v,m); checks=checks+1 end
+local check=T.check
 
-local function city()
-  local c=City.new({seed=31,obstacles=0})
-  c.money=1000000; c.obstacles={}; c.stock={steel=1000,concrete=1000,panels=100}
-  for _,d in ipairs(c.districts) do d.owned=true end
-  c.licences={water=true,power=true,oil=true,food=true,beer=true,internet=true}
-  c.permits={park=true,bedrock=true,river=true}
-  return c
-end
+local function city() return T.sandbox(31,true) end
+-- Fixture sources and junctions take any number of mains.
 local function node(c,kind,x,y,commodity,output)
-  local n=c.g:addNode(x,y,kind); n.commodity=commodity
-  if output then n.output=output; n.cap=output end
+  local n=T.node(c,kind,x,y,commodity,output)
   if kind=='source' or kind=='junction' then n.ports=16 end
   return n
 end
@@ -216,7 +209,8 @@ do
   check(c.money==money and c.day==day and (w.level or 1)==1 and w.output==5,'advising changes nothing in the real company')
 
   local j=assert(c:build(1300,1500,'junction'))
-  check(E.levelPreview(c,j.id).cost==48 and E.levelPreview(c,j.id).net<=0 or true,'a level preview prices the upgrade')
+  local lp=E.levelPreview(c,j.id)
+  check(lp.cost==c:levelNext(j.id).cost and lp.cost>0 and lp.net==0,'a level preview prices the upgrade, and an idle junction earns nothing from it')
 
   -- A secure customer left short is refunded at the day close.
   local d,n=mesh(true)
@@ -228,4 +222,4 @@ do
   check((report.credits or 0)>0 and report.expenses>=report.credits,'a short secure customer is refunded at the day close')
 end
 
-print(checks..' resilience and upgrade checks passed')
+print(T.checks..' resilience and upgrade checks passed')

@@ -1,17 +1,10 @@
 -- Headless unit tests: lua5.4 test/test_graph.lua
 -- Every expected value here is hand-computed, not recorded from the implementation.
-package.path = "src/?.lua;../src/?.lua;" .. package.path
+package.path = "test/?.lua;src/?.lua;../src/?.lua;" .. package.path
 local Graph = require("graph")
 
-local pass, fail = 0, 0
-local function check(name, got, want)
-  if got == want then
-    pass = pass + 1
-  else
-    fail = fail + 1
-    print(string.format("  FAIL  %s\n        got %s, want %s", name, tostring(got), tostring(want)))
-  end
-end
+local T = require("support")
+local check = T.same
 
 -- Free a node from balance constraints so tests stay stable across tuning.
 local function unbound(g, id, tp, ports)
@@ -152,5 +145,4 @@ do
 end
 
 --------------------------------------------------------------------------------
-print(string.format("\n%d passed, %d failed", pass, fail))
-os.exit(fail == 0 and 0 or 1)
+T.finish()

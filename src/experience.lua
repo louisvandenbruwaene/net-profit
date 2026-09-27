@@ -353,7 +353,9 @@ function E.pipePreview(c,a,b,trade,capacity,rail,grade)
     local q=c:pipeQuote(a,b,trade,capacity,rail,grade)
     local copy=assert(Save.unpack(Save.pack(c)))
     copy.money=math.max(copy.money,q.total)
-    local before=c:dailyRevenue()-c:dailyExpenses()
+    -- Measured on the copy, before and after, so the gain is the change and
+    -- nothing that reloading a company tidies up on the way.
+    local before=copy:dailyRevenue()-copy:dailyExpenses()
     -- pipeError is told the size, but only layPipe knows whether the two ends
     -- will accept it, so a size either end refuses still shows up here.
     local laid,why=copy:layPipe(a,b,trade,capacity,rail,grade)
@@ -368,8 +370,9 @@ end
 function E.offerPreview(c,id)
   return memo(c,"offer:"..id..":"..c.money,function()
     local copy=assert(Save.unpack(Save.pack(c)))
+    local before=copy:dailyRevenue()-copy:dailyExpenses()
     local n=assert(copy:acceptClient(id))
-    local net=copy:dailyRevenue()-copy:dailyExpenses()-(c:dailyRevenue()-c:dailyExpenses())
+    local net=copy:dailyRevenue()-copy:dailyExpenses()-before
     if copy:fullyServed(n) then return {cost=0,delivery=n.demand,demand=n.demand,net=net,displaced=displaced(c,copy,id)} end
     -- A multi-utility offer needs a complete plan for every supply. Do not
     -- label one primary pipe as a complete connection for the household.
@@ -424,7 +427,7 @@ local function trial(c,key,cost,fn)
   return memo(c,key..":"..c.money,function()
     local copy=assert(Save.unpack(Save.pack(c)))
     copy.money=math.max(copy.money,cost)
-    local before=c:dailyRevenue()-c:dailyExpenses()
+    local before=copy:dailyRevenue()-copy:dailyExpenses()
     local ok,why=fn(copy)
     if not ok then return {error=why or "not possible"} end
     local net=copy:dailyRevenue()-copy:dailyExpenses()-before

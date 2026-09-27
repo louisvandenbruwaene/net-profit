@@ -5,15 +5,12 @@
 -- than bad, that a new trade is reachable with what the player already has, and
 -- that the map's prices point the way the map wants you to go. A rebalance that
 -- breaks one of these has broken the game whether or not anything crashes.
-package.path = "src/?.lua;../src/?.lua;" .. package.path
+package.path = "test/?.lua;src/?.lua;../src/?.lua;" .. package.path
 local City = require("city")
 local Graph = require("graph")
 
-local pass, fail = 0, 0
-local function ok(name, cond, detail)
-  if cond then pass = pass + 1
-  else fail = fail + 1; print("  FAIL  " .. name .. (detail and ("  (" .. detail .. ")") or "")) end
-end
+local T = require("support")
+local ok = T.ok
 
 -- A company that has been through its first day: the well is in and the first
 -- household is signed, which is where every one of these checks starts from.
@@ -472,5 +469,4 @@ do
   end
 end
 
-print(string.format("\n%d passed, %d failed", pass, fail))
-os.exit(fail == 0 and 0 or 1)
+T.finish()

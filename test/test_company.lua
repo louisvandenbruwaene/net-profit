@@ -320,8 +320,10 @@ do
   local e=assert(c:layPipe(src.id,far.id,"water","large"))
   local bareRisk,bareRepair=c:leakChance(e),c:repairCost(e)
   check(c.lining==1,"a new company can only lay bare pipe")
-  check(c:layPipe(src.id,far.id,"power","medium",false,3)==nil or true,
-    "asking for pipe the company cannot lay is clamped rather than refused")
+  local far2=assert(c:build(far.x+200,far.y,"junction"))
+  local asked=assert(c:layPipe(far.id,far2.id,"water","large",false,3))
+  check(asked.grade==1,"asking for pipe the company cannot lay is clamped rather than refused")
+  c:demolishPipe(asked.id)
 
   -- Buy the knowledge, then dig the main out to get the benefit of it.
   assert(c:upgradeQuality())

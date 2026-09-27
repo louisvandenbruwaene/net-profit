@@ -1,17 +1,10 @@
 -- Headless validation of the company: lua5.4 test/test_city.lua
-package.path = "src/?.lua;../src/?.lua;" .. package.path
+package.path = "test/?.lua;src/?.lua;../src/?.lua;" .. package.path
 local Graph = require("graph")
 local City  = require("city")
 
-local pass, fail = 0, 0
-local function check(name, got, want)
-  if got == want then pass = pass + 1
-  else fail = fail + 1
-    print(string.format("  FAIL  %s: got %s want %s", name, tostring(got), tostring(want))) end
-end
-local function ok(name, cond)
-  if cond then pass = pass + 1 else fail = fail + 1; print("  FAIL  " .. name) end
-end
+local T = require("support")
+local check, ok = T.same, T.ok
 
 
 -- Most of these checks are about a company that is already trading, so this
@@ -252,5 +245,4 @@ do
   ok("crossing a river costs more", plain > bare)
 end
 
-print(string.format("\n%d passed, %d failed", pass, fail))
-os.exit(fail == 0 and 0 or 1)
+T.finish()

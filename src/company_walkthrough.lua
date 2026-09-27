@@ -445,7 +445,13 @@ function Walk.start(app,mode)
     click("district-"..target)
     check(#c:ownedDistricts()==before+1,"a district can be bought")
     local d=c.districts[target]
-    check(c:placementError(d.x+d.w/2,d.y+d.h/2)==nil or true,"bought ground accepts structures")
+    local free
+    for gx=d.x+60,d.x+d.w-60,40 do
+      for gy=d.y+60,d.y+d.h-60,40 do
+        if not free and not c:placementError(gx,gy) then free=true end
+      end
+    end
+    check(free,"bought ground accepts structures")
     click("district-permits")
     love.draw()
     local permit=findButton("permit-park")
