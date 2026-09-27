@@ -1621,6 +1621,18 @@ function City:pipeError(a, b, commodity, rail, size)
   for _,e in ipairs(self.g:edgesAt(a)) do
     if e.commodity==commodity and ((e.a==a and e.b==b) or (e.b==a and e.a==b)) then count=count+1 end
   end
+  -- A customer is fed by one line of each trade it takes: a second water main
+  -- or cable into the same house is never a connection it would pay for.
+  for _,id in ipairs({a,b}) do
+    local n=self.g.nodes[id]
+    if n.kind=='client' then
+      for _,e in ipairs(self.g:edgesAt(id)) do
+        if e.commodity==commodity and not e.rail then
+          return 'a customer takes one '..string.lower(Graph.COMMODITIES[commodity].name)..' connection'
+        end
+      end
+    end
+  end
   if count>=self:parallelLimit(a,b) then return count>0 and 'parallel limit reached: use or upgrade pipe binders' or 'that pipe already exists' end
   for _,id in ipairs({a,b}) do
     if count==0 and self:connectionPorts(id)>=self.g.nodes[id].ports then return 'no free connections there' end
