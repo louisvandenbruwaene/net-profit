@@ -181,17 +181,4 @@ return function(City)
   function City:distributionBill()
     return #self:distributionHubs() * D.DISTRIBUTION.upkeep
   end
-
-  -- A hub that reaches the top level starts work straight away, so the upgrade
-  -- shows what it bought the moment it is paid for.
-  local plainUpgrade = City.upgradeLevel
-  function City:upgradeLevel(id)
-    local n, err = plainUpgrade(self, id)
-    if n and self:isDistribution(n) then
-      n.floor = n.floor or D.DISTRIBUTION.floor
-      n.radius = D.DISTRIBUTION.radius
-      n.lastRun = self:runDistribution()
-    end
-    return n, err
-  end
 end
