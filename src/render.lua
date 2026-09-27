@@ -123,7 +123,38 @@ function R.update(dt)
   end
 end
 
+-- Floating numbers are screen-sized, so neighbours on the map collide at any
+-- zoom. Each one that would overlap an earlier one is lifted clear above it.
+local function stack(placed, sx, sy, w)
+  local h = 24
+  for _ = 1, #placed do
+    local moved = false
+    for _, p in ipairs(placed) do
+      if math.abs(sx - p.x) < (w + p.w) / 2 + 4 and math.abs(sy - p.y) < h then
+        sy, moved = p.y - h, true
+      end
+    end
+    if not moved then break end
+  end
+  placed[#placed + 1] = { x = sx, y = sy, w = w }
+  return sy
+end
+
 function R.drawEffects(cam)
+  -- Placed in the order they appeared, so a late one never shoves one that is
+  -- already on screen.
+  local texts, placed = {}, {}
+  for i, f in ipairs(R.fx) do
+    if f.kind == "text" and f.age >= (f.delay or 0) then texts[#texts + 1] = { f = f, i = i } end
+  end
+  table.sort(texts, function(a, b)
+    if a.f.delay ~= b.f.delay then return (a.f.delay or 0) < (b.f.delay or 0) end
+    return a.i < b.i
+  end)
+  for _, t in ipairs(texts) do
+    local sx, sy = cam:toScreen(t.f.x, t.f.y)
+    t.f.lift = stack(placed, sx, sy, R.fonts.body:getWidth(t.f.text) + 12) - sy
+  end
   for _, f in ipairs(R.fx) do
     local k = 1 - f.age / f.life
     local sx, sy = cam:toScreen(f.x, f.y)
@@ -151,6 +182,7 @@ function R.drawEffects(cam)
       local pop = math.min(1, (f.age - d) * 8)
       lg.setFont(R.fonts.body)
       local w = R.fonts.body:getWidth(f.text) + 12
+      sy = sy + (f.lift or 0)
       lg.setColor(0.05, 0.08, 0.10, math.min(0.8, kk * 1.4))
       lg.rectangle("fill", sx - w / 2, sy - 10, w, 22, 6)
       lg.setColor(f.color[1], f.color[2], f.color[3], math.min(1, kk * 1.8))
