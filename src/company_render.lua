@@ -84,6 +84,8 @@ end
 -- shape, a forest is trees, a depot is crates.
 --------------------------------------------------------------------------------
 
+local PIPE_WIDTH, COLLAR_GAP, VOLT_WIRES, cableSag, drawCable
+
 -- Line weight for an icon of the given span, never thinner than a hairline.
 local function stroke(size, k)
   lg.setLineWidth(math.max(0.9, size * (k or 0.11)))
@@ -658,7 +660,16 @@ function Draw.structureBuilding(kind, x, y, r, accent, level, fill, busy, seed)
   local u = r / 12
   level = level or 1
   if kind ~= "tower" then lg.setColor(0, 0, 0, 0.28); lg.ellipse("fill", x + 2 * u, y + 9 * u, 11 * u, 4 * u) end
-  if kind == "tower" then
+  if kind == "tower" and level <= 1 then
+    -- Low voltage is a wooden pole: one post, one cross-arm, one insulator.
+    local base = y + 12 * u
+    lg.setColor(0, 0, 0, 0.28); lg.ellipse("fill", x + 2 * u, base + 1 * u, 5 * u, 2 * u)
+    lg.setColor(0.45, 0.32, 0.20); lg.setLineWidth(math.max(1.2, 2 * u))
+    lg.line(x, base, x, y - 2 * u)
+    lg.setColor(0.36, 0.25, 0.16); lg.setLineWidth(math.max(1, 1.2 * u))
+    lg.line(x - 5 * u, y, x + 5 * u, y)
+    lg.setColor(accent); lg.circle("fill", x, y - 2.5 * u, 1.3 * u)
+  elseif kind == "tower" then
     -- The cables attach where the node is, so the top arm sits there and the
     -- lattice stands below it.
     local h = (14 + level * 2.5) * u
@@ -954,6 +965,55 @@ function Draw.disc(x, y, r, color, tint)
 end
 
 local laneCache={}
+-- How each kind of line looks. Mains are as wide as their bore; power runs
+-- overhead as one, two or three conductors for low, medium and high voltage.
+PIPE_WIDTH = { small = 2.5, medium = 5, large = 8, massive = 12, trunk = 16 }
+COLLAR_GAP = { medium = 70, large = 55, massive = 45, trunk = 38 }
+VOLT_WIRES = { low = 1, medium = 2, high = 3 }
+local VOLT_TINT = { low = 0.6, medium = 0, high = -0.45 } -- toward grey, or toward white
+
+function cableSag(ax, ay, bx, by, scale)
+  local len = math.sqrt((bx - ax) ^ 2 + (by - ay) ^ 2)
+  return math.min(len * 0.07, 16 * scale + 2)
+end
+
+function drawCable(ax, ay, bx, by, e, c, wires, sizeKey, scale)
+  local dx, dy = bx - ax, by - ay
+  local len = math.max(1, math.sqrt(dx * dx + dy * dy))
+  local nx, ny = -dy / len, dx / len
+  local sag = cableSag(ax, ay, bx, by, scale)
+  -- The shadow on the ground under the span, which is what makes it overhead.
+  lg.setColor(0, 0, 0, 0.18); lg.setLineWidth(math.max(1, (wires + 1) * scale))
+  lg.line(ax + 3 * scale, ay + 9 * scale, bx + 3 * scale, by + 9 * scale)
+  local tint = VOLT_TINT[e.voltage or "medium"] or 0
+  local col = (e.leaking or e.unboosted) and P.bad
+    or tint > 0 and { c[1] + (0.55 - c[1]) * tint, c[2] + (0.55 - c[2]) * tint, c[3] + (0.58 - c[3]) * tint }
+    or { c[1] + (1 - c[1]) * -tint, c[2] + (1 - c[2]) * -tint, c[3] + (1 - c[3]) * -tint }
+  local alpha = e.cap == 0 and 0.35 or 0.95
+  local function curve(off)
+    local x0, y0, x1, y1 = ax + nx * off, ay + ny * off, bx + nx * off, by + ny * off
+    local pts = {}
+    for k = 0, 12 do
+      local t = k / 12
+      pts[#pts + 1] = x0 + (x1 - x0) * t
+      pts[#pts + 1] = y0 + (y1 - y0) * t + sag * 4 * t * (1 - t)
+    end
+    return pts
+  end
+  -- High voltage hums: a soft glow along the span.
+  if e.voltage == "high" and e.cap ~= 0 then
+    lg.setColor(c[1], c[2], c[3], 0.16); lg.setLineWidth((wires * 3.4 + 6) * scale + 2)
+    lg.setLineJoin("bevel"); lg.line(curve(0))
+  end
+  -- A heavier current rating is a thicker conductor.
+  local thick = ({ small = 1, medium = 1.3, large = 1.6, massive = 2, trunk = 2.4 })[sizeKey] or 1
+  lg.setLineWidth(math.max(1, thick * 1.7 * scale))
+  for i = 1, wires do
+    local off = (i - (wires + 1) / 2) * 3.4 * scale
+    lg.setColor(col[1], col[2], col[3], alpha); lg.line(curve(off))
+  end
+end
+
 function Draw.edgePoints(cam, city, e)
   if laneCache.city~=city or laneCache.revision~=city.revision or laneCache.count~=#city.g.edges then
     local groups,offsets={},{}
@@ -2058,7 +2118,11 @@ function Draw.world(city, cam, state)
       local ax, ay, bx, by = Draw.edgePoints(cam,city,e)
       local spec = Graph.COMMODITIES[e.commodity] or Graph.COMMODITIES.water
       local c = spec.color
-      local width = math.min(10,2+e.capMax*0.6)*cam.scale+1
+      local sizeKey = e.size or City.sizeFor(e.capMax or e.cap).key
+      local power = e.commodity == "power" and not e.rail
+      local wires = power and (VOLT_WIRES[e.voltage or "medium"] or 2) or 0
+      local width = power and (wires * 3.4 + 1) * cam.scale + 2
+        or (PIPE_WIDTH[sizeKey] or 3) * cam.scale + 1
       segments[#segments+1]={ax=ax,ay=ay,bx=bx,by=by,pad=width/2+4}
       if state.bottlenecks and (route[e.id] or e.leaking or math.abs(city.detail.edge[e.id] or 0)>=(e.effectiveCap or e.cap)) then
         lg.setColor(P.with((e.leaking or math.abs(city.detail.edge[e.id] or 0)>=(e.effectiveCap or e.cap)) and P.warn or P.flow,0.3))
@@ -2116,7 +2180,13 @@ function Draw.world(city, cam, state)
         lg.setColor(P.with(c, e.cap == 0 and 0.22 or 0.45))
         lg.setLineWidth(width + 2); lg.line(ax,ay,bx,by)
       end
-      if not e.rail then
+      if power then
+        drawCable(ax, ay, bx, by, e, c, wires, sizeKey, cam.scale)
+      elseif not e.rail and Graph.formOf(e.commodity) == "data" then
+        -- Fibre is a thin buried duct: a dashed line, no pipe body.
+        lg.setColor(P.with(e.leaking and P.bad or c, e.cap == 0 and 0.35 or 0.85))
+        lg.setLineWidth(math.max(1, 1.6 * cam.scale)); dashes(ax, ay, bx, by, 7, 4)
+      elseif not e.rail then
         -- A main is a pipe lying on the ground: a soft shadow under it, a dark
         -- casing, the trade colour, and a highlight along its crown.
         -- Shadow and casing only once a main is wide enough to show them.
@@ -2124,21 +2194,39 @@ function Draw.world(city, cam, state)
           lg.setColor(0,0,0,0.30); lg.setLineWidth(width+3); lg.line(ax,ay+1.5,bx,by+1.5)
           lg.setColor(P.with(P.bg,0.85)); lg.setLineWidth(width+2); lg.line(ax,ay,bx,by)
         end
-        lg.setColor(P.with((e.leaking or e.unboosted) and P.bad or (e.commodity == "oil" and spec.fill or c),
+        lg.setColor(P.with(e.leaking and P.bad or (e.commodity == "oil" and spec.fill or c),
           e.cap == 0 and 0.35 or (e.commodity == "oil" and 0.95 or 0.72)))
         lg.setLineWidth(width); lg.line(ax,ay,bx,by)
+        local dx, dy = bx-ax, by-ay
+        local len = math.max(1, math.sqrt(dx*dx+dy*dy))
         if width >= 3 and e.cap ~= 0 then
-          local dx, dy = bx-ax, by-ay
-          local len = math.max(1, math.sqrt(dx*dx+dy*dy))
           local ox, oy = dy/len*width*0.18, -dx/len*width*0.18
           if oy > 0 then ox, oy = -ox, -oy end
           lg.setColor(1,1,1,0.16); lg.setLineWidth(math.max(1,width*0.28))
           lg.line(ax+ox,ay+oy,bx+ox,by+oy)
         end
+        -- Joint collars: none on a service pipe, then further apart the
+        -- bigger the main, so the size reads without a label.
+        local gap = COLLAR_GAP[sizeKey]
+        if gap and cam.scale > 0.35 then
+          local step = gap * cam.scale
+          local nx, ny = -dy/len*(width/2+1), dx/len*(width/2+1)
+          lg.setColor(P.with(P.bg, 0.7)); lg.setLineWidth(math.max(1, 1.6 * cam.scale))
+          for d = step * 0.5, len - step * 0.25, step do
+            local t = d / len
+            local px, py = ax + dx * t, ay + dy * t
+            lg.line(px - nx, py - ny, px + nx, py + ny)
+          end
+        end
+        -- A trunk is two bores in one casing.
+        if sizeKey == "trunk" and e.cap ~= 0 then
+          lg.setColor(P.with(P.bg, 0.55)); lg.setLineWidth(math.max(1, width * 0.12))
+          lg.line(ax, ay, bx, by)
+        end
       end
       -- A lined main wears a casing stripe; armour wears two.
       local grade = e.grade or 1
-      if grade > 1 and not e.rail and cam.scale > 0.42 then
+      if grade > 1 and not e.rail and not power and cam.scale > 0.42 then
         lg.setColor(P.with(P.good, grade > 2 and 0.85 or 0.5))
         lg.setLineWidth(1)
         local dx, dy = bx-ax, by-ay
@@ -2153,8 +2241,10 @@ function Draw.world(city, cam, state)
         for i=1,count do
           local t = (R.t*0.22+i/count)%1
           if flow < 0 then t = 1-t end
-          lg.setColor(c)
-          lg.circle("fill", ax+(bx-ax)*t, ay+(by-ay)*t, math.max(1, R.sym(2.8, cam.scale)))
+          lg.setColor(power and P.with(P.text, 0.9) or c)
+          local px, py = ax+(bx-ax)*t, ay+(by-ay)*t
+          if power then py = py + cableSag(ax, ay, bx, by, cam.scale) * 4 * t * (1 - t) end
+          lg.circle("fill", px, py, math.max(1, R.sym(power and 2.2 or 2.8, cam.scale)))
         end
       end
       -- The main a dry house was blamed on, flashing for a moment.
