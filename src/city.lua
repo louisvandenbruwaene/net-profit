@@ -2971,6 +2971,21 @@ function City:buySource(commodity, x, y, plant)
   return n,err
 end
 
+-- A second well for a network whose well is as deep as its deposit allows:
+-- sunk on the deposit at x, y and tied by a large main into `target`, a node on
+-- that network with a connection free. One decision, so the player is never
+-- left with a well standing alone. experience.lua plans it on a copy first.
+function City:sinkWellAt(commodity, x, y, target)
+  local t = self.g.nodes[target]
+  if not (t and t.alive) then return nil, "nothing to tie it into" end
+  if self.g:freePorts(target) < 1 then return nil, "no connection free there" end
+  local n, err = self:buySource(commodity, x, y)
+  if not n then return nil, err end
+  local e, why = self:layPipe(n.id, target, commodity, "large")
+  if not e then self:demolishNode(n.id); return nil, why end
+  return n
+end
+
 City.LICENSABLE = { power = true, beer = true, oil = true, food = true, internet = true }
 
 function City:buyLicence(commodity)
@@ -3478,6 +3493,20 @@ City.LOYALTY = { every = 10, step = 1, max = 3 }
 -- main carries. It is what makes a network that was right last month choke.
 City.GROWTH = { every = 30, max = 1.5, patience = 7 }
 
+-- The most a customer will grow to want.
+function City:growthCeiling(c)
+  local base = c.baseDemand or c.demand or 0
+  return math.min(City.PIPE_SIZES[1].cap, math.max(base + 1, math.floor(base * City.GROWTH.max)))
+end
+
+-- Closes until this customer next grows if kept supplied, or nil if they are
+-- done growing.
+function City:daysToGrowth(c)
+  if (c.demand or 0) >= self:growthCeiling(c) then return nil end
+  local k = (-((c.streak or 0) + c.id)) % City.GROWTH.every
+  return k == 0 and City.GROWTH.every or k
+end
+
 -- What a customer pays today, or with `full` what they would pay if supplied
 -- in full. A household's second utility is paid at its own rate.
 function City:clientIncome(c, full)
@@ -3756,9 +3785,7 @@ function City:endDay()
         report.loyal[#report.loyal + 1] = { x = c.x, y = c.y, id = c.id }
       end
       c.baseDemand = c.baseDemand or c.demand
-      local ceiling = math.min(City.PIPE_SIZES[1].cap,
-        math.max(c.baseDemand + 1, math.floor(c.baseDemand * City.GROWTH.max)))
-      if (c.streak + c.id) % City.GROWTH.every == 0 and (c.demand or 0) < ceiling then
+      if (c.streak + c.id) % City.GROWTH.every == 0 and (c.demand or 0) < self:growthCeiling(c) then
         c.demand = c.demand + 1
         c.grewOn = self.day
         report.grew = report.grew or {}

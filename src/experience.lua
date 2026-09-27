@@ -434,6 +434,80 @@ function E.levelPreview(c,id)
   return trial(c,"level:"..id,spec.cost,function(copy) return copy:upgradeLevel(id) end)
 end
 
+-- Who outgrows the network soon: every supplied customer due to grow within
+-- `horizon` closes is grown on a copy, and whoever that leaves short is
+-- counted. `choke` is the worst limit on the copy (ids match the real company),
+-- so the player can go and fix it before anyone is short.
+function E.growthForecast(c,horizon)
+  horizon=horizon or 10
+  return memo(c,"growth:"..horizon,function()
+    local copy=assert(Save.unpack(Save.pack(c)))
+    local soon
+    for _,cl in ipairs(copy:clientList()) do
+      local d=copy:fullyServed(cl) and copy:daysToGrowth(cl)
+      if d and d<=horizon then
+        cl.baseDemand=cl.baseDemand or cl.demand
+        cl.demand=cl.demand+1
+        soon=math.min(soon or d,d)
+      end
+    end
+    if not soon then return {count=0} end
+    copy:refresh()
+    local count=0
+    for _,cl in ipairs(copy:shortCustomers()) do
+      if c:fullyServed(c.g.nodes[cl.id]) then count=count+1 end
+    end
+    local edges,nodes=copy:chokes()
+    local choke,most
+    for id,n in pairs(edges) do if not most or n>most or (n==most and id<choke.id) then choke,most={kind="edge",id=id},n end end
+    for id,n in pairs(nodes) do if not most or n>most then choke,most={kind="node",id=id},n end end
+    return {count=count,soon=soon,choke=count>0 and choke or nil}
+  end)
+end
+
+-- Where a second well for a maxed one would go: the nearest free deposit of
+-- its trade, tied into the nearest node on the same network with a connection
+-- free. Each candidate is tried on a copy, so what is offered is known to work,
+-- and priced by what the copy spent and earned.
+function E.wellPlan(c,id)
+  return memo(c,"wellplan:"..id..":"..c.money,function()
+    local w=c.g.nodes[id]
+    if not (w and w.alive and w.kind=="source" and w.commodity) then return nil end
+    local com=w.commodity
+    local net=c:flowNetworks(com)[id]
+    local deposits={}
+    for _,d in ipairs(c.deposits or {}) do
+      if d.commodity==com and not d.taken and not c:sourceError(com,d.x,d.y) then
+        deposits[#deposits+1]={d=d,far=(d.x-w.x)^2+(d.y-w.y)^2}
+      end
+    end
+    table.sort(deposits,function(a,b) return a.far<b.far end)
+    for i=1,math.min(4,#deposits) do
+      local d=deposits[i].d
+      local best,far
+      for _,n in ipairs(c.g:aliveNodes()) do
+        if n.kind~="client" and n.kind~="source" and c:flowNetworks(com)[n.id]==net
+           and c.g:freePorts(n.id)>=1 then
+          local f=(n.x-d.x)^2+(n.y-d.y)^2
+          if not far or f<far then best,far=n,f end
+        end
+      end
+      if best then
+        local copy=assert(Save.unpack(Save.pack(c)))
+        copy.money=math.max(copy.money,1e7)
+        local before,cash=copy:dailyRevenue()-copy:dailyExpenses(),copy.money
+        if copy:sinkWellAt(com,d.x,d.y,best.id) then
+          local cost=cash-copy.money
+          local gain=copy:dailyRevenue()-copy:dailyExpenses()-before
+          return {x=d.x,y=d.y,target=best.id,commodity=com,cost=cost,net=gain,
+            payback=gain>0 and math.ceil(cost/gain) or nil,affordable=c.money>=cost}
+        end
+      end
+    end
+    return nil
+  end)
+end
+
 -- Every upgrade the company could buy that is worth pricing, ranked by how
 -- fast it pays for itself. The candidates are exactly what the map glows:
 -- City:chokes(), the mains, wells and valves some customer is short behind,

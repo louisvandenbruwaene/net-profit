@@ -79,9 +79,17 @@ local function line(y)
   lg.setColor(P.panelEdge); lg.setLineWidth(1); lg.line(M,y,M+CW,y)
 end
 
+-- A current rating short enough for a size button: 10000 A reads as 10k A.
+local function amps(v)
+  if v>=1000 and v%1000==0 then return (v/1000).."k A" end
+  return v.." A"
+end
+
 local function row(label,value,y,color,tip)
   single(label,M,y,"small",P.textDim,142)
-  single(value,M+152,y-1,"body",color or P.text,CW-152)
+  -- A value too long for the column steps down a size before it is squeezed.
+  local fits=SF.width(tostring(value),R.fonts.body)<=CW-152
+  single(value,M+152,fits and y-1 or y+1,fits and "body" or "small",color or P.text,CW-152)
   if tip then
     local mx,my=mouse()
     if mx>=M and mx<=M+CW and my>=y-3 and my<=y+17 then
@@ -475,9 +483,18 @@ local function inspectSource(n,y)
   local _,chokedNodes=city:chokes()
   local starved=chokedNodes[n.id]
   if starved then
-    row("Starves",starved..(deepen and "" or "  (another well)"),y,P.warn,
-      not deepen and "This one is as deep as it goes: sink another on this network." or nil)
-    y=y+28
+    row("Starves",starved,y,P.warn); y=y+28
+    -- As deep as it goes: the fix is a second well, planned and priced.
+    local plan=not deepen and E.wellPlan(city,n.id)
+    if plan then
+      state.planMark=plan
+      button("sink-well","Sink well   $"..plan.cost..(plan.payback and ("   ·   "..plan.payback.."d back") or ""),
+        M,y,CW,38,function() act("sinkWellAt",plan.commodity,plan.x,plan.y,plan.target) end,
+        plan.affordable,"On the nearest free deposit, tied into this network.",false,P.warn,plan.affordable)
+      y=y+48
+    elseif not deepen then
+      single("No free deposit on this network",M,y,"small",P.textDim,CW); y=y+26
+    end
   end
   if deepen then
     local verb=n.plant and "Expand" or n.intake and "Add a stage"
@@ -848,7 +865,7 @@ local function inspectEdge(e,y)
     local bx,by=M+((i-1)%3)*102,ry+math.floor((i-1)/3)*38
     local gain=(open and not same and q~=nil and pointing(bx,by,TILE_W,32))
       and gainText(E.replacePreview(city,e.id,spec.key,target)) or ""
-    button("replace-"..spec.key,(e.commodity=="power" and (City.INFRA.amps[spec.key].." A") or (spec.cap..S.get(e.commodity))).." $"..(q and q.net or 0),bx,by,TILE_W,32,
+    button("replace-"..spec.key,(e.commodity=="power" and (amps(City.INFRA.amps[spec.key])) or (spec.cap..S.get(e.commodity))).." $"..(q and q.net or 0),bx,by,TILE_W,32,
       function() act("replacePipe",e.id,spec.key,target) end,
       open and not same and q~=nil and city.money>=(q and q.net or 0),
       same and "This is already what is in the ground."
@@ -1187,7 +1204,7 @@ local function buildPanel()
       local bx=M+(i-1)*pitch
       local open=city:sizeAllowed(spec)
       if not open and state.size==spec.key then state.size="large" end
-      button("size-"..spec.key,(state.commodity=="power" and (City.INFRA.amps[spec.key].." A") or (spec.cap.." "..S.get(state.commodity))),bx,y,pitch-4,30,function() state.size=spec.key; E.useSize(state,spec.key) end,open,
+      button("size-"..spec.key,(state.commodity=="power" and (amps(City.INFRA.amps[spec.key])) or (spec.cap.." "..S.get(state.commodity))),bx,y,pitch-4,30,function() state.size=spec.key; E.useSize(state,spec.key) end,open,
         open and (state.commodity=="power" and "Capacity depends on voltage, current rating and cable length." or ("Carries "..spec.cap..". Replace it if you need more capacity."))
           or ("Carries "..spec.cap..". "..city:unlockHint(spec.unlock).."."),
         (state.size or "small")==spec.key,Graph.COMMODITIES[state.commodity].color)
@@ -1977,6 +1994,16 @@ local function advisor()
   y=y+10
 
   heading("UPGRADES",y); y=y+30
+  -- Growth coming: who will outgrow the network in the next ten days, and
+  -- the limit they will hit, while there is still time to fix it.
+  local ahead=E.growthForecast(city,10)
+  if ahead.count>0 then
+    local ch=ahead.choke
+    button("growth-ahead",ahead.count.." outgrow within 10d",M,y,CW,34,function()
+      if ch and ch.kind=="edge" then act("focusEdge",ch.id) elseif ch then act("focusNode",ch.id) end
+    end,ch~=nil,"Customers due to grow who the network cannot then supply. Shows the limit they will hit.",false,P.warn,true)
+    y=y+44
+  end
   local list=E.advise(city)
   if #list==0 then
     single("Nothing to upgrade",M,y,"small",P.good,CW); y=y+26
@@ -2707,7 +2734,7 @@ function UI.draw(c,s,action)
   local RW,RH=R.dimensions()
   W,H=RW/k,RH/k
   UI.buttons={}; UI.blocks={}; scroll=false
-  state.previewRadius=nil; state.offerHover=nil; overlays={}
+  state.previewRadius=nil; state.offerHover=nil; state.planMark=nil; overlays={}
   lg.push(); lg.scale(k)
   local open=UI.drawerOpen()
 
