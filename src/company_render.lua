@@ -519,22 +519,25 @@ function Draw.clientBuilding(kind, x, y, r, accent, commodity, ghost, lit)
     end
   elseif kind == "workshop" or kind == "factory" then
     local w, h = (kind == "factory" and 24 or 20) * u, 12 * u
-    c(WALL, 0.7); lg.rectangle("fill", x - w / 2, y - h / 2 + 2 * u, w, h)
+    local top = y - h / 2 + 2 * u
+    c(WALL, 0.7); lg.rectangle("fill", x - w / 2, top, w, h)
+    -- A sawtooth roof standing on the wall: each tooth's base is the top of
+    -- the wall and the teeth touch, so no wall shows between or under them.
     local teeth = kind == "factory" and 4 or 3
+    c(SLATE_D); lg.rectangle("fill", x - w / 2, top, w, 1.2 * u)
     for i = 0, teeth - 1 do
       local tx = x - w / 2 + i * w / teeth
-      c(SLATE_L); lg.polygon("fill", tx, y - 1 * u, tx, y - 6 * u, tx + w / teeth, y - 1 * u)
-      c(SLATE_D); lg.rectangle("fill", tx, y - 1 * u, w / teeth, 1.2 * u)
+      c(SLATE_L); lg.polygon("fill", tx, top, tx, top - 5 * u, tx + w / teeth, top)
     end
     if kind == "factory" then
       for i = 0, 1 do
         local cx = x - w / 2 + (3 + i * 5) * u
-        c(SLATE_D, 0.9); lg.rectangle("fill", cx, y - 13 * u, 3 * u, 8 * u)
+        c(SLATE_D, 0.9); lg.rectangle("fill", cx, top - 10 * u, 3 * u, 10 * u)
         -- Smoke drifting off each stack.
         for p = 0, 2 do
           local ph = (R.t * 0.4 + p / 3 + i * 0.5) % 1
           lg.setColor(0.70, 0.70, 0.72, 0.35 * (1 - ph) * a)
-          lg.circle("fill", cx + 1.5 * u + ph * 6 * u, y - 14 * u - ph * 8 * u, (1.5 + ph * 2.5) * u)
+          lg.circle("fill", cx + 1.5 * u + ph * 6 * u, top - 11 * u - ph * 8 * u, (1.5 + ph * 2.5) * u)
         end
       end
     end
