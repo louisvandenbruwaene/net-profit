@@ -2031,38 +2031,50 @@ end
 
 City.terminalUpkeep = require("data.freight").terminalUpkeep
 
-local function buildPlain(self, x, y, kind, commodity)
-  if not City.BUILDABLE[kind] then return nil, "choose a structure" end
+-- Why this building cannot stand here, before cash and materials: the one
+-- check behind both building it and the preview under the pointer. When it
+-- can, the price and the bill of materials instead.
+function City:buildError(x, y, kind, commodity)
+  if not City.BUILDABLE[kind] then return "choose a structure" end
+  local recipe = kind == "works" and City.RECIPES[commodity or ""] or nil
+  if recipe and recipe.farm then
+    local why = self:farmSiteError(x, y)
+    if why then return why end
+  end
   local err = self:placementError(x, y)
-  if err then return nil, err end
+  if err then return err end
   local gateway
   if kind == "terminal" then
     local err2
     gateway, err2 = self:havenSite(x, y, commodity)
-    if not gateway then return nil, err2 end
+    if not gateway then return err2 end
   end
-  local recipe = kind == "works" and City.RECIPES[commodity or ""] or nil
-  if kind == "works" and not recipe then return nil, "choose what the works makes" end
+  if kind == "works" and not recipe then return "choose what the works makes" end
   local unlock = City.BUILD_UNLOCK[kind] or (recipe and recipe.unlock)
-  if unlock and not self:unlocked(unlock) then return nil, "not available yet" end
+  if unlock and not self:unlocked(unlock) then return "not available yet" end
   if kind == "resort" then
     local why = self:resortSiteError(x, y)
-    if why then return nil, why end
+    if why then return why end
   end
   if recipe and not self:licensed(recipe.makes) then
-    return nil, "no licence for " .. recipe.makes
+    return "no licence for " .. recipe.makes
   end
   if recipe and recipe.coastal then
     local d = self:districtAt(x, y)
     if not (self:onCoast(x, y) or (d and d.island)) then
-      return nil, "a " .. string.lower(recipe.name) .. " stands on the coast"
+      return "a " .. string.lower(recipe.name) .. " stands on the coast"
     end
   end
   local cost = gateway and self:havenCost(gateway)
     or (recipe and recipe.cost)
     or self:nodeCost(kind)
+  return nil, cost, self:materialsFor(kind, kind == "works" and commodity or nil), gateway, recipe
+end
+
+local function buildPlain(self, x, y, kind, commodity)
+  local err, cost, bill, gateway, recipe = self:buildError(x, y, kind, commodity)
+  if err then return nil, err end
   if cost > self.money then return nil, "not enough cash" end
-  local bill = self:materialsFor(kind, kind == "works" and commodity or nil)
   local short = self:materialError(bill)
   if short then return nil, short end
   self:spend(cost)
@@ -2112,10 +2124,6 @@ function City:build(x, y, kind, recipe)
   else
     local spec=City.RECIPES[recipe or '']
     local farm=kind=='works' and spec and spec.farm
-    if farm then
-      local why=self:farmSiteError(x,y)
-      if why then return nil,why end
-    end
     n, err = buildPlain(self,x,y,kind,recipe)
     if n then
       if kind=='binder' then n.bundleLanes=2 end

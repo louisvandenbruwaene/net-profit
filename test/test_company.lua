@@ -1062,4 +1062,20 @@ do
   check(n.demands==nil,"and an old save loses the stale demand list on load")
 end
 
+do
+  -- The preview under the pointer asks the same question the click does, so
+  -- they never disagree about why a building cannot go somewhere.
+  local c=City.new({seed=5})
+  local d=c.districts[City.MAP.start]
+  local x,y=d.x+d.w/2+140,d.y+d.h/2+120
+  for _,try in ipairs({{"works","brewery"},{"works","cannery"},{"lab"},{"resort"},{"terminal","port"},{"junction"}}) do
+    local why=c:buildError(x,y,try[1],try[2])
+    local n,err=c:build(x,y,try[1],try[2])
+    if n then check(why==nil,"a "..try[1].." the preview allows is built")
+    else check(why==nil and (err=="not enough cash" or c:materialError(c:materialsFor(try[1],try[2]))) or why==err,
+      "the preview and the click give the same reason for a "..try[1]..": "..tostring(why).." / "..tostring(err)) end
+    if n then c:demolishNode(n.id) end
+  end
+end
+
 print(checks.." company checks passed")
