@@ -116,8 +116,6 @@ end
 function City:spendMaterials(bill, scale)
   scale = scale or 1
   self.stock = self.stock or {}
-  self.orders = self.orders or {}
-  self.taught = self.taught or {}
   for material, amount in pairs(bill or {}) do
     self.stock[material] = math.max(0, (self.stock[material] or 0) - math.ceil(amount * scale))
   end
@@ -367,7 +365,6 @@ function City.new(opts)
   self.history = {}
   self.bankrupt = false
   self.lostClients = 0
-  self.pipeGrade = {}
   self.milestones = {}
   self.crews = 0
   self.stock = {}
@@ -1640,20 +1637,20 @@ function City:pipeCost(a, b, commodity, size, rail, grade)
   return self:pipeQuote(a, b, commodity, size, rail, grade).total
 end
 
--- One more unit through an existing trench: fittings at both ends plus the
--- wider bore over its whole length. Widening a long oil trunk is a real
--- decision; widening a stub is loose change.
 -- What it costs to put a bigger main where this one is. Nothing widens, so
 -- this is the price of the replacement, less what the old pipe is worth as
--- scrap.
-function City:boreCost(e, _)
-  if e.bulk then
-    return math.ceil(City.MODES[e.bulk].perWagon * (1 + (e.wagonCount or 1) * 0.1))
-  end
+-- scrap; nil once it is the widest it can be.
+function City:boreCost(e)
   local bigger = self:biggerSize(e)
-  if not bigger then return nil end
-  local q = self:replaceQuote(e.id, bigger, e.grade)
+  local q = bigger and self:replaceQuote(e.id, bigger, e.grade)
   return q and q.net or nil
+end
+
+-- A main put back in order: full capacity, no leak, and clean of scale.
+local function mend(e)
+  e.cap = e.capMax or e.cap
+  e.leaking, e.burstReported, e.decayTick = false, nil, nil
+  e.calcification = 0
 end
 
 function City:gradeOf(e) return City.GRADES[e.grade or 1] or City.GRADES[1] end
@@ -2293,7 +2290,7 @@ function City:replacePipe(id, size, grade)
   e.size, e.grade = spec.key, grade
   e.cap, e.capMax = spec.cap, spec.cap
   e.paid = q.total
-  e.leaking, e.burstReported, e.decayTick, e.fullFor = false, nil, nil, 0
+  e.leaking, e.burstReported, e.decayTick = false, nil, nil
   self:note("A %s main was dug out and replaced with %s %s pipe for $%d",
     e.commodity, string.lower(spec.name), string.lower(City.GRADES[grade].name), q.net)
   self:refresh()
@@ -2403,10 +2400,8 @@ function City:repairAll()
   for _, e in ipairs(order) do
     local cost = self:repairCost(e)
     if cost <= self.money then
-      self.money = self.money - cost
-      e.cap = e.capMax or e.cap
-      e.leaking, e.burstReported, e.decayTick = false, nil, nil
-      e.calcification=0
+      self:spend(cost)
+      mend(e)
       fixed, spent = fixed + 1, spent + cost
     end
   end
@@ -2434,10 +2429,7 @@ function City:repairPipe(id)
   local cost = self:repairCost(e)
   if cost > self.money then return nil, "not enough cash" end
   self:spend(cost)
-  e.cap = e.capMax or e.cap
-  e.leaking, e.decayTick = false, nil
-  e.calcification=0
-  e.burstReported = nil
+  mend(e)
   self:refresh()
   return cost
 end
@@ -2884,7 +2876,7 @@ function City:buySource(commodity, x, y, plant)
     if plant=='wind' and y and y<0 and not self:districtAt(x,y) then n.offshore=true; n.upkeep=math.ceil(n.upkeep*1.5) end
     self:refresh()
     -- Wind blows harder over an island.
-    if plant=='wind' then local d=self:districtAt(x,y); if d and d.island then n.output=math.ceil(n.output*1.5); n.islandBonus=true; self:refresh() end end
+    if plant=='wind' then local d=self:districtAt(x,y); if d and d.island then n.output=math.ceil(n.output*1.5); self:refresh() end end
   end
   return n,err
 end
@@ -3048,7 +3040,6 @@ function City:addClient(kind, prospect, district, near)
       n.rate = self:offerRate(spec.rate)
       n.patience = spec.patience
       n.grace = spec.patience
-      n.joined = self.day
       n.prospect = prospect or false
       n.expires = self.day + 5
       -- Some offers come as a secure contract: more per unit, less patience,
@@ -3658,10 +3649,8 @@ function City:endDay()
       end
     end
     if not worst then break end
-    self.money = self.money - worstCost
-    worst.cap = worst.capMax or worst.cap
-    worst.leaking, worst.burstReported, worst.decayTick = false, nil, nil
-    worst.calcification=0
+    self:spend(worstCost)
+    mend(worst)
     report.crewFixed = report.crewFixed + 1
     report.crewCost = report.crewCost + worstCost
   end
@@ -4117,7 +4106,10 @@ function City:migrate()
       n.capacityStore = n.capacityStore or City.depotCapacity
     end
   end
-  for _, e in ipairs(self.g.edges) do e.grade = e.grade or 1 end
+  for _, e in ipairs(self.g.edges) do e.grade, e.fullFor = e.grade or 1, nil end
+  -- Fields nothing reads any more.
+  self.pipeGrade = nil
+  for _, n in ipairs(self.g.nodes) do n.joined, n.islandBonus = nil, nil end
   self:rebaseOrigin()
 
   for _,n in ipairs(self.g:aliveNodes()) do
@@ -4232,7 +4224,7 @@ function City:acceptClient(id)
     self:refresh(); return c
   end
   if not (c and c.alive and c.prospect) then return nil, "no open offer" end
-  c.prospect, c.joined = false, self.day
+  c.prospect = false
   self:note("%s contract signed: %d days to deliver", City.CLIENTS[c.clientType].name, c.grace)
   self:refresh()
   return c
