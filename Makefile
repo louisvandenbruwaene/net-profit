@@ -26,10 +26,9 @@ hooks:
 	@git config core.hooksPath githooks
 	@echo "post-commit will now run mac-install automatically"
 
-# Pure Lua rules, persistence, economy, and archived contract regressions.
+# Pure Lua rules, persistence and economy.
 test:
 	@$(LUA) test/test_graph.lua
-	@$(LUA) test/test_contract.lua
 	@$(LUA) test/test_city.lua
 	@$(LUA) test/test_generation.lua
 	@$(LUA) test/test_balance.lua

@@ -18,17 +18,9 @@ Graph.INF = INF
 -- connections a node can host) against throughput (how much can pass through
 -- it). No archetype is good at both.
 Graph.KINDS = {
-  -- Produced infrastructure.
-  -- This default is the archived contract game's own: a puzzle's source needs
-  -- enough ports to hold every disjoint route the threat count demands. The
-  -- company sandbox reuses the kind but caps its own producing buildings
-  -- lower, in City:buySource, because that is a different game with a
-  -- different reason to own a lot of ports.
+  -- The company caps its own producing buildings lower, in City:buySource.
   source   = { name = "SOURCE",   ports = 16, throughput = INF, cost = 0,   color = {0.36, 0.85, 0.62} },
   sink = { name = "TERMINAL", ports = 6, throughput = INF, cost = 0, color = {0.98, 0.62, 0.35} },
-  relay = { name = "RELAY", ports = 3, throughput = 8, cost = 14, color = {0.55, 0.71, 0.98} },
-  hub = { name = "HUB", ports = 6, throughput = 4, cost = 26, color = {0.78, 0.63, 0.98} },
-  conduit = { name = "CONDUIT", ports = 2, throughput = 16, cost = 24, color = {0.42, 0.88, 0.92} },
   junction = { name = "JUNCTION", ports = 3,  throughput = 999, cost = 22,  color = {0.55, 0.71, 0.98} },
   manifold = { name = "MANIFOLD", ports = 6,  throughput = 999, cost = 46,  color = {0.78, 0.63, 0.98} },
   pump     = { name = "PUMP",     ports = 2,  throughput = 999, cost = 38,  color = {0.42, 0.88, 0.92} },
@@ -48,9 +40,8 @@ Graph.KINDS = {
   -- customers without the player drawing a thousand pipes and without the
   -- solver carrying a thousand nodes.
   --
-  -- The key is "exchange" and the name on screen is HUB, because the archived
-  -- contract game above already owns "hub" in this table and a duplicate key in
-  -- a Lua constructor silently wins. Do not rename either one.
+  -- The key is "exchange" because old saves carry it; migrate() turns every
+  -- one into a level-4 manifold.
   exchange = { name = "HUB",      ports = 10, throughput = 999, cost = 500,  color = {0.45, 0.86, 0.72} },
   -- A works takes things off the network and puts something else back on: a
   -- customer and a well in one building. What it makes and what it wants are
@@ -450,11 +441,9 @@ function Graph:buildNetwork(uncapped, commodity)
         node._feedArc = #net.arcs - 1
       end
       if (node.kind == "client" or node.kind == "sink") and not node.prospect
-         and not node.supplyClosed and not node.hub
+         and not node.supplyClosed
          and (not commodity or (node.demands and node.demands[commodity]) or node.commodity == commodity) then
         -- The service valve controls only this customer's draw, not the main.
-        -- A customer on a hub is not here at all: their demand is carried by
-        -- the hub, as one number.
         net:arc(vout, TT, uncapped and INF or (node.demands and node.demands[commodity]) or (node.demand or INF))
         node._drainArc = #net.arcs - 1
       elseif node.kind == "depot" and node.intakeRequest and node.commodity==commodity then
@@ -578,201 +567,6 @@ function Graph:maxflow(uncapped, commodity)
     end
   end
   return flow, cut, served, detail, produced
-end
-
---------------------------------------------------------------------------------
--- Resilience: what the adversary can take.
---------------------------------------------------------------------------------
-
--- The adversary removes k things, one at a time, each time taking whichever
--- single removal costs the most delivery. Greedy across steps but exact within
--- each step, which makes it both strong and explainable: "it takes the link that
--- hurts most, k times".
---
--- Delivery (demand-capped) is the objective, because that is the win condition.
--- Candidates are every live edge rather than the members of one minimum cut: a
--- graph can have several distinct minimum cuts, and picking from only one of
--- them would understate the threat and make the readout a lie.
---
--- Returns: delivery after the removals, and the list of what was removed.
-function Graph:worstCase(k, kind)
-  kind = kind or "edge"
-  if not k or k <= 0 then return (self:maxflow(false)), {} end
-
-  local removed = {}
-  for _ = 1, k do
-    local bestFlow, bestPick
-
-    if kind == "edge" then
-      for _, e in ipairs(self.edges) do
-        if e.alive and self.nodes[e.a].alive and self.nodes[e.b].alive then
-          e.alive = false
-          local f = self:maxflow(false)
-          e.alive = true
-          if not bestFlow or f < bestFlow then bestFlow, bestPick = f, e end
-        end
-      end
-      if not bestPick then break end
-      bestPick.alive = false
-      removed[#removed + 1] = { kind = "edge", id = bestPick.id }
-    else
-      for _, n in ipairs(self.nodes) do
-        if n.alive and n.kind ~= "source" and n.kind ~= "sink" then
-          n.alive = false
-          local f = self:maxflow(false)
-          n.alive = true
-          if not bestFlow or f < bestFlow then bestFlow, bestPick = f, n end
-        end
-      end
-      if not bestPick then break end
-      bestPick.alive = false
-      removed[#removed + 1] = { kind = "node", id = bestPick.id }
-    end
-  end
-
-  local finalFlow = self:maxflow(false)
-
-  -- Restore: this is a query, not a mutation.
-  for _, r in ipairs(removed) do
-    if r.kind == "edge" then self.edges[r.id].alive = true
-    else self.nodes[r.id].alive = true end
-  end
-
-  return finalFlow, removed
-end
-
---------------------------------------------------------------------------------
--- Structural diagnostics. These drive the stats panel, which is where the
--- player actually learns to read a graph.
---------------------------------------------------------------------------------
-
-function Graph:neighbours(id)
-  local t = {}
-  for _, ei in ipairs(self.adj[id] or {}) do
-    local e = self.edges[ei]
-    if e.alive then
-      local o = (e.a == id) and e.b or e.a
-      if self.nodes[o].alive then t[#t + 1] = o end
-    end
-  end
-  return t
-end
-
--- Component labels for alive nodes, plus the component count.
-function Graph:components()
-  local label, count = {}, 0
-  for _, node in ipairs(self:aliveNodes()) do
-    if not label[node.id] then
-      count = count + 1
-      local q, head = { node.id }, 1
-      label[node.id] = count
-      while head <= #q do
-        local u = q[head]; head = head + 1
-        for _, v in ipairs(self:neighbours(u)) do
-          if not label[v] then label[v] = count; q[#q + 1] = v end
-        end
-      end
-    end
-  end
-  return label, count
-end
-
-function Graph:isConnected()
-  local _, c = self:components()
-  return c <= 1
-end
-
--- BFS hop distance from a set of roots. Used for the latency readout.
-function Graph:distancesFrom(roots)
-  local dist, q, head = {}, {}, 1
-  for _, r in ipairs(roots) do dist[r] = 0; q[#q + 1] = r end
-  while head <= #q do
-    local u = q[head]; head = head + 1
-    for _, v in ipairs(self:neighbours(u)) do
-      if dist[v] == nil then dist[v] = dist[u] + 1; q[#q + 1] = v end
-    end
-  end
-  return dist
-end
-
--- Tarjan articulation points: nodes whose loss disconnects the graph. Shown as
--- a warning, because they are the vertex cuts the adversary hunts for.
-function Graph:articulationPoints()
-  local disc, low, parent, ap = {}, {}, {}, {}
-  local timer = 0
-
-  local function visit(u)
-    local stack = { { u, 1 } }
-    timer = timer + 1
-    disc[u], low[u] = timer, timer
-    local children = {}
-    children[u] = 0
-    while #stack > 0 do
-      local top = stack[#stack]
-      local v, idx = top[1], top[2]
-      local nbrs = self:neighbours(v)
-      if idx <= #nbrs then
-        top[2] = idx + 1
-        local w = nbrs[idx]
-        if disc[w] == nil then
-          parent[w] = v
-          children[v] = (children[v] or 0) + 1
-          timer = timer + 1
-          disc[w], low[w] = timer, timer
-          children[w] = 0
-          stack[#stack + 1] = { w, 1 }
-        elseif w ~= parent[v] then
-          low[v] = math.min(low[v], disc[w])
-        end
-      else
-        table.remove(stack)
-        local p = parent[v]
-        if p then
-          low[p] = math.min(low[p], low[v])
-          if parent[p] == nil then
-            if (children[p] or 0) > 1 then ap[p] = true end
-          elseif low[v] >= disc[p] then
-            ap[p] = true
-          end
-        end
-      end
-    end
-  end
-
-  for _, node in ipairs(self:aliveNodes()) do
-    if disc[node.id] == nil then visit(node.id) end
-  end
-
-  local list = {}
-  for id in pairs(ap) do list[#list + 1] = id end
-  table.sort(list)
-  return list
-end
-
-function Graph:stats()
-  local alive = self:aliveNodes()
-  local edges = 0
-  for _, e in ipairs(self.edges) do
-    if e.alive and self.nodes[e.a].alive and self.nodes[e.b].alive then edges = edges + 1 end
-  end
-  local minDeg, maxDeg, sumDeg = math.huge, 0, 0
-  for _, n in ipairs(alive) do
-    local d = self:degree(n.id)
-    minDeg = math.min(minDeg, d)
-    maxDeg = math.max(maxDeg, d)
-    sumDeg = sumDeg + d
-  end
-  if #alive == 0 then minDeg = 0 end
-  local _, comps = self:components()
-  return {
-    order = #alive,
-    size = edges,
-    minDegree = minDeg == math.huge and 0 or minDeg,
-    maxDegree = maxDeg,
-    avgDegree = #alive > 0 and (sumDeg / #alive) or 0,
-    components = comps,
-    cutVertices = self:articulationPoints(),
-  }
 end
 
 return Graph

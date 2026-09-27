@@ -468,9 +468,9 @@ Seven places, each of them a thing the plan could not have known:
   the sea sits north of row one forever and a harbour belongs on that coastline,
   while a road head and an air freight apron became buildings the company sites
   wherever it holds ground, each dearer than the last of its kind.
-- **The hub is keyed `exchange`.** The archived contract game already owns `hub`
-  in `Graph.KINDS`, and a duplicate key in a Lua table constructor silently
-  wins. The name on screen is still HUB.
+- **The hub was keyed `exchange`.** The archived contract game owned `hub`
+  in `Graph.KINDS` at the time (both are gone now; old `exchange` nodes
+  migrate to level-4 manifolds).
 - **Uranium is gone and coke took its job.** Making the reactor eat imported
   fuel would have broken every saved company that already had a power station,
   so the reactor keeps paying for its fuel in cash. Coke is the port-only import

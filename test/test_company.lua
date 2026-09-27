@@ -364,9 +364,10 @@ do
   assert(c:upgradeSource(src.id))
   check(src.output>out and src.level==level+1,"a well can be deepened in place")
   check(c:sourceUpgradeCost(src)>cost,"each level costs more than the last")
-  check(c:sourceIncome(src)==0,"a well nobody draws on earns nothing")
   supply(c)
-  check(c:sourceIncome(src)==0,"and a well that supplies somebody still earns nothing: customers pay")
+  local paid=c:transitIncome()
+  for _,cl in ipairs(c:clientList()) do paid=paid+c:clientIncome(cl) end
+  check(c:dailyRevenue()==paid,"a well that supplies somebody earns nothing: customers pay")
   local lifted=c.produced[src.id] or 0
   check(lifted>0 and math.abs(c:pumpingBill()-lifted*City.trade.water.extractPerUnit)<1e-9,
     "every unit lifted is billed at the pumping cost")
@@ -509,7 +510,6 @@ do
   check(math.abs(bill.imports-6*City.trade.water.importCost*City.HAVENS.port.import)<0.01,
     "the import charge is exactly the units moved times the rate")
   check(bill.haulage>0,"and the haulage is charged on what the track moved")
-  check(c:sourceIncome(t)==0,"a haven pays no wholesale, because it produces nothing")
 end
 
 print("a distribution hub signs, connects and widens for the customers who pay enough")

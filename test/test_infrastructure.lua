@@ -206,7 +206,7 @@ do
   local fitting=node(c,'junction',1580,1120)
   assert(c:layPipe(well.id,fitting.id,'water','large'))
   assert(c:layPipe(fitting.id,customer.id,'water','small'))
-  check((c.served[customer.id] or 0)==0 and c:sourceIncome(well)==0,'polluted wells neither supply water nor earn wholesale revenue')
+  check((c.served[customer.id] or 0)==0,'polluted wells supply no water')
   local lab=assert(c:build(1700,1050,'lab'))
   check(c:labCovers(lab,d),'lab covers its own district')
   local adjacent=c:cellAt(d.col+1,d.row+1)
