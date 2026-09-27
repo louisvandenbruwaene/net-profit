@@ -8,23 +8,16 @@ return function(app,capture,click,scrollTo,check)
  c.guideDismissed=true; c.permits={river=true,park=true,bedrock=true}
  for _,d in ipairs(c.districts) do d.owned=true end
  app.setTestCity(c)
- -- One control on the request window, coloured by the offer on it: above the
- -- going rate is worth taking, below it is not, and at it says nothing.
+ -- The best offer sits in the top bar as the same row the Clients window
+ -- lists: what it asks, the premium coloured by the going rate, Accept, Decline.
  local P=require('palette')
  do
-  local offer=c:nextRequest(); local rate=offer.rate
-  local function control()
-   love.draw()
-   for _,b in ipairs(UI.buttons) do if b.id=='request-open' then return b end end
-  end
-  local _,cost=c:clientMargin(offer)
-  offer.rate=cost*3
-  check(control().color==P.good,'an offer that keeps more than a unit costs reads green')
-  offer.rate=cost*0.5
-  check(control().color==P.bad,'and one that pays less than a unit costs reads red')
-  offer.rate=cost*1.5
-  check(control().color==nil and not control().active,'a thin margin stays plain')
-  offer.rate=rate
+  local offer=c:nextRequest()
+  love.draw()
+  local ids={}
+  for _,b in ipairs(UI.buttons) do ids[b.id]=true end
+  check(ids['request-open'] and ids['bar-accept-'..offer.id] and ids['bar-decline-'..offer.id],'the top bar holds the best offer with Accept and Decline')
+  check(UI.premiumColor(0.3)==P.good and UI.premiumColor(-0.3)==P.bad and UI.premiumColor(0)==P.textDim,'its premium reads green above the going rate, red below')
  end
  local offer=c:nextRequest()
  click('request-open')
