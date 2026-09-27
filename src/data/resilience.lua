@@ -10,11 +10,11 @@ local Data = {}
 --   ground  a one-off: mains near a point crack, each with chance `hit`
 Data.SHOCKS = {
   { key = "drought",    commodity = "water", output = 0.55, days = 4,
-    head = "Drought: every water well gives barely half its yield" },
+    head = "Drought: wells at half yield" },
   { key = "brownout",   commodity = "power", output = 0.60, days = 3,
-    head = "Grid fault: generators are held to 60% of their output" },
+    head = "Grid fault: generators at 60%" },
   { key = "subsidence", ground = true, radius = 330, hit = 0.55, days = 1,
-    head = "Ground shift: mains across one district crack at once" },
+    head = "Ground shift: mains crack" },
 }
 
 -- A small company must not be killed by bad luck, so nothing lands before this
