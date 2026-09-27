@@ -140,10 +140,15 @@ local function stack(placed, sx, sy, w)
   return sy
 end
 
-function R.drawEffects(cam)
+-- `layer` "shapes" draws sparks, rings and traces; "text" draws the floating
+-- numbers, after the map labels so they can be placed clear of them.
+function R.drawEffects(cam, layer)
   -- Placed in the order they appeared, so a late one never shoves one that is
   -- already on screen.
+  -- Map labels already drawn (place names, flow readings) hold their
+  -- ground: a floating number lifts clear of them as it would of another float.
   local texts, placed = {}, {}
+  for _, box in ipairs(R.labelBoxes or {}) do placed[#placed + 1] = box end
   for i, f in ipairs(R.fx) do
     if f.kind == "text" and f.age >= (f.delay or 0) then texts[#texts + 1] = { f = f, i = i } end
   end
@@ -155,10 +160,13 @@ function R.drawEffects(cam)
     local sx, sy = cam:toScreen(t.f.x, t.f.y)
     t.f.lift = stack(placed, sx, sy, R.fonts.body:getWidth(t.f.text) + 12) - sy
   end
+  local shapes, words = layer ~= "text", layer ~= "shapes"
   for _, f in ipairs(R.fx) do
     local k = 1 - f.age / f.life
     local sx, sy = cam:toScreen(f.x, f.y)
-    if f.kind == "spark" then
+    if (f.kind == "text" and not words) or (f.kind ~= "text" and not shapes) then
+      -- drawn in the other layer
+    elseif f.kind == "spark" then
       lg.setColor(f.color[1], f.color[2], f.color[3], k)
       lg.circle("fill", sx, sy, 2.2 * k * cam.scale + 0.6)
     elseif f.kind == "ring" then

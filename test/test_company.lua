@@ -745,7 +745,11 @@ do
   check((c.served[b.id] or 0)==0,"a downstream customer starves behind a small main")
   local why,eid=c:constraintFor(b.id)
   check(why=="main" and eid==narrow.id,"the game names the main that is holding them back")
+  check((c:chokes()[narrow.id] or 0)>=1,"and the map lights that main up as a choke")
+  local packed=require("company_save").pack(c)
+  check(not packed:find("chokes"),"the choke set never reaches the save")
   assert(c:replacePipe(eid,"medium"))
+  check(next(c:chokes())==nil,"once it is widened nothing on the map glows")
   check(c.served[b.id]==b.demand,"replacing the named main with a bigger one supplies them")
   check(c:constraintFor(b.id)==nil,"and there is nothing left to explain")
   -- The other shapes of the same question.

@@ -10,6 +10,24 @@ differs from the plan and why. `README.md` describes how to play it.
 
 ---
 
+## The core loop (2026-09-27)
+
+One line, to test every new feature against: **sign customers, the network
+chokes, find the choke and fix it for less than it earns.**
+
+- *Sign*: offers arrive at a price. Accept or decline from the top bar.
+- *Choke*: growth fills mains, wells and hubs. The solver's min cut knows which
+  one; the map glows it amber (`City:chokes()`), the hover card says how many
+  customers it starves.
+- *Fix*: widen, reroute, add a source or level a building. Every fix has a
+  price and a payback, so the decision is always money against money.
+
+A feature that adds none of those three steps, and makes none of them sharper,
+is a candidate to cut. Rounds, tenders, autoplay and the contract game all
+failed this test and were removed.
+
+---
+
 ## 0. What the game becomes, and what must not change
 
 Today you draw a pipe from a well to a house. At the end of this plan you place
