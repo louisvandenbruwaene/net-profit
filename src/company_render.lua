@@ -2113,6 +2113,17 @@ function Draw.world(city, cam, state)
     end
   end
 
+  -- The house an offer is about, while the offer is under the pointer.
+  local offered=state.offerHover and city.g.nodes[state.offerHover]
+  if offered and offered.alive then
+    local ox,oy=cam:toScreen(offered.x,offered.y)
+    local pulse=(R.t*1.4)%1
+    lg.setColor(P.with(P.energy,0.9*(1-pulse))); lg.setLineWidth(4)
+    lg.circle("line",ox,oy,20+44*pulse)
+    lg.setColor(P.with(P.energy,0.95)); lg.setLineWidth(3)
+    lg.circle("line",ox,oy,22)
+  end
+
   -- The reach a building would have at its next level, while the upgrade
   -- button is under the pointer.
   if state.previewRadius then
@@ -2129,7 +2140,7 @@ function Draw.world(city, cam, state)
   end
 
   local route=state.bottlenecks and E.route(city,state.node) or {}
-  local chokes=city:chokes()
+  local chokes,chokedNodes=city:chokes()
   local grid=Draw.focusGrid(state)
   for _, e in ipairs(city.g.edges) do
     local ea, eb = city.g.nodes[e.a], city.g.nodes[e.b]
@@ -2340,6 +2351,13 @@ function Draw.world(city, cam, state)
     local served = city.served[n.id] or 0
     if n.prospect then color = P.textDim end
     local supplied = not n.prospect and (n.kind=="client" and city:fullyServed(n) or n.kind~="client" and served >= (n.demand or 0))
+    -- A well pumping flat out or a valve at its setting, with customers
+    -- waiting on it: the same amber pulse as a full main.
+    if chokedNodes[n.id] and not state.bottlenecks then
+      local pulse=0.5+0.5*math.sin(R.t*3.2+n.id)
+      lg.setColor(P.with(P.warn,0.22+0.16*pulse)); lg.circle("fill",x,y,r*1.9+4*pulse)
+      lg.setColor(P.with(P.warn,0.6+0.35*pulse)); lg.setLineWidth(math.max(2,r*0.14)); lg.circle("line",x,y,r*1.9+4*pulse)
+    end
     if state.node == n.id or state.hoverNode == n.id then
       lg.setColor(P.text); lg.setLineWidth(math.max(1, r * 0.09))
       -- Clear of the level pips over the building and the port ring round it.

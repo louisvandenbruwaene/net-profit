@@ -262,7 +262,7 @@ local function levelBlock(n,y)
     row("Capacity",carried.." / "..through.." a day",y,carried>=through and P.bad or P.text); y=y+24
   end
   if n.capacityStore and city:levelFamily(n)=="storage" then
-    row("Holds",(n.capacityStore).." units, "..(n.fillRate or City.depotFillRate).." in a day",y); y=y+24
+    row("Holds",(n.capacityStore).."  +"..(n.fillRate or City.depotFillRate).."/day",y); y=y+24
   end
   local reach=city:reachBonus(n)
   if reach>0 then row("Reach",string.format("+%d%%",math.floor(reach*100+0.5)),y,P.energy,
@@ -423,6 +423,10 @@ local function inspectClient(n,y)
             M,dy+52,CW,36,function() act("upgradeSource",src.id) end,city.money>=cost,
             "Adds output at the well, with no new route to pay for."..gainText(E.sourcePreview(city,src.id)),false,P.good,true)
         end
+      elseif why=="gate" then
+        single("A valve is full",M,dy,"body",P.warn,CW)
+        button("inspect-bottleneck","Inspect that valve",M,dy+30,CW,30,
+          function() act("focusNode",eid) end,true,"Select the valve and centre on it")
       elseif why=="unconnected" then
         single("Not connected",M,dy,"small",P.bad,CW)
       elseif why=="valve" then
@@ -791,6 +795,24 @@ local function inspectEdge(e,y)
       M,y,CW,40,function() act("repairPipe",e.id) end,city.money>=city:repairCost(e),
       e.cap==0 and "Out of service" or "Leaking",false,P.bad,true)
     y=y+52
+  end
+  -- A glowing main: the fix first, priced and with its payback on its face.
+  local starved=city:chokes()[e.id]
+  if starved and not broken then
+    local bigger=city:biggerSize(e)
+    local q=bigger and city:replaceQuote(e.id,bigger,e.grade)
+    if q then
+      local p=E.replacePreview(city,e.id,bigger,e.grade)
+      local err=city:replaceError(e.id,bigger,e.grade)
+      button("widen-choke","Widen   $"..q.net..(p.payback and ("   ·   "..p.payback.."d back") or ""),
+        M,y,CW,40,function() act("replacePipe",e.id,bigger,e.grade) end,
+        not err and city.money>=q.net,
+        err or ("Starves "..starved..". "..City.sizeOf(bigger).name.." main, "..City.sizeOf(bigger).cap..
+          S.get(e.commodity).."."..gainText(p)),false,P.warn,true)
+      y=y+52
+    else
+      row("Starves",starved.."  (widest)",y,P.warn,"Put a junction in the run and feed them from it."); y=y+26
+    end
   end
   row("Flow",city:quantityPair(e.commodity,math.abs(city.detail.edge[e.id] or 0),e.effectiveCap or e.cap),y)
   local size=City.sizeOf(e.size or City.sizeFor(e.capMax or e.cap).key)
@@ -1411,17 +1433,32 @@ end
 
 local function company()
   local y=TOP-state.scroll
-  single(E.companyName(city),M,y+4,"mid",P.text,CW-100)
+  -- A long name steps down a size, then wraps onto a second line, before it
+  -- is ever squeezed.
+  local nameExtra=0
+  do
+    local name=E.companyName(city)
+    if SF.width(name,R.fonts.mid)<=CW-100 then
+      single(name,M,y+4,"mid",P.text,CW-100)
+    elseif SF.width(name,R.fonts.body)<=CW-100 then
+      single(name,M,y+6,"body",P.text,CW-100)
+    else
+      local f=R.fonts.body
+      local _,lines=f:getWrap(name,CW-100)
+      lg.setFont(f); lg.setColor(P.text); lg.printf(name,M,y+2,CW-100,"left")
+      nameExtra=math.max(0,#lines-1)*f:getHeight()
+    end
+  end
   button("rename-company",state.rename and "Save" or "Rename",M+CW-88,y,88,30,function()
     if state.rename then
       if act("setCompanyName",state.rename) then state.rename=nil; state.renameSelectAll=nil end
     else state.rename=E.companyName(city); state.renameSelectAll=true end
   end,true,"Type to replace the name; Enter saves, Escape cancels")
   if state.rename then
-    single(state.rename.."|",M,y+36,"small",P.energy,CW)
+    single(state.rename.."|",M,y+36+nameExtra,"small",P.energy,CW)
     y=y+24
   end
-  y=y+46
+  y=y+46+nameExtra
 
   -- Money: the one section open by default.
   local b=city:expenseBreakdown()
@@ -1623,6 +1660,16 @@ local function offerRow(c,x,y,w,h,prefix,onAccept)
   local tip=c.powerRequest and not c.prospect and ("This "..E.clientName(city,c).." wants electricity too: "..city:quantity("power",City.DUAL.demand[c.clientType] or City.DUAL.demand.house))
     or (c.demands and c.demands.water and c.demands.power) and ("Water "..city:quantity("water",c.demands.water).." + "..city:quantity("power",c.demands.power))
     or city:quantity(c.commodity,c.demand)
+  -- Pointing at an offer marks the house on the map and prices the pipe to it.
+  local mx,my=mouse()
+  if mx>=x and mx<x+bodyW and my>=y and my<y+h then
+    state.offerHover=c.id
+    if c.prospect then
+      local p=E.offerPreview(city,c.id)
+      tip=E.clientName(city,c)..": "..tip..
+        (p.cost==0 and "\nReady to supply" or p.cost and string.format("\nPipe ~$%d, %s/day",p.cost,City.signed(p.net or 0)) or "")
+    end
+  end
   button(prefix=="bar-" and "request-open" or prefix.."client-"..c.id,"",x,y,bodyW,h,function()
     if prefix=="bar-" then act("focusRequest",c.id) else act("showClient",c.id) end
   end,true,tip,state.node==c.id,Graph.COMMODITIES[key].color)
@@ -1631,8 +1678,26 @@ local function offerRow(c,x,y,w,h,prefix,onAccept)
   local font=h>=40 and "mid" or "body"
   local pctW=SF.width(pct,R.fonts[font])
   local ty=y+(h-R.fonts[font]:getHeight())/2
-  single(offerAmount(c),x+10,ty,font,P.text,bodyW-pctW-26)
-  single(pct,x+bodyW-pctW-10,ty,font,UI.premiumColor(premium),pctW)
+  -- What it asks, what it pays a day, and how that compares to the going rate:
+  -- on one line where the row is wide, the asking on top and the money under
+  -- it where it is not.
+  local amount=offerAmount(c)
+  local pay=c.prospect and ("$"..city:contractValue(c).."/d") or ""
+  local payW=pay~="" and SF.width(pay,R.fonts.small) or 0
+  if bodyW-pctW-payW-34>=SF.width(amount,R.fonts[font]) then
+    single(amount,x+10,ty,font,P.text,bodyW-pctW-payW-34)
+    if pay~="" then
+      single(pay,x+bodyW-pctW-payW-20,y+(h-R.fonts.small:getHeight())/2,"small",P.energy,payW)
+    end
+    single(pct,x+bodyW-pctW-10,ty,font,UI.premiumColor(premium),pctW)
+  else
+    local small=R.fonts.small
+    local top=y+(h-R.fonts.body:getHeight()-small:getHeight())/2
+    single(amount,x+8,top,"body",P.text,bodyW-16)
+    local sw=SF.width(pct,small)
+    if pay~="" then single(pay,x+8,top+R.fonts.body:getHeight(),"small",P.energy,math.max(1,bodyW-sw-22)) end
+    single(pct,x+bodyW-sw-8,top+R.fonts.body:getHeight(),"small",UI.premiumColor(premium),sw)
+  end
   button(prefix.."accept-"..c.id,"Accept",x+bodyW+6,y,bw,h,onAccept or function() act("acceptClient",c.id) end,true,nil,false,P.good)
   button(prefix.."decline-"..c.id,"Decline",x+bodyW+12+bw,y,bw,h,function() act("declineClient",c.id) end,true,nil,false,P.bad)
 end
@@ -1677,7 +1742,7 @@ local function customers()
       else
       local met=city:fullyServed(c)
       local status=met and "Supplied"
-        or (c.supplyClosed and "Valve shut / " or "")..c.grace.." days left"
+        or (c.supplyClosed and "Shut / " or "")..c.grace.."d left"
       local h=58
       button("client-"..c.id,"",M,y,CW,h,function() act("showClient",c.id) end,true,
         nil,state.node==c.id,Graph.COMMODITIES[c.commodity].color)
@@ -1685,7 +1750,7 @@ local function customers()
       single(E.clientName(city,c),M+30,y+9,"body",P.text,150)
       lg.setFont(R.fonts.body); lg.setColor(P.energy)
       lg.printf("$"..city:contractValue(c).."/day",M+CW-110,y+9,100,"right")
-      single((c.demands and c.demands.water and c.demands.power and ("Water + "..city:quantity("power",c.demands.power)) or city:quantity(c.commodity,c.demand)).."  "..status,M+12,y+35,"small",
+      single((c.demands and c.demands.water and c.demands.power and offerAmount(c) or city:quantity(c.commodity,c.demand)).."  "..status,M+12,y+35,"small",
         met and P.good or P.warn,CW-140)
       local margin=city:clientMargin(c)
       local shown=c.commodity=="power" and 5 or 1
@@ -2402,9 +2467,21 @@ local function toastPill(open)
   local f=R.fonts.body
   local tw=math.min(W-left-40,SF.width(message,f)+36)
   local tx,ty=left+(W-left-tw)/2,H-50
-  lg.setColor(P.with(P.bg,0.92)); lg.rectangle("fill",tx,ty,tw,34,17)
-  lg.setColor(state.toastBad and P.with(P.bad,0.7) or P.panelEdge); lg.rectangle("line",tx,ty,tw,34,17)
+  -- After a day with customers short, the pill is a button to the worst choke.
+  local choke=state.toast and state.toastChoke
+  local mx,my=mouse()
+  local hot=choke and mx>=tx and mx<tx+tw and my>=ty and my<ty+34
+  lg.setColor(hot and P.hover or P.with(P.bg,0.92)); lg.rectangle("fill",tx,ty,tw,34,17)
+  lg.setColor(state.toastBad and P.with(P.bad,0.7) or choke and P.with(P.warn,0.8) or P.panelEdge); lg.rectangle("line",tx,ty,tw,34,17)
   single(message,tx+18,ty+9,"body",state.toastBad and P.bad or P.text,tw-36)
+  if choke then
+    UI.buttons[#UI.buttons+1]={id="toast-choke",x=tx,y=ty,w=tw,h=34,enabled=true,active=false,
+      tip="Show the worst choke",
+      fn=function()
+        if choke.edge then act("focusEdge",choke.edge) else act("focusNode",choke.node) end
+        state.toast,state.toastChoke=nil,nil
+      end}
+  end
 end
 
 -- A small card beside the pointer for whatever it rests on: the two or three
@@ -2548,10 +2625,14 @@ local function hoverCard()
     add(drawn.." / "..cap.." a day",drawn>=cap and cap>0 and P.warn or P.good)
     local t=city:tradeCosts(n.commodity)
     if t.perUnit then add(City.money2(t.perUnit).." > "..City.money2(t.price)) end
+    local _,nodes=city:chokes()
+    if nodes[n.id] then add("Starves "..nodes[n.id],P.warn) end
   elseif n then
     title=city:levelFamily(n) and (city:levelName(n).."  "..city:levelOf(n).."/"..city:levelCount(n)) or (Graph.KINDS[n.kind] or {}).name or n.kind
     add(math.floor(city.detail.node[n.id] or 0).." a day   "..city:connectionPorts(n.id).."/"..(n.ports or 0).." links")
     if city:isDistribution(n) then add("Signs $"..city:hubFloor(n).."+",P.energy) end
+    local _,nodes=city:chokes()
+    if nodes[n.id] then add("Starves "..nodes[n.id],P.warn) end
   elseif e then
     title=string.upper(e.commodity).." "..(e.rail and "LINE" or ((Graph.COMMODITIES[e.commodity] or {}).conduit or "MAIN"))
     local flow=math.floor(math.abs((city.detail.edge or {})[e.id] or 0))
@@ -2608,7 +2689,7 @@ function UI.draw(c,s,action)
   local RW,RH=R.dimensions()
   W,H=RW/k,RH/k
   UI.buttons={}; UI.blocks={}; scroll=false
-  state.previewRadius=nil
+  state.previewRadius=nil; state.offerHover=nil
   lg.push(); lg.scale(k)
   local open=UI.drawerOpen()
 

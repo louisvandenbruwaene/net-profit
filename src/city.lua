@@ -3499,31 +3499,97 @@ end
 -- distance, and reports the first constraint it meets: a shut valve, no route
 -- to a well at all, wells already at full output, or -- most often -- the
 -- nearest main running full.
+-- The trade a short customer is short of: its own, or the first add-on
+-- demand that is not being met.
+function City:shortTrade(c)
+  local com = c.commodity
+  for key, want in pairs(c.demands or {}) do
+    if ((self.servedBy[c.id] or {})[key] or 0) < want then com = key; break end
+  end
+  return com
+end
+
+-- What the answers below depend on, for one trade: its connected networks,
+-- and for each one whether it has a feed and whether it holds any full main,
+-- full damaged main, full main that could be widened, or full valve. Worked out
+-- once per solve, so a customer's search can stop as soon as it has met
+-- everything its network holds instead of walking the whole of it.
+local networkCache = setmetatable({}, { __mode = "k" })
+local function fullMain(self, e)
+  return math.abs(self.detail.edge[e.id] or 0) >= e.cap
+end
+local function fullValve(self, n)
+  return n.kind == "gate" and (n.throughput or 0) < 999
+    and (self.detail.node[n.id] or 0) >= (n.throughput or 0)
+end
+function City:flowNetworks(com)
+  local hit = networkCache[self]
+  if not hit or hit.detail ~= self.detail then
+    hit = { detail = self.detail, by = {} }
+    networkCache[self] = hit
+  end
+  if hit.by[com] then return hit.by[com] end
+  local of, nets = {}, {}
+  for _, start in ipairs(self.g.nodes) do
+    if start.alive and not of[start.id] then
+      local net = {}
+      local queue, head = { start.id }, 1
+      of[start.id] = net
+      while head <= #queue do
+        local u = queue[head]; head = head + 1
+        local node = self.g.nodes[u]
+        if node.kind == "source" or node.kind == "terminal"
+           or (node.kind == "depot" and (node.stored or 0) > 0) then net.feed = true end
+        if fullValve(self, node) then net.valve = true end
+        for _, ei in ipairs(self.g.adj[u] or {}) do
+          local e = self.g.edges[ei]
+          if e.alive and e.commodity == com then
+            if fullMain(self, e) then
+              net.full = true
+              if e.leaking or e.cap < (e.capMax or e.cap) then net.damaged = true end
+              if self:biggerSize(e) then net.widenable = true end
+            end
+            local v = (e.a == u) and e.b or e.a
+            if not of[v] and self.g.nodes[v] and self.g.nodes[v].alive then
+              of[v] = net
+              queue[#queue + 1] = v
+            end
+          end
+        end
+      end
+      nets[#nets + 1] = net
+    end
+  end
+  hit.by[com] = of
+  return of
+end
+
 function City:constraintFor(id)
   local c = self.g.nodes[id]
   if not (c and c.alive and c.kind == "client" and not c.prospect) then return nil end
   if self:fullyServed(c) then return nil end
   if c.supplyClosed then return "valve" end
 
-  local com = c.commodity
-  for key,want in pairs(c.demands or {}) do
-    if ((self.servedBy[c.id] or {})[key] or 0)<want then com=key; break end
-  end
-  local seen, queue, head = { [id] = true }, { id }, 1
+  local com = self:shortTrade(c)
+  local net = self:flowNetworks(com)[id] or {}
+  if not net.feed then return "unconnected" end
   -- Two answers: the first full main on the way here, and the first one that
   -- could actually be made wider. The advice points at the second where there
   -- is one, because pointing at a garden stub that may never be more than a
-  -- garden stub is advice nobody can act on.
-  local saturated, widenable, damaged, sawFeed = nil, nil, nil, false
+  -- garden stub is advice nobody can act on. The walk goes outward in order of
+  -- distance and stops once it has met every kind of limit its network holds.
+  local saturated, widenable, damaged, valve = nil, nil, nil, nil
+  local seen, queue, head = { [id] = true }, { id }, 1
   while head <= #queue do
+    if (saturated or not net.full) and (widenable or not net.widenable)
+       and (damaged or not net.damaged) and (valve or not net.valve) then break end
     local u = queue[head]; head = head + 1
     local node = self.g.nodes[u]
-    if node.kind == "source" or node.kind == "terminal"
-       or (node.kind == "depot" and (node.stored or 0) > 0) then sawFeed = true end
+    if not valve and fullValve(self, node) then valve = u end
     for _, ei in ipairs(self.g.adj[u] or {}) do
       local e = self.g.edges[ei]
       if e.alive and e.commodity == com then
-        if math.abs(self.detail.edge[ei] or 0) >= e.cap then
+        if fullMain(self, e) then
           saturated = saturated or ei
           -- A main that is full because it is burst is not a main that is too
           -- small. It was reported as one, and the only fix offered was to
@@ -3541,11 +3607,12 @@ function City:constraintFor(id)
     end
   end
 
-  if not sawFeed then return "unconnected" end
   if damaged then return "repair", damaged end
   -- If every well is already pumping flat out, a wider pipe changes nothing.
   if (self.spare[com] or 0) <= 0 then return "output" end
   if widenable or saturated then return "main", widenable or saturated end
+  -- A valve set lower than what wants to pass it is a limit the player chose.
+  if valve then return "gate", valve end
   return "output"
 end
 
@@ -3563,21 +3630,35 @@ function City:shortCustomers()
   return t
 end
 
--- The mains the map should light up: each one constraintFor blames for a
--- customer going short, with how many customers it is starving. Worked out
+-- What the map should light up: each main or valve constraintFor blames for a
+-- customer going short, and every maxed well of a trade short of output, with
+-- how many customers each is starving. Worked out
 -- once per solve (refresh() replaces self.detail) and kept off the City so the
 -- save never sees it.
 local chokeCache = setmetatable({}, { __mode = "k" })
 function City:chokes()
   local hit = chokeCache[self]
-  if hit and hit.detail == self.detail then return hit.edges end
-  local edges = {}
+  if hit and hit.detail == self.detail then return hit.edges, hit.nodes end
+  local edges, nodes, dry = {}, {}, {}
   for _, c in ipairs(self:shortCustomers()) do
-    local why, eid = self:constraintFor(c.id)
-    if eid and (why == "main" or why == "repair") then edges[eid] = (edges[eid] or 0) + 1 end
+    local why, at = self:constraintFor(c.id)
+    if at and (why == "main" or why == "repair") then edges[at] = (edges[at] or 0) + 1
+    elseif at and why == "gate" then nodes[at] = (nodes[at] or 0) + 1
+    elseif why == "output" then
+      local com = self:shortTrade(c)
+      dry[com] = (dry[com] or 0) + 1
+    end
   end
-  chokeCache[self] = { detail = self.detail, edges = edges }
-  return edges
+  -- Short of output: every well of that trade already pumping flat out is
+  -- the limit, and each carries the count of customers waiting on the trade.
+  for _, n in ipairs(self.g:nodesOfKind("source")) do
+    local cap = n.effectiveOutput or n.output or 0
+    if dry[n.commodity] and cap > 0 and ((self.produced or {})[n.id] or 0) >= cap then
+      nodes[n.id] = dry[n.commodity]
+    end
+  end
+  chokeCache[self] = { detail = self.detail, edges = edges, nodes = nodes }
+  return edges, nodes
 end
 
 function City:dailyRevenue()
