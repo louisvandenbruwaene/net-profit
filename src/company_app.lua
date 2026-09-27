@@ -335,7 +335,7 @@ local function action(name,...)
   if name=="endDay" and result.loyal then
     for i,l in ipairs(result.loyal) do
       if i>20 then break end
-      R.floatText(l.x,l.y-52,"Loyal!  +$"..City.LOYALTY.step.." a unit",P.energy,1+i*0.05)
+      R.floatText(l.x,l.y-52,"Loyal +$"..City.LOYALTY.step,P.energy,1+i*0.05)
       R.ring(l.x,l.y,P.energy)
     end
   end
@@ -364,7 +364,7 @@ local function action(name,...)
       local delay=math.min(0.9,i*0.035)
       if p.v>0 then R.floatText(p.x,p.y-26,"+$"..p.v,P.good,delay) end
       -- What a short customer did not pay, so the problem is on the map.
-      if p.missed>0 then R.floatText(p.x,p.y+(p.v>0 and 4 or -26),"-$"..p.missed.." short",P.warn,delay+0.1) end
+      if p.missed>0 then R.floatText(p.x,p.y+(p.v>0 and 4 or -26),"-$"..p.missed,P.warn,delay+0.1) end
       -- A tick per landing, rising, so a good day sounds like one.
       if i<=14 then state.sfx=state.sfx or {}; table.insert(state.sfx,{t=delay,pitch=0.85+i*0.035}) end
     end

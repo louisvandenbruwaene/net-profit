@@ -1116,16 +1116,8 @@ local function drawDistrictChrome(city, cam, state)
       local pricing = state.tab ~= "map" and (hot or cam.scale <= 0.34)
       if cam.scale > 0.19 and pricing then
         label(d.name, cx, cy - 20, buyable and P.text or P.textDim, R.fonts.body)
-        if (d.population or 0) > 0 then
-          label("POP " .. d.population, cx, cy - 44, P.textDim, R.fonts.tiny)
-        end
         label("$" .. city:districtCost(d)..(city:landDiscount(d)>0 and ("  -"..math.floor(city:landDiscount(d)*100).."%") or ""), cx, cy + 4,
           buyable and P.energy or P.textFaint, R.fonts.small)
-        if hot and not buyable and city:districtAdjacent(d) then
-          label("needs more cash", cx, cy + 26, P.textFaint, R.fonts.tiny)
-        elseif hot and not city:districtAdjacent(d) then
-          label("separate holding", cx, cy + 26, P.textFaint, R.fonts.tiny)
-        end
       end
     end
     if cam.scale > 0.34 and d.owned then
@@ -1541,7 +1533,7 @@ local function drawSeams(city, cam, state)
         if r >= 26 then Draw.deposit(s.commodity, x, y, r * 0.42, spec.color, s.x + s.y, dim / (focused and 1 or 0.45))
         else Draw.mark(s.commodity, x, y - 2, mr) end
         if focused and cam.scale > 0.45 then
-          label(string.upper(s.commodity) .. "  x" .. string.format("%.1f", s.yield),
+          label("x" .. string.format("%.1f", s.yield),
             x, y + (focused and r or 20) + 4, P.with(spec.color,focused and 1 or 0.7), R.fonts.tiny)
         end
       end
@@ -2326,7 +2318,7 @@ function Draw.world(city, cam, state)
       if e.unboosted then
         label("NO BOOSTER",(ax+bx)/2,(ay+by)/2-22,P.bad,R.fonts.tiny)
       elseif e.leaking or state.edge == e.id or state.hoverEdge == e.id or state.bottlenecks then
-        label(city:quantityPair(e.commodity,math.abs(flow),e.effectiveCap or e.cap)..(e.voltage and ("  "..City.INFRA.voltages[e.voltage].kv.." kV") or ""),(ax+bx)/2,(ay+by)/2-22,e.leaking and P.bad or P.textDim,R.fonts.tiny)
+        label(city:quantityPair(e.commodity,math.abs(flow),e.effectiveCap or e.cap),(ax+bx)/2,(ay+by)/2-22,e.leaking and P.bad or P.textDim,R.fonts.tiny)
       end
       fading(false)
     end
@@ -2428,17 +2420,12 @@ function Draw.world(city, cam, state)
         lg.line(bx, by - br * 0.5, bx, by + br * 0.1)
         lg.circle("fill", bx, by + br * 0.45, math.max(0.8, br * 0.14))
       end
-      if r>=7.5 and (focused or (not n.prospect and (n.supplyClosed or not city:fullyServed(n)))) then
-        local title = n.prospect and "OFFER" or n.supplyClosed and "SHUT"
-          or n.demands and n.demands.water and n.demands.power and (city:fullyServed(n) and "Water + electricity supplied" or "Water / electricity short")
+      -- Only a problem gets a label; the rest is in the hover card.
+      if r>=7.5 and not n.prospect and (n.supplyClosed or not city:fullyServed(n)) then
+        local title = n.supplyClosed and "SHUT"
+          or n.demands and n.demands.water and n.demands.power and "short"
           or city:quantityPair(n.commodity,served,n.demand)
-        label(title,x,y+r*1.5+8,n.prospect and P.energy or (city:fullyServed(n) and P.good or P.warn))
-      end
-      if focused then
-        local premium = city:ratePremium(n)
-        local tag = E.clientName(city,n) .. "  $" .. n.rate
-        label(tag, x, y-r*1.5-24,
-          premium > 0.10 and P.good or premium < -0.10 and P.bad or P.textDim, R.fonts.tiny)
+        label(title,x,y+r*1.5+8,P.warn)
       end
     elseif n.kind == "source" then
       if building then
@@ -2465,9 +2452,7 @@ function Draw.world(city, cam, state)
       local drawn = (city.produced or {})[n.id] or 0
       local maxed = drawn >= (n.output or 0) and (n.output or 0) > 0
       if named or (r>=7.5 and maxed) then
-        label((n.plant and string.upper((City.PLANTS[n.plant] or {}).name or "PLANT")
-          or string.upper(n.commodity))
-          .. "  " .. drawn .. "/" .. (n.output or 0),
+        label(drawn .. "/" .. (n.output or 0),
           x, y+r*1.5+8, maxed and P.warn or color)
       end
       -- A capacity bar across the bottom of the well, so the ratio reads at a
@@ -2565,7 +2550,7 @@ function Draw.world(city, cam, state)
         if focused then
           local _, bill = city:importBill()
           label(landed > 0 and (landed .. " landed  -$" .. math.floor((bill[n.id] or 0) + 0.5))
-            or "no freight moving", x, y-r*1.5-24, landed > 0 and P.textDim or P.warn, R.fonts.tiny)
+            or "idle", x, y-r*1.5-24, landed > 0 and P.textDim or P.warn, R.fonts.tiny)
         end
       elseif n.kind == "works" then
         local recipe = City.RECIPES[n.recipe or ""]
@@ -2573,19 +2558,16 @@ function Draw.world(city, cam, state)
           label((n.ready or 0) .. "/" .. recipe.rate .. " " .. recipe.makes, x, y+r*1.5+8,
             (n.ready or 0) >= recipe.rate and P.good or (n.ready or 0) > 0 and P.warn or P.bad)
         end
-        if focused and recipe then
-          label(recipe.name, x, y-r*1.5-24, P.textDim, R.fonts.tiny)
-        end
       elseif n.kind == "station" then
         if named then
           local tank = city.served[n.id] or 0
-          label(tank .. " in the tank", x, y+r*1.5+8, tank > 0 and P.good or P.warn)
+          label(tostring(tank), x, y+r*1.5+8, tank > 0 and P.good or P.warn)
         end
       elseif n.kind == "resort" then
         if named then label("LEVEL " .. (n.level or 1), x, y+r*1.5+8, color) end
       elseif n.kind == "stop" then
         local rec = (((city.transit or {}).byNode) or {})[n.id]
-        if named and rec and rec.boarded then label(rec.boarded .. " boarded", x, y+r*1.5+8, P.textDim) end
+        if named and rec and rec.boarded then label(tostring(rec.boarded), x, y+r*1.5+8, P.textDim) end
       elseif n.kind == "depot" then
         local fill=math.min(1,(n.stored or 0)/(n.capacityStore or City.depotCapacity))
         lg.setColor(P.panelEdge); lg.rectangle("fill",x-r,y+r+4,r*2,4)
@@ -2673,7 +2655,7 @@ function Draw.world(city, cam, state)
     lg.setColor(err and P.bad or P.good); lg.setLineWidth(2); lg.line(x,y,mx,my)
     if target and target ~= from.id then
       local cost = not err and city:linkQuote(from.id,target,state.transit)
-      label(err or ("Build for $"..cost..((cost > city.money) and "  (need more cash)" or "")),
+      label(err or ("$"..cost),
         (x+mx)/2,(y+my)/2-24,err and P.bad or P.energy)
     end
   elseif state.drag then
@@ -2708,7 +2690,7 @@ function Draw.world(city, cam, state)
           local name = o.massive and (o.kind == "park" and "Protected park" or "Mountain range")
             or (o.kind == "park" and "Woodland" or "Bedrock")
           local ox, oy = cam:toScreen(o.x, o.y)
-          label((not cross and "CLOSED" or cross > 1 and string.format("x%.1f", cross) or "open") .. "  " .. name, ox, oy - 8, colour, R.fonts.small)
+          label(not cross and "CLOSED" or cross > 1 and string.format("x%.1f", cross) or "open", ox, oy - 8, colour, R.fonts.small)
           crossing[#crossing + 1] = { name = name, cross = cross }
         end
       end
