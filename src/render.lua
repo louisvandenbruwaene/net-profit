@@ -125,13 +125,16 @@ end
 
 -- Floating numbers are screen-sized, so neighbours on the map collide at any
 -- zoom. Each one that would overlap an earlier one is lifted clear above it.
+-- Each placed box is centred at x, y with width w and height h (24, a float's
+-- own height, unless it says otherwise), so a tall card is cleared whole.
 local function stack(placed, sx, sy, w)
   local h = 24
   for _ = 1, #placed do
     local moved = false
     for _, p in ipairs(placed) do
-      if math.abs(sx - p.x) < (w + p.w) / 2 + 4 and math.abs(sy - p.y) < h then
-        sy, moved = p.y - h, true
+      local ph = p.h or h
+      if math.abs(sx - p.x) < (w + p.w) / 2 + 4 and math.abs(sy - p.y) < (h + ph) / 2 then
+        sy, moved = p.y - (h + ph) / 2, true
       end
     end
     if not moved then break end

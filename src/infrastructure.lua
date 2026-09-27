@@ -74,7 +74,7 @@ return function(City)
   -- it also take cables at every lower voltage, and customers only connect to a
   -- tower with a transformer that carries their own voltage.
   function City:customerVoltage(n)
-    if n.kind=='client' then return (n.commodity=='power' or (n.demands and n.demands.power)) and (D.customerVoltage[n.clientType] or 'medium') or nil end
+    if n.kind=='client' then return (n.commodity=='power' or (n.demands and n.demands.power) or n.powerRequest) and (D.customerVoltage[n.clientType] or 'medium') or nil end
     if n.kind=='works' or n.kind=='dc' then return 'medium' end
   end
   function City:voltagesAt(n)

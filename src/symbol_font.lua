@@ -53,13 +53,21 @@ local function runs(s,fn)
   end
 end
 
+-- Bolts in a row are one reading (one, two or three for the voltage), so
+-- each after the first steps only half a cell: they sit together, not spaced
+-- out like separate symbols.
+local PACK=0.5
+local function packed(prev,key) return key=='power' and prev=='power' end
+
 function F.width(s,font)
   s=tostring(s)
   font=font or lg.getFont()
   if not s:find(LEAD,1,true) then return font:getWidth(s) end
-  local w=0
+  local w,prev=0,nil
   runs(s,function(part,key)
-    if part then w=w+font:getWidth(part) else w=w+box(font) end
+    if part then w=w+font:getWidth(part)
+    else w=w+box(font)*(packed(prev,key) and PACK or 1) end
+    prev=key
   end)
   return w
 end
@@ -124,13 +132,15 @@ end
 local function pen(s,font)
   local h=font:getHeight()
   local w=box(font)
-  local x=0
+  local x,prev=0,nil
   runs(s,function(part,key)
     if part then
       rawPrint(part,x,0); x=x+font:getWidth(part)
     else
+      if packed(prev,key) then x=x-w*(1-PACK) end
       F.mark(key,x+w/2,h*0.53,math.min(w,h)*0.46); x=x+w
     end
+    prev=key
   end)
 end
 

@@ -51,7 +51,8 @@ local function push(s, x, y, w, h)
     ex, ey = math.min(ex, cx + cw), math.min(ey, cy + ch)
     if ex - sx < 1 or ey - sy < 1 then return end
   end
-  A.rects[#A.rects + 1] = { s = s, x = sx, y = sy, w = ex - sx, h = ey - sy }
+  A.seq = (A.seq or 0) + 1
+  A.rects[#A.rects + 1] = { s = s, x = sx, y = sy, w = ex - sx, h = ey - sy, seq = A.seq }
 end
 
 function A.enable(on)
@@ -138,11 +139,13 @@ function A.cover(x, y, w, h)
   local W, H = require("render").dimensions()
   -- Anything covering the whole screen ends the frame's history, opaque or
   -- not: that is a modal's dim, or the background of the frame itself.
-  if x <= 2 and y <= 2 and w >= W * 0.9 and h >= H * 0.9 then A.rects = {}; return end
+  if x <= 2 and y <= 2 and w >= W * 0.9 and h >= H * 0.9 then A.rects, A.covers = {}, {}; return end
   local _, _, _, alpha = lg.getColor()
   if (alpha or 1) < 0.95 then return end
   local sx, sy = toScreen(x, y)
   local ex, ey = toScreen(x + w, y + h)
+  A.seq = (A.seq or 0) + 1
+  A.covers[#A.covers + 1] = { x = sx, y = sy, ex = ex, ey = ey, seq = A.seq }
   local kept = {}
   for _, r in ipairs(A.rects) do
     local rx, ry, rex, rey = r.x, r.y, r.x + r.w, r.y + r.h
@@ -167,7 +170,7 @@ end
 
 function A.begin(tag)
   if not A.on then return end
-  A.recording, A.rects, A.tag = true, {}, tag or A.tag or "frame"
+  A.recording, A.rects, A.covers, A.tag = true, {}, {}, tag or A.tag or "frame"
 end
 
 local function region(r, W, H)
@@ -189,7 +192,19 @@ function A.finish()
       local a, b = rects[i], rects[j]
       local ow = math.min(a.x + a.w, b.x + b.w) - math.max(a.x, b.x)
       local oh = math.min(a.y + a.h, b.y + b.h) - math.max(a.y, b.y)
+      -- Hidden where they meet: an opaque fill drawn after the earlier of
+      -- the two and before the later covers the whole overlap, so the two
+      -- never show on top of each other.
+      local hidden = false
       if ow > MIN_W and oh > MIN_H then
+        local ox, oy = math.max(a.x, b.x), math.max(a.y, b.y)
+        local first, second = math.min(a.seq or 0, b.seq or 0), math.max(a.seq or 0, b.seq or 0)
+        for _, cv in ipairs(A.covers or {}) do
+          if cv.seq > first and cv.seq < second and cv.x <= ox + 1 and cv.y <= oy + 1
+             and cv.ex >= ox + ow - 1 and cv.ey >= oy + oh - 1 then hidden = true; break end
+        end
+      end
+      if ow > MIN_W and oh > MIN_H and not hidden then
         local ra, rb = region(a, W, H), region(b, W, H)
         -- Two labels on the city itself, or a tooltip over the map, are not a
         -- layout fault. Everything that involves a panel is.
@@ -204,7 +219,7 @@ function A.finish()
       end
     end
   end
-  A.rects = {}
+  A.rects, A.covers = {}, {}
 end
 
 function A.report()

@@ -25,6 +25,7 @@ return function(City)
  function City:voltageOf(n)
   if not n then return 'low' end
   if n.voltage then return n.voltage end
+  if n.kind=='client' then return City.INFRA.customerVoltage[n.clientType] or 'medium' end
   for _,e in ipairs(self.g:edgesAt(n.id)) do if e.alive and e.commodity=='power' and e.voltage then return e.voltage end end
   return 'low'
  end

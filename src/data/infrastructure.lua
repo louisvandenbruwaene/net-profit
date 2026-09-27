@@ -57,7 +57,7 @@ return {
   farmRecipes={
     crops={name="CROP FARM",makes="wheat",rate=12,cost=1400,upkeep=16,
       inputs={water=3,oil=0.1,power=0.2},materials={},farm=true,
-      blurb="Large fields. Uses 36 water, 1.2 oil and 12 kWh daily at full output."},
+      blurb="Large fields. Uses 36 water, 1.2 oil and 2.4 electricity daily at full output."},
     dairy={name="DAIRY FARM",makes="food",rate=8,cost=1800,upkeep=22,
       inputs={water=4,wheat=1,oil=0.1,power=0.3},materials={},farm=true,product="Milk",
       blurb="Milk for food customers. Requires water, feed, oil and electricity."},

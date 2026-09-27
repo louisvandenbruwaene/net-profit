@@ -118,7 +118,7 @@ local CONIFER = {
 -- Crowns are drawn at CROWN of the cell's canopy radius, with a trunk thick
 -- and tall enough to read as a trunk beside them. Both kinds stand on the
 -- same ground line, cy + 32.
-local CROWN = 0.85
+local CROWN = 0.8
 
 local function paintBroadleaf(cx, cy, pal, seed)
   local d, m, l = pal[1], pal[2], pal[3]
@@ -127,10 +127,10 @@ local function paintBroadleaf(cx, cy, pal, seed)
   lg.setColor(0, 0, 0, 0.30)
   lg.ellipse("fill", cx + 7, cy + 28, C * 0.9, C * 0.42)
   lg.setColor(0.26, 0.18, 0.11)
-  lg.rectangle("fill", cx - 5, cy - 4, 10, 36, 2)
+  lg.rectangle("fill", cx - 6, cy - 8, 12, 40, 2)
   lg.setColor(0.18, 0.12, 0.08)
-  lg.rectangle("fill", cx + 1, cy - 4, 4, 36, 1)
-  cy = cy - 20
+  lg.rectangle("fill", cx + 1, cy - 8, 5, 40, 1)
+  cy = cy - 24
   local lobes = {}
   for i = 0, 5 do
     local a = i / 6 * math.pi * 2 + seed
@@ -154,14 +154,14 @@ local function paintConifer(cx, cy, pal)
   lg.setColor(0, 0, 0, 0.30)
   lg.ellipse("fill", cx + 9, cy + 30, C * 0.7, C * 0.34)
   lg.setColor(0.24, 0.16, 0.10)
-  lg.rectangle("fill", cx - 4.5, cy + 6, 9, 26, 2)
+  lg.rectangle("fill", cx - 5.5, cy + 2, 11, 30, 2)
   lg.setColor(0.17, 0.11, 0.07)
-  lg.rectangle("fill", cx + 1, cy + 6, 3.5, 26, 1)
+  lg.rectangle("fill", cx + 1, cy + 2, 4.5, 30, 1)
   -- Three tiers, each a dark full triangle with its sunlit left half on top,
   -- the lowest standing clear of the ground so the trunk shows.
   for i = 0, 2 do
     local w = C * (0.95 - i * 0.24)
-    local base = cy + 16 - i * 19
+    local base = cy + 12 - i * 18
     local top = base - C * (0.95 - i * 0.12)
     lg.setColor(d); lg.polygon("fill", cx - w, base, cx, top, cx + w, base)
     lg.setColor(l); lg.polygon("fill", cx - w, base, cx, top, cx + w * 0.05, base - 4)
@@ -227,7 +227,7 @@ local function buildForest(o, clearings)
       local pick = t.k < 0.06 and #BROADLEAF or 1 + math.floor(t.h * 97) % (#BROADLEAF - 1)
       quad = quads.broad[pick]
     end
-    local s = spacing * 0.78 * size / CANOPY
+    local s = spacing * 0.68 * size / CANOPY
     local shade = 0.86 + 0.18 * hash(o.x + t.x, o.y + t.y, 11)
     batch:setColor(shade, shade, shade, 1)
     batch:add(quad, t.x, t.y, 0, s, s, CELL / 2, CELL / 2 + 6)
