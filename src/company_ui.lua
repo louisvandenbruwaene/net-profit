@@ -18,7 +18,6 @@ local CW  = 300          -- sidebar content width
 -- points, which broke "Roundabout" into "Roundab / out".
 local TILE_W, TILE_H = 96, 50
 local TOP = 78         -- first content line, before scrolling
-local suppliesCache
 local tooltipId,tooltipSince,tooltipX,tooltipY
 
 -- The mouse in interface units, which differ from screen points when the
@@ -1415,18 +1414,14 @@ local function company()
   local open
   y,open=fold("money","Money",y,City.signed(city:dailyRevenue()-b.total).." a day",true)
   if open then
-    row("Income / day","+$"..city:dailyRevenue(),y,P.good)
-    row("Costs / day","-$"..b.total,y+26,P.warn)
-    row("Profit / day",City.signed(city:dailyRevenue()-b.total),y+52,P.energy)
-    y=y+86
     -- Each trade's unit cost against its price, so the margin behind the
     -- profit line is never a guess.
     for _,name in ipairs(Graph.TRADES) do
       if city.licences[name] then
         local t=city:tradeCosts(name)
         if t.perUnit or t.price then
-          row(string.upper(name),t.perUnit and ("cost "..City.money2(t.perUnit).."  sells "..City.money2(t.price))
-            or "nothing delivered yet",y,
+          row(string.upper(name),t.perUnit and (City.money2(t.perUnit).." > "..City.money2(t.price))
+            or "-",y,
             t.margin and (t.margin>=0 and P.good or P.bad) or P.textDim,
             "What a unit costs you (sources, pumping and mains, over units delivered) and what customers pay for it on average."..
             (t.margin and (" You keep "..City.money2(t.margin).." a unit.") or ""))
@@ -1441,12 +1436,12 @@ local function company()
   -- player is choosing when rather than which.
   local offer,held={},{}
   for _,name in ipairs(City.LICENCE_ORDER) do
-    if city.licences[name] then offer[#offer+1]=name; held[#held+1]=name end
+    if city.licences[name] then held[#held+1]=name end
   end
   local nextUp=city:nextLicence()
   if nextUp then offer[#offer+1]=nextUp end
   y,open=fold("trades","Trades",y,nextUp and ("next: "..nextUp) or (#held.." held"))
-  if open then
+  if open and #offer>0 then
     for _,name in ipairs(offer) do
       local cost=City.price[name.."Licence"]
       local has=city.licences[name]
@@ -1508,12 +1503,12 @@ local function company()
     (city.loan or 0)>0 and ("loan $"..city.loan) or invested>0 and ("$"..invested.." invested") or "")
   if open then
     button("invest-minus","-",M,y,34,34,function() state.invest=math.max(50,state.invest-50) end,true,"Less")
-    button("invest","Invest $"..state.invest,M+41,y,218,34,function() act("invest",state.invest) end,
-      city.money>=state.invest,"Locks cash for "..City.rules.investDays.." days. The mean and spread shown below include your analysts. You can lose the invested money.")
-    button("invest-plus","+",M+266,y,34,34,function() state.invest=state.invest+50 end,true,"More")
     local mean,sd=city:investmentDistribution()
-    row("7-day mean / spread",string.format("%.0f%% / %.0f%%",mean*100,sd*100),y+40,P.energy)
-    y=y+68
+    button("invest","Invest $"..state.invest,M+41,y,218,34,function() act("invest",state.invest) end,
+      city.money>=state.invest,"Locks cash for "..City.rules.investDays.." days. "..
+      string.format("Mean %.0f%%, spread %.0f%% (with your analysts).",mean*100,sd*100).." You can lose the invested money.")
+    button("invest-plus","+",M+266,y,34,34,function() state.invest=state.invest+50 end,true,"More")
+    y=y+44
     for _,inv in ipairs(city.investments) do
       row("$"..inv.amount.." on deposit",city:daysToMaturity(inv).." days left",y,P.energy); y=y+24
     end
@@ -1530,10 +1525,13 @@ local function company()
     button("borrow","Borrow $"..want,M+41,y,218,34,function() act("borrow",want) end,
       avail>0,"Interest: "..math.floor(City.loanRate*100+0.5).."% per week, paid daily. You can borrow $"..avail.." more.")
     button("borrow-plus","+",M+266,y,34,34,function() state.borrow=(state.borrow or 500)+100 end,true,"More")
-    button("repay",(city.loan or 0)>0 and ("Repay $"..math.min(city.loan,city.money)) or "Nothing outstanding",
-      M,y+40,CW,32,function() act("repay",math.min(city.loan,city.money)) end,
-      (city.loan or 0)>0 and city.money>0,"Pays down as much of the balance as the till allows")
-    y=y+84
+    if (city.loan or 0)>0 then
+      button("repay","Repay $"..math.min(city.loan,city.money),
+        M,y+40,CW,32,function() act("repay",math.min(city.loan,city.money)) end,
+        city.money>0,"Pays down as much of the balance as the till allows")
+      y=y+40
+    end
+    y=y+44
   end
 
   -- Land permits.
@@ -1614,7 +1612,8 @@ local function customers()
       local premium=city:ratePremium(c)
       local status=prospect and "Offer" or met and "Supplied"
         or (c.supplyClosed and "Valve shut / " or "")..c.grace.." days left"
-      button("client-"..c.id,"",M,y,CW,80,function() act("focusNode",c.id) end,true,
+      local h=prospect and 80 or 58
+      button("client-"..c.id,"",M,y,CW,h,function() act("focusNode",c.id) end,true,
         "Locate and inspect this customer",state.node==c.id,Graph.COMMODITIES[c.commodity].color)
       drop(c.commodity,M+16,y+17,8)
       single(E.clientName(city,c),M+30,y+9,"body",P.text,150)
@@ -1625,18 +1624,23 @@ local function customers()
         or premium>0.12 and string.format("PREMIUM %+.0f%%",premium*100)
         or premium<-0.12 and string.format("LOWBALL %+.0f%%",premium*100)
         or (c.commodity=="power" and string.format("$%.2f/kWh",c.rate/5) or string.format("$%d/unit",c.rate))
-      if prospect then status="Expires in "..math.max(0,c.expires-city.day+1).." days" end
-      single((c.demands and c.demands.water and c.demands.power and ("Water + "..city:quantity("power",c.demands.power)) or city:quantity(c.commodity,c.demand)).." / "..status,M+12,y+35,"small",
-        prospect and P.energy or met and P.good or P.warn,CW-16)
-      lg.setFont(R.fonts.small)
-      lg.setColor(c.secure and P.energy or premium>0.12 and P.good or premium<-0.12 and P.bad or P.textDim)
-      lg.printf(tag,M+12,y+57,CW-24,"left")
+      if prospect then
+        local left=math.max(0,c.expires-city.day+1)
+        status=left..(left==1 and " day left" or " days left")
+      end
+      single((c.demands and c.demands.water and c.demands.power and ("Water + "..city:quantity("power",c.demands.power)) or city:quantity(c.commodity,c.demand)).."  "..status,M+12,y+35,"small",
+        prospect and P.energy or met and P.good or P.warn,prospect and CW-16 or CW-140)
+      if prospect then
+        lg.setFont(R.fonts.small)
+        lg.setColor(c.secure and P.energy or premium>0.12 and P.good or premium<-0.12 and P.bad or P.textDim)
+        lg.printf(tag,M+12,y+57,CW-24,"left")
+      end
       -- What each unit leaves after its cost, on the right of the same line.
       local margin=city:clientMargin(c)
       local shown=c.commodity=="power" and 5 or 1
-      single("keep "..(margin>=0 and "+" or "-")..City.money2(math.abs(margin)/shown),M+CW-120,y+57,"small",
+      single("keep "..(margin>=0 and "+" or "-")..City.money2(math.abs(margin)/shown),M+CW-120,y+(prospect and 57 or 35),"small",
         margin<0 and P.bad or P.good,108,"right")
-      y=y+92
+      y=y+h+12
     end
     y=y+18
   end
@@ -2087,30 +2091,24 @@ local function stats()
   local y=TOP-state.scroll
   local previous=city.lastReport
   if previous then
-    heading("DAY "..previous.day.." RESULTS",y); y=y+28
     local profit=previous.revenue-previous.expenses-(previous.crewCost or 0)-(previous.preventCost or 0)
-    row("Operating profit",City.signed(profit),y,profit>=0 and P.good or P.bad); y=y+28
-    row("Supply shortfalls",previous.unhappy or 0,y,(previous.unhappy or 0)>0 and P.warn or P.good); y=y+28
-    row("Customers lost",#(previous.left or {}),y); y=y+32
-    button("previous-results","Full day results",M,y,CW,30,function()
+    button("previous-results","Day "..previous.day.."  "..City.signed(profit),M,y,CW,30,function()
       state.modal="report"; state.reportDetails=false
     end,true,"Revenue, costs, grants and events from the previous day")
-    y=y+46
+    y=y+40
   end
   button("tab-ambitions","Goals",M,y,CW,36,function() state.tab="ambitions"; state.scroll=0 end,true,"Choose a goal. Earn a cash reward.")
   y=y+46
-  button("tab-advisor","Advisor: resilience and upgrades",M,y,CW,32,function() state.tab="advisor"; state.scroll=0 end,true,
+  button("tab-advisor","Advisor",M,y,CW,32,function() state.tab="advisor"; state.scroll=0 end,true,
     "Which single failure would hurt most, and which upgrade earns the most.")
   y=y+42
   button("tab-ledger","History",M,y,CW,32,function() state.tab="ledger"; state.scroll=0 end,true,"Past events and payments.")
   y=y+48
   local open
-  y,open=fold("overview","Company at a glance",y,city.reputation.."% rep")
+  y,open=fold("overview","Company",y,"")
   if open then
-  for _,v in ipairs({{"Day",city.day},{"Clients",#city:clientList()},{"Open requests",#city:clientList(true)},
-    {"Company value","$"..city:valuation()},{"Reputation",city.reputation.."%"},
-    {"Requests per day","Up to "..city:requestLimit()},{"Land owned",#city:ownedDistricts()},
-    {"Debt","$"..(city.loan or 0)}}) do row(v[1],v[2],y); y=y+30 end
+  for _,v in ipairs({{"Value","$"..city:valuation()},{"Reputation",city.reputation.."%"},
+    (city.loan or 0)>0 and {"Debt","$"..city.loan} or nil}) do row(v[1],v[2],y); y=y+30 end
   y=y+8
   end
   y,open=fold("recent","Recent profit",y,#city.history>0 and City.signed(
@@ -2140,9 +2138,7 @@ local function stats()
         lg.setColor(v>=0 and P.good or P.bad)
         lg.rectangle("fill",bx,v>=0 and zero-bh or zero,bw-4,math.max(1,bh),2)
       end
-      local last=city.history[#city.history]
-      single("Day "..last.day..": "..City.signed(last.revenue-(last.expenses or 0)),M,y+ch+8,"small",P.textDim,CW)
-      y=y+ch+36
+      y=y+ch+16
     end
   end
   local costs=city:expenseBreakdown()
@@ -2154,84 +2150,6 @@ local function stats()
     if (v[2] or 0)>0 then row(v[1],string.format("$%.1f",v[2]),y); y=y+26 end
   end
   y=y+16
-  end
-  -- What shape the network has grown into. A company that follows the prices
-  -- ends up with a tree: many narrow mains into buildings, fewer and wider
-  -- ones carrying them, and a trunk under all of it. This is that tree,
-  -- counted, and it is the one panel that describes the network as a whole
-  -- rather than one piece of it.
-  local shape=E.anatomy(city,"water")
-  local shapeOpen=false
-  if shape and shape.top>1 then y,shapeOpen=fold("shape","Network shape",y,"") end
-  if shape and shape.top>1 and shapeOpen then
-    local NAME={"stubs","feeders","trunks","the trunk"}
-    for o=1,shape.top do
-      local b=shape.band[o]
-      if b then
-        row("Order "..o..", "..(NAME[o] or "above"),
-          string.format("%d x %.0f m, carries %.0f",b.n,b.len/b.n,b.cap/b.n),y,
-          o==shape.top and P.energy or P.text,
-          "A main into a building is order 1. Where two of the same order meet, "..
-          "the main carrying them both is one order higher. That is how a river "..
-          "system and a set of blood vessels are both measured. This row is how "..
-          "many mains of this order there are, how long they run on average, and "..
-          "how much each one carries.")
-        y=y+26
-      end
-    end
-    if shape.RB then
-      row("Branching",string.format("%.1f to 1",shape.RB),y,P.text,
-        "How many mains of one order run into each main of the next. Rivers run three to five.")
-      y=y+26
-    end
-    if shape.RC and shape.RB then
-      local murray=shape.RC/shape.RB
-      row("Capacity step",string.format("%.1fx per order",shape.RC),y,
-        murray>0.85 and P.good or P.warn,
-        "How much more the main below carries. Murray's law wants this to match the "..
-        "branching, because every drop that goes into the branches came down the "..
-        "main below them. At "..string.format("%.0f%%",murray*100)..
-        " of it, the wide mains are "..(murray>0.85 and "carrying their share." or "narrower than the flow they take."))
-      y=y+26
-    end
-    if shape.RL and shape.wantLength then
-      row("Length step",string.format("%.2fx per order",shape.RL),y,
-        shape.RL>1.2 and P.good or P.warn,
-        "How much longer the main below is. A tree that fills its ground wants "..
-        string.format("%.2fx",shape.wantLength)..", because a main that supplies several "..
-        "times the ground has to reach across it. Below 1 means every main is about "..
-        "as long as every other, whatever it carries.")
-      y=y+26
-    end
-    row("Self-similar",shape.dimension and string.format("dimension %.2f",shape.dimension)
-      or "not yet",y,shape.dimension and P.good or P.textDim,
-      shape.dimension and "The same shape repeats at every scale. Two is a tree that fills a flat map."
-      or "The network has a hierarchy of capacities on a single length scale: the trunks "..
-         "are no longer than the stubs. Carry a wide main further before splitting it.")
-    y=y+36
-  end
-  y,open=fold("supplies","Map supplies",y,"")
-  if open then
-  -- Every mark against every stand of ground: counted once per solve.
-  if not suppliesCache or suppliesCache.city~=city or suppliesCache.rev~=city.revision then
-    local free,buried={water=0,oil=0},0
-    for _,deposit in ipairs(city.deposits or {}) do
-      if not deposit.taken and free[deposit.commodity] then
-        free[deposit.commodity]=free[deposit.commodity]+1
-        if city:obstacleAt(deposit.x,deposit.y) then buried=buried+1 end
-      end
-    end
-    suppliesCache={city=city,rev=city.revision,free=free,buried=buried}
-  end
-  local free,buried=suppliesCache.free,suppliesCache.buried
-  row("Unused water marks",free.water,y); y=y+26
-  row("Unused oil marks",free.oil,y); y=y+26
-  row("Need a permit",buried,y); y=y+36
-  for _,key in ipairs(City.GATEWAYS) do
-    local count=0
-    for _,n in ipairs(city.g:nodesOfKind("terminal")) do if n.haven==key then count=count+1 end end
-    row(City.HAVENS[key].name,count.." built",y); y=y+26
-  end
   end
   UI.contentBottom=y+24+state.scroll
 end
