@@ -152,7 +152,20 @@ return function(City)
     copy:refresh()
     local job = { city = self, copy = copy, rev = self.revision, day = self.day,
                   base = copy:dailyRevenue(), served0 = {}, points = {}, exposure = {}, i = 0 }
-    for _, c in ipairs(copy:clientList()) do job.served0[c.id] = copy.served[c.id] or 0 end
+    -- A customer takes one line of each trade, so its own service line and the
+    -- fitting that line hangs off can never be doubled: the check judges the
+    -- network up to that last mile, not the last mile itself.
+    job.income0, job.lastMile = {}, {}
+    for _, c in ipairs(copy:clientList()) do
+      job.served0[c.id] = copy.served[c.id] or 0
+      job.income0[c.id] = copy:clientIncome(c)
+      local mile = {}
+      for _, e in ipairs(copy.g:edgesAt(c.id)) do
+        mile["edge" .. e.id] = true
+        mile["node" .. (e.a == c.id and e.b or e.a)] = true
+      end
+      job.lastMile[c.id] = mile
+    end
 
     local list = {}
     for _, e in ipairs(copy.g.edges) do
@@ -176,12 +189,13 @@ return function(City)
     local obj = item.kind == "edge" and copy.g.edges[item.id] or copy.g.nodes[item.id]
     obj.alive = false
     copy:refresh()
-    local loss = job.base - copy:dailyRevenue()
-    local hurt = 0
+    local loss, hurt = 0, 0
     for _, c in ipairs(copy:clientList()) do
       local was = job.served0[c.id] or 0
       local now = copy.served[c.id] or 0
-      if now < was then
+      local own = job.lastMile[c.id] and job.lastMile[c.id][item.kind .. item.id]
+      if now < was and not own then
+        loss = loss + math.max(0, (job.income0[c.id] or 0) - copy:clientIncome(c))
         hurt = hurt + 1
         local frac = (was - now) / math.max(1, was)
         local cur = job.exposure[c.id]

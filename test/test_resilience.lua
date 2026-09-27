@@ -80,8 +80,9 @@ local function mesh(redundant)
   local j2=node(c,'junction',1400,1450)
   local h1=house(c,1500,1350)
   local h2=house(c,1500,1450)
-  pipe(c,w1,j1); pipe(c,w2,j2); pipe(c,j1,h1); pipe(c,j2,h2); pipe(c,j1,j2)
-  if redundant then pipe(c,j2,h1); pipe(c,j1,h2) end
+  pipe(c,w1,j1); pipe(c,w2,j2); pipe(c,j1,h1); pipe(c,j2,h2)
+  -- A customer takes one line, so the second feeder ties the two fittings.
+  if redundant then pipe(c,j1,j2) end
   c:refresh()
   return c,{w1=w1,w2=w2,j1=j1,j2=j2,h1=h1,h2=h2}
 end

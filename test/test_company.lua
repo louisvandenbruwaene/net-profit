@@ -131,7 +131,11 @@ do
   local hub=assert(c:build(home.x-75,home.y+60,"junction"))
   assert(c:layPipe(c.firstSource.id,hub.id,"water","large"))
   local main=assert(c:layPipe(hub.id,first.id,"water",7))
-  local downstream=assert(c:layPipe(first.id,second.id,"water",7))
+  check(c:pipeError(first.id,second.id,"water")=="a customer takes one water connection","a customer takes one line of each trade")
+  -- Older saves may still chain one house through another; that keeps flowing.
+  local downstream=assert(c.g:addEdge(first.id,second.id,7))
+  downstream.commodity,downstream.capMax,downstream.size,downstream.grade="water",7,"small",1
+  c:refresh()
   check(c.served[first.id]==3 and c.served[second.id]==4,"seven units serve the first house and pass four onward")
   check(c.detail.edge[main.id]==7 and c.detail.edge[downstream.id]==4,"mains carry delivery plus onward flow")
   main.cap=4; c:refresh()
