@@ -137,12 +137,28 @@ end
 -- Rather than leaving the player on whichever tab they happened to be reading,
 -- every selection opens the tab that can act on it and scrolls straight to the
 -- controls -- so clicking a burst main lands on its Repair button.
-local function reveal(kind)
-  if kind=="district" then
-    state.tab="map"; state.scroll=0
-  else
-    state.tab="network"; state.scroll=UI.revealInspector()
+local function reveal()
+  state.tab="network"; state.scroll=UI.revealInspector()
+end
+
+-- Clicking ground: a plot for sale asks once whether to buy it, a wood or a
+-- range on owned ground asks once whether to clear it. There is no land menu.
+local function askAboutGround(id,wx,wy)
+  local d=city.districts[id]
+  if not d then return false end
+  if not d.owned then
+    state.district=id; state.landId=id; state.modal="land"
+    return true
   end
+  if wx then
+    for i,o in ipairs(city.obstacles) do
+      if (o.kind=="park" or o.kind=="bedrock") and city:obstacleAt(wx,wy)==o and city:districtAt(o.x,o.y)==d then
+        state.terrainId=i; state.modal="terrain"
+        return true
+      end
+    end
+  end
+  return false
 end
 
 -- A test run must not read, show or touch the player's real companies, so the
@@ -177,6 +193,16 @@ local function action(name,...)
   -- The header's one request control. The contract opens, the house it is
   -- about sits under the pointer, and the map comes in closer than it was: a
   -- request is about one building, so the view should be about one building.
+  -- From the Clients window: the map goes to the customer, the window stays,
+  -- so the next offer can be answered straight after.
+  if name=="showClient" then
+    local id=...
+    local n=city.g.nodes[id]
+    if not n then return end
+    clear(); state.filter=nil; state.node=id
+    centerOn(n.x,n.y)
+    return
+  end
   if name=="focusRequest" then
     local id=...
     local n=city.g.nodes[id]
@@ -207,8 +233,8 @@ local function action(name,...)
   if name=="focusDistrict" then
     local id=...
     local d=city.districts[id]
-    clear(); state.district=id; reveal("district")
-    if d then centerOn(d.x+d.w/2,d.y+d.h/2) end
+    clear()
+    if d then centerOn(d.x+d.w/2,d.y+d.h/2); askAboutGround(id) end
     return
   end
   if name=="nextLeak" then
@@ -384,7 +410,7 @@ local function action(name,...)
     elseif name=="build" or name=="buySource" then
       state.node=result.id; state.edge=nil; state.tool=nil; R.ring(result.x,result.y,P.good); A.play("place")
     elseif name=="buyDistrict" then
-      state.district=result.id; R.ring(result.x+result.w/2,result.y+result.h/2,P.good); A.play("place")
+      state.district=nil; R.ring(result.x+result.w/2,result.y+result.h/2,P.good); A.play("place")
     else A.play("upgrade") end
     if name=="repairAll" then
       toast(result.fixed.." main"..(result.fixed==1 and "" or "s").." repaired for $"..result.spent)
@@ -408,7 +434,7 @@ local function action(name,...)
         layLink=(name=="layLink" and result.mode=="road") and "Road laid" or "Route opened",
         setLinkPrice="Price set",setStationPrice="Pump price set",
         addVehicle="Vehicle added",removeVehicle="Vehicle sold",demolishLink="Line lifted",
-        upgradeResort="Resort built up",upgradeTower="Tower upgraded",upgradeLevel="Building upgraded"})[name] or "Network updated")
+        upgradeResort="Resort built up",upgradeTower="Tower upgraded",raiseTowerVoltage="Voltage raised",upgradeCable="Cable upgraded",upgradeLevel="Building upgraded"})[name] or "Network updated")
     end
   end
   save()
@@ -611,7 +637,7 @@ function love.mousepressed(x,y,button)
     elseif state.tool=="terminal" then action("build",wx,wy,state.tool,state.havenKind or "port")
     elseif state.tool=="works" then action("build",wx,wy,state.tool,state.recipe or "brewery")
     else
-      local kind=state.tool=="grid" and City.INFRA.voltages[state.voltage or "low"].tower or state.tool
+      local kind=state.tool=="grid" and "pole" or state.tool
       action("build",wx,wy,kind,state.commodity)
     end
     return
@@ -675,9 +701,9 @@ function love.mousereleased(x,y,button)
     state.node,state.edge,state.link,state.district=nil,nil,nil,nil
   end
   if state.pan and not state.pan.moved and button==1 then
-    if state.pan.district then
-      state.district=state.pan.district
-      reveal("district")
+    local wx,wy=cam:toWorld(x,y)
+    if state.pan.district and askAboutGround(state.pan.district,wx,wy) then
+      -- The question is open over the map.
     else
       -- Ground you already own, or nothing at all: there is nothing to show
       -- for it, so a plain click just goes back to building.
@@ -710,6 +736,11 @@ function love.keypressed(key)
     elseif key=="a" and love.keyboard.isDown("lgui","rgui","lctrl","rctrl") then
       state.renameSelectAll=true
     end
+    return
+  end
+  if state.modal=="land" or state.modal=="terrain" then
+    if key=="escape" then state.modal=nil; state.district=nil
+    elseif key=="return" or key=="y" then UI.confirmModal() end
     return
   end
   if state.modal then

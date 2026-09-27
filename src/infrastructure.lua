@@ -100,11 +100,17 @@ return function(City)
       if tower.kind~='transformer' and tower.upgrade~='transformer' then return nil,'add a transformer to this '..label..' to connect customers' end
       return want
     end
+    -- The lowest voltage both ends take that also spans the gap; a longer gap
+    -- than any shared voltage spans gets the highest, and fails on length.
     local sa,sb=self:voltagesAt(na),self:voltagesAt(nb)
-    for i=#D.voltageOrder,1,-1 do
-      local key=D.voltageOrder[i]
-      if sa[key] and sb[key] then return key end
+    local metres,bonus,best=dist(na,nb),1+math.max(self:reachBonus(na),self:reachBonus(nb))
+    for _,key in ipairs(D.voltageOrder) do
+      if sa[key] and sb[key] then
+        best=key
+        if metres<=D.voltages[key].span*bonus then return key end
+      end
     end
+    if best then return best end
     if generator(na) or generator(nb) then return nil,'generators send out high voltage: connect a high voltage tower' end
     return nil,'voltage mismatch: add a transformer to step between voltages'
   end
@@ -164,6 +170,83 @@ return function(City)
     if spec.ports then n.ports=math.max(n.ports,spec.ports) end
     self:note('%s %d fitted with a %s for $%d',Graph.KINDS[n.kind].name,id,string.lower(spec.name),cost)
     self:refresh(); return n
+  end
+
+  -- A tower is built at low voltage and raised to the one it needs. It costs
+  -- the difference between the two towers, levels and fitted upgrade included,
+  -- so a raised tower has cost what it would have cost built that way. Cables
+  -- already on it keep their voltage until they are upgraded themselves.
+  local function towerPrice(self,n,kind)
+    local total=City.price[kind] or 0
+    for lv=2,self:levelOf(n) do total=total+(City.LEVELS.LEVELS.tower[lv].cost[kind] or 0) end
+    if n.upgrade then total=total+D.upgrades[n.upgrade].cost[kind] end
+    return total
+  end
+  function City:towerVoltageCost(n,key)
+    return towerPrice(self,n,D.voltages[key].tower)-towerPrice(self,n,n.kind)
+  end
+  function City:towerVoltageError(id,key)
+    local n=self.g.nodes[id]
+    if not (n and n.alive and D.towers[n.kind]) then return 'select a power tower' end
+    if not D.voltages[key] or RANK[key]<=RANK[D.towers[n.kind]] then return 'already at that voltage or above' end
+    if self.money<self:towerVoltageCost(n,key) then return 'not enough cash' end
+  end
+  function City:raiseTowerVoltage(id,key)
+    local err=self:towerVoltageError(id,key)
+    if err then return nil,err end
+    local n=self.g.nodes[id]
+    local cost=self:towerVoltageCost(n,key)
+    self:spend(cost); n.paid=(n.paid or 0)+cost
+    n.kind=D.voltages[key].tower
+    if n.level then City.setLevel(self,n,self:levelOf(n),false) end
+    self:note('Tower %d raised to %s kV for $%d',id,D.voltages[key].kv,cost)
+    self:refresh(); return n
+  end
+
+  -- A cable is laid at the lowest voltage its ends share, and upgraded one
+  -- step at a time once both ends take the next one. It costs the difference
+  -- between the two cables.
+  function City:cableUpgradeTarget(e)
+    if not (e and e.alive and e.voltage) then return nil end
+    local sa,sb=self:voltagesAt(self.g.nodes[e.a]),self:voltagesAt(self.g.nodes[e.b])
+    if self:customerVoltage(self.g.nodes[e.a]) or self:customerVoltage(self.g.nodes[e.b]) then return nil end
+    for _,key in ipairs(D.voltageOrder) do
+      if RANK[key]>RANK[e.voltage] and sa[key] and sb[key] then return key end
+    end
+  end
+  function City:cableUpgradeCost(e,key)
+    local held=self.quoteVoltage
+    self.quoteVoltage=e.voltage
+    local now=self:pipeQuote(e.a,e.b,'power',e.size or 'small',false,e.grade).total
+    self.quoteVoltage=key
+    local up=self:pipeQuote(e.a,e.b,'power',e.size or 'small',false,e.grade).total
+    self.quoteVoltage=held
+    return math.max(0,up-now)
+  end
+  function City:cableUpgradeError(id)
+    local e=self.g.edges[id]
+    if not (e and e.alive and e.voltage) then return 'select a cable' end
+    local key=self:cableUpgradeTarget(e)
+    if not key then return 'raise both ends to a higher voltage first' end
+    if self.money<self:cableUpgradeCost(e,key) then return 'not enough cash' end
+    -- The cable leaves its old voltage's grid and joins the new one's.
+    local runs=self:boostRuns(key,{a=e.a,b=e.b,length=cableLength(self,e)})
+    local before=self:boostRuns(key)
+    for nid,run in pairs(runs) do
+      if run>D.voltages[key].boost and not before[nid] then
+        return 'needs a booster every '..D.voltages[key].boost..' m at '..D.voltages[key].kv..' kV'
+      end
+    end
+  end
+  function City:upgradeCable(id)
+    local err=self:cableUpgradeError(id)
+    if err then return nil,err end
+    local e=self.g.edges[id]
+    local key=self:cableUpgradeTarget(e)
+    local cost=self:cableUpgradeCost(e,key)
+    self:spend(cost); e.paid=(e.paid or 0)+cost; e.voltage=key
+    self:note('Cable raised to %s kV for $%d',D.voltages[key].kv,cost)
+    self:refresh(); return e
   end
 
   function City:connectionPorts(id)
