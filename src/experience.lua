@@ -399,27 +399,6 @@ function E.offerPreview(c,id)
     return {delivery=copy.served[id] or 0,demand=n.demand}
   end)
 end
-function E.route(c,id)
-  local target=c.g.nodes[id or 0]
-  if not target or target.kind~="client" then return {} end
-  local queue,seen,parent={id},{[id]=true},{}
-  for _,u in ipairs(queue) do
-    local n=c.g.nodes[u]
-    if n.kind=="source" or n.kind=="terminal" or (n.kind=="depot" and (n.stored or 0)>0) then
-      local edges={}
-      while parent[u] do local p=parent[u]; edges[p.edge]=true; u=p.node end
-      return edges
-    end
-    for _,ei in ipairs(c.g.adj[u] or {}) do
-      local e=c.g.edges[ei]
-      if e.alive and e.commodity==target.commodity then
-        local v=e.a==u and e.b or e.a
-        if not seen[v] then seen[v]=true; parent[v]={node=u,edge=ei}; queue[#queue+1]=v end
-      end
-    end
-  end
-  return {}
-end
 -- What an upgrade would earn, found by doing it on a copy of the company and
 -- letting the flow solver say what changed. `fn` performs it on the copy.
 -- Nothing here advances time or draws a random number.
@@ -456,38 +435,34 @@ function E.levelPreview(c,id)
 end
 
 -- Every upgrade the company could buy that is worth pricing, ranked by how
--- fast it pays for itself. The candidates are only the places the flow solver
--- says are full: mains carrying all they can, wells pumping flat out, and
--- structures passing everything they are allowed to.
+-- fast it pays for itself. The candidates are exactly what the map glows:
+-- City:chokes(), the mains, wells and valves some customer is short behind,
+-- so the advisor only ever suggests a fix that wins back lost income.
 E.ADVISE_LIMIT=16
 function E.advise(c)
   return memo(c,"advise:"..c.money,function()
     local found={}
-    for _,e in ipairs(c.g.edges) do
-      local flow=e.alive and math.abs(c.detail.edge[e.id] or 0) or 0
-      if flow>0 and flow>=(e.effectiveCap or e.cap) then
-        local bigger=c:biggerSize(e)
-        -- Where the ground says no (a house takes only the smallest main) the
-        -- advisor stays quiet; only a shortage of cash is worth showing.
-        local why=bigger and c:replaceError(e.id,bigger,e.grade)
-        if bigger and (why==nil or why=="not enough cash") then
-          found[#found+1]={kind="pipe",id=e.id,size=bigger,grade=e.grade,flow=flow}
-        end
+    local edges,nodes=c:chokes()
+    for id,starved in pairs(edges) do
+      local e=c.g.edges[id]
+      local bigger=c:biggerSize(e)
+      -- Where the ground says no (a house takes only the smallest main) the
+      -- advisor stays quiet; only a shortage of cash is worth showing.
+      local why=bigger and c:replaceError(e.id,bigger,e.grade)
+      if bigger and not e.leaking and (why==nil or why=="not enough cash") then
+        found[#found+1]={kind="pipe",id=id,size=bigger,grade=e.grade,starved=starved}
       end
     end
-    for _,n in ipairs(c.g:aliveNodes()) do
-      if n.kind=="source" and not n.plant and (n.level or 1)<c:maxLevel(n)
-         and (c.produced[n.id] or 0)>=(n.effectiveOutput or n.output or 0) and (c.spare[n.commodity] or 0)<=0
-         and c.unserved>0 then
-        found[#found+1]={kind="source",id=n.id,flow=c.produced[n.id] or 0}
-      end
-      if c:levelFamily(n) and n.throughput and n.throughput<999
-         and (c.detail.node[n.id] or 0)>=n.throughput then
-        found[#found+1]={kind="level",id=n.id,flow=c.detail.node[n.id]}
+    for id,starved in pairs(nodes) do
+      local n=c.g.nodes[id]
+      if n.kind=="source" and not n.plant and (n.level or 1)<c:maxLevel(n) then
+        found[#found+1]={kind="source",id=id,starved=starved}
+      elseif c:levelFamily(n) and c:levelNext(id) then
+        found[#found+1]={kind="level",id=id,starved=starved}
       end
     end
     table.sort(found,function(a,b)
-      if a.flow~=b.flow then return a.flow>b.flow end
+      if a.starved~=b.starved then return a.starved>b.starved end
       return a.kind==b.kind and a.id<b.id or a.kind<b.kind
     end)
     local list={}

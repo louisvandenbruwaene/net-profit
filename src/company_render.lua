@@ -51,7 +51,7 @@ local function crossesBox(line,x,y,w,h)
 end
 local function drawLabels(cam)
   R.labelBoxes={}
-  if R.hoverBox then occupied[#occupied+1]=R.hoverBox end
+  for _,box in ipairs(R.coverBoxes or {}) do occupied[#occupied+1]=box end
   table.sort(labels,function(a,b) return a.priority>b.priority or (a.priority==b.priority and a.order<b.order) end)
   for _,item in ipairs(labels) do
     local f=item.font
@@ -2139,7 +2139,6 @@ function Draw.world(city, cam, state)
     end
   end
 
-  local route=state.bottlenecks and E.route(city,state.node) or {}
   local chokes,chokedNodes=city:chokes()
   local grid=Draw.focusGrid(state)
   for _, e in ipairs(city.g.edges) do
@@ -2161,7 +2160,7 @@ function Draw.world(city, cam, state)
       -- brighter the more customers are waiting behind it: the solver's own
       -- answer to "where is this network choking", put where the eye already is.
       local starved=chokes[e.id]
-      if starved and not state.bottlenecks then
+      if starved then
         local pulse=0.5+0.5*math.sin(R.t*3.2+e.id)
         local glow=math.min(1,0.75+0.08*starved)
         local path=Draw.edgePath(cam,city,e)
@@ -2169,10 +2168,6 @@ function Draw.world(city, cam, state)
         lg.setColor(P.with(e.leaking and P.bad or P.warn,(0.22+0.16*pulse)*glow)); lg.setLineWidth(width+18+8*pulse); lg.line(path)
         lg.setColor(P.with(e.leaking and P.bad or P.warn,(0.60+0.35*pulse)*glow)); lg.setLineWidth(width+7); lg.line(path)
         lg.setLineJoin("miter")
-      end
-      if state.bottlenecks and (route[e.id] or e.leaking or math.abs(city.detail.edge[e.id] or 0)>=(e.effectiveCap or e.cap)) then
-        lg.setColor(P.with((e.leaking or math.abs(city.detail.edge[e.id] or 0)>=(e.effectiveCap or e.cap)) and P.warn or P.flow,0.3))
-        lg.setLineWidth(width+10); lg.line(Draw.edgePath(cam,city,e))
       end
       if state.edge == e.id or state.hoverEdge == e.id then
         lg.setColor(P.with(P.text,0.7)); lg.setLineWidth(width+5); lg.setLineJoin("bevel"); lg.line(Draw.edgePath(cam,city,e)); lg.setLineJoin("miter")
@@ -2320,7 +2315,7 @@ function Draw.world(city, cam, state)
       end
       if e.unboosted then
         label("NO BOOSTER",(ax+bx)/2,(ay+by)/2-22,P.bad,R.fonts.tiny)
-      elseif e.leaking or state.edge == e.id or state.hoverEdge == e.id or state.bottlenecks then
+      elseif e.leaking or state.edge == e.id or state.hoverEdge == e.id then
         label(city:quantityPair(e.commodity,math.abs(flow),e.effectiveCap or e.cap),(ax+bx)/2,(ay+by)/2-22,e.leaking and P.bad or P.textDim,R.fonts.tiny)
       end
       fading(false)
@@ -2353,7 +2348,7 @@ function Draw.world(city, cam, state)
     local supplied = not n.prospect and (n.kind=="client" and city:fullyServed(n) or n.kind~="client" and served >= (n.demand or 0))
     -- A well pumping flat out or a valve at its setting, with customers
     -- waiting on it: the same amber pulse as a full main.
-    if chokedNodes[n.id] and not state.bottlenecks then
+    if chokedNodes[n.id] then
       local pulse=0.5+0.5*math.sin(R.t*3.2+n.id)
       lg.setColor(P.with(P.warn,0.22+0.16*pulse)); lg.circle("fill",x,y,r*1.9+4*pulse)
       lg.setColor(P.with(P.warn,0.6+0.35*pulse)); lg.setLineWidth(math.max(2,r*0.14)); lg.circle("line",x,y,r*1.9+4*pulse)

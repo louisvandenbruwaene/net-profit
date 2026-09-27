@@ -368,6 +368,33 @@ function Walk.start(app,mode)
     end
     check(c.served[b.id]==b.demand,"pressing it puts a bigger main in and supplies the customer")
     check(narrow.size~="small","the small main was dug out rather than widened")
+
+    -- The same choke, met from the map instead: it glows, the day pill points
+    -- at it, and its own panel widens it.
+    assert(c:replacePipe(narrow.id,"small",narrow.grade)); c:refresh()
+    check((c:chokes()[narrow.id] or 0)>=1,"the narrowed main is a choke again")
+    app.state.node,app.state.edge=nil,nil
+    app.action("endDay")
+    check(app.state.toast and app.state.toast:find("short"),"the day pill says what the chokes cost")
+    check(app.state.toastChoke and app.state.toastChoke.edge==narrow.id,"and knows the worst choke")
+    click("toast-choke")
+    check(app.state.edge==narrow.id,"clicking the pill selects the choked main")
+    c.money=9999
+    local widen2=findButton("widen-choke")
+    check(widen2 and widen2.enabled,"a choked main's panel leads with Widen")
+    click("widen-choke")
+    check(next((c:chokes()))==nil and c.served[b.id]==b.demand,"widening from the main clears the choke")
+
+    -- Pointing at an offer marks its house.
+    app.state.node,app.state.edge=nil,nil
+    local offer=c:nextRequest() or c:addClient("house")
+    if not c:nextRequest() then offer.prospect=true; offer.expires=c.day+3 end
+    local bar=findButton("request-open")
+    check(bar,"the top bar shows the best offer")
+    app.state.fakeMouse={bar.x+bar.w/2,bar.y+bar.h/2}
+    love.draw()
+    check(app.state.offerHover==c:nextRequest().id,"pointing at the offer marks its house on the map")
+    app.state.fakeMouse=nil
   end
 
   -- Repair everything, in one decision.
@@ -719,7 +746,6 @@ function Walk.start(app,mode)
     check(ax==ax and ay==ay and bx==bx and by==by,"shared power lines have finite rendering coordinates")
     app.state.node=n.id
     love.draw()
-    check(next(E.route(c,n.id))~=nil,"overlay traces a customer to supply")
     click("end-day")
     check(not app.state.modal,"later days also advance in one click")
     click("tab-stats")
@@ -1035,7 +1061,7 @@ function Walk.update(app,mode,frame)
       c.firstSource.kind="source"; c.firstSource.commodity="water"; c.firstSource.output=14
       c.firstSource.capped=nil; c.firstSource.ports=16
       c:repairAll(); c:refresh()
-      app.state.modal=nil; app.state.bottlenecks=true
+      app.state.modal=nil
       app.action("focusNode",c:clientList()[1].id)
       capture("net-profit-12-supply-overlay",app,1100,700)
     elseif frame==28 then
@@ -1322,7 +1348,7 @@ function Walk.update(app,mode,frame)
       c:refresh()
       -- The shot is of the network, not of a lesson panel sitting on top of it.
       for _,lesson in ipairs(C.LESSONS) do c.taught[lesson.key]=true end
-      app.state.modal=nil; app.state.tab="network"; app.state.scroll=0; app.state.bottlenecks=nil
+      app.state.modal=nil; app.state.tab="network"; app.state.scroll=0
       app.action("focusLink",bus.id)
       local x0,y0=math.min(a.x,b.x,station.x,resort.x),math.min(a.y,b.y,station.y,resort.y)
       local x1,y1=math.max(a.x,b.x,station.x,resort.x),math.max(a.y,b.y,station.y,resort.y)
