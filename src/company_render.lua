@@ -1003,7 +1003,7 @@ function drawCable(ax, ay, bx, by, e, c, wires, sizeKey, scale)
   -- High voltage hums: a soft glow along the span.
   if e.voltage == "high" and e.cap ~= 0 then
     lg.setColor(c[1], c[2], c[3], 0.16); lg.setLineWidth((wires * 3.4 + 6) * scale + 2)
-    lg.setLineJoin("bevel"); lg.line(curve(0))
+    lg.setLineJoin("bevel"); lg.line(curve(0)); lg.setLineJoin("miter")
   end
   -- A heavier current rating is a thicker conductor.
   local thick = ({ small = 1, medium = 1.3, large = 1.6, massive = 2, trunk = 2.4 })[sizeKey] or 1
@@ -1036,6 +1036,22 @@ function Draw.edgePoints(cam, city, e)
   local sign=e.a<e.b and 1 or -1
   local ox,oy=-(by-ay)/length*offset*sign,(bx-ax)/length*offset*sign
   return ax+ox,ay+oy,bx+ox,by+oy
+end
+
+-- The line a main or cable is actually drawn along, as a flat point list:
+-- straight for a main, the hanging curve for an overhead cable. Hover, select
+-- and click all use this, so they follow the wire and not the chord under it.
+function Draw.edgePath(cam, city, e)
+  local ax, ay, bx, by = Draw.edgePoints(cam, city, e)
+  if e.commodity ~= "power" or e.rail then return { ax, ay, bx, by } end
+  local sag = cableSag(ax, ay, bx, by, cam.scale)
+  local pts = {}
+  for k = 0, 12 do
+    local t = k / 12
+    pts[#pts + 1] = ax + (bx - ax) * t
+    pts[#pts + 1] = ay + (by - ay) * t + sag * 4 * t * (1 - t)
+  end
+  return pts
 end
 
 -- Physical road geometry. Bus services use the road segments below.
@@ -2126,10 +2142,10 @@ function Draw.world(city, cam, state)
       segments[#segments+1]={ax=ax,ay=ay,bx=bx,by=by,pad=width/2+4}
       if state.bottlenecks and (route[e.id] or e.leaking or math.abs(city.detail.edge[e.id] or 0)>=(e.effectiveCap or e.cap)) then
         lg.setColor(P.with((e.leaking or math.abs(city.detail.edge[e.id] or 0)>=(e.effectiveCap or e.cap)) and P.warn or P.flow,0.3))
-        lg.setLineWidth(width+10); lg.line(ax,ay,bx,by)
+        lg.setLineWidth(width+10); lg.line(Draw.edgePath(cam,city,e))
       end
       if state.edge == e.id or state.hoverEdge == e.id then
-        lg.setColor(P.with(P.text,0.7)); lg.setLineWidth(width+5); lg.line(ax,ay,bx,by)
+        lg.setColor(P.with(P.text,0.7)); lg.setLineWidth(width+5); lg.setLineJoin("bevel"); lg.line(Draw.edgePath(cam,city,e)); lg.setLineJoin("miter")
       end
       -- Track reads as track: two steel rails on sleepers, tinted by what it
       -- happens to be hauling.
@@ -2250,7 +2266,7 @@ function Draw.world(city, cam, state)
       -- The main a dry house was blamed on, flashing for a moment.
       if state.flashEdge == e.id then
         lg.setColor(P.with(P.bad, 0.5 + 0.5 * math.sin(R.t * 18)))
-        lg.setLineWidth(width + 4); lg.line(ax,ay,bx,by)
+        lg.setLineWidth(width + 4); lg.line(Draw.edgePath(cam,city,e))
       end
       if e.leaking then
         local x,y = (ax+bx)/2,(ay+by)/2
@@ -2307,7 +2323,8 @@ function Draw.world(city, cam, state)
     local supplied = not n.prospect and (n.kind=="client" and city:fullyServed(n) or n.kind~="client" and served >= (n.demand or 0))
     if state.node == n.id or state.hoverNode == n.id then
       lg.setColor(P.text); lg.setLineWidth(math.max(1, r * 0.09))
-      lg.circle("line", x, y, r + math.max(4, r * 0.5))
+      -- Clear of the level pips over the building and the port ring round it.
+      lg.circle("line", x, y, r * 1.85 + 5)
     end
     if n.kind == "client" and not n.prospect and not city:fullyServed(n) then
       lg.setColor(P.with(n.grace == 1 and P.bad or P.warn,0.65))

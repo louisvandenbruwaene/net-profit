@@ -1614,8 +1614,7 @@ local function customers()
         single(string.format("%+.0f%%",premium*100),M+12,y+21,"small",
           premium>0.12 and P.good or premium<-0.12 and P.bad or P.textDim,bodyW-20)
         button("accept-"..c.id,"Accept",M+bodyW+6,y,bw,h,function()
-          local x,yy=c.x,c.y
-          if act("acceptClient",c.id) then act("lookAt",x,yy) end
+          if act("acceptClient",c.id) then act("showClient",c.id) end
         end,true,nil,false,P.good)
         button("decline-"..c.id,"Decline",M+bodyW+12+bw,y,bw,h,function() act("declineClient",c.id) end,true,nil,false,P.bad)
         y=y+h+8
