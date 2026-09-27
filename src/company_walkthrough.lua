@@ -190,8 +190,8 @@ function Walk.start(app,mode)
   -- is: the guide now walks a junction in between before it ever points at a
   -- drag, because no size of main can span the two directly.
   check(c:tutorialStep().key=="junction","and the next step is a junction")
-  check(E.tutorialTarget(c,app.state).button=="back-to-build","the guide first clears the well's own selection")
-  click("back-to-build")
+  check(E.tutorialTarget(c,app.state).button=="tab-network","the guide first clears the well's own selection")
+  click("tab-network")
   check(E.tutorialTarget(c,app.state).button=="tool-junction","then points at the junction tool")
   app.state.tool="junction"
   local jaim=E.tutorialTarget(c,app.state)
@@ -318,7 +318,7 @@ function Walk.start(app,mode)
     love.mousepressed(repairBtn.x+repairBtn.w/2,repairBtn.y+repairBtn.h/2,1)
     love.mousereleased(repairBtn.x+repairBtn.w/2,repairBtn.y+repairBtn.h/2,1)
     check(not main.leaking and main.cap==main.capMax,"the offered Repair button fixes the main")
-    check(findButton("back-to-build")~=nil,"and a single button returns to the build tools")
+    check(findButton("tab-network")~=nil,"and a single button returns to the build tools")
   end
 
   -- The customer who is short is told why, and handed the fix.
@@ -789,7 +789,7 @@ function Walk.start(app,mode)
     check(road and road.mode=="road" and road.alive,"dragging between the stops lays a road")
     check(app.state.link==road.id,"and opens the road's own panel")
     check(road.toll==0,"normal roads are free to use")
-    click("back-to-build")
+    click("tab-network")
     click("transit-bus")
     drag(stops[1],stops[2])
     local bus=c.links[#c.links]

@@ -227,7 +227,7 @@ function E.tutorialTarget(c,state)
     return {button="tab-network"}
   end
   if step.key=="well" then
-    if state.node or state.edge then return {button="back-to-build"} end
+    if state.node or state.edge then return {button="tab-network"} end
     if state.commodity~="water" then return {button="water"} end
     if state.tool~="source" then return {button="source"} end
     for _,d in ipairs(c.deposits or {}) do
@@ -236,7 +236,7 @@ function E.tutorialTarget(c,state)
     return nil
   end
   if step.key=="junction" then
-    if state.node or state.edge then return {button="back-to-build"} end
+    if state.node or state.edge then return {button="tab-network"} end
     if state.tool~="junction" then return {button="tool-junction"} end
     if well and house then return {x=(well.x+house.x)/2,y=(well.y+house.y)/2} end
     return nil
