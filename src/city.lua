@@ -4154,11 +4154,12 @@ end
 City.loanRate = require("data.economy").loanRate
 City.loanRatio = require("data.economy").loanRatio
 
--- Everything the company owns except its cash: plant, ground and locked deposits.
+-- Plant and ground: everything the company owns except its cash. Money set
+-- aside in the fund is cash too, or a loan invested would raise its own limit.
 function City:collateral()
-  local v = self:investedTotal()
+  local v = 0
   for _, n in ipairs(self.g:aliveNodes()) do
-    if n.kind ~= "client" then v = v + (n.paid or (n.kind == "source" and 260) or self:nodeCost(n.kind)) end
+    if n.kind ~= "client" then v = v + (n.paid or (n.kind == "source" and self:sourceCost(n.commodity or "water")) or self:nodeCost(n.kind)) end
   end
   for _, e in ipairs(self.g.edges) do if e.alive then v = v + (e.paid or 0) end end
   -- Ground is an asset, and the priciest one the company owns.
@@ -4200,7 +4201,7 @@ end
 -- Net worth: what is owned, less what is owed. Borrowing moves nothing here,
 -- which is exactly what makes it borrowing rather than income.
 function City:valuation()
-  return math.floor(self.money + self:collateral() - (self.loan or 0))
+  return math.floor(self.money + self:investedTotal() + self:collateral() - (self.loan or 0))
 end
 
 function City:acceptClient(id)

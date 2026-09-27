@@ -394,6 +394,8 @@ do
   assert(c:borrow(limit))
   check(c.money==cash+limit and c:valuation()==worth,"borrowing is cash, not income")
   check(c:loanAvailable()==0,"the line is fully drawn")
+  local w=c:valuation(); assert(c:invest(limit))
+  check(c:loanAvailable()==0 and c:valuation()==w,"an invested loan neither raises the limit nor the net worth")
   check(c:loanInterest()==math.ceil(limit*City.loanRate/7),"interest has no variance")
   check(c:dailyExpenses()>=c:loanInterest(),"interest is charged as an operating cost")
   assert(c:repay(limit))
