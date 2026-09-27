@@ -896,6 +896,18 @@ function Walk.update(app,mode,frame)
         capture("net-profit-00-player",app)
         app.state.drawer=true; app.state.tab="network"
         capture("net-profit-00-player-build",app)
+        -- Rest the pointer on the first structure tile: its name, a few words
+        -- and the price come up beside it.
+        love.draw()
+        for _,b in ipairs(UI.buttons) do
+          if b.id=="tool-junction" then
+            app.state.fakeMouse={b.x+b.w/2,b.y+b.h/2}
+            check(b.tip and b.tip:find("\n"),"a build tile names itself on hover")
+          end
+        end
+        love.draw(); R.t=R.t+1
+        capture("net-profit-00-player-build-hover",app)
+        app.state.fakeMouse=nil
         app.state.drawer=true; app.state.tab="finance"
         capture("net-profit-00-player-company",app)
         app.state.tab="customers"; capture("net-profit-00-player-clients",app)
