@@ -1082,4 +1082,16 @@ do
   end
 end
 
+print("a company with nothing standing still saves and loads")
+do
+  local c=City.new({seed=5})
+  for _,n in ipairs(c.g:aliveNodes()) do
+    if n.kind=="client" then c:retireClient(n) else c:demolishNode(n.id) end
+  end
+  c:rebaseOrigin()
+  check(#c.g:aliveNodes()==0,"everything is gone")
+  local back=Save.unpack(Save.pack(c))
+  check(back and back.firstSource and back.firstSource.x,"the empty company loads with an anchor")
+end
+
 print(checks.." company checks passed")

@@ -65,11 +65,13 @@ function Save.unpack(text)
     data.g, data.firstSource = g, g.nodes[data.sourceId]
     -- The origin is only an anchor for the camera and for new enquiries. It
     -- starts as the first well, but that well can be capped or removed like any
-    -- other structure, so the save must not insist it is still a well.
-    assert(data.firstSource)
+    -- other structure, so the save must not insist it is still a well. A
+    -- company with nothing standing saves a point with no node behind it, and
+    -- gets its anchor back the way a demolition gives it one.
     data.nodes, data.edges, data.sourceId, data.version = nil, nil, nil, nil
     setmetatable(data, City)
     data:migrate()
+    if not data.firstSource then data:rebaseOrigin() end
     data:refresh()
     return data
   end)
