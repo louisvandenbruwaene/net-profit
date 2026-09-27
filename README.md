@@ -37,6 +37,16 @@ Buildings are few and each one levels up in place, keeping every main tied in:
 
 Wells deepen through six named levels, hand well to aquifer station. The **distribution hub** runs its neighbourhood: once a day, for every customer within 600 m who pays at least the minimum price you set on it, it signs the offer, lays a real connection (paid for at the normal price) and digs out the main that is starving them for the next size up. Droughts, grid faults and ground shifts test the network, and some customers offer a secure contract that pays more and refunds every short day. **Stats > Advisor** grades how much one failure would cost you and ranks the upgrades that earn the most. See [EDITING.md](EDITING.md) for the numbers.
 
+## Chokes and growth
+
+The loop is: sign customers, the network chokes, find the choke and fix it for less than it earns.
+
+- **Chokes glow.** Whatever is leaving a customer short glows amber on the map: a full main, a well pumping flat out, or a valve at its setting. The more customers waiting behind it, the brighter it glows. Pointing at it says how many it starves.
+- **Fixes are one click.** A glowing main leads its panel with *Widen $X · Nd back*. A glowing well offers to deepen, or, once it is as deep as its deposit allows, to sink a second well on the nearest free deposit, tied into the same network. The planned well and its main are drawn on the map. A glowing valve highlights *Open*.
+- **The day says what chokes cost.** The pill after each close reads like `Day 12: +$240   -$42 short`. Clicking it goes to the worst choke.
+- **Customers grow.** A customer you keep fully supplied wants one more unit every 30 days, up to half again what they signed for and never past what their own service main carries. The map shows *Wants +1*. A customer who grows out of their supply waits a week before their patience starts running down.
+- **The Advisor looks ahead.** It lists only fixes that win back lost income, and warns when customers due to grow in the next ten days will outgrow the network. Clicking the warning goes to the limit they will hit.
+
 ## Play
 
 On macOS, download the macOS build of LÖVE 11.x from [love2d.org](https://love2d.org/),
@@ -281,9 +291,9 @@ closing a day is final.
 - **Works.** Ten of them, one output each, and a works missing any one of its
   inputs makes nothing at all. There is no half recipe. The inspector names
   whichever input is holding it back, which is the same question the game
-  already answers for a short customer. That answer is one of five: a shut
-  valve, nothing connected, a burst main to mend, a main to widen, or wells
-  already pumping flat out. It names a main that can actually be made wider,
+  already answers for a short customer. That answer is one of six: a shut
+  valve, nothing connected, a burst main to mend, a main to widen, a valve set
+  lower than what wants through it, or wells already pumping flat out. It names a main that can actually be made wider,
   and where none can - a customer takes a small main and nothing else, however
   long the run of houses behind it - it says to put a fitting in the run
   instead.

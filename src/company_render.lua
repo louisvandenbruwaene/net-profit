@@ -2113,6 +2113,18 @@ function Draw.world(city, cam, state)
     end
   end
 
+  -- Where the planned second well would go, and the main that ties it in.
+  local plan=state.planMark
+  local tie=plan and city.g.nodes[plan.target]
+  if tie then
+    local px,py=cam:toScreen(plan.x,plan.y)
+    local tx,ty=cam:toScreen(tie.x,tie.y)
+    local pulse=0.5+0.5*math.sin(R.t*3)
+    lg.setColor(P.with(P.warn,0.8)); lg.setLineWidth(2); dashes(px,py,tx,ty,8,6)
+    lg.setColor(P.with(P.warn,0.5+0.4*pulse)); lg.setLineWidth(3)
+    lg.circle("line",px,py,18+4*pulse)
+  end
+
   -- The house an offer is about, while the offer is under the pointer.
   local offered=state.offerHover and city.g.nodes[state.offerHover]
   if offered and offered.alive then

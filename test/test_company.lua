@@ -752,6 +752,54 @@ do
   City.rules.leakBase,require("data.resilience").SHOCK_CHANCE=leak,shocks
 end
 
+print("the advisor sees growth coming before anyone is short")
+do
+  local E=require("experience")
+  local c=fresh()
+  c.money=1e6
+  supply(c)
+  local src=c.firstSource
+  local want=0
+  for _,cl in ipairs(c:clientList()) do want=want+cl.demand end
+  src.output,src.cap=want,want
+  c:refresh()
+  check(#c:shortCustomers()==0,"today everyone is supplied, with nothing to spare")
+  local cl=c:clientList()[1]
+  cl.streak=(-cl.id-3)%City.GROWTH.every
+  check(c:daysToGrowth(cl)==3,"a customer is due to grow in three closes")
+  local ahead=E.growthForecast(c,10)
+  check(ahead.count>=1 and ahead.soon==3,"the forecast says someone outgrows the network, and when")
+  check(ahead.choke and ahead.choke.kind=="node" and ahead.choke.id==src.id,"and names the well they will run dry")
+  check(cl.demand==(cl.baseDemand or cl.demand) and #c:shortCustomers()==0,"forecasting changes nothing in the real company")
+end
+
+print("a well as deep as it goes is answered with a second one, planned and priced")
+do
+  local E=require("experience")
+  local c=fresh()
+  c.money=1e6
+  supply(c)
+  local src=c.firstSource
+  -- Held at its ceiling, with more wanted than it gives.
+  src.output,src.cap=2,2
+  for _,cl in ipairs(c:clientList()) do cl.demand=6 end
+  c:refresh()
+  check(#c:shortCustomers()>0,"customers go short behind a maxed well")
+  local _,nodes=c:chokes()
+  check(nodes[src.id],"the maxed well glows")
+  c.deposits[#c.deposits+1]={x=src.x-160,y=src.y+60,commodity="water",taken=false,yield=1,discount=1,
+    cap=City.depositCap("water",0)}
+  local plan=E.wellPlan(c,src.id)
+  check(plan and plan.cost>0 and plan.net>0,"a second well is planned, priced, and earns")
+  local before=#c:shortCustomers()
+  local money=c.money
+  check(c.money==money and #c.g:nodesOfKind("source")==1,"planning changes nothing in the real company")
+  assert(c:sinkWellAt(plan.commodity,plan.x,plan.y,plan.target))
+  check(#c.g:nodesOfKind("source")==2,"one decision sinks the well")
+  check(#c:shortCustomers()<before,"and it is tied in: fewer customers are short")
+  check(money-c.money==plan.cost,"at exactly the price the plan quoted")
+end
+
 print("the game tells a customer why they are short, and the fix works")
 do
   local c=fresh()
