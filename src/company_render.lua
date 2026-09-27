@@ -1796,7 +1796,6 @@ end
 function Draw.world(city, cam, state)
   UNFOCUSED_ALPHA = city.hideUnfocusedNetworks and 0 or 0.4
   labels,occupied,segments={},{},{}; labelPriority=0
-  local _,height = R.dimensions()
   lg.setScissor(cam.vx, cam.vy, cam.vw, cam.vh)
   R.drawGrid(cam, city.bounds.w, city.bounds.h)
   drawSea(city, cam, state)
@@ -1830,7 +1829,6 @@ function Draw.world(city, cam, state)
     if city:districtVisible(city:districtAt(o.x,o.y) or {}) and cam:sees(o.x, o.y, o.r * cam.scale + 60) then
     local spec = City.OBSTACLES[o.kind]
     local x, y = cam:toScreen(o.x, o.y)
-    local r = o.r * cam.scale
     local freed = city.permits and city.permits[o.kind]
     local d = city:districtAt(o.x, o.y)
     local function terrain()
@@ -2729,7 +2727,7 @@ function Draw.world(city, cam, state)
             {"Build for $"..q.total,R.fonts.mid,P.energy},
             {string.format("%d m  /  Capacity %s",math.floor(q.metres),q.capacity),R.fonts.small,P.textDim},
             {(p.demand and (p.delivery.."/"..p.demand.." supplied  /  ") or "")..
-              string.format("Profit $%+d/day",p.net),R.fonts.body,p.net>0 and P.good or p.net<0 and P.bad or P.textDim},
+              "Profit "..City.signed(p.net).."/day",R.fonts.body,p.net>0 and P.good or p.net<0 and P.bad or P.textDim},
             {p.cash<0 and ("Need $"..(-p.cash).." more") or ("Cash remaining: $"..p.cash),R.fonts.body,p.cash<0 and P.bad or P.text},
           }
           -- The one number that says whether it is worth it.

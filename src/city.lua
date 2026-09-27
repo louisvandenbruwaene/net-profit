@@ -343,7 +343,6 @@ function City.new(opts)
   self.day = 1
   self.money = City.rules.startMoney
   self.reputation = 50
-  self.quality = 0
   self.lining = 1
   self.adDaysLeft = 0
   self.investments = {}
@@ -1415,13 +1414,10 @@ function City:placementError(x, y)
 end
 
 function City:rangeBetween(a, b, rail, commodity, size)
-  local ka, kb = self.g.nodes[a].kind, self.g.nodes[b].kind
   local mode = City.modeOf(rail)
   if mode then return City.MODES[mode].range end
   if rail then return City.rail.range end
-  local reach = City.reachFor(size)
-  if ka == "pump" or kb == "pump" then return City.rules.pumpRange * reach end
-  return City.rules.linkRange * reach
+  return City.rules.linkRange * City.reachFor(size)
 end
 
 -- `true` still means rail, because that is what the toggle used to be.
@@ -1863,7 +1859,6 @@ function City:liningPrice()
   return nextGrade and nextGrade.price or nil
 end
 
-function City:qualityCost() return self:liningPrice() or 0 end
 
 function City:spend(amount)
   if amount > self.money then return false end
@@ -2287,10 +2282,22 @@ function City:repairPipe(id)
 end
 
 
+-- Anything taken down returns this share of what was paid into it.
+City.REFUND = 0.4
+
+function City:pipeRefund(e)
+  return math.floor((e.paid or self:pipeCost(e.a, e.b, e.commodity, e.capMax)) * City.REFUND)
+end
+
+function City:nodeRefund(n)
+  local paid = n.paid or (n.kind == "source" and self:sourceCost(n.commodity or "water") or self:nodeCost(n.kind))
+  return math.floor(paid * City.REFUND)
+end
+
 function City:demolishPipe(id)
   local e = self.g.edges[id]
   if not (e and e.alive) then return nil, "no such pipe" end
-  local refund = math.floor((e.paid or self:pipeCost(e.a, e.b, e.commodity, e.capMax)) * 0.4)
+  local refund = self:pipeRefund(e)
   self.g:killEdge(id)
   self.money = self.money + refund
   self:refresh()
@@ -2393,7 +2400,7 @@ function City:demolishNode(id)
   local degree = self.g:degree(id)
 
   if n.kind == "source" then
-    local refund = math.floor((n.paid or self:sourceCost(n.commodity or "water")) * 0.4)
+    local refund = self:nodeRefund(n)
     if degree == 0 then
       -- Nothing tied into it, so nothing to preserve.
       self.g:killNode(id)
@@ -2420,7 +2427,7 @@ function City:demolishNode(id)
     return refund
   end
 
-  local refund = math.floor((n.paid or self:nodeCost(n.kind)) * 0.4)
+  local refund = self:nodeRefund(n)
   self.g:killNode(id)
   self:cutLinks(id)
   self.money = self.money + refund
@@ -2446,7 +2453,7 @@ function City:convertCost(id, kind)
   local n = self.g.nodes[id]
   if not n then return nil end
   -- The old structure is traded in at the same rate demolition would pay.
-  local tradeIn = math.floor((n.paid or self:nodeCost(n.kind)) * 0.4)
+  local tradeIn = self:nodeRefund(n)
   return math.max(0, self:nodeCost(kind) - tradeIn)
 end
 
@@ -2687,7 +2694,6 @@ function City:upgradeQuality()
   if cost > self.money then return nil, "not enough cash" end
   self:spend(cost)
   self.lining = (self.lining or 1) + 1
-  self.quality = self.lining - 1
   self:note("The company can now lay %s pipe. Mains already in the ground are unchanged.",
     string.lower(City.GRADES[self.lining].name))
   return true
@@ -3197,7 +3203,6 @@ function City:endDay()
 
   -- 1. Customers pay for what arrived, and lose patience for what did not.
   for _, c in ipairs(self:clientList()) do
-    local got = self.served[c.id] or 0
     report.revenue = report.revenue + self:clientIncome(c)
     if self:fullyServed(c) then
       c.grace = c.patience or City.CLIENTS[c.clientType].patience

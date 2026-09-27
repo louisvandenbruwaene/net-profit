@@ -260,6 +260,9 @@ return function(City)
     end
     return ok,why
   end
+  -- What harvesting a wood or blasting a range yields, and what it costs.
+  function City:clearYield(o) return math.floor(o.r*o.r/100) end
+  function City:clearCost(o) return math.ceil(self:clearYield(o)*(o.kind=='park' and 4 or 35)) end
   function City:clearTerrain(index)
     local o=self.obstacles[index]
     if not o or (o.kind~='park' and o.kind~='bedrock') then return nil,'select woodland or mountain' end
@@ -270,8 +273,7 @@ return function(City)
         local d=self:cellAt(col,row); if not d or not d.owned then return nil,'buy all regions covered by this terrain first' end
       end
     end
-    local units=math.floor(o.r*o.r/100)
-    local cost=math.ceil(units*(o.kind=='park' and 4 or 35))
+    local units,cost=self:clearYield(o),self:clearCost(o)
     if self.money<cost then return nil,'clearing costs $'..cost end
     self:spend(cost); local key=o.kind=='park' and 'timber' or 'rock'; self.stock[key]=(self.stock[key] or 0)+units
     if o.kind=='bedrock' and self:random()<.05 then self.stock.gems=(self.stock.gems or 0)+math.max(1,math.floor(units/100)) end

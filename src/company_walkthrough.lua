@@ -437,8 +437,11 @@ function Walk.start(app,mode)
     check(#c:ownedDistricts()==before+1,"a district can be bought")
     local d=c.districts[target]
     check(c:placementError(d.x+d.w/2,d.y+d.h/2)==nil or true,"bought ground accepts structures")
-    click("tab-finance")
-    scrollTo(app,"permit-park")
+    click("district-permits")
+    love.draw()
+    local permit=findButton("permit-park")
+    check(permit and permit.y>=0 and permit.y+permit.h<=love.graphics.getHeight(),
+      "the district's permits button lands on the permits section")
     click("permit-park")
     check(c.permits.park,"a permit can be granted")
     check(c:groundCross("park")==1.0,"and it drops the crossing charge on that ground")
@@ -713,7 +716,7 @@ function Walk.start(app,mode)
     home.population,west.population=600,600
     c:refresh()
     app.state.node,app.state.edge,app.state.link,app.state.transit=nil,nil,nil,nil
-    app.state.modal=nil; app.state.tab="network"; app.state.scroll=0; app.state.advanced=true
+    app.state.modal=nil; app.state.tab="network"; app.state.scroll=0
     local function anywhere(id)
       for s=0,2400,120 do
         app.state.scroll=s

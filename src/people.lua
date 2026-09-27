@@ -562,7 +562,7 @@ function City:removeVehicle(id)
   local spec = City.ROUTES[l.mode]
   l.vehicles = l.vehicles - 1
   l.paid = math.max(0, (l.paid or 0) - spec.vehicle)
-  self.money = self.money + math.floor(spec.vehicle * 0.4)
+  self.money = self.money + math.floor(spec.vehicle * City.REFUND)
   self:refresh()
   return l
 end
@@ -570,7 +570,7 @@ end
 function City:demolishLink(id)
   local l = (self.links or {})[id]
   if not (l and l.alive) then return nil, "no such road or route" end
-  local refund = math.floor((l.paid or 0) * 0.4)
+  local refund = math.floor((l.paid or 0) * City.REFUND)
   l.alive = false
   self.money = self.money + refund
   self:refresh()

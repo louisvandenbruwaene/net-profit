@@ -117,7 +117,7 @@ local function resetSession()
   state.borrow=500
   state.invest=100
   state.rail=nil; state.transit=nil
-  state.filter=nil; state.bottlenecks=nil; state.spof=nil; state.advisorFocus=nil; state.job=nil; state.rename=nil; state.advanced=nil; state.lineOptions=nil; state.showPermits=nil
+  state.filter=nil; state.bottlenecks=nil; state.spof=nil; state.advisorFocus=nil; state.job=nil; state.rename=nil; state.lineOptions=nil; state.jump=nil
 end
 
 -- Putting a different trade in hand. Used when the structures being joined
@@ -355,7 +355,7 @@ local function action(name,...)
       if not wasOpen[key] and city:unlocked(key) then opened[#opened+1]=spec.name end
     end
     table.sort(opened)
-    toast(string.format("Day %d: %s%d",city.day-1,profit>=0 and "+$" or "-$",math.abs(profit))..
+    toast("Day "..(city.day-1)..": "..City.signed(profit)..
       (#opened>0 and ("  New: "..table.concat(opened,", ")) or ""),profit<0)
     if #opened>0 then state.toastTime=9; A.play("unlock",0.7) end
     table.sort(paying,function(p,q) return p.x+p.y<q.x+q.y end)
@@ -401,12 +401,12 @@ local function action(name,...)
       toast(city.unserved==0 and "Everyone supplied" or "Connected")
     else
       toast(({repairPipe="Pipe repaired",replacePipe="Main replaced",buyAds="Advertising booked",
-        invest="Investment placed",upgradeQuality="Treatment upgraded",buyLicence="Trade licence acquired",
+        invest="Investment placed",upgradeQuality="Better pipe unlocked",buyLicence="Trade licence acquired",
         acceptClient="Customer signed",declineClient="Offer declined",upgradeSource="Well deepened",
         hireCrew="Crew hired",dismissCrew="Crew stood down",buyPermit="Permit granted",
         borrow="Funds drawn",repay="Loan repaid",setGate="Gate set",
         layLink=(name=="layLink" and result.mode=="road") and "Road laid" or "Route opened",
-        setLinkPrice="Price set",setEdgeToll="Toll set",setStationPrice="Pump price set",
+        setLinkPrice="Price set",setStationPrice="Pump price set",
         addVehicle="Vehicle added",removeVehicle="Vehicle sold",demolishLink="Line lifted",
         upgradeResort="Resort built up",upgradeTower="Tower upgraded",upgradeLevel="Building upgraded"})[name] or "Network updated")
     end
