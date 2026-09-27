@@ -196,11 +196,14 @@ local function action(name,...)
   -- request is about one building, so the view should be about one building.
   -- From the Clients window: the map goes to the customer, the window stays,
   -- so the next offer can be answered straight after.
-  if name=="showClient" then
+  -- `openClient` does the same and opens the customer's own panel: a click on
+  -- a customer in the Clients window goes to that customer.
+  if name=="showClient" or name=="openClient" then
     local id=...
     local n=city.g.nodes[id]
     if not n then return end
     clear(); state.filter=nil; state.node=id
+    if name=="openClient" then reveal() end
     -- Zoom first, then centre: the offset for the panel depends on the scale.
     cam.targetScale=math.max(cam.targetScale or cam.scale,1.35)
     centerOn(n.x,n.y)

@@ -92,7 +92,9 @@ do
  check(c:clientIncome(h)==24,'both deliveries contribute to household income')
  check(c:tradeCosts('power').revenue==2*h.utilityRates.power,'unit costs price a second utility at its own rate')
  p.alive=false; c:refresh(); check(c:clientIncome(h)==12 and not c:fullyServed(h),'electricity failure preserves water billing but reduces satisfaction')
- check(c:quantity('power',7)=='35 kWh/day','electricity quantities use real daily energy units')
+ local bolt=require('symbols').get('power')
+ check(c:quantity('power',7)=='7 '..bolt and c:quantity('power',7,'high')=='7 '..bolt..bolt..bolt,
+   'electricity reads as a flow and one to three bolts for its voltage')
  p.alive=true; local copy=assert(Save.unpack(Save.pack(c)))
  check(copy.g.nodes[h.id].demands.power==2 and copy:fullyServed(copy.g.nodes[h.id]),'dual contracts survive saving')
 end

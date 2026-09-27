@@ -520,19 +520,45 @@ function Draw.clientBuilding(kind, x, y, r, accent, commodity, ghost, lit)
   elseif kind == "workshop" or kind == "factory" then
     local w, h = (kind == "factory" and 24 or 20) * u, 12 * u
     local top = y - h / 2 + 2 * u
-    c(WALL, 0.7); lg.rectangle("fill", x - w / 2, top, w, h)
+    local left = x - w / 2
+    local glass = lit and { 1.0, 0.84, 0.46 } or { 0.20, 0.26, 0.32 }
+    -- The shed: cladding with faint panel seams, a darker plinth, a fascia.
+    c(WALL, 0.7); lg.rectangle("fill", left, top, w, h)
+    lg.setColor(0, 0, 0, 0.10 * a); lg.setLineWidth(math.max(1, 0.25 * u))
+    for sx = left + 2 * u, left + w - u, 2 * u do lg.line(sx, top + 1.5 * u, sx, top + h - 1.5 * u) end
+    c(WALL, 0.5); lg.rectangle("fill", left, top + h - 1.2 * u, w, 1.2 * u)
     -- A sawtooth roof standing on the wall: each tooth's base is the top of
     -- the wall and the teeth touch, so no wall shows between or under them.
+    -- The steep face of each tooth is glazed, as north lights are.
     local teeth = kind == "factory" and 4 or 3
-    c(SLATE_D); lg.rectangle("fill", x - w / 2, top, w, 1.2 * u)
+    local tw = w / teeth
     for i = 0, teeth - 1 do
-      local tx = x - w / 2 + i * w / teeth
-      c(SLATE_L); lg.polygon("fill", tx, top, tx, top - 5 * u, tx + w / teeth, top)
+      local tx = left + i * tw
+      c(SLATE_L); lg.polygon("fill", tx, top, tx, top - 5 * u, tx + tw, top)
+      c(glass, lit and 1 or 1.4); lg.rectangle("fill", tx, top - 4.4 * u, 1.1 * u, 4.4 * u)
+      c(SLATE_D); lg.setLineWidth(math.max(1, 0.3 * u)); lg.line(tx, top - 5 * u, tx + tw, top)
     end
+    c(SLATE_D); lg.rectangle("fill", left - 0.4 * u, top, w + 0.8 * u, 1.2 * u)
+    -- A strip of windows under the eaves, lit when the works is supplied.
+    local panes = kind == "factory" and 6 or 4
+    local pw, gap = 2.2 * u, (w - 2 * u) / panes
+    for i = 0, panes - 1 do
+      local wx = left + u + i * gap + (gap - pw) / 2
+      c(WALL, 0.45); lg.rectangle("fill", wx - 0.3 * u, top + 2 * u, pw + 0.6 * u, 2.6 * u)
+      c(glass); lg.rectangle("fill", wx, top + 2.3 * u, pw, 2 * u)
+    end
+    -- A roller door in the trade colour, with its slats and frame.
+    local dx, dy, dw, dh = x - 2.5 * u, y + 2.4 * u, 5 * u, 5.4 * u
+    c(SLATE_D); lg.rectangle("fill", dx - 0.5 * u, dy - 0.5 * u, dw + u, dh + 0.5 * u)
+    lg.setColor(accent[1], accent[2], accent[3], a); lg.rectangle("fill", dx, dy, dw, dh)
+    lg.setColor(0, 0, 0, 0.22 * a); lg.setLineWidth(math.max(1, 0.2 * u))
+    for sy = dy + u, dy + dh - 0.3 * u, u do lg.line(dx, sy, dx + dw, sy) end
     if kind == "factory" then
       for i = 0, 1 do
-        local cx = x - w / 2 + (3 + i * 5) * u
+        local cx = left + (3 + i * 5) * u
         c(SLATE_D, 0.9); lg.rectangle("fill", cx, top - 10 * u, 3 * u, 10 * u)
+        c({ 0.62, 0.30, 0.26 }); lg.rectangle("fill", cx, top - 8 * u, 3 * u, 1.2 * u)
+        c(SLATE_D, 0.7); lg.rectangle("fill", cx - 0.4 * u, top - 10.6 * u, 3.8 * u, 1 * u)
         -- Smoke drifting off each stack.
         for p = 0, 2 do
           local ph = (R.t * 0.4 + p / 3 + i * 0.5) % 1
@@ -541,7 +567,6 @@ function Draw.clientBuilding(kind, x, y, r, accent, commodity, ghost, lit)
         end
       end
     end
-    lg.setColor(accent[1], accent[2], accent[3], a); lg.rectangle("fill", x - 2 * u, y + 3 * u, 4 * u, 5 * u)
   elseif kind == "market" then
     c(WALL, 0.8); lg.rectangle("fill", x - 9 * u, y - 2 * u, 18 * u, 9 * u)
     -- A striped awning in the trade colour.
@@ -2331,7 +2356,7 @@ function Draw.world(city, cam, state)
       if e.unboosted then
         label("NO BOOSTER",(ax+bx)/2,(ay+by)/2-22,P.bad,R.fonts.tiny)
       elseif e.leaking or state.edge == e.id or state.hoverEdge == e.id then
-        label(city:quantityPair(e.commodity,math.abs(flow),e.effectiveCap or e.cap),(ax+bx)/2,(ay+by)/2-22,e.leaking and P.bad or P.textDim,R.fonts.tiny)
+        label(city:quantityPair(e.commodity,math.abs(flow),e.effectiveCap or e.cap,e.voltage),(ax+bx)/2,(ay+by)/2-22,e.leaking and P.bad or P.textDim,R.fonts.tiny)
       end
       fading(false)
     end
@@ -2445,7 +2470,7 @@ function Draw.world(city, cam, state)
       if r>=7.5 and not n.prospect and (n.supplyClosed or not city:fullyServed(n)) then
         local title = n.supplyClosed and "SHUT"
           or n.demands and n.demands.water and n.demands.power and "short"
-          or city:quantityPair(n.commodity,served,n.demand)
+          or city:quantityPair(n.commodity,served,n.demand,city:voltageOf(n))
         label(title,x,y+r*1.5+8,P.warn)
       end
     elseif n.kind == "source" then

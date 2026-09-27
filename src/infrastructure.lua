@@ -28,8 +28,11 @@ return function(City)
   local function generator(n) return n.kind=='source' and (n.commodity=='power' or (n.demands and n.demands.power)) end
   local function farm(n) return (City.RECIPES[n.recipe or ''] or {}).farm end
   City.isFarm = farm
+  -- A customer who has asked for electricity counts before they sign, so the
+  -- cable can be run to them first and the request accepted when it is live.
   local function electrical(n)
-    return n.kind=='transformer' or D.towers[n.kind] or (n.commodity=='power' or (n.demands and n.demands.power)) or n.kind=='works' or n.kind=='dc'
+    return n.kind=='transformer' or D.towers[n.kind] or (n.commodity=='power' or (n.demands and n.demands.power))
+      or n.powerRequest or n.kind=='works' or n.kind=='dc'
   end
   City.isElectrical = electrical
   function City:pollutionAt(x,y)
@@ -95,7 +98,7 @@ return function(City)
       local want,tower=ca or cb,ca and nb or na
       local label=string.lower(Graph.KINDS[D.voltages[want].tower].name)
       if tower.kind~='transformer' and D.towers[tower.kind]~=want then
-        return nil,(want=='low' and 'homes take ' or 'this customer takes ')..D.voltages[want].kv..' kV: connect a '..label..' with a transformer'
+        return nil,(want=='low' and 'homes take ' or 'this customer takes ')..string.lower(D.voltages[want].name)..': connect a '..label..' with a transformer'
       end
       if tower.kind~='transformer' and tower.upgrade~='transformer' then return nil,'add a transformer to this '..label..' to connect customers' end
       return want
@@ -154,7 +157,7 @@ return function(City)
     local after=self:boostRuns(voltage,{a=a,b=b,length=dist(self.g.nodes[a],self.g.nodes[b])})
     for id,run in pairs(after) do
       if run>limit and not before[id] then
-        return 'needs a booster every '..limit..' m at '..D.voltages[voltage].kv..' kV: upgrade a tower on this line'
+        return 'needs a booster every '..limit..' m at '..string.lower(D.voltages[voltage].name)..': upgrade a tower on this line'
       end
     end
   end
@@ -199,7 +202,7 @@ return function(City)
     self:spend(cost); n.paid=(n.paid or 0)+cost
     n.kind=D.voltages[key].tower
     if n.level then City.setLevel(self,n,self:levelOf(n),false) end
-    self:note('Tower %d raised to %s kV for $%d',id,D.voltages[key].kv,cost)
+    self:note('Tower %d raised to %s for $%d',id,string.lower(D.voltages[key].name),cost)
     self:refresh(); return n
   end
 
@@ -234,7 +237,7 @@ return function(City)
     local before=self:boostRuns(key)
     for nid,run in pairs(runs) do
       if run>D.voltages[key].boost and not before[nid] then
-        return 'needs a booster every '..D.voltages[key].boost..' m at '..D.voltages[key].kv..' kV'
+        return 'needs a booster every '..D.voltages[key].boost..' m at '..string.lower(D.voltages[key].name)
       end
     end
   end
@@ -245,7 +248,7 @@ return function(City)
     local key=self:cableUpgradeTarget(e)
     local cost=self:cableUpgradeCost(e,key)
     self:spend(cost); e.paid=(e.paid or 0)+cost; e.voltage=key
-    self:note('Cable raised to %s kV for $%d',D.voltages[key].kv,cost)
+    self:note('Cable raised to %s for $%d',string.lower(D.voltages[key].name),cost)
     self:refresh(); return e
   end
 
@@ -267,9 +270,17 @@ return function(City)
     if nb.kind=='binder' then return nb.bundleLanes or 2 end
     return 1
   end
+  -- A cable carries what its size carries, at any voltage: the number is the
+  -- flow and the voltage is what it costs and how far it reaches. Companies
+  -- from before this (no `powerFlux`) keep the old kV-times-amps rating until
+  -- migrate() has widened any cable that would otherwise run short.
   function City:powerRating(e)
     local voltage=D.voltages[e.voltage or 'medium']
     local amps=D.amps[e.size or 'small'] or 500
+    if self.powerFlux then
+      local healthy=math.max(0,e.cap)/math.max(1,e.capMax or e.cap)
+      return math.floor(City.sizeOf(e.size or 'small').cap*healthy),amps,voltage.kv,0
+    end
     local healthy=math.max(0,e.cap)/math.max(1,e.capMax or e.cap)
     local kw=math.sqrt(3)*voltage.kv*amps
     local gross=kw*24/5 -- daily energy in 5 kWh accounting increments

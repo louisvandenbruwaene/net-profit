@@ -115,46 +115,54 @@ local CONIFER = {
   { { 0.08, 0.20, 0.13 }, { 0.14, 0.32, 0.19 } },
 }
 
+-- Crowns are drawn at CROWN of the cell's canopy radius, with a trunk thick
+-- and tall enough to read as a trunk beside them. Both kinds stand on the
+-- same ground line, cy + 32.
+local CROWN = 0.85
+
 local function paintBroadleaf(cx, cy, pal, seed)
   local d, m, l = pal[1], pal[2], pal[3]
+  local C = CANOPY * CROWN
   -- Shadow cast down and to the right, onto the ground.
   lg.setColor(0, 0, 0, 0.30)
-  lg.ellipse("fill", cx + 8, cy + 26, CANOPY * 0.95, CANOPY * 0.5)
-  -- The trunk stands on the same ground line as a pine's (cy + 32), and the
-  -- crown sits high enough above it that the trunk shows under the leaves.
-  lg.setColor(0.24, 0.17, 0.11)
-  lg.rectangle("fill", cx - 3.5, cy + 2, 7, 30, 2)
-  lg.setColor(0.17, 0.12, 0.08)
-  lg.rectangle("fill", cx + 0.5, cy + 2, 3, 30, 1)
+  lg.ellipse("fill", cx + 7, cy + 28, C * 0.9, C * 0.42)
+  lg.setColor(0.26, 0.18, 0.11)
+  lg.rectangle("fill", cx - 5, cy - 4, 10, 36, 2)
+  lg.setColor(0.18, 0.12, 0.08)
+  lg.rectangle("fill", cx + 1, cy - 4, 4, 36, 1)
   cy = cy - 20
   local lobes = {}
   for i = 0, 5 do
     local a = i / 6 * math.pi * 2 + seed
-    lobes[#lobes + 1] = { cx + math.cos(a) * CANOPY * 0.42, cy + math.sin(a) * CANOPY * 0.36, CANOPY * (0.55 + 0.08 * math.sin(i * 2.3 + seed)) }
+    lobes[#lobes + 1] = { cx + math.cos(a) * C * 0.42, cy + math.sin(a) * C * 0.36, C * (0.55 + 0.08 * math.sin(i * 2.3 + seed)) }
   end
   lg.setColor(d)
   for _, b in ipairs(lobes) do lg.circle("fill", b[1], b[2] + 3, b[3]) end
-  lg.circle("fill", cx, cy + 2, CANOPY * 0.7)
+  lg.circle("fill", cx, cy + 2, C * 0.7)
   lg.setColor(m)
   for _, b in ipairs(lobes) do lg.circle("fill", b[1] - 3, b[2] - 2, b[3] * 0.82) end
   lg.setColor(l)
-  lg.circle("fill", cx - CANOPY * 0.28, cy - CANOPY * 0.30, CANOPY * 0.34)
-  lg.circle("fill", cx + CANOPY * 0.06, cy - CANOPY * 0.42, CANOPY * 0.22)
+  lg.circle("fill", cx - C * 0.28, cy - C * 0.30, C * 0.34)
+  lg.circle("fill", cx + C * 0.06, cy - C * 0.42, C * 0.22)
   lg.setColor(l[1] * 1.25, l[2] * 1.2, l[3] * 1.15, 0.8)
-  lg.circle("fill", cx - CANOPY * 0.34, cy - CANOPY * 0.38, CANOPY * 0.14)
+  lg.circle("fill", cx - C * 0.34, cy - C * 0.38, C * 0.14)
 end
 
 local function paintConifer(cx, cy, pal)
   local d, l = pal[1], pal[2]
+  local C = CANOPY * CROWN
   lg.setColor(0, 0, 0, 0.30)
-  lg.ellipse("fill", cx + 10, cy + 30, CANOPY * 0.7, CANOPY * 0.34)
-  lg.setColor(0.22, 0.15, 0.10)
-  lg.rectangle("fill", cx - 3, cy + 18, 6, 14, 2)
-  -- Three tiers, each a dark full triangle with its sunlit left half on top.
+  lg.ellipse("fill", cx + 9, cy + 30, C * 0.7, C * 0.34)
+  lg.setColor(0.24, 0.16, 0.10)
+  lg.rectangle("fill", cx - 4.5, cy + 6, 9, 26, 2)
+  lg.setColor(0.17, 0.11, 0.07)
+  lg.rectangle("fill", cx + 1, cy + 6, 3.5, 26, 1)
+  -- Three tiers, each a dark full triangle with its sunlit left half on top,
+  -- the lowest standing clear of the ground so the trunk shows.
   for i = 0, 2 do
-    local w = CANOPY * (0.95 - i * 0.24)
-    local base = cy + 24 - i * 22
-    local top = base - CANOPY * (0.95 - i * 0.12)
+    local w = C * (0.95 - i * 0.24)
+    local base = cy + 16 - i * 19
+    local top = base - C * (0.95 - i * 0.12)
     lg.setColor(d); lg.polygon("fill", cx - w, base, cx, top, cx + w, base)
     lg.setColor(l); lg.polygon("fill", cx - w, base, cx, top, cx + w * 0.05, base - 4)
   end
@@ -193,7 +201,7 @@ local function buildForest(o, clearings)
   if not atlas then buildAtlas() end
   local v = {}
   groundBlob(v, o, { 0.15, 0.26, 0.16, 0.95 }, { 0.09, 0.17, 0.13, 0.9 }, 0.08)
-  local spacing = o.massive and 26 or 22
+  local spacing = o.massive and 21 or 18
   local a1, a2 = hash(o.x, o.y, 7) * 6.28, hash(o.x, o.y, 8) * 6.28
   local trees = scatter(o, spacing, spacing * 0.35, function(px, py, edge)
     -- Glades in a big forest, and a ragged treeline at every edge.

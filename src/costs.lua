@@ -122,6 +122,21 @@ return function(City)
     return rate - cost, cost, rate, costs.perUnit == nil
   end
 
+  -- What a customer leaves the company a day once fully supplied, over every
+  -- utility they take: each one's contract amount times its price less what a
+  -- unit of that trade costs to deliver. One figure, however many trades.
+  function City:clientKeep(c)
+    local keep = 0
+    local wants = c.demands or { [c.commodity] = c.demand }
+    for key, want in pairs(wants) do
+      local costs = self:tradeCosts(key, c.prospect and c or nil)
+      local cost = costs.perUnit or costs.marginal or 0
+      local rate = (key == c.commodity and c.rate or (c.utilityRates or {})[key] or c.rate or 0) * self:eventRate(key)
+      keep = keep + (want or 0) * (rate - cost)
+    end
+    return keep
+  end
+
   -- A change in money, always with its sign in front: "+$30", "-$10".
   function City.signed(v)
     local n = math.floor(v + 0.5)

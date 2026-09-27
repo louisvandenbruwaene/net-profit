@@ -79,12 +79,6 @@ local function line(y)
   lg.setColor(P.panelEdge); lg.setLineWidth(1); lg.line(M,y,M+CW,y)
 end
 
--- A current rating short enough for a size button: 10000 A reads as 10k A.
-local function amps(v)
-  if v>=1000 and v%1000==0 then return (v/1000).."k A" end
-  return v.." A"
-end
-
 local function row(label,value,y,color,tip)
   single(label,M,y,"small",P.textDim,142)
   -- A value too long for the column steps down a size before it is squeezed.
@@ -210,11 +204,10 @@ local function gainText(p)
   return string.format(" Earns about $%d/day, pays back in %s.",math.floor(p.net+0.5),
     p.payback and (p.payback.." day"..(p.payback==1 and "" or "s")) or "no time")
 end
--- A price a unit, the way the customer rows already quote it: electricity in
--- kWh, everything else by the unit.
+-- A price a unit: a bolt for electricity, "unit" for everything else.
 local function perUnit(commodity,v)
   if v==nil then return "-" end
-  if commodity=="power" then return City.money2(v/5).." / kWh" end
+  if commodity=="power" then return City.money2(v).." / "..S.get("power") end
   return City.money2(v).." / unit"
 end
 
@@ -317,8 +310,8 @@ local function inspectClient(n,y)
   if n.powerRequest and not n.prospect then
     local want=City.DUAL.demand[n.clientType] or City.DUAL.demand.house
     local premium=city:requestPremium(n)
-    row("POWER",S.get("power")..(want*5).."  "..string.format("%+.0f%%",premium*100),y,Graph.COMMODITIES.power.color,
-      "Wants electricity too, at $"..string.format("%.2f",(n.powerOfferRate or City.DUAL.rate)/5).." / kWh")
+    row("POWER",city:quantity("power",want,city:voltageOf(n)).."  "..string.format("%+.0f%%",premium*100),y,Graph.COMMODITIES.power.color,
+      "Wants electricity too, at "..perUnit("power",n.powerOfferRate or City.DUAL.rate))
     y=y+26
     button("accept-power","Add power",M,y,190,36,function() act("acceptClient",n.id) end,true,nil,false,P.good)
     button("decline-power","Decline",M+198,y,102,36,function() act("declineClient",n.id) end,true,nil,false,P.bad)
@@ -327,7 +320,7 @@ local function inspectClient(n,y)
   local premium=city:ratePremium(n)
   local margin,cost,rate=city:clientMargin(n)
   local bad=margin<0
-  local pays=(n.commodity=="power" and string.format("Pays $%.2f / kWh",n.rate/5) or ("Pays $"..n.rate.." / unit"))
+  local pays="Pays "..perUnit(n.commodity,n.rate)
     ..string.format(", %+.0f%% against the going rate. ",premium*100)
   y=y-52
   if n.secure then
@@ -335,8 +328,9 @@ local function inspectClient(n,y)
     row("Contract","SECURE"..(n.prospect and "" or exposure and " (exposed)" or ""),y+52,exposure and P.bad or P.energy,
       pays.."Pays more; refunds every short day")
   else
-    row("You keep",marginText(n.commodity,margin),y+52,bad and P.bad or margin>0 and P.good or P.textDim,
-      pays.."After your cost of "..perUnit(n.commodity,cost))
+    local keep=city:clientKeep(n)
+    row("You keep",City.signed(keep).." / day",y+52,keep<0 and P.bad or keep>0 and P.good or P.textDim,
+      pays.."After what delivering it costs you.")
   end
   local L=City.LOYALTY
   local lv=n.loyalty or 0
@@ -419,15 +413,18 @@ local function inspectClient(n,y)
         button("inspect-bottleneck","Inspect that main",M,dy+94,CW,30,
           function() act("focusEdge",eid) end,true,"Select the main and centre on it")
       elseif why=="output" then
-        single("Not enough "..n.commodity,M,dy,"small",P.warn,CW)
+        -- The trade they are short of, which for a customer on two utilities
+        -- is not always the one they signed for first.
+        local com=city:shortTrade(n)
+        single("Not enough "..(com=="power" and "electricity" or com),M,dy,"small",P.warn,CW)
         local src
         for _,w in ipairs(city.g:nodesOfKind("source")) do
-          if w.commodity==n.commodity and (w.level or 1)<city:maxLevel(w)
+          if w.commodity==com and (w.level or 1)<city:maxLevel(w)
              and city:sourceUpgradeCost(w) then src=w; break end
         end
         if src then
           local cost=city:sourceUpgradeCost(src)
-          button("deepen-for-client","Extend "..string.upper(n.commodity).." source "..src.id.."   $"..cost,
+          button("deepen-for-client","Extend "..string.upper(com).." source "..src.id.."   $"..cost,
             M,dy+52,CW,36,function() act("upgradeSource",src.id) end,city.money>=cost,
             "Adds output at the well, with no new route to pay for."..gainText(E.sourcePreview(city,src.id)),false,P.good,true)
         end
@@ -457,7 +454,7 @@ local function inspectSource(n,y)
   elseif n.effectiveOutput==0 then
     single("Stopped: polluted ground",M,y,"small",P.bad,CW); y=y+26
   end
-  row("Output",city:quantityPair(n.commodity,drawn,capacity),y,maxed and P.warn or P.good)
+  row("Output",city:quantityPair(n.commodity,drawn,capacity,city:voltageOf(n)),y,maxed and P.warn or P.good)
   local bw=CW*(capacity>0 and math.min(1,drawn/capacity) or 0)
   lg.setColor(P.panelEdge); lg.rectangle("fill",M,y+22,CW,6,2)
   lg.setColor(maxed and P.warn or Graph.COMMODITIES[n.commodity].color)
@@ -748,13 +745,13 @@ end
 
 local function inspectEdge(e,y)
   if e.voltage then
-    local _,amps,kv,loss=city:powerRating(e)
-    row("Rating",kv.." kV / "..amps.." A",y,P.accent,string.format("%.1f%% loss at full load",loss*100))
+    row("Rating",city:quantity("power",e.effectiveCap or e.cap,e.voltage),y,P.accent,
+      City.INFRA.voltages[e.voltage].name..": what it carries at most")
     y=y+30
     local key=city:cableUpgradeTarget(e)
     if key then
       local err=city:cableUpgradeError(e.id)
-      button("cable-voltage","Upgrade to "..City.INFRA.voltages[key].kv.." kV  $"..city:cableUpgradeCost(e,key),M,y,CW,34,
+      button("cable-voltage","Upgrade to "..City.bolts(key).."  $"..city:cableUpgradeCost(e,key),M,y,CW,34,
         function() act("upgradeCable",e.id) end,not err,err,false,P.accent)
       y=y+42
     end
@@ -844,7 +841,7 @@ local function inspectEdge(e,y)
       row("Starves",starved.."  (widest)",y,P.warn,"Put a junction in the run and feed them from it."); y=y+26
     end
   end
-  row("Flow",city:quantityPair(e.commodity,math.abs(city.detail.edge[e.id] or 0),e.effectiveCap or e.cap),y)
+  row("Flow",city:quantityPair(e.commodity,math.abs(city.detail.edge[e.id] or 0),e.effectiveCap or e.cap,e.voltage),y)
   local size=City.sizeOf(e.size or City.sizeFor(e.capMax or e.cap).key)
   row("Main",size.name.." "..string.lower(grade.name)..", "..math.floor(city:pipeLength(e)).." m",y+26,
     (e.grade or 1)>1 and P.good or P.textDim,
@@ -865,7 +862,7 @@ local function inspectEdge(e,y)
     local bx,by=M+((i-1)%3)*102,ry+math.floor((i-1)/3)*38
     local gain=(open and not same and q~=nil and pointing(bx,by,TILE_W,32))
       and gainText(E.replacePreview(city,e.id,spec.key,target)) or ""
-    button("replace-"..spec.key,(e.commodity=="power" and (amps(City.INFRA.amps[spec.key])) or (spec.cap..S.get(e.commodity))).." $"..(q and q.net or 0),bx,by,TILE_W,32,
+    button("replace-"..spec.key,(e.commodity=="power" and (spec.cap..City.bolts(e.voltage)) or (spec.cap..S.get(e.commodity))).." $"..(q and q.net or 0),bx,by,TILE_W,32,
       function() act("replacePipe",e.id,spec.key,target) end,
       open and not same and q~=nil and city.money>=(q and q.net or 0),
       same and "This is already what is in the ground."
@@ -1168,7 +1165,7 @@ local function buildPanel()
       y=y+16
       for i=#City.INFRA.voltageOrder,1,-1 do
         local spec=V[City.INFRA.voltageOrder[i]]
-        row(spec.kv.." kV  "..({hvtower="HV tower",pylon="tower",pole="pole"})[spec.tower],
+        row(City.bolts(City.INFRA.voltageOrder[i]).."  "..({hvtower="HV tower",pylon="tower",pole="pole"})[spec.tower],
           spec.span.." m  /  "..spec.boost.." m",y,P.accent,
           "A tower every "..spec.span.." m, and a booster, transformer or generator every "..spec.boost.." m.")
         y=y+20
@@ -1204,7 +1201,7 @@ local function buildPanel()
       local bx=M+(i-1)*pitch
       local open=city:sizeAllowed(spec)
       if not open and state.size==spec.key then state.size="large" end
-      button("size-"..spec.key,(state.commodity=="power" and (amps(City.INFRA.amps[spec.key])) or (spec.cap.." "..S.get(state.commodity))),bx,y,pitch-4,30,function() state.size=spec.key; E.useSize(state,spec.key) end,open,
+      button("size-"..spec.key,(state.commodity=="power" and (spec.cap.." "..S.get("power")) or (spec.cap.." "..S.get(state.commodity))),bx,y,pitch-4,30,function() state.size=spec.key; E.useSize(state,spec.key) end,open,
         open and (state.commodity=="power" and "Capacity depends on voltage, current rating and cable length." or ("Carries "..spec.cap..". Replace it if you need more capacity."))
           or ("Carries "..spec.cap..". "..city:unlockHint(spec.unlock).."."),
         (state.size or "small")==spec.key,Graph.COMMODITIES[state.commodity].color)
@@ -1309,7 +1306,7 @@ local function inspectorPanel(n,e)
       local carries=City.INFRA.towers[n.kind]
       if carries then
         local spec=City.INFRA.voltages[carries]
-        row("Voltage",spec.kv.." kV"..(n.upgrade=="transformer" and " and lower" or ""),tail,P.accent); tail=tail+26
+        row("Voltage",City.bolts(carries)..(n.upgrade=="transformer" and " and lower" or ""),tail,P.accent); tail=tail+26
         -- Raised straight to the voltage wanted, one button per voltage above.
         local higher={}
         for _,key in ipairs(City.INFRA.voltageOrder) do
@@ -1318,7 +1315,7 @@ local function inspectorPanel(n,e)
         for i,key in ipairs(higher) do
           local w=(CW-8*(#higher-1))/#higher
           local price=city:towerVoltageCost(n,key)
-          button("voltage-"..key,City.INFRA.voltages[key].kv.." kV  $"..price,M+(i-1)*(w+8),tail,w,34,
+          button("voltage-"..key,City.bolts(key).."  $"..price,M+(i-1)*(w+8),tail,w,34,
             function() act("raiseTowerVoltage",n.id,key) end,not city:towerVoltageError(n.id,key),
             "Cables on it keep their voltage until upgraded",false,Graph.KINDS[City.INFRA.voltages[key].tower].color)
         end
@@ -1667,7 +1664,10 @@ end
 -- What an offer asks for, as symbols: the commodity's mark and the amount
 -- beside it (electricity in kWh a day), so it can be set large on one line.
 local function offerAmount(c)
-  local function q(key,v) return S.get(key)..string.format("%g",key=="power" and v*5 or v) end
+  local function q(key,v)
+    if key=="power" then return string.format("%g",v)..City.bolts(city:voltageOf(c)) end
+    return S.get(key)..string.format("%g",v)
+  end
   if c.powerRequest and not c.prospect then
     return S.get(c.commodity).." + "..q("power",City.DUAL.demand[c.clientType] or City.DUAL.demand.house)
   end
@@ -1684,8 +1684,10 @@ end
 -- and Decline. The same block in the Clients window and the top bar, so an
 -- answer is given the same way wherever the offer is met.
 local function offerRow(c,x,y,w,h,prefix,onAccept)
-  local bw=math.min(74,math.floor(w*0.24))
-  local bodyW=w-2*bw-12
+  -- Narrow rows stack Accept over Decline, so neither label is ever squeezed.
+  local stacked=w<260
+  local bw=stacked and 62 or math.min(74,math.floor(w*0.24))
+  local bodyW=stacked and w-bw-6 or w-2*bw-12
   local key=c.powerRequest and not c.prospect and "power" or c.commodity
   local tip=c.powerRequest and not c.prospect and ("This "..E.clientName(city,c).." wants electricity too: "..city:quantity("power",City.DUAL.demand[c.clientType] or City.DUAL.demand.house))
     or (c.demands and c.demands.water and c.demands.power) and ("Water "..city:quantity("water",c.demands.water).." + "..city:quantity("power",c.demands.power))
@@ -1701,7 +1703,7 @@ local function offerRow(c,x,y,w,h,prefix,onAccept)
     end
   end
   button(prefix=="bar-" and "request-open" or prefix.."client-"..c.id,"",x,y,bodyW,h,function()
-    if prefix=="bar-" then act("focusRequest",c.id) else act("showClient",c.id) end
+    if prefix=="bar-" then act("focusRequest",c.id) else act("openClient",c.id) end
   end,true,tip,state.node==c.id,Graph.COMMODITIES[key].color)
   local premium=city:requestPremium(c)
   local pct=string.format("%+.0f%%",premium*100)
@@ -1728,8 +1730,16 @@ local function offerRow(c,x,y,w,h,prefix,onAccept)
     if pay~="" then single(pay,x+8,top+R.fonts.body:getHeight(),"small",P.energy,math.max(1,bodyW-sw-22)) end
     single(pct,x+bodyW-sw-8,top+R.fonts.body:getHeight(),"small",UI.premiumColor(premium),sw)
   end
-  button(prefix.."accept-"..c.id,"Accept",x+bodyW+6,y,bw,h,onAccept or function() act("acceptClient",c.id) end,true,nil,false,P.good)
-  button(prefix.."decline-"..c.id,"Decline",x+bodyW+12+bw,y,bw,h,function() act("declineClient",c.id) end,true,nil,false,P.bad)
+  local accept=onAccept or function() act("acceptClient",c.id) end
+  local decline=function() act("declineClient",c.id) end
+  if stacked then
+    local half=math.floor((h-2)/2)
+    button(prefix.."accept-"..c.id,"Accept",x+bodyW+6,y,bw,half,accept,true,nil,false,P.good)
+    button(prefix.."decline-"..c.id,"Decline",x+bodyW+6,y+h-half,bw,half,decline,true,nil,false,P.bad)
+  else
+    button(prefix.."accept-"..c.id,"Accept",x+bodyW+6,y,bw,h,accept,true,nil,false,P.good)
+    button(prefix.."decline-"..c.id,"Decline",x+bodyW+12+bw,y,bw,h,decline,true,nil,false,P.bad)
+  end
 end
 
 local function customers()
@@ -1774,7 +1784,7 @@ local function customers()
       local status=met and "Supplied"
         or (c.supplyClosed and "Shut / " or "")..c.grace.."d left"
       local h=58
-      button("client-"..c.id,"",M,y,CW,h,function() act("showClient",c.id) end,true,
+      button("client-"..c.id,"",M,y,CW,h,function() act("openClient",c.id) end,true,
         nil,state.node==c.id,Graph.COMMODITIES[c.commodity].color)
       drop(c.commodity,M+16,y+17,8)
       single(E.clientName(city,c),M+30,y+9,"body",P.text,150)
@@ -1782,10 +1792,9 @@ local function customers()
       lg.printf("$"..city:contractValue(c).."/day",M+CW-110,y+9,100,"right")
       single((c.demands and c.demands.water and c.demands.power and offerAmount(c) or city:quantity(c.commodity,c.demand)).."  "..status,M+12,y+35,"small",
         met and P.good or P.warn,CW-140)
-      local margin=city:clientMargin(c)
-      local shown=c.commodity=="power" and 5 or 1
-      single("keep "..(margin>=0 and "+" or "-")..City.money2(math.abs(margin)/shown),M+CW-120,y+35,"small",
-        margin<0 and P.bad or P.good,108,"right")
+      local keep=city:clientKeep(c)
+      single("keep "..City.signed(keep).."/d",M+CW-120,y+35,"small",
+        keep<0 and P.bad or P.good,108,"right")
       y=y+h+12
       end
     end
@@ -2342,108 +2351,66 @@ local function topBar(open)
   end
   local tabX=UI.width-4
 
-  -- From the right: the day, the settings, then whatever wants deciding.
+  -- Every slot in the bar is always there, at a width that depends only on
+  -- the window: nothing appears, disappears or shifts as the day changes.
+  -- From the right: the day, the settings, repairs, then the best offer.
   local rx=W-10
-  button("end-day","End day "..city.day.."   >",rx-168,10,168,40,function() act("endDay") end,
+  button("end-day","End day "..city.day.."  >",rx-132,10,132,40,function() act("endDay") end,
     not city.bankrupt,"Settle revenue, expenses, investments and pipe wear (Enter)",true,P.good)
-  rx=rx-176
+  rx=rx-140
   button("settings","",rx-44,10,44,40,function() state.settings=not state.settings end,true,
     "Settings: undo, sound, text size, companies",state.settings)
   gear(rx-22,30,11,state.settings and P.flow or P.textDim)
   rx=rx-52
-  if #state.undo>0 then
-    button("undo","Undo",rx-66,10,66,40,function() act("undo") end,true,"Undo the last decision (Z). Closing a day is final.")
-    rx=rx-74
-  end
   local bill,broken=city:repairAllCost()
-  if broken>0 then
-    button("repair-all","Fix  $"..bill,rx-116,10,116,40,function() act("repairAll") end,
-      city.money>=bill,broken.." damaged "..(broken==1 and "line" or "lines")..". Repair every one of them.",true,P.bad)
-    rx=rx-124
-  end
-  -- The best offer open, as the same block the Clients window lists: answer
-  -- it here and the next best slides into its place.
+  button("repair-all",broken>0 and ("Fix $"..bill) or "Fix",rx-80,10,80,40,function() act("repairAll") end,
+    broken>0 and city.money>=bill,
+    broken>0 and (broken.." damaged "..(broken==1 and "line" or "lines")..". Repair every one of them.") or "Nothing is damaged",
+    broken>0,P.bad)
+  rx=rx-88
+
+  -- Money on the left: cash, then tomorrow's gain over how many are supplied.
+  local x0=tabX+14
+  local cashW=112
+  local dayX=x0+cashW+10
+  local dayW=140
+  local offerX=dayX+dayW+8
+  local bw=math.min(330,rx-offerX)
   local request=city:nextRequest()
-  if request then
-    local bw=math.min(330,math.max(250,rx-tabX-260))
-    offerRow(request,rx-bw,10,bw,40,"bar-")
-    rx=rx-bw-8
+  if bw>=150 then
+    if request then
+      offerRow(request,rx-bw,10,bw,40,"bar-")
+    else
+      lg.setColor(P.with(P.panelEdge,0.35)); lg.setLineWidth(1); lg.rectangle("line",rx-bw,10,bw,40,6)
+      single("No offers",rx-bw,22,"small",P.textFaint,bw,"center")
+    end
   end
 
-  -- The two numbers that matter every day, in the room that is left.
   local net=city:dailyRevenue()-city:dailyExpenses()
   local clients=city:clientList()
   local supplied=0
   for _,client in ipairs(clients) do if city:fullyServed(client) then supplied=supplied+1 end end
-  local x0=tabX+14
-  local room=rx-x0-8
-  if room>90 then
-    -- Cash rolls to its new value rather than jumping, and flashes the colour
-    -- of the change, so a day's takings or a big purchase is felt.
-    local target=city.money
-    UI.cashShown=UI.cashShown or target
-    if UI.cashShown~=target then
-      local diff=target-UI.cashShown
-      if not UI.cashFlash or UI.cashFlashTarget~=target then
-        UI.cashFlash,UI.cashFlashTarget,UI.cashFlashUp=R.t,target,diff>0
-      end
-      local step=math.max(1,math.abs(diff)*0.12)
-      UI.cashShown=math.abs(diff)<=step and target or UI.cashShown+(diff>0 and step or -step)
+  -- Cash rolls to its new value rather than jumping, and flashes the colour
+  -- of the change, so a day's takings or a big purchase is felt.
+  local target=city.money
+  UI.cashShown=UI.cashShown or target
+  if UI.cashShown~=target then
+    local diff=target-UI.cashShown
+    if not UI.cashFlash or UI.cashFlashTarget~=target then
+      UI.cashFlash,UI.cashFlashTarget,UI.cashFlashUp=R.t,target,diff>0
     end
-    local cash="$"..math.floor(UI.cashShown+0.5)
-    local flash=UI.cashFlash and math.max(0,1-(R.t-UI.cashFlash)/0.9) or 0
-    local cashColor=flash>0 and P.mix and P.mix(P.energy,UI.cashFlashUp and P.good or P.bad,flash)
-      or (flash>0.3 and (UI.cashFlashUp and P.good or P.bad)) or P.energy
-    -- A fixed width, so the per-day figure never shifts as cash changes.
-    local cashW=math.min(room*0.55,160)
-    single(cash,x0,20,UI.headerFont(cash,cashW),cashColor,cashW)
-    UI.cashX=x0
-    single("CASH",x0,8,"tiny",P.textDim,cashW)
-    local dx=x0+cashW+12
-    local dayW=rx-dx-8
-    if dayW>70 then
-      local trading=not (#city.g:nodesOfKind("source")==0 and #clients==0)
-      -- Losing money: how long the cash lasts at this rate says more than the rate.
-      local runway=trading and net<0 and city.money>0 and math.floor(city.money/-net) or nil
-      if runway and runway<=30 then
-        single("PER DAY   CASH LASTS "..runway..(runway==1 and " DAY" or " DAYS"),dx,8,"tiny",
-          runway<=7 and P.bad or P.warn,dayW)
-      else
-        single("PER DAY"..(#clients>0 and dayW>=170 and ("   "..supplied.."/"..#clients.." SUPPLIED") or ""),dx,8,"tiny",
-          #clients>0 and supplied<#clients and P.warn or P.textDim,dayW)
-      end
-      local day=trading and City.signed(net) or "Not trading"
-      local dayFont=dayW>=120 and "mid" or "body"
-      single(day,dx,24,dayFont,trading and (net>=0 and P.good or P.bad) or P.textDim,dayW)
-      -- The last fortnight of closes as a line, so the trend reads at a glance.
-      local hist=city.history or {}
-      local sw=math.min(110,dayW-SF.width(day,R.fonts[dayFont])-18)
-      if #hist>=3 and sw>=50 then
-        local sx0=dx+SF.width(day,R.fonts[dayFont])+14
-        local first=math.max(1,#hist-13)
-        local lo,hi=0,0
-        for i=first,#hist do
-          local v=hist[i].revenue-(hist[i].expenses or 0)
-          lo,hi=math.min(lo,v),math.max(hi,v)
-        end
-        local span=math.max(1,hi-lo)
-        local pts={}
-        for i=first,#hist do
-          local v=hist[i].revenue-(hist[i].expenses or 0)
-          pts[#pts+1]=sx0+(i-first)/math.max(1,#hist-first)*sw
-          pts[#pts+1]=48-(v-lo)/span*20
-        end
-        if lo<0 and hi>0 then
-          local zy=48-(0-lo)/span*20
-          lg.setColor(P.with(P.textFaint,0.5)); lg.setLineWidth(1); lg.line(sx0,zy,sx0+sw,zy)
-        end
-        local last=hist[#hist].revenue-(hist[#hist].expenses or 0)
-        lg.setColor(P.with(last>=0 and P.good or P.bad,0.85)); lg.setLineWidth(1.6)
-        lg.line(pts)
-        lg.circle("fill",pts[#pts-1],pts[#pts],2.5)
-      end
-    end
+    local step=math.max(1,math.abs(diff)*0.12)
+    UI.cashShown=math.abs(diff)<=step and target or UI.cashShown+(diff>0 and step or -step)
   end
+  local cash="$"..math.floor(UI.cashShown+0.5)
+  local flash=UI.cashFlash and math.max(0,1-(R.t-UI.cashFlash)/0.9) or 0
+  local cashColor=flash>0 and P.mix and P.mix(P.energy,UI.cashFlashUp and P.good or P.bad,flash)
+    or (flash>0.3 and (UI.cashFlashUp and P.good or P.bad)) or P.energy
+  single(cash,x0,16,UI.headerFont(cash,cashW),cashColor,cashW)
+  UI.cashX=x0
+  single("Tomorrow  "..City.signed(net),dayX,10,"body",net>=0 and P.good or P.bad,dayW)
+  single(supplied.."/"..#clients.." supplied",dayX,34,"small",
+    supplied<#clients and P.warn or P.textDim,dayW)
 end
 
 local function settingsMenu()
@@ -2647,8 +2614,8 @@ local function hoverCard()
   if n and n.kind=="client" then
     title=E.clientName(city,n)
     local margin,cost,rate=city:clientMargin(n)
-    local unit=n.commodity=="power" and " / kWh" or " / unit"
-    local shown=n.commodity=="power" and 5 or 1
+    local unit=n.commodity=="power" and (" / "..S.get("power")) or " / unit"
+    local shown=1
     if n.prospect then
       local left=n.expires-city.day+1
       add(City.money2(rate/shown)..unit.."  "..left..(left==1 and " day" or " days"),P.energy)
@@ -2660,8 +2627,8 @@ local function hoverCard()
       local got=city.served[n.id] or 0
       add(string.upper(n.commodity).."  "..got.." / "..n.demand,got>=n.demand and P.good or P.warn)
     end
-    add("keep "..(margin>=0 and "+" or "-")..City.money2(math.abs(margin)/shown)..unit,
-      margin<0 and P.bad or margin>=cost and P.good or P.text)
+    local keep=city:clientKeep(n)
+    add("keep "..City.signed(keep).." / day",keep<0 and P.bad or P.good)
   elseif n and n.kind=="source" then
     title=n.plant and ((City.PLANTS[n.plant] or {}).name or "PLANT")
       or ((City.LEVELS.WELL_NAMES[n.level or 1] or "Well").." ("..string.lower(n.commodity)..")")
