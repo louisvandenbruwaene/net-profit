@@ -302,81 +302,113 @@ end
 local Net = {}
 Net.__index = Net
 
+-- Arcs are held as parallel arrays rather than one table each, and every
+-- search walks them with numeric loops. The solver runs a dozen times a day
+-- per trade; in this shape LuaJIT compiles it instead of falling back to the
+-- interpreter trace after trace, which made it slower than no JIT at all.
 local function netNew(n)
-  return setmetatable({ n = n, arcs = {}, adj = {} }, Net)
+  return setmetatable({ n = n, m = 0, from = {}, to = {}, cap = {}, cap0 = {}, meta = {}, adj = {} }, Net)
 end
 
 function Net:arc(u, v, cap, meta)
-  self.adj[u] = self.adj[u] or {}
-  self.adj[v] = self.adj[v] or {}
-  self.arcs[#self.arcs + 1] = { from = u, to = v, cap = cap, cap0 = cap, meta = meta }
-  table.insert(self.adj[u], #self.arcs)
-  self.arcs[#self.arcs + 1] = { from = v, to = u, cap = 0, cap0 = 0 }
-  table.insert(self.adj[v], #self.arcs)
+  local adj = self.adj
+  local au, av = adj[u], adj[v]
+  if not au then au = {}; adj[u] = au end
+  if not av then av = {}; adj[v] = av end
+  local m = self.m + 1
+  self.from[m], self.to[m], self.cap[m], self.cap0[m], self.meta[m] = u, v, cap, cap, meta or false
+  au[#au + 1] = m
+  m = m + 1
+  self.from[m], self.to[m], self.cap[m], self.cap0[m], self.meta[m] = v, u, 0, 0, false
+  av[#av + 1] = m
+  self.m = m
 end
 
-local function rev(i) return (i % 2 == 1) and (i + 1) or (i - 1) end
-
+-- Levels from s over arcs with room left; -1 is unreached.
 function Net:bfs(s, t)
-  self.level = {}
-  local q, head = { s }, 1
-  self.level[s] = 0
-  while head <= #q do
+  local level, adj, cap, to = self.level, self.adj, self.cap, self.to
+  for i = 1, self.n do level[i] = -1 end
+  level[s] = 0
+  local q, head, tail = self.queue, 1, 1
+  q[1] = s
+  while head <= tail do
     local u = q[head]; head = head + 1
-    for _, ai in ipairs(self.adj[u] or {}) do
-      local a = self.arcs[ai]
-      if a.cap > 0 and self.level[a.to] == nil then
-        self.level[a.to] = self.level[u] + 1
-        q[#q + 1] = a.to
+    local list = adj[u]
+    if list then
+      local next = level[u] + 1
+      for k = 1, #list do
+        local ai = list[k]
+        local v = to[ai]
+        if cap[ai] > 0 and level[v] == -1 then
+          level[v] = next
+          tail = tail + 1; q[tail] = v
+        end
       end
     end
   end
-  return self.level[t] ~= nil
+  return level[t] ~= -1
 end
 
-function Net:dfs(u, t, pushed)
+-- One augmenting path along the level graph, as deep as it will go.
+local D_adj, D_to, D_cap, D_level, D_iter
+local function dfs(u, t, pushed)
   if u == t or pushed == 0 then return pushed end
-  while self.iter[u] <= #(self.adj[u] or {}) do
-    local ai = self.adj[u][self.iter[u]]
-    local a = self.arcs[ai]
-    if a.cap > 0 and self.level[a.to] == (self.level[u] or -1) + 1 then
-      local got = self:dfs(a.to, t, math.min(pushed, a.cap))
+  local list = D_adj[u]
+  if not list then return 0 end
+  local n, want = #list, D_level[u] + 1
+  local i = D_iter[u]
+  while i <= n do
+    local ai = list[i]
+    local c = D_cap[ai]
+    if c > 0 and D_level[D_to[ai]] == want then
+      local got = dfs(D_to[ai], t, math.min(pushed, c))
       if got > 0 then
-        a.cap = a.cap - got
-        self.arcs[rev(ai)].cap = self.arcs[rev(ai)].cap + got
+        D_cap[ai] = c - got
+        local r = ai % 2 == 1 and ai + 1 or ai - 1
+        D_cap[r] = D_cap[r] + got
+        D_iter[u] = i
         return got
       end
     end
-    self.iter[u] = self.iter[u] + 1
+    i = i + 1
+    D_iter[u] = i
   end
   return 0
 end
 
 function Net:maxflow(s, t)
   local total = 0
+  self.level, self.queue, self.iter = self.level or {}, self.queue or {}, self.iter or {}
   while self:bfs(s, t) do
-    self.iter = {}
-    for i = 1, self.n do self.iter[i] = 1 end
+    local iter = self.iter
+    for i = 1, self.n do iter[i] = 1 end
+    D_adj, D_to, D_cap, D_level, D_iter = self.adj, self.to, self.cap, self.level, iter
     while true do
-      local f = self:dfs(s, t, INF)
+      local f = dfs(s, t, INF)
       if f == 0 then break end
       total = total + f
     end
   end
+  D_adj, D_to, D_cap, D_level, D_iter = nil, nil, nil, nil, nil
   return total
 end
 
 -- Set of vertices reachable from s in the residual network. The min cut is the
 -- set of saturated arcs crossing out of it.
 function Net:reachable(s)
+  local adj, cap, to = self.adj, self.cap, self.to
   local seen, q, head = { [s] = true }, { s }, 1
   while head <= #q do
     local u = q[head]; head = head + 1
-    for _, ai in ipairs(self.adj[u] or {}) do
-      local a = self.arcs[ai]
-      if a.cap > 0 and not seen[a.to] then
-        seen[a.to] = true
-        q[#q + 1] = a.to
+    local list = adj[u]
+    if list then
+      for k = 1, #list do
+        local ai = list[k]
+        local v = to[ai]
+        if cap[ai] > 0 and not seen[v] then
+          seen[v] = true
+          q[#q + 1] = v
+        end
       end
     end
   end
@@ -411,13 +443,14 @@ function Graph:buildNetwork(uncapped, commodity)
     -- piped, leaving them out is the difference between a solve that fits in a
     -- frame and one that does not: they were costing four arcs each, four times
     -- over, to sit in the network doing nothing.
-    if node.alive and #(self.adj[node.id] or {}) > 0 then
+    local links = self.adj[node.id]
+    if node.alive and links and #links > 0 then
       local vin, vout = 2 * node.id - 1, 2 * node.id
       net:arc(vin, vout, node.throughput, { kind = "node", id = node.id })
       if node.kind == "source" and (not commodity or node.commodity == commodity) then
         -- A well produces a finite amount per day.
         net:arc(SS, vin, node.effectiveOutput or node.output or INF)
-        node._feedArc = #net.arcs - 1
+        node._feedArc = net.m - 1
       elseif node.kind == "terminal" and commodity
              and (Graph.COMMODITIES[commodity] or {}).landed ~= false
              and (not node.commodity or node.commodity == commodity) then
@@ -428,24 +461,24 @@ function Graph:buildNetwork(uncapped, commodity)
         -- (A haven saved before havens carried every trade keeps its single
         -- commodity until it is migrated.)
         net:arc(SS, vin, node.output or INF)
-        node._feedArc = #net.arcs - 1
+        node._feedArc = net.m - 1
       elseif node.kind == "works" and (node.makes == commodity or node.coproduct == commodity) and (node.ready or 0) > 0 then
         -- Everything this works managed to make out of what turned up.
         net:arc(SS, vin, node.coproduct==commodity and node.coproductReady or node.ready)
-        node._feedArc = #net.arcs - 1
+        node._feedArc = net.m - 1
       elseif node.kind == "depot" and (node.stored or 0) > 0
              and (not commodity or node.commodity == commodity) then
         -- Yesterday's surplus, available today. A depot only ever gives back
         -- what was put into it, so it is capacity in time rather than in space.
         net:arc(SS, vin, node.stored)
-        node._feedArc = #net.arcs - 1
+        node._feedArc = net.m - 1
       end
       if (node.kind == "client" or node.kind == "sink") and not node.prospect
          and not node.supplyClosed
          and (not commodity or (node.demands and node.demands[commodity]) or node.commodity == commodity) then
         -- The service valve controls only this customer's draw, not the main.
         net:arc(vout, TT, uncapped and INF or (node.demands and node.demands[commodity]) or (node.demand or INF))
-        node._drainArc = #net.arcs - 1
+        node._drainArc = net.m - 1
       elseif node.kind == "depot" and node.intakeRequest and node.commodity==commodity then
         -- Fill storage only after customers and production inputs have been
         -- satisfied. The second solve reuses their flow in the residual graph.
@@ -454,16 +487,16 @@ function Graph:buildNetwork(uncapped, commodity)
       elseif node.kind == "dc" and commodity and (node.intake or {})[commodity] then
         -- A yard takes materials in and holds them for the builders.
         net:arc(vout, TT, uncapped and INF or node.intake[commodity])
-        node._drainArc = #net.arcs - 1
+        node._drainArc = net.m - 1
       elseif node.kind == "station" and commodity == "gasoline" then
         -- A filling station is a customer for petrol, sized to its tank.
         net:arc(vout, TT, uncapped and INF or (node.fuelWanted or 30))
-        node._drainArc = #net.arcs - 1
+        node._drainArc = net.m - 1
       elseif node.kind == "works" and commodity and (node.wants or {})[commodity] then
         -- A works is a customer for each of its inputs, and it asks for exactly
         -- what its rated output would eat.
         net:arc(vout, TT, uncapped and INF or node.wants[commodity])
-        node._drainArc = #net.arcs - 1
+        node._drainArc = net.m - 1
       end
     end
   end
@@ -483,16 +516,16 @@ function Graph:buildNetwork(uncapped, commodity)
     if e.transportBlocked then cap=0 end
     if e.alive and cap and self.nodes[e.a].alive and self.nodes[e.b].alive then
       net:arc(2 * e.a, 2 * e.b - 1, cap, { kind = "edge", id = e.id })
-      e._arcAB = #net.arcs - 1
+      e._arcAB = net.m - 1
       net:arc(2 * e.b, 2 * e.a - 1, cap, { kind = "edge", id = e.id })
-      e._arcBA = #net.arcs - 1
+      e._arcBA = net.m - 1
       if commodity=='oil' and (e.spillWanted or 0)>0 then
         spillIndex=spillIndex+1
         local spillVertex=2*spillIndex
         net:arc(2*e.a,spillVertex,INF)
         net:arc(2*e.b,spillVertex,INF)
         net:arc(spillVertex,TT,e.spillWanted)
-        e._spillArc=#net.arcs-1
+        e._spillArc=net.m-1
       end
     end
   end
@@ -508,7 +541,7 @@ function Graph:maxflow(uncapped, commodity)
   local flow = net:maxflow(SS, TT)
   for _,request in ipairs(net.depotDemands or {}) do
     net:arc(request.vertex,TT,request.amount)
-    request.node._drainArc=#net.arcs-1
+    request.node._drainArc=net.m-1
   end
   if net.depotDemands then flow=flow+net:maxflow(SS,TT) end
   local seen = net:reachable(SS)
@@ -517,12 +550,10 @@ function Graph:maxflow(uncapped, commodity)
   for _, node in ipairs(self.nodes) do
     if node.alive and node._drainArc and (node.kind == "client" or node.kind == "sink"
        or node.kind == "depot" or node.kind == "works" or node.kind == "dc" or node.kind == "station") then
-      local a = net.arcs[node._drainArc]
-      served[node.id] = a.cap0 - a.cap
+      served[node.id] = net.cap0[node._drainArc] - net.cap[node._drainArc]
     end
     if node.alive and node._feedArc then
-      local a = net.arcs[node._feedArc]
-      produced[node.id] = a.cap0 - a.cap
+      produced[node.id] = net.cap0[node._feedArc] - net.cap[node._feedArc]
     end
     node._feedArc = nil
   end
@@ -532,14 +563,12 @@ function Graph:maxflow(uncapped, commodity)
   local detail = { edge = {}, node = {}, spill = {} }
   for _, e in ipairs(self.edges) do
     if e._spillArc then
-      local arc=net.arcs[e._spillArc]
-      detail.spill[e.id]=arc.cap0-arc.cap
+      detail.spill[e.id]=net.cap0[e._spillArc]-net.cap[e._spillArc]
       e._spillArc=nil
     end
     if e._arcAB and e._arcBA then
-      local ab = net.arcs[e._arcAB]
-      local ba = net.arcs[e._arcBA]
-      detail.edge[e.id] = (ab.cap0 - ab.cap) - (ba.cap0 - ba.cap)
+      local ab, ba = e._arcAB, e._arcBA
+      detail.edge[e.id] = (net.cap0[ab] - net.cap[ab]) - (net.cap0[ba] - net.cap[ba])
     end
     e._arcAB, e._arcBA = nil, nil
   end
@@ -557,12 +586,14 @@ function Graph:maxflow(uncapped, commodity)
   for id, v in pairs(detail.node) do detail.node[id] = v / 2 end
 
   local cut, mark = {}, {}
-  for i, a in ipairs(net.arcs) do
-    if i % 2 == 1 and a.meta and a.cap0 > 0 and seen[a.from] and not seen[a.to] then
-      local key = a.meta.kind .. a.meta.id
+  local meta, cap0, from, to = net.meta, net.cap0, net.from, net.to
+  for i = 1, net.m, 2 do
+    local mt = meta[i]
+    if mt and cap0[i] > 0 and seen[from[i]] and not seen[to[i]] then
+      local key = mt.kind .. mt.id
       if not mark[key] then
         mark[key] = true
-        cut[#cut + 1] = { kind = a.meta.kind, id = a.meta.id, cap = a.cap0 }
+        cut[#cut + 1] = { kind = mt.kind, id = mt.id, cap = cap0[i] }
       end
     end
   end
