@@ -1407,7 +1407,80 @@ function City:crossingCost(ax, ay, bx, by)
   return mult
 end
 
-function City:placementError(x, y)
+-- How much ground a building takes, in metres. The map draws a building at
+-- R.sym(17, scale) pixels (23 for a source), so its size on the ground depends
+-- on the zoom; these are its size at the close zoom a selection glides to
+-- (1.35), where buildings are seen side by side. `body` is the building
+-- itself, `ring` the indicator it always wears: a customer's served halo and
+-- patience arc (1.42), a junction's distribution-hub ring once it reaches the
+-- top of its ladder (1.28). Two buildings may stand as close as their rings
+-- allow, plus a hair.
+local CLOSE_ZOOM = 1.35 ^ (0.55 - 1)
+local RING = { client = 1.42, junction = 1.28, manifold = 1.28 }
+City.RING_GAP = 3
+function City.footprint(kind)
+  local body = (kind == "source" and 23 or 17) * CLOSE_ZOOM
+  return body, body * (RING[kind] or 1)
+end
+
+-- Mains and fibre are buried and a low-voltage line hangs at roof height, so
+-- neither may run through a building; medium and high voltage ride on pylons
+-- over the top of everything. Bulk lines are drawn around by their own rules.
+function City.lineBlockedByBuildings(e)
+  if e.rail then return false end
+  return e.commodity ~= "power" or (e.voltage or "low") == "low"
+end
+
+local function segDist(px, py, ax, ay, bx, by)
+  local dx, dy = bx - ax, by - ay
+  local t = math.max(0, math.min(1, ((px - ax) * dx + (py - ay) * dy) / math.max(1e-9, dx * dx + dy * dy)))
+  return math.sqrt((px - ax - t * dx) ^ 2 + (py - ay - t * dy) ^ 2)
+end
+
+-- The building a straight line from a to b would pass through, if any. A road
+-- bend is not a building, and a line may graze a wall but not cross the roof.
+function City:buildingOnLine(ax, ay, bx, by, a, b)
+  local x0, x1 = math.min(ax, bx), math.max(ax, bx)
+  local y0, y1 = math.min(ay, by), math.max(ay, by)
+  for _, n in ipairs(self.g:aliveNodes()) do
+    if n.id ~= a and n.id ~= b and n.kind ~= "corner" then
+      local body = City.footprint(n.kind) * 0.9
+      if n.x > x0 - body and n.x < x1 + body and n.y > y0 - body and n.y < y1 + body
+         and segDist(n.x, n.y, ax, ay, bx, by) < body then return n end
+    end
+  end
+  return nil
+end
+
+function City:buildingInTheWay(a, b)
+  local na, nb = self.g.nodes[a], self.g.nodes[b]
+  return self:buildingOnLine(na.x, na.y, nb.x, nb.y, a, b)
+end
+
+-- Too close to a building already standing, or on top of a buried main or a
+-- low line? `kind` is what is going up; nil sizes it as a customer.
+function City:spacingError(x, y, kind)
+  local body, ring = City.footprint(kind or "client")
+  for _, n in ipairs(self.g:aliveNodes()) do
+    local _, other = City.footprint(n.kind)
+    if (n.x - x) ^ 2 + (n.y - y) ^ 2 < (ring + other + City.RING_GAP) ^ 2 then
+      return "too close to another structure"
+    end
+  end
+  for _, e in ipairs(self.g.edges) do
+    if e.alive and City.lineBlockedByBuildings(e) then
+      local na, nb = self.g.nodes[e.a], self.g.nodes[e.b]
+      if na and nb and x > math.min(na.x, nb.x) - body and x < math.max(na.x, nb.x) + body
+         and y > math.min(na.y, nb.y) - body and y < math.max(na.y, nb.y) + body
+         and segDist(x, y, na.x, na.y, nb.x, nb.y) < body * 0.9 then
+        return e.commodity == "power" and "a low-voltage line runs there" or "a main runs under there"
+      end
+    end
+  end
+  return nil
+end
+
+function City:placementError(x, y, kind)
   local d = self:districtAt(x, y)
   if not d then return y < 0 and "that is the sea" or "unsurveyed ground" end
   if not d.owned then return "you do not own " .. d.name end
@@ -1415,11 +1488,8 @@ function City:placementError(x, y)
   if o and not (self.permits and self.permits[o.kind]) then
     return "cannot build on " .. string.lower(City.OBSTACLES[o.kind].name)
   end
-  for _, n in ipairs(self.g:aliveNodes()) do
-    if (n.x - x) ^ 2 + (n.y - y) ^ 2 < City.rules.minSpacing ^ 2 then
-      return "too close to another structure"
-    end
-  end
+  local why = self:spacingError(x, y, kind)
+  if why then return why end
   local farmR = City.INFRA.farmRadius
   for _, n in ipairs(self.g:aliveNodes()) do
     if City.isFarm(n) and math.abs(n.x - x) < farmR and math.abs(n.y - y) < farmR then return "that land is used by a farm" end
@@ -1562,6 +1632,14 @@ function City:pipeError(a, b, commodity, rail, size)
   end
   local mult,blocker=self:crossingCost(na.x,na.y,nb.x,nb.y)
   if not mult then return 'cannot cross '..string.lower(City.OBSTACLES[blocker.kind].name) end
+  if City.lineBlockedByBuildings({commodity=commodity,voltage=voltage}) then
+    local inWay=self:buildingInTheWay(a,b)
+    if inWay then
+      local name=string.lower((Graph.KINDS[inWay.kind] or {}).name or 'building')
+      return voltage and ('a low-voltage line cannot pass through a '..name..': raise the towers or go round')
+        or ('a buried main cannot pass under a '..name..': go round it')
+    end
+  end
   if not self:sizeRange(a,b) then return 'needs a structure between them to change pipe size' end
   if voltage then return self:boostError(a,b,voltage) end
 end
@@ -2038,7 +2116,7 @@ function City:buildError(x, y, kind, commodity)
     local why = self:farmSiteError(x, y)
     if why then return why end
   end
-  local err = self:placementError(x, y)
+  local err = self:placementError(x, y, kind)
   if err then return err end
   local gateway
   if kind == "terminal" then
@@ -2683,7 +2761,7 @@ function City:sourceError(commodity, x, y, plant)
     if not y or y>=0 or self:districtAt(x,y) then return 'place the seawater pump on the sea' end
     local coast=self:districtAt(x,1)
     if not coast or not coast.owned or y< -220 then return 'needs owned coastline within 220 m' end
-    for _,n in ipairs(self.g:aliveNodes()) do if (n.x-x)^2+(n.y-y)^2<City.rules.minSpacing^2 then return 'too close to another structure' end end
+    local why=self:spacingError(x,y,'source'); if why then return why end
     return nil
   end
   if commodity=='wheat' then return 'choose Crop farm under More buildings; farms need utilities' end
@@ -2692,7 +2770,7 @@ function City:sourceError(commodity, x, y, plant)
     if not self:licensed('power') then return 'no licence for power' end
     local coast=self:districtAt(x,1)
     if not coast or not coast.owned or y < -220 then return 'offshore wind needs owned coastline within 220m' end
-    for _,n in ipairs(self.g:aliveNodes()) do if (n.x-x)^2+(n.y-y)^2<City.rules.minSpacing^2 then return 'too close to another structure' end end
+    local why=self:spacingError(x,y,'source'); if why then return why end
     return nil
   end
   if not self:licensed(commodity) then return "no licence for that" end
@@ -2704,7 +2782,7 @@ function City:sourceError(commodity, x, y, plant)
   if madeBy then
     return string.lower(commodity) .. " is made in a " .. string.lower(madeBy.name)
   end
-  local err = self:placementError(x, y)
+  local err = self:placementError(x, y, "source")
   if err then return err end
   if commodity == "power" then
     local spec = City.PLANTS[plant or "nuclear"]
@@ -2839,7 +2917,7 @@ local function buySourcePlain(self, commodity, px, py, plant)
     local d = owned[self:random(#owned)]
     local x = self:rand(d.x + 90, d.x + d.w - 90)
     local y = self:rand(d.y + 90, d.y + d.h - 90)
-    if not self:placementError(x, y) then
+    if not self:placementError(x, y, "source") then
       local near = false
       for _, n in ipairs(self.g:aliveNodes()) do
         if (n.x - x) ^ 2 + (n.y - y) ^ 2 < 620 ^ 2 then near = true; break end
@@ -3031,7 +3109,9 @@ function City:addClient(kind, prospect, district, near)
       or self:rand(180, math.min(600, reach))
     local x = math.max(70, math.min(self.bounds.w - 70, anchor.x + math.cos(ang) * r))
     local y = math.max(70, math.min(self.bounds.h - 70, anchor.y + math.sin(ang) * r * 0.78))
-    if not self:placementError(x, y) then
+    -- The follow-up request must be one straight main from its fitting.
+    local blocked = near and attempt <= 120 and self:buildingOnLine(near.x, near.y, x, y, near.id)
+    if not blocked and not self:placementError(x, y, "client") then
       local n = self.g:addNode(x, y, "client")
       n.clientType = kind
       n.commodity = spec.commodity

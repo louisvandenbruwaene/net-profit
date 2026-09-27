@@ -147,6 +147,7 @@ do
     check(c:pipeError(a.id,b.id,'power'):find('too long'),kind..' cables stop at '..V[voltage].span..' m')
     b.x=1250+V[voltage].span
     check(c:pipeError(a.id,b.id,'power')==nil,kind..' cables reach exactly '..V[voltage].span..' m')
+    c.g:killNode(a.id); c.g:killNode(b.id)
   end
   local function chain(kind,root,y,count,step)
     local prev,list=root,{}
@@ -317,5 +318,29 @@ do
   local offshore=assert(c:buySource('power',1600,-100,'wind'))
   check(offshore.offshore and offshore.upkeep>wind.upkeep,'offshore wind requires coastal ownership and costs more to operate')
   check(c:sourceError('power',1600,-500,'wind')~=nil,'offshore construction is restricted to the leased coastal shelf')
+end
+-- Buildings stand as close as their indicator rings allow; buried mains and
+-- low lines go round buildings, medium and high voltage pass over them.
+do
+  local c=city()
+  local body,ring=City.footprint('pole')
+  local _,clientRing=City.footprint('client')
+  local a=assert(c:build(1250,1400,'pole'))
+  check(c:build(1250+2*ring+City.RING_GAP+1,1400,'pole'),'two towers may stand a ring apart')
+  check(2*ring+City.RING_GAP<40,'towers stand closer than the old 46 m rule')
+  local shop=node(c,'client',1250,1520,'water'); shop.clientType='house'; shop.demand=0
+  check(c:placementError(1250,1520-2*clientRing,'client')~=nil,'two customers do not overlap their halos')
+  check(c:placementError(1250,1520-2*clientRing-City.RING_GAP-1,'client')==nil,'but may stand just clear of them')
+  local w1=node(c,'junction',1100,1700); local w2=node(c,'junction',1400,1700)
+  local mid=node(c,'client',1250,1705,'water'); mid.clientType='house'; mid.demand=0
+  check(c:pipeError(w1.id,w2.id,'water'):find('buried main',1,true),'a main cannot run under a building')
+  mid.alive=false
+  assert(c:layPipe(w1.id,w2.id,'water','small'))
+  check(c:placementError(1250,1702,'pole'):find('main runs',1,true),'nor can a building go up on a main')
+  local p1=node(c,'pole',1100,1900); local p2=node(c,'pole',1220,1900)
+  node(c,'depot',1160,1902)
+  check(c:pipeError(p1.id,p2.id,'power'):find('low%-voltage'),'a low line cannot run through a building')
+  p1.kind,p2.kind='pylon','pylon'
+  check(c:pipeError(p1.id,p2.id,'power')==nil,'a medium line passes over it')
 end
 print(T.checks..' infrastructure checks passed')
