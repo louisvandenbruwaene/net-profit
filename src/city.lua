@@ -3110,6 +3110,7 @@ function City:refresh()
   end
 
   -- Roads: every goods road and truck line is part of the one road network.
+  self:forgetRoads()
   self.links=self.links or {}
   if not self.roadModelVersion then
     for _,e in ipairs(self.g.edges) do
@@ -3134,6 +3135,7 @@ function City:refresh()
     if l.goodsEdge and not self.g.edges[l.goodsEdge].alive then l.alive=false end
   end
   for _,l in ipairs(self.links) do if l.mode=='road'  then l.roadType=l.roadType or 'road'; if l.roadType~='highway' then l.toll=0 end end end
+  self:forgetRoads()
   for _,n in ipairs(self.g:aliveNodes()) do
     if n.kind=='client' and City.HOUSEHOLD[n.clientType] then
       n.utilityRates=n.utilityRates or {water=4,power=6}; n.demands=n.demands or {[n.commodity]=n.demand}; n.demands[n.commodity]=n.demand
@@ -3782,7 +3784,6 @@ function City:endDay()
     self:note("The company is insolvent.")
   end
 
-  self:refresh()
   report.money = self.money
   report.bankrupt = self.bankrupt
   self.lastReport = report
@@ -3795,7 +3796,6 @@ function City:endDay()
       and not c.powerRequest and (not c.powerDeclined or self.day-c.powerDeclined>=7)
       and self:random()<City.DUAL.daily then self:offerElectricity(c) end
   end
-  self:refresh()
 
   for _, c in ipairs(cut) do
     local before = self:rockLeft(c.o)

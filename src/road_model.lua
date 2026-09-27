@@ -33,7 +33,17 @@ return function(City)
   return total
  end
  -- Shortest physical path; freight and buses cannot use offroads.
- function City:roadPath(a,b,vehicle)
+ -- Which roads leave each place, for cars (offroads too) or for everything
+ -- else. Every driver, truck line and bus asks for a path each day, so the
+ -- table is built once per network: refresh forgets it, and nothing changes a
+ -- road or a building without a refresh following.
+ local roadAdjCache=setmetatable({},{__mode='k'})
+ function City:forgetRoads() roadAdjCache[self]=nil end
+ local function roadAdj(self,vehicle)
+  local cache=roadAdjCache[self]
+  if not cache or cache.rev~=self.revision then cache={rev=self.revision}; roadAdjCache[self]=cache end
+  local key=vehicle=='car' and 'car' or 'road'
+  if cache[key] then return cache[key] end
   local adj={}
   for _,l in ipairs(self.links or {}) do
    if l.alive and l.mode=='road' and (vehicle=='car' or l.roadType~='offroad') then
@@ -43,21 +53,58 @@ return function(City)
     end
    end
   end
+  cache[key]=adj
+  return adj
+ end
+ function City:roadPath(a,b,vehicle)
+  local adj=roadAdj(self,vehicle)
+  -- Dijkstra over a binary heap keyed on (distance, id): the nearest unsettled
+  -- place first, the lower id on a tie. A place whose distance improved is
+  -- pushed again and its older, longer entry skipped when it surfaces.
   local dist,prev,done={[a]=0},{},{}
-  while true do
-   local u,best
-   for id,d in pairs(dist) do if not done[id] and (not best or d<best or d==best and id<u) then u,best=id,d end end
-   if not u then return nil end
-   if u==b then
-    local path={}; while prev[u] do local l=prev[u]; table.insert(path,1,l); u=l.a==u and l.b or l.a end
-    return path,best
-   end
-   done[u]=true
-   for _,l in ipairs(adj[u] or {}) do
-    local v=l.a==u and l.b or l.a; local d=best+self:nodeDistance(l.a,l.b)
-    if not done[v] and (not dist[v] or d<dist[v]) then dist[v],prev[v]=d,l end
+  local hd,hi,size={0},{a},1
+  local function before(i,j) return hd[i]<hd[j] or hd[i]==hd[j] and hi[i]<hi[j] end
+  local function push(d,id)
+   size=size+1; hd[size],hi[size]=d,id
+   local i=size
+   while i>1 do
+    local p=math.floor(i/2)
+    if not before(i,p) then break end
+    hd[i],hd[p]=hd[p],hd[i]; hi[i],hi[p]=hi[p],hi[i]; i=p
    end
   end
+  local function pop()
+   local d,id=hd[1],hi[1]
+   hd[1],hi[1]=hd[size],hi[size]; hd[size],hi[size]=nil,nil; size=size-1
+   local i=1
+   while true do
+    local l,r,m=2*i,2*i+1,i
+    if l<=size and before(l,m) then m=l end
+    if r<=size and before(r,m) then m=r end
+    if m==i then break end
+    hd[i],hd[m]=hd[m],hd[i]; hi[i],hi[m]=hi[m],hi[i]; i=m
+   end
+   return d,id
+  end
+  while size>0 do
+   local best,u=pop()
+   if not done[u] and best==dist[u] then
+    if u==b then
+     local path={}; while prev[u] do local l=prev[u]; table.insert(path,1,l); u=l.a==u and l.b or l.a end
+     return path,best
+    end
+    done[u]=true
+    local list=adj[u]
+    if list then
+     for k=1,#list do
+      local l=list[k]
+      local v=l.a==u and l.b or l.a; local d=best+self:nodeDistance(l.a,l.b)
+      if not done[v] and (not dist[v] or d<dist[v]) then dist[v],prev[v]=d,l; push(d,v) end
+     end
+    end
+   end
+  end
+  return nil
  end
  function City:roadConnected(a,b) return self:roadPath(a,b,'bus')~=nil end
  -- Utility and freight access does not make a building a passenger destination.
