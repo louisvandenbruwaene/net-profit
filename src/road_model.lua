@@ -58,36 +58,14 @@ return function(City)
  end
  function City:roadPath(a,b,vehicle)
   local adj=roadAdj(self,vehicle)
-  -- Dijkstra over a binary heap keyed on (distance, id): the nearest unsettled
-  -- place first, the lower id on a tie. A place whose distance improved is
-  -- pushed again and its older, longer entry skipped when it surfaces.
+  -- Dijkstra: the nearest unsettled place first, the lower id on a tie. A
+  -- place whose distance improved is pushed again and its older, longer
+  -- entry skipped when it surfaces.
   local dist,prev,done={[a]=0},{},{}
-  local hd,hi,size={0},{a},1
-  local function before(i,j) return hd[i]<hd[j] or hd[i]==hd[j] and hi[i]<hi[j] end
-  local function push(d,id)
-   size=size+1; hd[size],hi[size]=d,id
-   local i=size
-   while i>1 do
-    local p=math.floor(i/2)
-    if not before(i,p) then break end
-    hd[i],hd[p]=hd[p],hd[i]; hi[i],hi[p]=hi[p],hi[i]; i=p
-   end
-  end
-  local function pop()
-   local d,id=hd[1],hi[1]
-   hd[1],hi[1]=hd[size],hi[size]; hd[size],hi[size]=nil,nil; size=size-1
-   local i=1
-   while true do
-    local l,r,m=2*i,2*i+1,i
-    if l<=size and before(l,m) then m=l end
-    if r<=size and before(r,m) then m=r end
-    if m==i then break end
-    hd[i],hd[m]=hd[m],hd[i]; hi[i],hi[m]=hi[m],hi[i]; i=m
-   end
-   return d,id
-  end
-  while size>0 do
-   local best,u=pop()
+  local heap=Graph.heap(); heap.push(0,a)
+  while true do
+   local best,u=heap.pop()
+   if not best then return nil end
    if not done[u] and best==dist[u] then
     if u==b then
      local path={}; while prev[u] do local l=prev[u]; table.insert(path,1,l); u=l.a==u and l.b or l.a end
@@ -99,12 +77,11 @@ return function(City)
      for k=1,#list do
       local l=list[k]
       local v=l.a==u and l.b or l.a; local d=best+self:nodeDistance(l.a,l.b)
-      if not done[v] and (not dist[v] or d<dist[v]) then dist[v],prev[v]=d,l; push(d,v) end
+      if not done[v] and (not dist[v] or d<dist[v]) then dist[v],prev[v]=d,l; heap.push(d,v) end
      end
     end
    end
   end
-  return nil
  end
  function City:roadConnected(a,b) return self:roadPath(a,b,'bus')~=nil end
  -- Utility and freight access does not make a building a passenger destination.

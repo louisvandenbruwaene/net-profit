@@ -2227,7 +2227,7 @@ function City:layPipe(a, b, commodity, size, rail, grade)
   local e,err=layPipePlain(self,a,b,commodity,size,rail,grade)
   if e then
     if voltage then e.voltage=voltage end
-    if commodity=='water' then e.hydraulic=true; e.filtered=self:treatedWater(a) or self:treatedWater(b) end
+    if commodity=='water' then e.hydraulic=true end
     self:refresh()
   end
   return e,err
@@ -2291,11 +2291,9 @@ function City:replacePipe(id, size, grade)
   e.cap, e.capMax = spec.cap, spec.cap
   e.paid = q.total
   e.leaking, e.burstReported, e.decayTick = false, nil, nil
+  e.calcification = 0
   self:note("A %s main was dug out and replaced with %s %s pipe for $%d",
     e.commodity, string.lower(spec.name), string.lower(City.GRADES[grade].name), q.net)
-  self:refresh()
-  e.calcification=0
-  if e.commodity=='water' then e.filtered=self:treatedWater(e.a) end
   self:refresh()
   return e
 end
