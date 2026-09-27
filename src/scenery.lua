@@ -120,8 +120,13 @@ local function paintBroadleaf(cx, cy, pal, seed)
   -- Shadow cast down and to the right, onto the ground.
   lg.setColor(0, 0, 0, 0.30)
   lg.ellipse("fill", cx + 8, cy + 26, CANOPY * 0.95, CANOPY * 0.5)
+  -- The trunk stands on the same ground line as a pine's (cy + 32), and the
+  -- crown sits high enough above it that the trunk shows under the leaves.
   lg.setColor(0.24, 0.17, 0.11)
-  lg.rectangle("fill", cx - 3, cy + 6, 6, 26, 2)
+  lg.rectangle("fill", cx - 3.5, cy + 2, 7, 30, 2)
+  lg.setColor(0.17, 0.12, 0.08)
+  lg.rectangle("fill", cx + 0.5, cy + 2, 3, 30, 1)
+  cy = cy - 20
   local lobes = {}
   for i = 0, 5 do
     local a = i / 6 * math.pi * 2 + seed
@@ -433,15 +438,33 @@ end
 local function buildGrass()
   -- Broad, soft patches of lighter and darker ground: what gives a field its
   -- lie from far out.
+  -- Each patch is a few overlapping lobes, each a smooth radial fade (a mesh
+  -- the GPU shades per pixel), so the ground mottles without edges. Stacked
+  -- flat discs were used before and read as rings of light.
+  local function fade(v)
+    local verts = { { 0, 0, 0, 0, v, v, v, 1 } }
+    for k = 0, 32 do
+      local a = k / 32 * math.pi * 2
+      verts[#verts + 1] = { math.cos(a), math.sin(a), 0, 0, v, v, v, 0 }
+    end
+    return lg.newMesh(verts, "fan")
+  end
+  local lightFade, darkFade = fade(1), fade(0)
   patches = paintTile(function(wrapped)
     for i = 1, 26 do
       local x, y, r, light = hash(i, 1) * TILE, hash(i, 2) * TILE, 22 + hash(i, 3) * 46, hash(i, 4) > 0.5
-      for k = 1, 5 do
-        lg.setColor(light and 1 or 0, light and 1 or 0, light and 1 or 0, 0.012)
-        wrapped(function(ox, oy) lg.circle("fill", x + ox, y + oy, r * (1 - (k - 1) * 0.18)) end)
+      for lobe = 1, 3 do
+        local a = hash(i, 10 + lobe) * math.pi * 2
+        local d = lobe == 1 and 0 or r * (0.25 + hash(i, 20 + lobe) * 0.3)
+        local rr = r * (lobe == 1 and 1 or 0.55 + hash(i, 30 + lobe) * 0.3)
+        lg.setColor(1, 1, 1, 0.028)
+        wrapped(function(ox, oy)
+          lg.draw(light and lightFade or darkFade, x + ox + math.cos(a) * d, y + oy + math.sin(a) * d * 0.7, 0, rr, rr)
+        end)
       end
     end
   end)
+  lightFade:release(); darkFade:release()
   -- Blades of grass, in little tufts, and the odd flower: detail that only
   -- shows up close.
   tufts = paintTile(function(wrapped)
