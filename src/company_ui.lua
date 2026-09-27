@@ -1574,6 +1574,46 @@ end
 
 --------------------------------------------------------------------------------
 
+-- What an offer asks for, as symbols: the commodity's mark and the amount
+-- beside it (electricity in kWh a day), so it can be set large on one line.
+local function offerAmount(c)
+  local function q(key,v) return S.get(key)..string.format("%g",key=="power" and v*5 or v) end
+  if c.powerRequest and not c.prospect then
+    return S.get(c.commodity).." + "..q("power",City.DUAL.demand[c.clientType] or City.DUAL.demand.house)
+  end
+  if c.demands and c.demands.water and c.demands.power then return q("water",c.demands.water).." + "..q("power",c.demands.power) end
+  return q(c.commodity,c.demand)
+end
+
+-- Against the going rate: green above, red below, grey near it.
+function UI.premiumColor(premium)
+  return premium>0.12 and P.good or premium<-0.12 and P.bad or P.textDim
+end
+
+-- One offer as a row: what it asks and how it pays on one line, then Accept
+-- and Decline. The same block in the Clients window and the top bar, so an
+-- answer is given the same way wherever the offer is met.
+local function offerRow(c,x,y,w,h,prefix,onAccept)
+  local bw=math.min(74,math.floor(w*0.24))
+  local bodyW=w-2*bw-12
+  local key=c.powerRequest and not c.prospect and "power" or c.commodity
+  local tip=c.powerRequest and not c.prospect and ("This "..E.clientName(city,c).." wants electricity too: "..city:quantity("power",City.DUAL.demand[c.clientType] or City.DUAL.demand.house))
+    or (c.demands and c.demands.water and c.demands.power) and ("Water "..city:quantity("water",c.demands.water).." + "..city:quantity("power",c.demands.power))
+    or city:quantity(c.commodity,c.demand)
+  button(prefix=="bar-" and "request-open" or prefix.."client-"..c.id,"",x,y,bodyW,h,function()
+    if prefix=="bar-" then act("focusRequest",c.id) else act("showClient",c.id) end
+  end,true,tip,state.node==c.id,Graph.COMMODITIES[key].color)
+  local premium=city:requestPremium(c)
+  local pct=string.format("%+.0f%%",premium*100)
+  local font=h>=40 and "mid" or "body"
+  local pctW=SF.width(pct,R.fonts[font])
+  local ty=y+(h-R.fonts[font]:getHeight())/2
+  single(offerAmount(c),x+10,ty,font,P.text,bodyW-pctW-26)
+  single(pct,x+bodyW-pctW-10,ty,font,UI.premiumColor(premium),pctW)
+  button(prefix.."accept-"..c.id,"Accept",x+bodyW+6,y,bw,h,onAccept or function() act("acceptClient",c.id) end,true,nil,false,P.good)
+  button(prefix.."decline-"..c.id,"Decline",x+bodyW+12+bw,y,bw,h,function() act("declineClient",c.id) end,true,nil,false,P.bad)
+end
+
 local function customers()
   local y=TOP-state.scroll
   button("sort-clients",state.clientSort=="income" and "Sort: daily income" or "Sort: most urgent",M,y,CW,30,function()
@@ -1584,13 +1624,16 @@ local function customers()
     heading(prospect and "REQUESTS" or "CLIENTS",y)
     y=y+30
     local clients=city:clientList(prospect)
+    if prospect then
+      for _,c in ipairs(city:clientList()) do if c.powerRequest then clients[#clients+1]=c end end
+    end
     table.sort(clients,function(a,b)
       if state.clientSort=="income" then
         local av,bv=city:contractValue(a),city:contractValue(b)
         if av~=bv then return av>bv end
       else
-        local av=prospect and a.expires or (not city:fullyServed(a) and a.grace or 999)
-        local bv=prospect and b.expires or (not city:fullyServed(b) and b.grace or 999)
+        local av=prospect and (a.expires or 999) or (not city:fullyServed(a) and a.grace or 999)
+        local bv=prospect and (b.expires or 999) or (not city:fullyServed(b) and b.grace or 999)
         if av~=bv then return av<bv end
       end
       return a.id<b.id
@@ -1603,20 +1646,10 @@ local function customers()
         -- One line per offer: the resource and the price, then the answer.
         -- Every row is the same height and the buttons sit in the same place,
         -- so the next offer slides up under the pointer after each answer.
-        local h,bw=40,70
-        local bodyW=CW-2*bw-12
-        button("client-"..c.id,"",M,y,bodyW,h,function() act("showClient",c.id) end,true,nil,
-          state.node==c.id,Graph.COMMODITIES[c.commodity].color)
-        single(c.demands and c.demands.water and c.demands.power and ("Water + "..city:quantity("power",c.demands.power))
-          or city:quantity(c.commodity,c.demand),M+12,y+4,"small",P.text,bodyW-20)
-        -- Against the going rate: green above, red below, grey near it.
-        local premium=city:ratePremium(c)
-        single(string.format("%+.0f%%",premium*100),M+12,y+21,"small",
-          premium>0.12 and P.good or premium<-0.12 and P.bad or P.textDim,bodyW-20)
-        button("accept-"..c.id,"Accept",M+bodyW+6,y,bw,h,function()
+        offerRow(c,M,y,CW,40,c.prospect and "" or "power-",function()
           if act("acceptClient",c.id) then act("showClient",c.id) end
-        end,true,nil,false,P.good)
-        button("decline-"..c.id,"Decline",M+bodyW+12+bw,y,bw,h,function() act("declineClient",c.id) end,true,nil,false,P.bad)
+        end)
+        local h=40
         y=y+h+8
       else
       local met=city:fullyServed(c)
@@ -2200,22 +2233,12 @@ local function topBar(open)
       city.money>=bill,broken.." damaged "..(broken==1 and "line" or "lines")..". Repair every one of them.",true,P.bad)
     rx=rx-124
   end
+  -- The best offer open, as the same block the Clients window lists: answer
+  -- it here and the next best slides into its place.
   local request=city:nextRequest()
   if request then
-    -- Who is asking, what they pay a unit, and what that leaves after a
-    -- unit's cost: green when it pays well, red when it would lose money.
-    local premium=city:requestPremium(request)
-    local margin,cost,rate=city:clientMargin(request)
-    local tint=margin<0 and P.bad or margin>=cost and P.good or nil
-    local who=((City.CLIENTS[request.clientType] or {}).name or "REQUEST")
-    who=request.powerRequest and "Power" or who:sub(1,1)..who:sub(2):lower()
-    local bw=math.min(200,math.max(150,rx-tabX-300))
-    button("request-open",who.." "..City.money2(rate).."  "..(margin>=0 and "+" or "-")..City.money2(math.abs(margin)),
-      rx-bw,10,bw,40,function() act("focusRequest",request.id) end,true,
-      "New offer"..(request.powerRequest and " for electricity" or "")..
-      ": pays "..City.money2(rate).." a unit, a unit costs you "..City.money2(cost)..
-      ", so you keep "..City.money2(margin).." a unit ("..string.format("%+.0f%%",premium*100)..
-      " against the going rate).",tint~=nil,tint)
+    local bw=math.min(330,math.max(250,rx-tabX-260))
+    offerRow(request,rx-bw,10,bw,40,"bar-")
     rx=rx-bw-8
   end
 
