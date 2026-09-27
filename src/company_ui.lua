@@ -1609,7 +1609,10 @@ local function customers()
           state.node==c.id,Graph.COMMODITIES[c.commodity].color)
         single(c.demands and c.demands.water and c.demands.power and ("Water + "..city:quantity("power",c.demands.power))
           or city:quantity(c.commodity,c.demand),M+12,y+4,"small",P.text,bodyW-20)
-        single("$"..city:contractValue(c).."/day",M+12,y+21,"small",P.energy,bodyW-20)
+        -- Against the going rate: green above, red below, grey near it.
+        local premium=city:ratePremium(c)
+        single(string.format("%+.0f%%",premium*100),M+12,y+21,"small",
+          premium>0.12 and P.good or premium<-0.12 and P.bad or P.textDim,bodyW-20)
         button("accept-"..c.id,"Accept",M+bodyW+6,y,bw,h,function()
           local x,yy=c.x,c.y
           if act("acceptClient",c.id) then act("lookAt",x,yy) end
