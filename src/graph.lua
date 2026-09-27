@@ -272,6 +272,40 @@ function Graph:killNode(id)
   return true
 end
 
+-- A min-heap of (key, id) pairs: the smallest key first, the lower id on a
+-- tie. The shortest-path searches over roads and routes settle places in
+-- exactly that order.
+function Graph.heap()
+  local keys, ids, size = {}, {}, 0
+  local function before(i, j) return keys[i] < keys[j] or keys[i] == keys[j] and ids[i] < ids[j] end
+  local function swap(i, j) keys[i], keys[j] = keys[j], keys[i]; ids[i], ids[j] = ids[j], ids[i] end
+  local h = {}
+  function h.push(key, id)
+    size = size + 1; keys[size], ids[size] = key, id
+    local i = size
+    while i > 1 do
+      local p = math.floor(i / 2)
+      if not before(i, p) then break end
+      swap(i, p); i = p
+    end
+  end
+  function h.pop()
+    if size == 0 then return nil end
+    local key, id = keys[1], ids[1]
+    keys[1], ids[1] = keys[size], ids[size]; keys[size], ids[size] = nil, nil; size = size - 1
+    local i = 1
+    while true do
+      local l, r, m = 2 * i, 2 * i + 1, i
+      if l <= size and before(l, m) then m = l end
+      if r <= size and before(r, m) then m = r end
+      if m == i then break end
+      swap(i, m); i = m
+    end
+    return key, id
+  end
+  return h
+end
+
 function Graph:aliveNodes()
   local t = {}
   for _, n in ipairs(self.nodes) do if n.alive then t[#t + 1] = n end end

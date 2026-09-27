@@ -8,6 +8,8 @@
 -- and routed like freight, never simulated like a person: no car is drawn
 -- taking a particular road.
 
+local Graph = require("graph")
+
 local function km(ax, ay, bx, by)
   return math.sqrt((ax - bx) ^ 2 + (ay - by) ^ 2) / 1000
 end
@@ -234,11 +236,10 @@ function City:tripDemands()
   return list
 end
 
--- Routes today's trips over the roads and passenger routes, best-paying first.
--- Each group takes the cheapest way there that is still worth the trip: a
--- driver compares tolls and petrol with the fares, somebody without a car can
--- only take the fares. Every road and route has a daily capacity, and what does
--- not fit waits, the way an unsupplied customer does.
+-- Routes today's trips over the passenger routes, best-paying first. Each
+-- group takes the cheapest way there that is still worth the trip. Every route
+-- has a daily capacity, and what does not fit waits, the way an unsupplied
+-- customer does. Driving is routed over the roads by road_model (routeTrips).
 local function demandTrips(self)
   local P = City.PEOPLE
   local T = { trips = 0, carried = 0, waiting = 0, tolls = 0, fares = 0, fuel = 0, resorts = 0, total = 0,
@@ -250,11 +251,10 @@ local function demandTrips(self)
   if #demands == 0 then return T end
 
   local adj, any = {}, false
-  local function arc(a, b, kind, ref, price, cap, road)
+  local function arc(a, b, kind, ref, price, cap)
     local na, nb = self.g.nodes[a], self.g.nodes[b]
     if not (na and na.alive and nb and nb.alive) then return end
-    local x = { a = a, b = b, kind = kind, ref = ref, price = price, left = cap, road = road,
-                km = km(na.x, na.y, nb.x, nb.y) }
+    local x = { a = a, b = b, kind = kind, ref = ref, price = price, left = cap }
     adj[a] = adj[a] or {}
     adj[b] = adj[b] or {}
     table.insert(adj[a], x)
@@ -262,17 +262,8 @@ local function demandTrips(self)
     any = true
   end
   for _, l in ipairs(self.links or {}) do
-    if l.alive then
-      if l.mode == "road" then
-        -- Daily private vehicles are routed by road_model.
-      elseif City.ROUTES[l.mode] and (l.mode ~= "bus" or self:roadConnected(l.a,l.b)) then
-        arc(l.a, l.b, "link", l, l.fare or 0, (l.vehicles or 1) * City.ROUTES[l.mode].seats, false)
-      end
-    end
-  end
-  for _, e in ipairs(self.g.edges) do
-    if e.alive and e.bulk == "highway" then
-      -- A freight service is not a physical road.
+    if l.alive and City.ROUTES[l.mode] and (l.mode ~= "bus" or self:roadConnected(l.a,l.b)) then
+      arc(l.a, l.b, "link", l, l.fare or 0, (l.vehicles or 1) * City.ROUTES[l.mode].seats)
     end
   end
   if not any then return T end
@@ -288,55 +279,38 @@ local function demandTrips(self)
     end
   end
 
-  local tank = {}
-  for _, s in ipairs(self.g:nodesOfKind("station")) do tank[s.id] = self.served[s.id] or 0 end
-
-  local driveKm = P.fuelPerKm * P.pumpPrice
-  local function cheapest(sources, goal, road)
+  -- The cheapest fares from any of the sources to any goal, over routes with
+  -- seats left: the cost, the arcs taken (goal end first) and where it began.
+  local function cheapest(sources, goal)
     local dist, prev, done = {}, {}, {}
-    for _, s in ipairs(sources) do dist[s] = 0 end
+    local heap = Graph.heap()
+    for _, s in ipairs(sources) do dist[s] = 0; heap.push(0, s) end
     while true do
-      local u, best
-      for id, v in pairs(dist) do
-        if not done[id] and (not best or v < best or (v == best and id < u)) then u, best = id, v end
-      end
-      if not u then return nil end
-      if goal[u] then
-        local path, x = {}, u
-        while prev[x] do
-          path[#path + 1] = prev[x].arc
-          x = prev[x].from
+      local best, u = heap.pop()
+      if not best then return nil end
+      if not done[u] and best == dist[u] then
+        if goal[u] then
+          local path, x = {}, u
+          while prev[x] do
+            path[#path + 1] = prev[x].arc
+            x = prev[x].from
+          end
+          return best, path, x
         end
-        return best, path, x
-      end
-      done[u] = true
-      for _, a in ipairs(adj[u]) do
-        if a.road == road and a.left > 0 then
-          local v = a.a == u and a.b or a.a
-          local c = best + a.price + (road and a.km * driveKm or 0)
-          if not done[v] and (dist[v] == nil or c < dist[v]) then
-            dist[v] = c
-            prev[v] = { from = u, arc = a }
+        done[u] = true
+        for _, a in ipairs(adj[u]) do
+          if a.left > 0 then
+            local v = a.a == u and a.b or a.a
+            local c = best + a.price
+            if not done[v] and (dist[v] == nil or c < dist[v]) then
+              dist[v] = c
+              prev[v] = { from = u, arc = a }
+              heap.push(c, v)
+            end
           end
         end
       end
     end
-  end
-
-  local function stationsOn(path, start)
-    local ids, seen = {}, {}
-    local function add(id)
-      if tank[id] and not seen[id] then
-        seen[id] = true
-        ids[#ids + 1] = id
-      end
-    end
-    add(start)
-    for i = #path, 1, -1 do
-      add(path[i].a)
-      add(path[i].b)
-    end
-    return ids
   end
 
   local function book(list, id, field, amount)
@@ -356,63 +330,29 @@ local function demandTrips(self)
     end
     local carried = 0
     if sources and next(goal) then
+      -- Drivers and the rest travel as two parties, each with its own tries.
       local drivers = math.floor(t.count * self:carShareOf(t.from) + 0.5)
-      for _, party in ipairs({ { left = drivers, car = true }, { left = t.count - drivers, car = false } }) do
+      for _, party in ipairs({ { left = drivers }, { left = t.count - drivers } }) do
         for _ = 1, 12 do
           if party.left <= 0 then break end
-          local options = {}
-          local cost, path, start = cheapest(sources, goal, false)
-          if cost and cost <= t.willingness then
-            options[#options + 1] = { cost = cost, path = path, start = start, road = false }
-          end
-          if party.car then
-            cost, path, start = cheapest(sources, goal, true)
-            if cost and cost <= t.willingness then
-              options[#options + 1] = { cost = cost, path = path, start = start, road = true }
-            end
-          end
-          if #options == 0 then break end
-          table.sort(options, function(x, y)
-            if x.cost ~= y.cost then return x.cost < y.cost end
-            return x.road and not y.road
-          end)
-          local pick = options[1]
+          local cost, path, start = cheapest(sources, goal)
+          if not cost or cost > t.willingness then break end
           local amount = party.left
-          for _, a in ipairs(pick.path) do amount = math.min(amount, a.left) end
+          for _, a in ipairs(path) do amount = math.min(amount, a.left) end
           if amount <= 0 then break end
 
-          local pathKm = 0
-          for _, a in ipairs(pick.path) do
+          for _, a in ipairs(path) do
             a.left = a.left - amount
-            pathKm = pathKm + a.km
-            local rec = book(a.kind == "link" and T.byLink or T.byEdge, a.ref.id, "trips", amount)
+            local rec = book(T.byLink, a.ref.id, "trips", amount)
             rec.income = (rec.income or 0) + a.price * amount
-            if pick.road then T.tolls = T.tolls + a.price * amount
-            else T.fares = T.fares + a.price * amount end
-          end
-
-          if pick.road then
-            local want = amount * pathKm * P.fuelPerKm
-            for _, id in ipairs(stationsOn(pick.path, pick.start)) do
-              if want <= 0 then break end
-              local s = self.g.nodes[id]
-              local price = s.price or P.pumpPrice
-              local keen = math.max(0, 1 - P.priceSensitivity * math.max(0, price - P.pumpPrice))
-              local take = math.min(tank[id], want * keen)
-              if take > 0 then
-                tank[id] = tank[id] - take
-                want = want - take / keen
-                T.fuel = T.fuel + take * price
-                book(T.byNode, id, "sold", take)
-              end
-            end
+            T.fares = T.fares + a.price * amount
           end
 
           if t.resort then
             T.resorts = T.resorts + amount * P.resortSpend * (self.g.nodes[t.resort].level or 1)
             book(T.byNode, t.resort, "visitors", amount)
           end
-          book(T.byNode, pick.start, "boarded", amount)
+          book(T.byNode, start, "boarded", amount)
           party.left = party.left - amount
           carried = carried + amount
         end

@@ -204,22 +204,6 @@ return function(City)
     local capacity=math.pi*diameter*diameter/4*velocity*3600
     return math.min(e.cap,math.floor(capacity))*math.max(0.1,1-math.max(0,(e.calcification or 0)-100)/200),head*0.0981
   end
-  function City:treatedWater(id)
-    local seen,queue={[id]=true},{id}
-    local filtered,source=false,false
-    for _,nodeId in ipairs(queue) do
-      local n=self.g.nodes[nodeId]
-      filtered=filtered or n.kind=='filtration'
-      source=source or (n.kind=='source' and n.commodity=='water' and (n.effectiveOutput or n.output or 0)>0)
-      for _,e in ipairs(self.g:edgesAt(nodeId)) do
-        if e.commodity=='water' and e.cap>0 then
-          local other=e.a==nodeId and e.b or e.a
-          if not seen[other] then seen[other]=true; queue[#queue+1]=other end
-        end
-      end
-    end
-    return filtered and source
-  end
   function City:polluteSegment(a,b,amount)
     local length=dist(a,b)
     local steps=math.max(1,math.ceil(length/200))
