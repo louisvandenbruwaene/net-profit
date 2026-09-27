@@ -3127,13 +3127,13 @@ function City:refresh()
   self:forgetRoads()
   for _,n in ipairs(self.g:aliveNodes()) do
     if n.kind=='client' and City.HOUSEHOLD[n.clientType] then
-      n.utilityRates=n.utilityRates or {water=4,power=6}; n.demands=n.demands or {[n.commodity]=n.demand}; n.demands[n.commodity]=n.demand
+      n.utilityRates=n.utilityRates or {power=City.DUAL.rate}; n.demands=n.demands or {[n.commodity]=n.demand}; n.demands[n.commodity]=n.demand
       -- A household takes what it signed for. A second utility is a separate
       -- offer with its own rate, so it appears here only once that offer has
       -- been accepted -- and a saved company that was given one by the old rule
       -- has it taken back off, because nobody ever agreed to it.
       if n.powerAccepted and self:licensed('power') then
-        n.demands.power=n.demands.power or (n.clientType=='estate' and 4 or 2)
+        n.demands.power=n.demands.power or City.DUAL.demand[n.clientType] or City.DUAL.demand.house
       end
       for key in pairs(n.demands) do
         if key~=n.commodity and not (key=='power' and n.powerAccepted and self:licensed('power')) then n.demands[key]=nil end
@@ -4218,7 +4218,7 @@ function City:acceptClient(id)
   local c = self.g.nodes[id]
   -- A customer taking electricity as well: their second utility is signed.
   if c and c.powerRequest and not c.prospect then
-    c.powerAccepted=true; c.powerRequest=nil; c.utilityRates=c.utilityRates or {}; c.utilityRates.power=c.powerOfferRate or 6; c.demands=c.demands or {[c.commodity]=c.demand}; c.demands.power=c.clientType=='estate' and 4 or 2
+    c.powerAccepted=true; c.powerRequest=nil; c.utilityRates=c.utilityRates or {}; c.utilityRates.power=c.powerOfferRate or City.DUAL.rate; c.demands=c.demands or {[c.commodity]=c.demand}; c.demands.power=City.DUAL.demand[c.clientType] or City.DUAL.demand.house
     self:refresh(); return c
   end
   if not (c and c.alive and c.prospect) then return nil, "no open offer" end

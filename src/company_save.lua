@@ -20,7 +20,6 @@ end
 function Save.pack(city)
   local data = {}
   for k, v in pairs(city) do
-    -- Everything refresh() recomputes stays out of the file.
     -- Everything refresh() recomputes stays out, and so does everything the
     -- map generator can put back: the cell index is rebuilt on load, and a
     -- district's character is a pointer into a table that lives in the code.
@@ -90,8 +89,7 @@ end
 -- current.lua remembers which one was last played, so the game still opens
 -- straight into a company rather than into a menu.
 Save.SLOTS = 6
-Save.SAVE_NAME = "company.lua"      -- what the game used before there were slots
-Save.LEGACY_NAME = "company.lua"
+Save.LEGACY_NAME = "company.lua"    -- what the game used before there were slots
 Save.CURRENT_NAME = "current.lua"
 
 function Save.slotName(slot) return "company" .. tostring(slot) .. ".lua" end
@@ -231,7 +229,7 @@ local function dirHoldsCompany(dir)
 end
 
 function Save.mirror(text, root, name)
-  name = name or Save.SAVE_NAME
+  name = name or Save.LEGACY_NAME
   for _, dir in ipairs(Save.candidates()) do
     if dir ~= root and dirHoldsCompany(dir) then
       local out = io.open(dir .. "/" .. name, "w")

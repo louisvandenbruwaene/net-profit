@@ -185,6 +185,11 @@ do
   held.secure=true; held.rate=8; held.demands=nil
   c.served[held.id]=1
   check(c:serviceCredit(held)==(4-1)*8,'a short day refunds the missing units at their rate')
+  -- Water at 8 and power at 5: a household short of both is refunded each at its own rate.
+  local both=house(c,1600,1400,4)
+  both.secure=true; both.rate=8; both.utilityRates={power=5}; both.demands={water=4,power=2}
+  c.served[both.id]=3; c.servedBy[both.id]={water=3,power=0}
+  check(c:serviceCredit(both)==math.floor(((4-3)*8+(2-0)*5)*City.SECURE.credit+0.5),'a missing utility is refunded at its own rate')
   local ordinary=house(c,1600,1450,4)
   c.served[ordinary.id]=0
   check(c:serviceCredit(ordinary)==0,'an ordinary customer is owed nothing')

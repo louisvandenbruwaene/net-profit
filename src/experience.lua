@@ -106,8 +106,12 @@ function E.tradeEntry(c,name)
     return recipe.cost,string.format("a %s costs $%d and eats %s",
       string.lower(recipe.name),recipe.cost,E.recipeInputs(recipe))
   end
-  local haven=City.price.terminal
-  return haven,string.format("it is landed at a haven ($%d) and hauled inland",haven)
+  local haven
+  for _,key in ipairs(City.GATEWAYS) do
+    local cost=c:havenCost(key)
+    if not haven or cost<haven then haven=cost end
+  end
+  return haven,string.format("it is landed at a haven (from $%d) and hauled inland",haven)
 end
 
 -- The inputs of a recipe, written out.
@@ -121,10 +125,9 @@ function E.recipeInputs(r)
 end
 
 function E.recipeSummary(r)
-  local G=require("graph")
   local needs,materials={},{}
   local function name(key) return key=="power" and "electricity" or key end
-  for _,key in ipairs(G.ALL) do
+  for _,key in ipairs(Graph.ALL) do
     if r.inputs[key] then needs[#needs+1]=(r.inputs[key]*r.rate).." "..name(key) end
     if (r.materials or {})[key] then materials[#materials+1]=r.materials[key].." "..name(key) end
   end
@@ -159,7 +162,7 @@ function E.progress(c,a)
   if a.id=="diversified" then
     local trades,count={},0
     for _,n in ipairs(c:clientList()) do
-      if (c.fullyServed and c:fullyServed(n) or not c.fullyServed and (c.served[n.id] or 0)>=n.demand) and not trades[n.commodity] then
+      if c:fullyServed(n) and not trades[n.commodity] then
         trades[n.commodity]=true; count=count+1
       end
     end
@@ -381,7 +384,9 @@ function E.offerPreview(c,id)
     end
     table.sort(candidates,function(a,b) return a.cost<b.cost or (a.cost==b.cost and a.id<b.id) end)
     for _,source in ipairs(candidates) do
-      local p=E.pipePreview(copy,source.id,id,n.commodity,math.min(24,n.demand),false)
+      -- Priced the way it was ranked: this demand's main, at the lining the
+      -- company lays today.
+      local p=E.pipePreview(copy,source.id,id,n.commodity,n.demand,false,copy.lining)
       if p.demand and p.delivery>=n.demand then
         p.net=p.net+net
         p.displaced=math.max(p.displaced,displaced(c,copy,id))

@@ -66,6 +66,12 @@ do
   local offer=E.offerPreview(c,n.id)
   check(offer.cost and offer.delivery==n.demand,"offer estimates a feasible direct full-supply connection")
   check(Save.pack(c)==saved and n.prospect,"offer simulation neither signs nor spends")
+  -- With lined pipe unlocked, the estimate is what laying that main would charge.
+  c.lining=2; c:refresh()
+  local lined=E.offerPreview(c,n.id)
+  check(lined.cost==c:pipeCost(hub.id,n.id,"water",n.demand,false,2) and lined.cost>offer.cost,
+    "the offer is priced at the lining the company lays")
+  c.lining=1; c:refresh()
   c.money=1000
   assert(c:layPipe(hub.id,n.id,"water",n.demand))
   check(E.offerPreview(c,n.id).cost==0,"existing routes are recognized before signing")
@@ -133,6 +139,7 @@ do
   function company:dailyRevenue() return 400 end
   function company:dailyExpenses() return 150 end
   function company:note() end
+  function company:fullyServed(n) return (self.served[n.id] or 0)>=n.demand end
   for _,n in ipairs(customers) do company.served[n.id]=3 end
   check(E.progress(company,diverse)==4,"diversification counts distinct supplied trades")
   check(E.progress(company,efficient)==250,"efficient growth requires net profit after upkeep")
