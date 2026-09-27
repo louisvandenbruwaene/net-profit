@@ -302,7 +302,7 @@ local function action(name,...)
     paying={}
     for _,c in ipairs(city:clientList()) do
       local v=city:clientIncome(c)
-      local missed=math.floor(math.max(0,(c.demand or 0)-(city.served[c.id] or 0))*(c.rate or 0)+0.5)
+      local missed=math.max(0,city:clientIncome(c,true)-v)
       if v>0 or missed>0 then paying[#paying+1]={x=c.x,y=c.y,v=v,missed=missed} end
     end
   end

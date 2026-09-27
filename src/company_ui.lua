@@ -472,7 +472,7 @@ local function inspectSource(n,y)
   -- Closing a well never takes the network with it: a chamber is left holding
   -- whatever mains were tied in.
   local degree=city.g:degree(n.id)
-  local refund=math.floor((n.paid or city:sourceCost(n.commodity))*0.4)
+  local refund=city:nodeRefund(n)
   if degree>0 then
     local kind=city:chamberFor(degree)
     local chamber=city:nodeCost(kind)
@@ -1694,7 +1694,7 @@ local function mapTab()
       for index,o in ipairs(city.obstacles) do
         if city:districtAt(o.x,o.y)==d and (o.kind=="park" or o.kind=="bedrock") then
           local cost=city:clearCost(o)
-          button("clear-terrain-"..index,(o.kind=="park" and "Harvest " or "Demolish ")..S.get(o.kind=="park" and "timber" or "rock").."  $"..cost,M,y,CW,32,function() act("clearTerrain",index) end,city.money>=cost,o.kind=="park" and ("Regrows in "..City.TERRAIN_LIFE.regrowDays.." days if left clear") or "5% gem chance")
+          button("clear-terrain-"..index,(o.kind=="park" and "Harvest " or "Demolish ")..S.get(o.kind=="park" and "timber" or "rock").."  $"..cost,M,y,CW,32,function() act("clearTerrain",index) end,city.money>=cost,o.kind=="park" and ("Regrows in "..City.TERRAIN_LIFE.regrowDays.." days if left clear") or (math.floor(City.TERRAIN_LIFE.gemChance*100).."% gem chance"))
           y=y+38
         end
       end

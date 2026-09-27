@@ -2566,10 +2566,12 @@ function City:demolishNode(id)
       n.ports = Graph.KINDS[kind].ports
       n.throughput = Graph.KINDS[kind].throughput
       n.paid = chamber
+      local what = n.plant and (City.PLANTS[n.plant] or {}).name or (string.upper(n.commodity or "water") .. " well")
       n.commodity, n.output, n.level, n.seam = nil, nil, nil, nil
+      n.plant, n.upkeep, n.fuel, n.cap, n.intake = nil, nil, nil, nil, nil
       n.capped = true
-      self:note("%s well capped for $%d: a %s keeps its %d main%s connected",
-        string.upper((n.commodity) or "water"), refund, string.lower(Graph.KINDS[kind].name),
+      self:note("%s capped for $%d: a %s keeps its %d main%s connected",
+        what, refund, string.lower(Graph.KINDS[kind].name),
         degree, degree == 1 and "" or "s")
     end
     self.money = self.money + refund
@@ -3379,10 +3381,17 @@ end
 -- `step`, at most `max` times.
 City.LOYALTY = { every = 10, step = 1, max = 3 }
 
-function City:clientIncome(c)
-  local total = math.floor((self.served[c.id] or 0) * c.rate * self:eventRate(c.commodity) + 0.5)
-  -- A household's second utility is paid at its own rate.
-  for key in pairs(c.demands or {}) do if key~=c.commodity then total=total+math.floor((((self.servedBy or {})[c.id] or {})[key] or 0)*(c.utilityRates[key] or c.rate)*self:eventRate(key)+.5) end end
+-- What a customer pays today, or with `full` what they would pay if supplied
+-- in full. A household's second utility is paid at its own rate.
+function City:clientIncome(c, full)
+  local by = (self.servedBy or {})[c.id] or {}
+  local function pay(key, want, got, rate)
+    return math.floor((full and want or got or 0) * rate * self:eventRate(key) + 0.5)
+  end
+  local total = pay(c.commodity, c.demand or 0, (self.served or {})[c.id], c.rate or 0)
+  for key, want in pairs(c.demands or {}) do
+    if key ~= c.commodity then total = total + pay(key, want, by[key], (c.utilityRates or {})[key] or c.rate) end
+  end
   return total
 end
 
