@@ -16,11 +16,25 @@ return function(City)
  City.MODES.highway.blurb='Container trucks use connected normal roads and highways.'
  local household={house=true,home=true,estate=true,subscriber=true}
  City.HOUSEHOLD=household
- function City:quantity(key,value) return key=='power' and string.format('%g kWh/day',value*5) or string.format('%g %s',value,require('symbols').get(key)) end
- -- Two figures in one unit. Spelling the unit out twice -- "0 kWh/day / 10
- -- kWh/day" -- is half again as wide as the column it is read in.
- function City:quantityPair(key,a,b)
-  if key=='power' then return string.format('%g / %g kWh/day',a*5,b*5) end
+ -- Electricity reads as a flow and a voltage: the number is how much, and
+ -- one, two or three bolts say low, medium or high voltage. The same number
+ -- is the same flow at any voltage.
+ local RANK={low=1,medium=2,high=3}
+ function City.bolts(voltage) return string.rep(require('symbols').get('power'),RANK[voltage or 'low'] or 1) end
+ -- The voltage a building is supplied at: its own, or its cable's, or low.
+ function City:voltageOf(n)
+  if not n then return 'low' end
+  if n.voltage then return n.voltage end
+  for _,e in ipairs(self.g:edgesAt(n.id)) do if e.alive and e.commodity=='power' and e.voltage then return e.voltage end end
+  return 'low'
+ end
+ function City:quantity(key,value,voltage)
+  if key=='power' then return string.format('%g ',value)..City.bolts(voltage) end
+  return string.format('%g %s',value,require('symbols').get(key))
+ end
+ -- Two figures in one unit, the unit written once.
+ function City:quantityPair(key,a,b,voltage)
+  if key=='power' then return string.format('%g / %g ',a,b)..City.bolts(voltage) end
   return string.format('%g / %g %s',a,b,require('symbols').get(key))
  end
  function City:fullyServed(c)

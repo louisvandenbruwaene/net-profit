@@ -349,6 +349,7 @@ function City.new(opts)
   self.bounds = { x = 0, y = 0, w = City.MAP.cols * City.MAP.w, h = City.MAP.rows * City.MAP.h }
   self.g = Graph.new()
   self.day = 1
+  self.powerFlux = 1
   self.money = City.rules.startMoney
   self.reputation = 50
   self.lining = 1
@@ -1639,7 +1640,7 @@ function City:pipeError(a, b, commodity, rail, size)
   end
   local reach=self:rangeBetween(a,b,nil,commodity,size)
   if math.sqrt((na.x-nb.x)^2+(na.y-nb.y)^2)>reach then
-    return voltage and ('too long at '..D.voltages[voltage].kv..' kV: a tower every '..reach..' m')
+    return voltage and ('too long at '..string.lower(D.voltages[voltage].name)..': a tower every '..reach..' m')
       or 'too far: use a pump, lay a bigger main, or keep binder spurs short'
   end
   local mult,blocker=self:crossingCost(na.x,na.y,nb.x,nb.y)
@@ -4595,6 +4596,26 @@ function City:migrate()
       end
     end
     self.ideasVersion=1
+  end
+  -- Power is rated by cable size, not by kV times amps. A cable already
+  -- carrying more than its size now allows is widened, free, to the size that
+  -- carries what it did, so no customer goes short on load.
+  if not self.powerFlux then
+    self:refresh()
+    for _,e in ipairs(self.g.edges) do
+      if e.alive and e.commodity=='power' and not e.rail then
+        local flow=math.abs((self.detail.edge or {})[e.id] or 0)
+        local _,at=City.sizeOf(e.size or 'small')
+        while City.PIPE_SIZES[at].cap<flow and City.PIPE_SIZES[at+1] do at=at+1 end
+        local spec=City.PIPE_SIZES[at]
+        if spec.key~=(e.size or 'small') then
+          local health=(e.capMax or e.cap)>0 and e.cap/(e.capMax or e.cap) or 1
+          e.size,e.capMax=spec.key,spec.cap
+          e.cap=math.floor(spec.cap*health)
+        end
+      end
+    end
+    self.powerFlux=1
   end
   self:survey()
   return self

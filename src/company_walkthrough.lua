@@ -509,7 +509,7 @@ function Walk.start(app,mode)
     for _,b in ipairs(UI.buttons) do if b.id:match("^accept%-") and first and math.abs(b.y-first.y)<1 then under=b end end
     check(under,"the next offer moves up under the pointer")
     click("client-"..offers[3].id)
-    check(app.state.node==offers[3].id and app.state.tab=="customers","clicking an offer shows it on the map")
+    check(app.state.node==offers[3].id and app.state.tab=="network","clicking an offer opens that house's own panel")
     check(offers[3].prospect and app.camera().targetScale>=1.35,"and zooms in on it without answering it")
   end
 

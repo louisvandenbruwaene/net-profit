@@ -99,7 +99,7 @@ do
   assert(c:layPipe(pole.id,home.id,'power','small'))
   check(c.served[home.id]==2,'a pole with a transformer serves a home')
   local cap,amps,kv,loss=c:powerRating(drop)
-  check(amps==1250 and kv==11 and cap>=5 and loss>0,'current rating, voltage and resistive losses constrain carrying capacity')
+  check(cap==City.sizeOf('medium').cap and kv==11,'a cable carries what its size carries, whatever its voltage')
   drop.leaking=true; drop.cap=0; c:refresh()
   check((c.served[workshop.id] or 0)<5,'a failed cable causes a real shortfall')
   assert(c:repairPipe(drop.id)); check(c.served[workshop.id]==5,'repair restores electrical supply')
@@ -130,7 +130,7 @@ do
   check(c:cableUpgradeTarget(cable)=='medium' and c:cableUpgradeCost(cable,'medium')>0,'an upgrade goes one voltage up and costs money')
   local before=c:powerRating(cable)
   assert(c:upgradeCable(cable.id)); assert(c:upgradeCable(cable.id))
-  check(cable.voltage=='high' and c:powerRating(cable)>before and c:cableUpgradeTarget(cable)==nil,'upgraded cables carry more, up to high voltage')
+  check(cable.voltage=='high' and c:powerRating(cable)==before and c:cableUpgradeTarget(cable)==nil,'raising a cable\'s voltage keeps its flow, up to high voltage')
   local far=node(c,'hvtower',1250+250,1080); c.setLevel(c,far,1,true)
   assert(c:upgradeTower(far.id,'transformer'))
   check(c:cableVoltage(a.id,far.id)=='high','a gap only a higher voltage spans gets that voltage')
@@ -173,8 +173,8 @@ do
   local poles,third=chain('pole',poleRoot,1260,2,150)
   check(c:pipeError(poles[2].id,third.id,'power'):find('booster'),'low voltage needs a booster after 300 m')
   local far=node(c,'hvtower',1250+2500,1330)
-  local _,_,_,loss=c:powerRating({a=gen.id,b=far.id,cap=25,capMax=25,size='large',voltage='high'})
-  check(loss<0.05,'a 2.5 km transmission line loses only a few percent')
+  local carried=c:powerRating({a=gen.id,b=far.id,cap=25,capMax=25,size='large',voltage='high'})
+  check(carried==City.sizeOf('large').cap,'a 2.5 km transmission line carries its full size')
 end
 -- Companies saved before tower upgrades convert and keep their supply.
 do
