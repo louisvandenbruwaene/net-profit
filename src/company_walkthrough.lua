@@ -1119,7 +1119,7 @@ function Walk.update(app,mode,frame)
       -- where the hub goes. Clear the spot rather than move the shot.
       local hx,hy=src.x+260,src.y+90
       for _,n in ipairs(c.g:aliveNodes()) do
-        if n.id~=src.id and (n.x-hx)^2+(n.y-hy)^2<(C.rules.minSpacing*2)^2 then c.g:killNode(n.id) end
+        if n.id~=src.id and (n.x-hx)^2+(n.y-hy)^2<92^2 then c.g:killNode(n.id) end
       end
       c:refresh()
       local hub=assert(c:build(hx,hy,"junction"))
