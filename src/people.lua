@@ -7,7 +7,6 @@
 -- trip its roads, routes, filling stations and resorts carry. Trips are priced
 -- and routed like freight, never simulated like a person: no car is drawn
 -- taking a particular road.
-local Graph = require("graph")
 
 local function km(ax, ay, bx, by)
   return math.sqrt((ax - bx) ^ 2 + (ay - by) ^ 2) / 1000
@@ -475,33 +474,6 @@ function City:linkBetween(a, b, mode)
   return nil
 end
 
-function City:roadConnected(a, b)
-  local adj = {}
-  local function join(x, y)
-    adj[x] = adj[x] or {}
-    adj[y] = adj[y] or {}
-    table.insert(adj[x], y)
-    table.insert(adj[y], x)
-  end
-  for _, l in ipairs(self.links or {}) do
-    if l.alive and l.mode == "road" then join(l.a, l.b) end
-  end
-  for _, e in ipairs(self.g.edges) do
-    if e.alive and e.bulk == "highway" then join(e.a, e.b) end
-  end
-  local seen, queue = { [a] = true }, { a }
-  for _, u in ipairs(queue) do
-    if u == b then return true end
-    for _, v in ipairs(adj[u] or {}) do
-      if not seen[v] and self.g.nodes[v].alive then
-        seen[v] = true
-        queue[#queue + 1] = v
-      end
-    end
-  end
-  return false
-end
-
 function City:linkQuote(a, b, mode)
   if mode == "road" then
     local na, nb = self.g.nodes[a], self.g.nodes[b]
@@ -611,15 +583,6 @@ function City:cutLinks(id)
   for _, l in ipairs(self.links or {}) do
     if l.alive and (l.a == id or l.b == id) then l.alive = false end
   end
-end
-
-function City:setEdgeToll(id, value)
-  local e = self.g.edges[id]
-  if not (e and e.alive and e.bulk == "highway") then return nil, "only a highway is tolled" end
-  if type(value) ~= "number" or value ~= value then return nil, "invalid toll" end
-  e.toll = math.max(0, math.min(City.PEOPLE.tollMax, math.floor(value)))
-  self:refresh()
-  return e
 end
 
 --------------------------------------------------------------------------------

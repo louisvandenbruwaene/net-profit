@@ -1,13 +1,10 @@
 -- The September design requirements. Persistent state lives on the company,
 -- nodes and edges; previews never advance time or consume random numbers.
-local Graph=require('graph')
 return function(City)
   City.PLANTS.seapump={name="SEAWATER PUMP",blurb="Pumps 50 saltwater from the sea. Connect a filter with armoured pipes."}
   City.BUILDABLE.tower=nil
   City.INFRA.kinds.transformer.legacy=false
   City.BUILDABLE.transformer=true
-  City.ORDERS.analysts={name='Market analysts',hire=1000,wage=25,clients=0,blurb='+10 percentage points expected return per analyst, +1 per week of service; wages grow 1% weekly.'}
-  City.ORDER_LIST={'surveyors','dispatchers','analysts'}
   City.trade.saltwater={}; for k,v in pairs(City.trade.water) do City.trade.saltwater[k]=v end
   City.trade.saltwater.sourceUpkeep=18; City.trade.saltwater.wholesale=0; City.trade.saltwater.wholesalePerUnit=0
   for _,key in ipairs({'gems','jewelry'}) do

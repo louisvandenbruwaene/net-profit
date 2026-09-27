@@ -5,13 +5,11 @@ Data.FORMS = {
   liquid = {
     tiein = 26, trench = 0.21, bore = 13, borePerM = 0.050,
     repairBase = 30, repairPerLost = 13, repairPerM = 0.060,
-    liningRate = 0.40, armourRate = 0.72,
     upkeep = 0.60, upkeepPerM = 0.0030,
   },
   energy = {
     tiein = 20, trench = 0.16, bore = 10, borePerM = 0.038,
     repairBase = 22, repairPerLost = 9, repairPerM = 0.044,
-    liningRate = 0.40, armourRate = 0.72,
     upkeep = 0.45, upkeepPerM = 0.0023,
   },
   -- Fibre is cable carrying a signal rather than a current: cheaper to dig in
@@ -19,7 +17,6 @@ Data.FORMS = {
   data = {
     tiein = 18, trench = 0.13, bore = 9, borePerM = 0.034,
     repairBase = 18, repairPerLost = 7, repairPerM = 0.036,
-    liningRate = 0.40, armourRate = 0.72,
     upkeep = 0.40, upkeepPerM = 0.0020,
   },
   -- Solids go by road, which is cheap to lay and dear to run, and short: a

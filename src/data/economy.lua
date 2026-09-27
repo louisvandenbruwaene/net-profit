@@ -15,7 +15,6 @@ Data.price = {
   -- and left companies holding a licence they could not yet use.
   powerLicence = 900, beerLicence = 600, oilLicence = 1500, foodLicence = 900,
   internetLicence = 2400,
-  qualityBase = 140,
   ads = 90,
 }
 
@@ -29,7 +28,6 @@ Data.trade = {
   water = {
     tiein = 14, trench = 0.11, bore = 7, borePerM = 0.028,
     repairBase = 14, repairPerLost = 6, repairPerM = 0.030,
-    liningRate = 0.40, armourRate = 0.72,
     upkeep = 0.30, upkeepPerM = 0.0016,
     sourceBase = 260, sourceGrowth = 1.85, sourceOutput = 20,
     upgradeBase = 120, upgradeGrowth = 1.26, upgradeStep = 10,
@@ -52,7 +50,6 @@ Data.trade = {
   power = {
     tiein = 20, trench = 0.16, bore = 10, borePerM = 0.038,
     repairBase = 22, repairPerLost = 9, repairPerM = 0.044,
-    liningRate = 0.40, armourRate = 0.72,
     upkeep = 0.45, upkeepPerM = 0.0023,
     sourceBase = 3600, sourceGrowth = 1.35, sourceOutput = 45,
     upgradeBase = 1400, upgradeGrowth = 1.42, upgradeStep = 12,
@@ -63,7 +60,6 @@ Data.trade = {
   beer = {
     tiein = 26, trench = 0.21, bore = 13, borePerM = 0.050,
     repairBase = 30, repairPerLost = 13, repairPerM = 0.060,
-    liningRate = 0.40, armourRate = 0.72,
     upkeep = 0.60, upkeepPerM = 0.0030,
     sourceBase = 420, sourceGrowth = 1.55, sourceOutput = 10,
     upgradeBase = 210, upgradeGrowth = 1.22, upgradeStep = 4,
@@ -73,7 +69,6 @@ Data.trade = {
   oil = {
     tiein = 44, trench = 0.34, bore = 21, borePerM = 0.085,
     repairBase = 52, repairPerLost = 21, repairPerM = 0.105,
-    liningRate = 0.40, armourRate = 0.72,
     upkeep = 1.00, upkeepPerM = 0.0050,
     sourceBase = 900, sourceGrowth = 1.55, sourceOutput = 10,
     upgradeBase = 430, upgradeGrowth = 1.22, upgradeStep = 4,
@@ -87,20 +82,14 @@ Data.rules = {
   pumpRange = 520,
   minSpacing = 46,
   leakBase = 0.07,          -- per pipe per day, before quality and grade
-  qualityStep = 0.13,       -- each quality level removes this fraction
   adDays = 5,
   adBoost = 0.25,
   -- The chance of a request on a day that is not already promised one, before
   -- reputation adds its share. Odd days always bring one while the company is
   -- small, so the player is never left two closes in a row with nothing to do.
   arriveBase = 0.40,
-  -- How much of the per metre bore charge survives the square root. Tuned so a
-  -- capacity three stub costs about what it always did and a capacity thirty
-  -- trunk costs a third of what it used to.
-  boreScale = 2.7,
   investDays = 7,
   investMean = 0.10,
-  investSd = 0.05,
   -- The spread of a settlement widens by investSdPerDay every day the company
   -- trades, and then stops where a total loss is investSdRuin deviations out.
   -- It has to stop somewhere: a payout cannot go below zero, so a spread wide
@@ -116,7 +105,6 @@ Data.rules = {
   -- its hiring fee on the cycle after that.
   investSdPerDay = 0.01,
   investSdRuin = 4,
-  sourceIncome = 12,        -- wholesale, per well per day
   repLoss = 12,
   repDecline = 1,
   repIgnored = 2,

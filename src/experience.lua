@@ -140,33 +140,6 @@ E.ambitions = {
   {id="diversified", name="Everyday essentials", target=4, description="Fully supply customers in four trades at once.", reward=1800},
   {id="efficient", name="Built to last", target=250, description="Earn $250 net/day with 20+ customers and no shortfalls.", reward=2400},
 }
--- The authored twelve have a story each. Generated ground tells its own, out of
--- the character the survey found there, so every district has something to say
--- however far out it is.
-function E.districtStory(city, id)
-  local d = city.districts[id]
-  if not d then return "" end
-  if E.districtStories[id] and (d.ring or 0) == 0 then return E.districtStories[id] end
-  local spec = d.spec or {}
-  local ring = d.ring or 0
-  return (spec.story or "Open ground.")
-    .. (ring > 0 and ("  Ring " .. ring .. " out: deeper ground, dearer to buy.") or "")
-end
-
-E.districtStories = {
-  "Porches, repair shops and the highway gate. A dependable place to start a wider service.",
-  "Garden estates climb the hill. Their thirsty households reward generous water capacity.",
-  "Wet ground and buried riches. Plan the permits before promising the next connection.",
-  "Foundries and workshops share these streets. Power and oil keep the district working.",
-  "Terraced homes surround the old market. The pubs are part of neighbourhood life.",
-  "Your first neighbourhood: cottages, small businesses, and room for a company to grow.",
-  "A street of taprooms and cellar doors. Every festival is an opportunity for the beer trade.",
-  "Cranes overlook the factories. The port can bring a whole new scale of supply inland.",
-  "Courtyards and broad avenues. Large estates need a strong water network.",
-  "Waterside homes and lively pubs. The crossings take planning; the customers make it worthwhile.",
-  "Low roofs beneath the flight path. The airfield is another door into the city's freight network.",
-  "Heavy industry above difficult ground. Valuable seams wait beneath the rock.",
-}
 function E.companyName(c) return c.companyName or "Millbrook Utilities" end
 function E.clientName(c,n)
   if n.businessName then return n.businessName end

@@ -1,9 +1,8 @@
 -- Shared "lay this out efficiently" builder: given a target node and a
 -- reach, find the nearest existing fitting with room and spare supply, and
 -- hop a chain of T splits from it to the target, exactly the way a careful
--- person extends a network by hand. Written once for the autoplay test
--- player and reused by the hub, which runs the same builder against the
--- player's own network so a hub's coverage is a real, paid-for pipe run
+-- person extends a network by hand. The distribution hub runs it against the
+-- player's own network, so a hub's coverage is a real, paid-for pipe run
 -- instead of an invisible radius.
 local N = {}
 
