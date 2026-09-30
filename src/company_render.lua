@@ -2548,7 +2548,7 @@ function Draw.world(city, cam, state)
       if r>=7.5 and not n.prospect and (n.supplyClosed or not city:fullyServed(n)) then
         local title = n.supplyClosed and "SHUT"
           or n.demands and n.demands.water and n.demands.power and "short"
-          or city:quantityPair(n.commodity,served,n.demand,city:voltageOf(n))
+          or city:quantityPair(n.commodity,served,city:want(n),city:voltageOf(n))
         label(title,x,y+r*1.5+8,city:leavesTomorrow(n) and P.bad or P.warn)
       end
     elseif n.kind == "source" then

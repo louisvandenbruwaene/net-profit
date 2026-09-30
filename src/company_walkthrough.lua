@@ -160,6 +160,16 @@ end
 
 function Walk.start(app,mode)
   print("Net Profit: "..mode)
+  -- The walkthrough builds exact chokes and starved houses, so every customer
+  -- draws the whole contract here. Daily use has its own suite.
+  C.FLAT_USAGE=true
+  -- Its fixtures are placed round the houses the old one-a-day drip brought,
+  -- so it keeps that drip.
+  function C:requestLimit()
+    local growth=math.max(0,math.min(1,(self.reputation-50)/50))
+    return math.min(4,1+math.floor(3*growth+1e-9))
+  end
+  app.city():refresh()
   if mode=="--shot" then capture("net-profit-01-opening",app); playerShot("net-profit-00-player-opening",app); return end
   local c=app.city()
   check(c.money==C.rules.startMoney,"new company has cash")

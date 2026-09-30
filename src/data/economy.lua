@@ -105,9 +105,10 @@ Data.rules = {
   repIgnored = 2,
   -- Earned at every close where every signed customer was fully supplied.
   repGain = 2,
-  -- Requests a day at 100% reputation. The limit climbs in even steps from one
-  -- at 50% reputation, so the drip becomes a stream rather than a flood.
-  requestMax = 4,
+  -- Requests a day at 100% reputation. The limit climbs in even steps from
+  -- two at no reputation. Customers use only part of their contracts, so a
+  -- network carries more of them than it used to, and the stream is wide.
+  requestMax = 10,
   -- A well answers to a trunk main now, so the opening is a well, a junction,
   -- the trunk into it, a stub on to the first house, and still a little room:
   -- four purchases where there used to be two, not two purchases stretched.

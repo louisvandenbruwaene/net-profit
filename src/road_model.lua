@@ -38,9 +38,10 @@ return function(City)
   if key=='power' then return string.format('%g / %g ',a,b)..City.bolts(voltage) end
   return string.format('%g / %g %s',a,b,require('symbols').get(key))
  end
+ -- Supplied means given all it used today; the contract is only the ceiling.
  function City:fullyServed(c)
-  for key,want in pairs(c.demands or {}) do if (key==c.commodity and (self.served[c.id] or 0) or (((self.servedBy or {})[c.id] or {})[key] or 0))<want then return false end end
-  return (self.served[c.id] or 0)>=c.demand
+  for key in pairs(c.demands or {}) do if (key==c.commodity and (self.served[c.id] or 0) or (((self.servedBy or {})[c.id] or {})[key] or 0))<self:want(c,key) then return false end end
+  return (self.served[c.id] or 0)>=self:want(c)
  end
  function City:contractValue(c)
   local total=0

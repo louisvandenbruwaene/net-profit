@@ -2,6 +2,7 @@
 package.path = "test/?.lua;src/?.lua;../src/?.lua;" .. package.path
 local Graph = require("graph")
 local City  = require("city")
+City.FLAT_USAGE = true -- these checks are about flow: customers draw their whole contract
 
 local T = require("support")
 local check, ok = T.same, T.ok

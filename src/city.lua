@@ -3279,6 +3279,8 @@ function City:refresh()
       end
     end
   end
+  -- What every customer draws today: the solve is against use, not contract.
+  self:applyUsage()
   -- An empty tank refills at its own level's rate, from whatever customers and
   -- works left over. It only takes in once empty, so it never feeds itself.
   for _,n in ipairs(self.g:nodesOfKind('depot')) do
@@ -3544,9 +3546,16 @@ function City:clientIncome(c, full)
   local function pay(key, want, got, rate)
     return math.floor((full and want or got or 0) * rate * self:eventRate(key) + 0.5)
   end
-  local total = pay(c.commodity, c.demand or 0, (self.served or {})[c.id], c.rate or 0)
+  -- A customer pays for the contract. Given all they used today, they pay
+  -- all of it; short, they pay the share of today's use that arrived.
+  local function paid(key, want, got)
+    local use = self:want(c, key)
+    if use <= 0 then return want end
+    return want * math.min(1, (got or 0) / use)
+  end
+  local total = pay(c.commodity, c.demand or 0, paid(c.commodity, c.demand or 0, (self.served or {})[c.id]), c.rate or 0)
   for key, want in pairs(c.demands or {}) do
-    if key ~= c.commodity then total = total + pay(key, want, by[key], (c.utilityRates or {})[key] or c.rate) end
+    if key ~= c.commodity then total = total + pay(key, want, paid(key, want, by[key]), (c.utilityRates or {})[key] or c.rate) end
   end
   return total
 end
@@ -3559,8 +3568,8 @@ end
 -- demand that is not being met.
 function City:shortTrade(c)
   local com = c.commodity
-  for key, want in pairs(c.demands or {}) do
-    if ((self.servedBy[c.id] or {})[key] or 0) < want then com = key; break end
+  for key in pairs(c.demands or {}) do
+    if ((self.servedBy[c.id] or {})[key] or 0) < self:want(c, key) then com = key; break end
   end
   return com
 end
@@ -3986,6 +3995,9 @@ function City:endDay()
     count=self:random(limit-1,limit)
   elseif self.day%2==1 or self:random()<chance then count=1 end
   if self.adDaysLeft>0 then count=count+1 end
+  -- The first close brings the one house the opening points at, alone, so
+  -- nothing lands across the pipe to it.
+  if self.day==1 then count=math.min(count,1) end
   report.arrivals={}
   local room=math.max(0,math.max(4,limit*3)-#self:clientList(true))
   for i=1,math.min(count,room) do
@@ -4792,10 +4804,12 @@ function City:retireClient(c)
   end
 end
 
+-- Offers a day: two at no reputation, rising evenly to requestMax at full,
+-- and never more than a small company can take in (one more per three signed).
 function City:requestLimit()
-  local growth=math.max(0,math.min(1,(self.reputation-50)/50))
+  local growth=math.max(0,math.min(1,self.reputation/100))
   local top=City.rules.requestMax
-  return math.min(top,1+math.floor((top-1)*growth+1e-9))
+  return math.min(top,2+math.floor((top-2)*growth+1e-9),2+math.floor(#self:clientList()/3))
 end
 
 function City:declineClient(id)
@@ -5225,5 +5239,6 @@ require("distribution")(City)
 require("costs")(City)
 require("terrain_life")(City)
 require("projects")(City)
+require("usage")(City)
 
 return City

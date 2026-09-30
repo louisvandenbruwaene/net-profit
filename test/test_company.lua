@@ -1,5 +1,6 @@
 package.path = "src/?.lua;" .. package.path
 local City = require("city")
+City.FLAT_USAGE = true -- these checks are about flow: customers draw their whole contract
 local Save = require("company_save")
 local checks = 0
 local function check(value, message)

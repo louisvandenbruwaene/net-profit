@@ -304,7 +304,8 @@ local function inspectClient(n,y)
     for _,key in ipairs(Graph.ALL) do
       local want=n.demands[key]
       if want then
-        row(string.upper(key),city:quantityPair(key,(city.servedBy[n.id] or {})[key] or 0,want,key=="power" and city:voltageOf(n) or nil),y,Graph.COMMODITIES[key].color)
+        -- Today's draw against what arrived, then the contract it may rise to.
+        row(string.upper(key),city:quantityPair(key,(city.servedBy[n.id] or {})[key] or 0,city:want(n,key),key=="power" and city:voltageOf(n) or nil).."  max "..want,y,Graph.COMMODITIES[key].color)
         y=y+26
       end
     end
@@ -1767,6 +1768,27 @@ local function offerRow(c,x,y,w,h,prefix,onAccept)
   end
 end
 
+-- The day's weather as a small mark: sun, snowflake, rain, or a cloud.
+-- Returns where the text after it starts.
+local function weatherGlyph(key,x,y,r)
+  if key=="hot" then
+    lg.setColor(P.energy); lg.circle("fill",x,y,r*0.55)
+    lg.setLineWidth(1.5)
+    for k=0,7 do local a=k*math.pi/4; lg.line(x+math.cos(a)*r*0.75,y+math.sin(a)*r*0.75,x+math.cos(a)*r,y+math.sin(a)*r) end
+  elseif key=="cold" then
+    lg.setColor(P.flow); lg.setLineWidth(1.5)
+    for k=0,2 do local a=k*math.pi/3; lg.line(x-math.cos(a)*r,y-math.sin(a)*r,x+math.cos(a)*r,y+math.sin(a)*r) end
+  else
+    lg.setColor(P.textDim)
+    lg.circle("fill",x-r*0.35,y,r*0.45); lg.circle("fill",x+r*0.25,y-r*0.2,r*0.55); lg.rectangle("fill",x-r*0.8,y,r*1.6,r*0.45,r*0.2)
+    if key=="wet" then
+      lg.setColor(P.flow); lg.setLineWidth(1.2)
+      for k=-1,1 do lg.line(x+k*r*0.45,y+r*0.65,x+k*r*0.45-r*0.15,y+r*1.0) end
+    end
+  end
+  return x+r+6
+end
+
 -- The crew, offered in the offer slot once repairs have become daily: the
 -- same shape as an offer, so it is answered the same way.
 local function crewRow(pitch,x,y,w,h)
@@ -2460,7 +2482,22 @@ local function topBar(open)
     or (flash>0.3 and (UI.cashFlashUp and P.good or P.bad)) or P.energy
   single(cash,x0,16,UI.headerFont(cash,cashW),cashColor,cashW)
   UI.cashX=x0
-  single("Tomorrow  "..City.signed(net),dayX,10,"body",net>=0 and P.good or P.bad,dayW)
+  -- Today's weekday and weather, then what closing it earns. Pointing at it
+  -- gives the next days' weather and what tomorrow's peak would do.
+  local wx=weatherGlyph(city:weatherOn(city.day).key,dayX+9,21,8)
+  single(City.weekdayName(city.day).."  "..City.signed(net),wx,10,"body",net>=0 and P.good or P.bad,dayX+dayW-wx)
+  do
+    local mx,my=mouse()
+    if mx>=dayX-4 and mx<dayX+dayW and my>=6 and my<32 then
+      local parts={}
+      for d=city.day+1,city.day+City.USAGE.FORECAST_DAYS do
+        parts[#parts+1]=City.weekdayName(d).." "..city:weatherOn(d).key
+      end
+      local peak=E.peakTomorrow(city)
+      UI.buttons[#UI.buttons+1]={id="bar-forecast",x=dayX-4,y=6,w=dayW+8,h=26,fn=function() end,enabled=false,
+        tip=table.concat(parts,"  ").."\n"..(peak.count>0 and ("Tomorrow's peak: "..peak.count.." short") or "Tomorrow's peak: all supplied")}
+    end
+  end
   -- Somebody leaving at the next close outranks the count: the line says how
   -- many and is a button to the choke that is starving the first of them.
   local leaving=city:leavingTomorrow()
@@ -2692,7 +2729,8 @@ local function hoverCard()
         local want=(n.demands or {})[key] or (key==n.commodity and n.demand)
         if want then
           local got=key==n.commodity and (city.served[n.id] or 0) or ((city.servedBy[n.id] or {})[key] or 0)
-          add(city:quantityPair(key,got,want,key=="power" and city:voltageOf(n) or nil),got>=want and P.good or P.warn)
+          local use=city:want(n,key)
+          add(city:quantityPair(key,got,use,key=="power" and city:voltageOf(n) or nil).."  max "..want,got>=use and P.good or P.warn)
         end
       end
     end
