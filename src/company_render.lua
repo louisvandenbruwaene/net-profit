@@ -569,6 +569,78 @@ function Draw.clientBuilding(kind, x, y, r, accent, commodity, ghost, lit)
         end
       end
     end
+  elseif kind == "hospital" then
+    -- A flat-roofed block with two wings, rows of windows, and the red cross
+    -- on the roof where a helicopter would see it.
+    local glass = lit and { 1.0, 0.88, 0.56 } or { 0.24, 0.30, 0.36 }
+    c({ 0.86, 0.88, 0.90 }); lg.rectangle("fill", x - 14 * u, y - 4 * u, 28 * u, 11 * u)
+    c({ 0.78, 0.80, 0.83 }); lg.rectangle("fill", x - 6 * u, y - 11 * u, 12 * u, 18 * u)
+    outline("line", x - 14 * u, y - 4 * u, 28 * u, 11 * u)
+    outline("line", x - 6 * u, y - 11 * u, 12 * u, 18 * u)
+    c({ 0.94, 0.95, 0.96 }); lg.rectangle("fill", x - 5 * u, y - 10 * u, 10 * u, 7 * u)
+    c({ 0.86, 0.22, 0.24 })
+    lg.rectangle("fill", x - 1 * u, y - 9.4 * u, 2 * u, 5.8 * u)
+    lg.rectangle("fill", x - 2.9 * u, y - 7.5 * u, 5.8 * u, 2 * u)
+    for row = 0, 1 do
+      for i = 0, 5 do
+        local wx = x - 13 * u + i * 4.2 * u + (i >= 3 and 7.8 * u or 0)
+        if i < 3 or wx < x + 13 * u then
+          c(glass); lg.rectangle("fill", wx, y - 2 * u + row * 4 * u, 2.2 * u, 2 * u)
+        end
+      end
+    end
+    c({ 0.30, 0.46, 0.62 }); lg.rectangle("fill", x - 2.5 * u, y + 2.5 * u, 5 * u, 4.5 * u)
+  elseif kind == "college" then
+    -- A brick hall with a columned portico and a copper dome behind it.
+    local glass = lit and { 1.0, 0.86, 0.50 } or { 0.22, 0.28, 0.34 }
+    c({ 0.36, 0.60, 0.52 }); lg.circle("fill", x, y - 9 * u, 6 * u)
+    c({ 0.50, 0.74, 0.64 }); lg.arc("fill", x, y - 9 * u, 6 * u, math.pi, math.pi * 1.5)
+    lg.setColor(ink[1], ink[2], ink[3], 0.85 * a); lg.setLineWidth(math.max(1, 0.55 * u)); lg.circle("line", x, y - 9 * u, 6 * u)
+    c({ 0.62, 0.34, 0.26 }); lg.rectangle("fill", x - 15 * u, y - 5 * u, 30 * u, 12 * u)
+    outline("line", x - 15 * u, y - 5 * u, 30 * u, 12 * u)
+    for i = 0, 7 do
+      if i < 2 or i > 5 then c(glass); lg.rectangle("fill", x - 13.5 * u + i * 3.6 * u, y - 2 * u, 2 * u, 3 * u) end
+    end
+    c({ 0.90, 0.88, 0.82 }); lg.polygon("fill", x - 8 * u, y - 5 * u, x + 8 * u, y - 5 * u, x, y - 10 * u)
+    lg.rectangle("fill", x - 8 * u, y - 5 * u, 16 * u, 1.5 * u)
+    for i = 0, 4 do c({ 0.94, 0.92, 0.86 }); lg.rectangle("fill", x - 7 * u + i * 3.4 * u, y - 3.5 * u, 1.4 * u, 9 * u) end
+    c({ 0.80, 0.78, 0.72 }); lg.rectangle("fill", x - 9 * u, y + 5.5 * u, 18 * u, 1.5 * u)
+  elseif kind == "stadium" then
+    -- A bowl of stands round a green pitch, floodlights at the corners.
+    c({ 0.52, 0.54, 0.58 }); lg.ellipse("fill", x, y, 16 * u, 11 * u)
+    c({ 0.66, 0.68, 0.72 }); lg.ellipse("fill", x, y - 0.6 * u, 14 * u, 9.4 * u)
+    lg.setColor(0, 0, 0, 0.12 * a); lg.setLineWidth(math.max(1, 0.3 * u))
+    for k = 1, 3 do lg.ellipse("line", x, y - 0.6 * u, (14 - k * 1.3) * u, (9.4 - k * 0.9) * u) end
+    c({ 0.30, 0.58, 0.32 }); lg.rectangle("fill", x - 8 * u, y - 5 * u, 16 * u, 9 * u, u)
+    lg.setColor(1, 1, 1, 0.75 * a); lg.setLineWidth(math.max(1, 0.3 * u))
+    lg.rectangle("line", x - 7 * u, y - 4 * u, 14 * u, 7 * u); lg.line(x, y - 4 * u, x, y + 3 * u)
+    lg.circle("line", x, y - 0.5 * u, 1.8 * u)
+    lg.setColor(ink[1], ink[2], ink[3], 0.85 * a); lg.setLineWidth(math.max(1, 0.55 * u)); lg.ellipse("line", x, y, 16 * u, 11 * u)
+    for _, p in ipairs({ { -13, -8 }, { 13, -8 }, { -13, 8 }, { 13, 8 } }) do
+      c({ 0.30, 0.32, 0.34 }); lg.rectangle("fill", x + p[1] * u - 0.6 * u, y + p[2] * u - 3 * u, 1.2 * u, 3 * u)
+      if lit then lg.setColor(1, 0.96, 0.8, 0.9 * a) else c({ 0.5, 0.52, 0.54 }) end
+      lg.rectangle("fill", x + p[1] * u - 1.8 * u, y + p[2] * u - 4 * u, 3.6 * u, 1.4 * u)
+      if lit then lg.setColor(1, 0.96, 0.8, 0.12 * a); lg.circle("fill", x + p[1] * u, y + p[2] * u - 3 * u, 5 * u) end
+    end
+  elseif kind == "airport" then
+    -- A runway, a long terminal with its glass front, a control tower, and a
+    -- plane waiting at the gate.
+    c({ 0.26, 0.27, 0.29 }); lg.rectangle("fill", x - 18 * u, y + 5 * u, 36 * u, 5 * u)
+    lg.setColor(1, 1, 1, 0.7 * a)
+    for i = 0, 5 do lg.rectangle("fill", x - 15 * u + i * 6 * u, y + 7.2 * u, 3 * u, 0.6 * u) end
+    c({ 0.80, 0.82, 0.85 }); lg.rectangle("fill", x - 13 * u, y - 5 * u, 22 * u, 8 * u)
+    outline("line", x - 13 * u, y - 5 * u, 22 * u, 8 * u)
+    c(lit and { 0.62, 0.82, 0.96 } or { 0.24, 0.32, 0.40 }); lg.rectangle("fill", x - 12 * u, y - 0.5 * u, 20 * u, 2.6 * u)
+    c({ 0.70, 0.72, 0.75 }); lg.rectangle("fill", x + 11 * u, y - 10 * u, 3 * u, 13 * u)
+    c(lit and { 0.62, 0.86, 0.98 } or { 0.30, 0.40, 0.50 }); lg.rectangle("fill", x + 10 * u, y - 12 * u, 5 * u, 3 * u)
+    outline("line", x + 10 * u, y - 12 * u, 5 * u, 3 * u)
+    lg.setColor(0.95, 0.96, 0.97, a)
+    local px, py = x - 4 * u, y - 9 * u
+    lg.rectangle("fill", px - 6 * u, py - 0.8 * u, 12 * u, 1.6 * u, 0.8 * u)
+    lg.polygon("fill", px + u, py, px - 2 * u, py - 5 * u, px - 3.4 * u, py - 5 * u, px - 1.4 * u, py,
+      px - 3.4 * u, py + 5 * u, px - 2 * u, py + 5 * u)
+    lg.polygon("fill", px - 4.6 * u, py, px - 6 * u, py - 2.4 * u, px - 6.6 * u, py - 2.4 * u, px - 5.8 * u, py,
+      px - 6.6 * u, py + 2.4 * u, px - 6 * u, py + 2.4 * u)
   elseif kind == "market" then
     c(WALL, 0.8); lg.rectangle("fill", x - 9 * u, y - 2 * u, 18 * u, 9 * u)
     -- A striped awning in the trade colour.
@@ -2437,7 +2509,9 @@ function Draw.world(city, cam, state)
         n.kind == "depot" and (n.stored or 0) / (n.capacityStore or City.depotCapacity or 1),
         math.abs((city.detail.node or {})[n.id] or 0) > 0, n.id * 0.7)
     elseif building and n.kind == "client" then
-      Draw.clientBuilding(n.clientType, x, y, r, color, n.commodity, n.prospect, supplied)
+      -- A big project stands half as large again as a house.
+      Draw.clientBuilding(n.clientType, x, y, City.PROJECT_BY[n.clientType or ""] and r * 1.5 or r,
+        color, n.commodity, n.prospect, supplied)
     elseif building and n.kind == "source" and n.plant == "wind" then
       -- The park's own mark is its lead turbine, a head taller than the rest.
       local u = r / 12
@@ -2838,7 +2912,16 @@ function Draw.world(city, cam, state)
       lg.setColor(P.bad[1], P.bad[2], P.bad[3], 0.8); lg.setLineWidth(2); lg.line(pts)
     end
     local err, cost, seam
-    if state.tool=="source" then
+    if state.tool=="project" then
+      local spec = City.PROJECT_BY[state.project or ""]
+      err = spec and city:projectError(spec.key, wx, wy) or "choose a project"
+      if err == "not enough cash" then err = nil end
+      cost = spec and spec.price or 0
+      if spec then
+        Draw.clientBuilding(spec.key, mx, my, math.max(3, R.sym(17, cam.scale)) * 1.5,
+          Graph.COMMODITIES[spec.commodity].color, spec.commodity, true, false)
+      end
+    elseif state.tool=="source" then
       err = city:sourceError(state.commodity,wx,wy,state.plant)
       cost, seam = city:sourceCost(state.commodity,wx,wy,state.plant)
       if not err and state.commodity=="power" then

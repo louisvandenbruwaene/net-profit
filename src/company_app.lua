@@ -371,6 +371,12 @@ local function action(name,...)
       R.ring(l.x,l.y,P.energy)
     end
   end
+  if name=="endDay" and result.referred then
+    for i,f in ipairs(result.referred) do
+      local n=city.g.nodes[f.id]
+      if n then R.floatText(n.x,n.y-52,"Referral",P.good,1.2+i*0.05); R.ring(n.x,n.y,P.good) end
+    end
+  end
   if name=="endDay" and result.grew then
     for i,g in ipairs(result.grew) do
       if i>20 then break end
@@ -429,12 +435,17 @@ local function action(name,...)
       end
     elseif name=="layLink" then
       state.link=result.id; state.node=nil; state.edge=nil; A.play("link")
+    elseif name=="buildProject" then
+      state.node=result.id; state.edge=nil; state.tool=nil; state.project=nil
+      R.ring(result.x,result.y,P.good); R.burst(result.x,result.y,P.energy,30); A.play("unlock",0.8)
     elseif name=="build" or name=="buySource" then
       state.node=result.id; state.edge=nil; state.tool=nil; R.ring(result.x,result.y,P.good); A.play("place")
     elseif name=="buyDistrict" then
       state.district=nil; R.ring(result.x+result.w/2,result.y+result.h/2,P.good); A.play("place")
     else A.play("upgrade") end
-    if name=="repairAll" then
+    if name=="buildProject" then
+      toast(City.CLIENTS[result.clientType].name.." built")
+    elseif name=="repairAll" then
       toast(result.fixed.." main"..(result.fixed==1 and "" or "s").." repaired for $"..result.spent)
     elseif name=="buyDistrict" then
       toast(result.name.." acquired")
@@ -660,6 +671,7 @@ function love.mousepressed(x,y,button)
     if state.tool=="source" then action("buySource",state.commodity,wx,wy,state.plant)
     elseif state.tool=="terminal" then action("build",wx,wy,state.tool,state.havenKind or "port")
     elseif state.tool=="works" then action("build",wx,wy,state.tool,state.recipe or "brewery")
+    elseif state.tool=="project" then action("buildProject",state.project,wx,wy)
     else
       local kind=state.tool=="grid" and "pole" or state.tool
       action("build",wx,wy,kind,state.commodity)

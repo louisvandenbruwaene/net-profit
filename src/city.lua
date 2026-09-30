@@ -286,6 +286,9 @@ function City:sizeRange(a, b)
   for _, id in ipairs({ a, b }) do
     local n = self.g.nodes[id]
     local lim = n and City.SIZE_LIMIT[n.kind]
+    if n and n.kind == "client" and City.PROJECT_BY and City.PROJECT_BY[n.clientType or ""] then
+      lim = { max = City.PROJECT_MAIN }
+    end
     if lim then
       if lim.min then lo = math.max(lo, (select(2, City.sizeOf(lim.min)))) end
       if lim.max then hi = math.min(hi, (select(2, City.sizeOf(lim.max)))) end
@@ -3813,6 +3816,7 @@ function City:endDay()
   }
 
   -- 1. Customers pay for what arrived, and lose patience for what did not.
+  local referrers = {}
   for _, c in ipairs(self:clientList()) do
     report.revenue = report.revenue + self:clientIncome(c)
     if self:fullyServed(c) then
@@ -3833,6 +3837,7 @@ function City:endDay()
         report.grew = report.grew or {}
         report.grew[#report.grew + 1] = { x = c.x, y = c.y, id = c.id }
       end
+      if c.streak % City.REFERRAL.every == 0 then referrers[#referrers + 1] = c end
     else
       c.streak = 0
       -- A secure contract refunds what it was not given.
@@ -3992,6 +3997,13 @@ function City:endDay()
     report.arrivals[#report.arrivals+1]=request
     report.arrived=report.arrived or request
   end
+  -- Word of mouth and the big projects bring offers of their own, past the
+  -- day's usual count.
+  for _,c in ipairs(referrers) do
+    if #self:clientList(true)>=math.max(4,limit*3) then break end
+    if c.alive and c.kind=="client" and self:referralsFrom(c,report) then break end
+  end
+  self:projectArrivals(report)
   if #report.arrivals>0 then self:note("%d new requests",#report.arrivals) end
   -- 5a. The distribution hubs sign, connect and widen for today's offers too.
   self:runDistribution(report)
@@ -5212,5 +5224,6 @@ require("upgrades")(City)
 require("distribution")(City)
 require("costs")(City)
 require("terrain_life")(City)
+require("projects")(City)
 
 return City
