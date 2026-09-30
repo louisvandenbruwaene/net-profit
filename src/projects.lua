@@ -37,7 +37,7 @@ return function(City)
     if not spec then return "no such project" end
     if self:projectNode(key) then return "already built" end
     if not self.licences[spec.commodity] then return "needs the " .. spec.commodity .. " licence" end
-    if #self:clientList() < spec.clients then return spec.clients .. " customers first" end
+    if self:customerCount() < spec.clients then return spec.clients .. " customers first" end
     return nil
   end
 

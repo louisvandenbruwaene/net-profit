@@ -972,9 +972,15 @@ local function buildPanel()
   heading("TRADE",y); y=y+22
   local chips={}
   for _,name in ipairs(Graph.TRADES) do if city.licences[name] then chips[#chips+1]={name,true} end end
+  -- The next trade shows, dim, once the first is running; roads only once
+  -- there are roads to build.
   local nextTrade=city:nextLicence()
-  if nextTrade then chips[#chips+1]={nextTrade,false} end
-  chips[#chips+1]={"people",city:unlocked("roads")}
+  if nextTrade and (city:customerCount()>=City.PROGRESSION.NEXT_TRADE_AT or city:licenceCount()>1) then
+    chips[#chips+1]={nextTrade,false}
+  end
+  local roads=city:unlocked("roads") and (city:customerCount()>=City.PROGRESSION.ROADS_AT
+    or (city.hasRoad and city:hasRoad()) or #city.g:nodesOfKind("terminal")>0)
+  if roads or state.people then chips[#chips+1]={"people",true} end
   for _,name in ipairs(UI.goodsInPlay()) do chips[#chips+1]={name,true} end
   local per,cw=6,math.floor((CW+4)/6)-4
   for i,ch in ipairs(chips) do
@@ -1004,7 +1010,11 @@ local function buildPanel()
     local col,rw=shown%5,math.floor(shown/5)
     shown=shown+1
     local bx,by=M+col*(TS+4),y+rw*(TS+4)
-    button(id,"",bx,by,TS,TS,press,afford,name.."  $"..price..(tip and tip~="" and ("\n"..tip) or ""),active,colour)
+    -- A tile that has just opened pulses until it is first used.
+    local fresh=state.newTiles and state.newTiles[id]
+    local act0=press
+    press=function() if state.newTiles then state.newTiles[id]=nil end; act0() end
+    button(id,"",bx,by,TS,TS,press,afford,name.."  $"..price..(tip and tip~="" and ("\n"..tip) or ""),active,colour,fresh)
     -- With hints on, each tile carries its name under the icon until the
     -- icons are learnt; with hints off the grid is icons only.
     local named=state.buildHelp or not state.hintsChosen
@@ -1085,7 +1095,8 @@ local function buildPanel()
     end
     if relevant
       and (not City.BUILD_UNLOCK[name] or city:unlocked(City.BUILD_UNLOCK[name]))
-      and (not gate[name] or city:unlocked(gate[name])) then
+      and (not gate[name] or City.TOOL_AT[name] or city:unlocked(gate[name]))
+      and city:toolOpen(name) then
       local kind=toolKind(name)
       local label=({junction="T split",grid="Tower",pump="Pump",filtration="Filter",binder="Binder",lab="Env. lab",gate="Valve",depot="Tank",terminal="Haven",dc="Yard",
              stop="Bus stop",station="Station",resort="Resort",corner="Corner",intersection="Crossing",roundabout="Roundabout",interchange="Interchange"})[name]
@@ -1125,7 +1136,8 @@ local function buildPanel()
   -- Dim until the company has the customers to justify one.
   if not state.people then
     for _,spec in ipairs(City.PROJECTS) do
-      if spec.commodity==state.commodity and city.licences[spec.commodity] and not city:projectNode(spec.key) then
+      if spec.commodity==state.commodity and city.licences[spec.commodity] and not city:projectNode(spec.key)
+        and city:customerCount()>=spec.clients-City.PROGRESSION.TEASE then
         local locked=city:projectLocked(spec.key)
         local income=City.projectIncome(spec.key)
         local nm=spec.name:sub(1,1)..spec.name:sub(2):lower()
@@ -1142,11 +1154,14 @@ local function buildPanel()
   end
   y=y+math.ceil(math.max(shown,1)/5)*(TS+4)+10
   -- Shops, and the bench that keeps people by them. Offered once the cafe is.
-  if not state.people and not city:shopLocked("cafe") then
+  local customers=city:customerCount()
+  local tease=City.PROGRESSION.TEASE
+  if not state.people and customers>=City.SHOPS[1].clients-tease then
     heading("SHOPS",y); y=y+22
     shown=0
     for _,spec in ipairs(City.SHOPS) do
       local locked=city:shopLocked(spec.key)
+      if customers>=spec.clients-tease then
       local nm=spec.name:sub(1,1)..spec.name:sub(2):lower()
       tile("shop-"..spec.key,nm,spec.cost,not locked and city.money>=spec.cost,
         state.tool=="shop" and state.shop==spec.key,P.energy,
@@ -1156,12 +1171,26 @@ local function buildPanel()
         end,
         locked or (spec.levels[1].." a day, $"..spec.price.." each"),
         function(ix,iy) Draw.clientBuilding(spec.key,ix,iy+2,10,P.energy,spec.main,locked~=nil or city.money<spec.cost,true) end)
+      end
     end
     local bc=City.SHOP_DATA.BENCH.cost
+    if not city:shopLocked("cafe") then
     tile("tool-bench","Bench",bc,city.money>=bc,state.tool=="bench",P.good,
       function() state.tool=state.tool~="bench" and "bench" or nil end,"People linger: shops near it draw more",
       function(ix,iy) Draw.bench(ix,iy,1.4) end)
+    end
     y=y+math.ceil(math.max(shown,1)/5)*(TS+4)+10
+  end
+  -- The next thing to open, and how far off it is: one line and a bar.
+  local nxt=not state.people and city:nextOpening()
+  if nxt then
+    local label="Next: "..nxt.name
+    local count=nxt.have.."/"..nxt.need
+    single(label,M,y,"small",P.textDim,CW-70)
+    single(count,M+CW-66,y,"small",P.textFaint,66,"right")
+    lg.setColor(P.with(P.panelEdge,0.7)); lg.rectangle("fill",M,y+20,CW,4,2)
+    lg.setColor(P.with(P.good,0.8)); lg.rectangle("fill",M,y+20,CW*math.min(1,nxt.have/nxt.need),4,2)
+    y=y+36
   end
   -- The works. Nine buildings that turn one thing into another, listed with
   -- what they eat, because that is the only thing worth knowing about them.
@@ -2486,10 +2515,13 @@ local function topBar(open)
   gear(rx-22,30,11,state.settings and P.flow or P.textDim)
   rx=rx-52
   local bill,broken=city:repairAllCost()
+  -- The slot is kept, empty, until the first leak: nothing to fix, nothing shown.
+  if broken>0 or city.leakSeen or city.day>City.PROGRESSION.GENTLE_DAYS then
   button("repair-all",broken>0 and ("Fix $"..bill) or "Fix",rx-80,10,80,40,function() act("repairAll") end,
     broken>0 and city.money>=bill,
     broken>0 and (broken.." damaged "..(broken==1 and "line" or "lines")..". Repair every one of them.") or "Nothing is damaged",
     broken>0,P.bad)
+  end
   rx=rx-88
 
   -- Money on the left: cash, then tomorrow's gain over how many are supplied.

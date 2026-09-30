@@ -169,6 +169,8 @@ function Walk.start(app,mode)
     local growth=math.max(0,math.min(1,(self.reputation-50)/50))
     return math.min(4,1+math.floor(3*growth+1e-9))
   end
+  -- Roads are walked through with a handful of customers, not fifteen.
+  C.PROGRESSION.ROADS_AT=0
   app.city():refresh()
   if mode=="--shot" then capture("net-profit-01-opening",app); playerShot("net-profit-00-player-opening",app); return end
   local c=app.city()

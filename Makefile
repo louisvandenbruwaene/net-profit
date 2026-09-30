@@ -47,6 +47,7 @@ test:
 	@$(LUA) test/test_projects.lua
 	@$(LUA) test/test_usage.lua
 	@$(LUA) test/test_shops.lua
+	@$(LUA) test/test_progression.lua
 
 # What an endless map costs to solve. Kept out of `test` because it is a timing
 # measurement and a loaded machine is not a regression, but watched in CI.
