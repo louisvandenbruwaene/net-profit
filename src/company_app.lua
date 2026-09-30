@@ -406,6 +406,7 @@ local function action(name,...)
         opened[#opened+1]=t.name
         state.newTiles=state.newTiles or {}
         state.newTiles["tool-"..t.tool]=true
+        if not state.banner then state.banner={title="New: "..t.name,t=R.t} end
       end
     end
     table.sort(opened)
@@ -426,7 +427,14 @@ local function action(name,...)
     for i,p in ipairs(paying) do
       if i>60 then break end
       local delay=math.min(0.9,i*0.035)
-      if p.v>0 then R.floatText(p.x,p.y-26,"+$"..p.v,P.good,delay) end
+      if p.v>0 then
+        R.floatText(p.x,p.y-26,"+$"..p.v,P.good,delay)
+        -- A coin leaves the customer for the cash counter.
+        if i<=40 then
+          state.coins=state.coins or {}
+          table.insert(state.coins,{wx=p.x,wy=p.y,t0=R.t+delay+0.25,seed=i})
+        end
+      end
       -- What a short customer did not pay, so the problem is on the map.
       if p.missed>0 then R.floatText(p.x,p.y+(p.v>0 and 4 or -26),"-$"..p.missed,P.warn,delay+0.1) end
       -- A tick per landing, rising, so a good day sounds like one.

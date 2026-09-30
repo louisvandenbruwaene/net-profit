@@ -2557,14 +2557,24 @@ local function topBar(open)
     if not UI.cashFlash or UI.cashFlashTarget~=target then
       UI.cashFlash,UI.cashFlashTarget,UI.cashFlashUp=R.t,target,diff>0
     end
-    local step=math.max(1,math.abs(diff)*0.12)
+    -- While the day's coins are flying the counter climbs slowly, so it is
+    -- seen to fill as they land.
+    local step=math.max(1,math.abs(diff)*(state.coins and 0.035 or 0.12))
     UI.cashShown=math.abs(diff)<=step and target or UI.cashShown+(diff>0 and step or -step)
   end
   local cash="$"..math.floor(UI.cashShown+0.5)
   local flash=UI.cashFlash and math.max(0,1-(R.t-UI.cashFlash)/0.9) or 0
   local cashColor=flash>0 and P.mix and P.mix(P.energy,UI.cashFlashUp and P.good or P.bad,flash)
     or (flash>0.3 and (UI.cashFlashUp and P.good or P.bad)) or P.energy
-  single(cash,x0,16,UI.headerFont(cash,cashW),cashColor,cashW)
+  -- The counter swells as each coin of the day's takings lands in it.
+  local pulse=UI.cashPulse and math.max(0,1-(R.t-UI.cashPulse)/0.18) or 0
+  if pulse>0 then
+    lg.push(); lg.translate(x0,30); lg.scale(1+0.06*pulse); lg.translate(-x0,-30)
+    single(cash,x0,16,UI.headerFont(cash,cashW),cashColor,cashW)
+    lg.pop()
+  else
+    single(cash,x0,16,UI.headerFont(cash,cashW),cashColor,cashW)
+  end
   UI.cashX=x0
   -- Today's weekday and weather, then what closing it earns. Pointing at it
   -- gives the next days' weather and what tomorrow's peak would do.
@@ -2682,6 +2692,40 @@ local function toastPill(open)
         state.toast,state.toastChoke=nil,nil
       end}
   end
+end
+
+-- The day's takings, flying: a gold coin from each paying customer arcs up to
+-- the cash counter, spinning, and the counter swells a little as each lands.
+local function coins()
+  local list=state.coins
+  if not list or #list==0 or not UI.camera then return end
+  local k=UI.scale or 1
+  local tx,ty=(UI.cashX or 200)+44,34
+  for i=#list,1,-1 do
+    local c=list[i]
+    local age=R.t-c.t0
+    local dur=0.75
+    if age>dur then
+      table.remove(list,i)
+      UI.cashPulse=R.t
+    elseif age>=0 then
+      local sx,sy=UI.camera:toScreen(c.wx,c.wy)
+      sx,sy=sx/k,sy/k-20
+      local f=age/dur
+      local e=f*f*(3-2*f)
+      -- Up and over: a control point above the midpoint.
+      local mx,my=(sx+tx)/2+(c.seed%2==0 and 60 or -60),math.min(sy,ty)-80
+      local x=(1-e)^2*sx+2*(1-e)*e*mx+e*e*tx
+      local y=(1-e)^2*sy+2*(1-e)*e*my+e*e*ty
+      local r=9*(1-0.3*e)
+      local spin=math.abs(math.cos((age*9)+c.seed))
+      lg.setColor(0,0,0,0.25); lg.ellipse("fill",x+2,y+3,r*math.max(0.25,spin),r)
+      lg.setColor(0.86,0.62,0.16); lg.ellipse("fill",x,y,r*math.max(0.25,spin),r)
+      lg.setColor(1.0,0.84,0.30); lg.ellipse("fill",x-0.6,y-0.6,r*0.78*math.max(0.25,spin),r*0.78)
+      lg.setColor(1,1,0.85,0.8); lg.ellipse("fill",x-r*0.3*spin,y-r*0.35,r*0.22*math.max(0.3,spin),r*0.18)
+    end
+  end
+  if #list==0 then state.coins=nil end
 end
 
 -- A small card beside the pointer for whatever it rests on: the two or three
@@ -2983,6 +3027,7 @@ function UI.draw(c,s,action)
   toastPill(open)
   minimap()
   hoverCard()
+  coins()
   -- A milestone or an ambition reached gets a banner of its own for a moment.
   if state.banner and not state.drag and not state.tool then
     local b=state.banner
