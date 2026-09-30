@@ -25,6 +25,25 @@ Data.UNLOCKS = {
   internet = { reactor = true, name = "Data centres and the internet" },
 }
 
+-- Tools arrive one at a time, by customers signed. The well and the T split
+-- are there from the start; anything not listed follows its unlock above.
+Data.TOOL_UNLOCK = {
+  { tool = "pump",       clients = 4,  name = "Pump" },
+  { tool = "depot",      clients = 5,  name = "Tank" },
+  { tool = "gate",       clients = 7,  name = "Valve" },
+  { tool = "filtration", clients = 8,  name = "Filter" },
+  { tool = "binder",     clients = 10, name = "Binder" },
+  { tool = "lab",        clients = 12, name = "Env. lab" },
+}
+-- The next trade's chip shows from this many customers.
+Data.NEXT_TRADE_AT = 5
+-- Roads and routes wait for this many customers, even where people live.
+Data.ROADS_AT = 15
+-- Projects and shops show, dim, this many customers before they open.
+Data.TEASE = 4
+-- Leaks ramp up over the first days, so an opening is not a repair bill.
+Data.GENTLE_DAYS = 14
+
 Data.MILESTONES = {
   {name = "First supply", target = 1, reward = 60},
   {name = "Neighbourhood utility", target = 5, reward = 150},

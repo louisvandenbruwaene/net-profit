@@ -331,6 +331,8 @@ local function action(name,...)
   if name=="endDay" then
     wasOpen={}
     for key in pairs(City.UNLOCKS) do wasOpen[key]=city:unlocked(key) end
+    wasOpen.tools={}
+    for _,t in ipairs(City.PROGRESSION.TOOL_UNLOCK) do wasOpen.tools[t.tool]=city:toolOpen(t.tool) end
     paying={}
     for _,c in ipairs(city:clientList()) do
       local v=city:clientIncome(c)
@@ -397,6 +399,14 @@ local function action(name,...)
     local opened={}
     for key,spec in pairs(City.UNLOCKS) do
       if not wasOpen[key] and city:unlocked(key) then opened[#opened+1]=spec.name end
+    end
+    -- A tool that opened today: named in the toast, and its tile pulses.
+    for _,t in ipairs(City.PROGRESSION.TOOL_UNLOCK) do
+      if not wasOpen.tools[t.tool] and city:toolOpen(t.tool) then
+        opened[#opened+1]=t.name
+        state.newTiles=state.newTiles or {}
+        state.newTiles["tool-"..t.tool]=true
+      end
     end
     table.sort(opened)
     -- What the chokes cost today, and a click away from the worst of them.

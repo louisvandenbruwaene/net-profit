@@ -3888,8 +3888,11 @@ function City:endDay()
   --    capacity every day until somebody pays to fix it.
   for _, e in ipairs(self.g.edges) do
     if e.alive then
-      if not e.leaking and self:random() < self:leakChance(e) then
+      -- A new company's mains settle in: leaks ramp up over its first days.
+      local gentle = math.min(1, self.day / City.PROGRESSION.GENTLE_DAYS)
+      if not e.leaking and self:random() < self:leakChance(e) * gentle then
         e.leaking = true
+        self.leakSeen = true
         self:note("Leak found on a %s main", e.commodity)
       end
       if e.leaking then
@@ -4841,6 +4844,53 @@ function City:licenceCount()
   local n = 0
   for _, name in ipairs(Graph.TRADES) do if self.licences[name] then n = n + 1 end end
   return n
+end
+
+City.PROGRESSION = require("data.progression")
+City.TOOL_AT = {}
+for _, t in ipairs(City.PROGRESSION.TOOL_UNLOCK) do City.TOOL_AT[t.tool] = t end
+
+-- Signed customers, not counting the company's own shops.
+function City:customerCount()
+  local n = 0
+  for _, c in ipairs(self:clientList()) do if not c.shop then n = n + 1 end end
+  return n
+end
+
+-- Whether a build tool is open. Once open it stays open, even if customers
+-- are lost, so nothing the player has used disappears from under them.
+function City:toolOpen(tool)
+  local t = City.TOOL_AT[tool]
+  if not t then return true end
+  self.opened = self.opened or {}
+  if self.opened[tool] then return true end
+  if self:customerCount() >= t.clients then self.opened[tool] = true; return true end
+  -- A company that already built one keeps the tool.
+  for _, n in ipairs(self.g:nodesOfKind(tool)) do if n.alive then self.opened[tool] = true; return true end end
+  return false
+end
+
+-- The next thing that opens with customers, for the goal line in the build
+-- panel: its name and how many customers it wants.
+function City:nextOpening()
+  local have, best = self:customerCount(), nil
+  local function consider(name, need)
+    if need > have and (not best or need < best.need) then best = { name = name, need = need } end
+  end
+  for _, t in ipairs(City.PROGRESSION.TOOL_UNLOCK) do if not self:toolOpen(t.tool) then consider(t.name, t.clients) end end
+  for key, spec in pairs(City.UNLOCKS) do
+    if key ~= "everyday" and spec.clients and not spec.intake and not self:unlocked(key) then consider(spec.name, spec.clients) end
+  end
+  for _, spec in ipairs(City.SHOPS or {}) do
+    if self.licences[spec.main] then consider(spec.name:sub(1, 1) .. spec.name:sub(2):lower(), spec.clients) end
+  end
+  for _, spec in ipairs(City.PROJECTS or {}) do
+    if self.licences[spec.commodity] and not self:projectNode(spec.key) then
+      consider(spec.name:sub(1, 1) .. spec.name:sub(2):lower(), spec.clients)
+    end
+  end
+  if best then best.have = have end
+  return best
 end
 
 function City:unlocked(key)

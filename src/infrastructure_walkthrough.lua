@@ -5,6 +5,9 @@ return function(app,capture,click,scrollTo,check)
   c.money=50000; c.obstacles={}; c.stock={steel=500,concrete=500,panels=24}
   c.licences.power=true; c.licences.oil=true; c.licences.food=true
   c.guideDismissed=true
+  -- An engineering fixture, not an opening: every tool is already open.
+  c.opened={}
+  for _,t in ipairs(City.PROGRESSION.TOOL_UNLOCK) do c.opened[t.tool]=true end
   for _,d in ipairs(c.districts) do d.owned=true end
   c.permits={park=true,bedrock=true,river=true}
   app.setTestCity(c)
