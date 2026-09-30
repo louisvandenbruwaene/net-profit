@@ -186,7 +186,20 @@ return function(City)
     return nil
   end
 
+  -- Where a shop put down at (x, y) actually stands: squared up to the
+  -- street, a fixed step back from it, so its door faces the pavement.
+  function City:shopSpot(x, y)
+    local st = self:streetAt(x, y)
+    if not st then return x, y end
+    local d = self:districtAt(x, y)
+    if st.ay == st.by then
+      return x, st.ay == d.y and d.y + D.SETBACK or d.y + d.h - D.SETBACK
+    end
+    return st.ax == d.x and d.x + D.SETBACK or d.x + d.w - D.SETBACK, y
+  end
+
   function City:shopError(key, x, y)
+    x, y = self:shopSpot(x, y)
     local why = self:shopLocked(key)
     if why then return why end
     why = self:placementError(x, y, "client")
@@ -200,6 +213,7 @@ return function(City)
     local why = self:shopError(key, x, y)
     if why then return nil, why end
     local spec = City.SHOP_BY[key]
+    x, y = self:shopSpot(x, y)
     self:spend(spec.cost)
     local n = self.g:addNode(x, y, "client")
     n.clientType, n.commodity, n.shop = key, spec.main, true

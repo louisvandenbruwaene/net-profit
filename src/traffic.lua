@@ -8,6 +8,7 @@
 -- and the same frame always draws the same traffic.
 local R = require("render")
 local P = require("palette")
+local City = require("city")
 
 local Traffic = {}
 local lg = love and love.graphics
@@ -26,8 +27,8 @@ local CAR_COLOURS = {
   { 0.95, 0.76, 0.30 }, { 0.55, 0.60, 0.64 }, { 0.36, 0.66, 0.46 },
 }
 local COATS = {
-  { 0.86, 0.36, 0.30 }, { 0.30, 0.50, 0.84 }, { 0.93, 0.80, 0.36 }, { 0.84, 0.86, 0.88 },
-  { 0.46, 0.72, 0.52 }, { 0.62, 0.42, 0.78 },
+  { 0.62, 0.30, 0.28 }, { 0.26, 0.36, 0.52 }, { 0.72, 0.62, 0.40 }, { 0.70, 0.70, 0.68 },
+  { 0.34, 0.46, 0.36 }, { 0.44, 0.34, 0.48 }, { 0.22, 0.24, 0.28 }, { 0.58, 0.46, 0.34 },
 }
 
 --------------------------------------------------------------------------------
@@ -118,13 +119,140 @@ local function vehicle(kind, x, y, dx, dy, scale, colour)
   lg.pop()
 end
 
-local function person(x, y, scale, coat, t, phase)
-  local r = px(4, scale, 1.5)
-  local bob = math.sin(t * 9 + phase) * r * 0.25
-  lg.setColor(0, 0, 0, 0.3); lg.circle("fill", x + r * 0.5, y + r * 0.7, r)
-  lg.setColor(coat); lg.circle("fill", x, y + bob, r)
-  if r >= 1.6 then lg.setColor(0.93, 0.80, 0.66); lg.circle("fill", x, y + bob - r * 0.2, r * 0.5) end
+-- A person seen from above: legs stepping under a coat, shoulders across the
+-- way they walk, a head of hair. Muted colours, so a crowd reads as people
+-- and not confetti. Far out they are a single soft dot.
+local HAIR = { { 0.20, 0.14, 0.10 }, { 0.42, 0.28, 0.16 }, { 0.78, 0.64, 0.38 }, { 0.10, 0.10, 0.11 }, { 0.62, 0.62, 0.60 } }
+local function person(x, y, dx, dy, scale, coat, t, phase, still)
+  local r = px(4.2, scale, 1.1)
+  if r < 1.8 then
+    lg.setColor(coat[1], coat[2], coat[3], 0.9); lg.circle("fill", x, y, 1.2)
+    return
+  end
+  lg.push(); lg.translate(x, y); lg.rotate(math.atan2(dy, dx))
+  lg.setColor(0, 0, 0, 0.22); lg.ellipse("fill", r * 0.35, r * 0.55, r * 0.9, r * 1.05)
+  local stride = still and 0 or math.sin(t * 7 + phase) * r * 0.55
+  -- Legs: two dark strokes, one ahead and one behind.
+  lg.setColor(0.18, 0.19, 0.22)
+  lg.ellipse("fill", stride, -r * 0.32, r * 0.42, r * 0.22)
+  lg.ellipse("fill", -stride, r * 0.32, r * 0.42, r * 0.22)
+  -- Shoulders and coat, arms swinging opposite the legs.
+  lg.setColor(coat[1] * 0.8, coat[2] * 0.8, coat[3] * 0.8)
+  lg.ellipse("fill", -stride * 0.5, -r * 0.78, r * 0.3, r * 0.2)
+  lg.ellipse("fill", stride * 0.5, r * 0.78, r * 0.3, r * 0.2)
+  lg.setColor(coat); lg.ellipse("fill", 0, 0, r * 0.5, r * 0.8)
+  lg.setColor(0, 0, 0, 0.35); lg.setLineWidth(math.max(0.6, r * 0.12)); lg.ellipse("line", 0, 0, r * 0.5, r * 0.8)
+  local hair = HAIR[phase % #HAIR + 1]
+  lg.setColor(hair); lg.circle("fill", r * 0.05, 0, r * 0.42)
+  lg.setColor(0.90, 0.76, 0.62); lg.circle("fill", r * 0.22, 0, r * 0.18)
+  lg.pop()
 end
+
+--------------------------------------------------------------------------------
+-- Where people may walk. The pavement runs along each plot just inside its
+-- edge, and is cut wherever something stands on it: the river, a wood, rough
+-- ground, a building. Walkers keep to one clear stretch and turn at its ends.
+-- A building's front path, door to kerb, is walked only if it is clear too.
+-- Both are worked out once per change to the company and kept.
+--------------------------------------------------------------------------------
+
+local PAVE = 8.5
+local walkCache = setmetatable({}, { __mode = "k" })
+
+local function walkData(city)
+  local rev = city.revision or 0
+  local w = walkCache[city]
+  if w and w.rev == rev and w.nodes == #city.g.nodes then return w end
+  w = { rev = rev, nodes = #city.g.nodes, runs = {}, doors = {} }
+  -- Buildings in a coarse grid, so a sample asks only its neighbours.
+  local grid = {}
+  for _, n in ipairs(city.g.nodes) do
+    if n.alive and n.kind ~= "corner" then
+      local k = math.floor(n.x / 60) * 65536 + math.floor(n.y / 60)
+      grid[k] = grid[k] or {}; table.insert(grid[k], n)
+    end
+  end
+  w.grid = grid
+  walkCache[city] = w
+  return w
+end
+
+-- Is this spot open ground a person could stand on? `except` is the building
+-- whose own door the path leaves from.
+local function standable(city, w, x, y, except)
+  if y < 0 then return false end
+  if city:obstacleAt(x, y) then return false end
+  local gx, gy = math.floor(x / 60), math.floor(y / 60)
+  for ix = gx - 1, gx + 1 do
+    for iy = gy - 1, gy + 1 do
+      for _, n in ipairs(w.grid[ix * 65536 + iy] or {}) do
+        if n ~= except then
+          local body = n.kind == "client" and (City.PROJECT_BY and City.PROJECT_BY[n.clientType or ""] and 34 or 22) or 16
+          if (n.x - x) ^ 2 + (n.y - y) ^ 2 < body * body then return false end
+        end
+      end
+    end
+  end
+  return true
+end
+
+-- The clear stretches of one plot's pavement, as {a, b} along its perimeter.
+local function pavementRuns(city, d)
+  local w = walkData(city)
+  local key = d.id or ((d.col or 0) * 131 + (d.row or 0))
+  if w.runs[key] then return w.runs[key] end
+  local runs, open = {}, nil
+  local len = 2 * (d.w + d.h - PAVE * 4)
+  for s = 0, len, 6 do
+    local x, y = perimeterPoint(d, s, PAVE)
+    local ok = standable(city, w, x, y)
+    if ok and not open then open = s end
+    if not ok and open then
+      if s - open >= 40 then runs[#runs + 1] = { open, s - 6 } end
+      open = nil
+    end
+  end
+  if open and len - open >= 40 then runs[#runs + 1] = { open, len } end
+  w.runs[key] = runs
+  return runs
+end
+
+-- A building's way out: its door, the kerb straight across from it on its
+-- own plot's nearest edge, and the pavement run that kerb lands on. Nil if
+-- anything stands between.
+local function frontPath(city, n)
+  local w = walkData(city)
+  local cached = w.doors[n.id]
+  if cached ~= nil then return cached or nil end
+  local d = city:districtAt(n.x, n.y)
+  local result = false
+  if d and not d.island then
+    local sides = {
+      { dist = n.y - d.y, kx = n.x, ky = d.y + PAVE },
+      { dist = d.y + d.h - n.y, kx = n.x, ky = d.y + d.h - PAVE },
+      { dist = n.x - d.x, kx = d.x + PAVE, ky = n.y },
+      { dist = d.x + d.w - n.x, kx = d.x + d.w - PAVE, ky = n.y },
+    }
+    table.sort(sides, function(a, b) return a.dist < b.dist end)
+    local side = sides[1]
+    if side.dist < 260 then
+      local dx, dy = side.kx - n.x, side.ky - n.y
+      local len = math.sqrt(dx * dx + dy * dy)
+      local clear = true
+      for k = 18, len, 6 do
+        local x, y = n.x + dx * k / len, n.y + dy * k / len
+        if not standable(city, w, x, y, n) then clear = false; break end
+      end
+      if clear and standable(city, w, side.kx, side.ky, n) then
+        result = { dx = n.x, dy = n.y, kx = side.kx, ky = side.ky, len = len }
+      end
+    end
+  end
+  w.doors[n.id] = result
+  return result or nil
+end
+
+local function tri(v) v = v % 2; return v < 1 and v or 2 - v end
 
 local function drawStreets(city, cam, visible, t)
   if cam.scale < 0.22 then return end
@@ -148,15 +276,22 @@ local function drawStreets(city, cam, visible, t)
         end
       end
       if cam.scale > 0.55 then
-        -- Pavements: slow, both ways, keeping to the kerb of the plot.
-        local walkers = math.floor(len / (d.owned and 160 or 600))
-        for i = 1, walkers do
-          local dir = hash(id, i, 5) < 0.5 and 1 or -1
-          local s = i * len / walkers + dir * t * (7 + 4 * hash(id, i, 6))
-          local x, y = perimeterPoint(d, s, 10.5)
-          if cam:sees(x, y, 10) then
-            local sx, sy = cam:toScreen(x, y)
-            person(sx, sy, cam.scale, COATS[math.floor(hash(id, i, 7) * #COATS) + 1], t, i)
+        -- Pavement walkers, each pacing one clear stretch end to end.
+        for r, run in ipairs(pavementRuns(city, d)) do
+          local span = run[2] - run[1]
+          local walkers = math.max(1, math.floor(span / (d.owned and 150 or 500)))
+          for i = 1, walkers do
+            local speed = 6 + 4 * hash(id, r * 37 + i, 6)
+            local v = (t * speed + hash(id, r * 37 + i, 5) * 2 * span) / span
+            local f = tri(v)
+            local s = run[1] + f * span
+            local x, y, dx, dy = perimeterPoint(d, s, PAVE)
+            if cam:sees(x, y, 10) then
+              local back = (v % 2) >= 1
+              local sx, sy = cam:toScreen(x, y)
+              person(sx, sy, back and -dx or dx, back and -dy or dy, cam.scale,
+                COATS[math.floor(hash(id, r * 37 + i, 7) * #COATS) + 1], t, r * 7 + i)
+            end
           end
         end
       end
@@ -165,64 +300,36 @@ local function drawStreets(city, cam, visible, t)
 end
 
 --------------------------------------------------------------------------------
--- Neighbours. Each customer has a friend in the nearest house, and somebody is
--- always walking over for a cup of something. Neighbours are found through a
--- bucket grid and kept until the customer count changes.
+-- Residents. Now and then somebody leaves a building by its front path, walks
+-- to the kerb, and comes back. Only where that path is clear.
 --------------------------------------------------------------------------------
 
-local neighbourCache = setmetatable({}, { __mode = "k" })
-local BUCKET = 300
-local function neighbours(city)
-  local list = city:clientList()
-  local cached = neighbourCache[city]
-  if cached and cached.n == #list then return cached.pairs end
-  local grid = {}
-  for _, c in ipairs(list) do
-    local k = math.floor(c.x / BUCKET) * 65536 + math.floor(c.y / BUCKET)
-    grid[k] = grid[k] or {}; table.insert(grid[k], c)
-  end
-  local out = {}
-  for _, c in ipairs(list) do
-    local bx, by = math.floor(c.x / BUCKET), math.floor(c.y / BUCKET)
-    local best, bestD
-    for gx = bx - 1, bx + 1 do
-      for gy = by - 1, by + 1 do
-        for _, o in ipairs(grid[gx * 65536 + gy] or {}) do
-          local dd = (o.x - c.x) ^ 2 + (o.y - c.y) ^ 2
-          if o ~= c and dd > 30 * 30 and (not bestD or dd < bestD) then best, bestD = o, dd end
-        end
-      end
-    end
-    if best then out[#out + 1] = { c, best } end
-  end
-  neighbourCache[city] = { n = #list, pairs = out }
-  return out
+-- Walk a front path: out, a pause at the kerb, back, a long spell indoors.
+local function frontWalker(cam, path, t, seed, coat, phase, cycle)
+  local walk = path.len / 7
+  cycle = cycle or walk * 2 + 30
+  local k = (t + seed * cycle) % cycle
+  local f, out
+  if k < walk then f, out = k / walk, true
+  elseif k < walk + 4 then f = 1
+  elseif k < walk * 2 + 4 then f, out = 1 - (k - walk - 4) / walk, false
+  else return end
+  local ddx, ddy = path.kx - path.dx, path.ky - path.dy
+  local x, y = path.dx + ddx * f, path.dy + ddy * f
+  if not cam:sees(x, y, 10) then return end
+  local sx, sy = cam:toScreen(x, y)
+  if out == nil then person(sx, sy, ddx, ddy, cam.scale, coat, t, phase, true)
+  else person(sx, sy, out and ddx or -ddx, out and ddy or -ddy, cam.scale, coat, t, phase) end
 end
 
-local function drawNeighbours(city, cam, t)
+local function drawResidents(city, cam, t)
   if cam.scale < 0.55 then return end
-  for _, pair in ipairs(neighbours(city)) do
-    local a, b = pair[1], pair[2]
-    if cam:seesBox(math.min(a.x, b.x), math.min(a.y, b.y), math.max(a.x, b.x), math.max(a.y, b.y), 20) then
-      local dx, dy = b.x - a.x, b.y - a.y
-      local len = math.sqrt(dx * dx + dy * dy)
-      -- Out, a pause at the door, back, a pause at home. Starting a little
-      -- clear of each building so nobody walks through a wall.
-      local walk = len / 8
-      local cycle = walk * 2 + 12
-      local k = (t + hash(a.id, b.id) * cycle) % cycle
-      local f
-      if k < walk then f = k / walk
-      elseif k < walk + 6 then f = 1
-      elseif k < walk * 2 + 6 then f = 1 - (k - walk - 6) / walk
-      else f = 0 end
-      local clear = math.min(0.45, 22 / len)
-      f = clear + f * (1 - clear * 2)
-      -- A little meander so the path is not a ruler line.
-      local side = math.sin(f * math.pi) * math.min(12, len * 0.08) * (hash(a.id, 9) < 0.5 and 1 or -1)
-      local x, y = a.x + dx * f - dy / len * side, a.y + dy * f + dx / len * side
-      local sx, sy = cam:toScreen(x, y)
-      person(sx, sy, cam.scale, COATS[a.id % #COATS + 1], t, a.id)
+  for _, c in ipairs(city:clientList()) do
+    if not c.shop and cam:sees(c.x, c.y, 120 * cam.scale) then
+      local path = frontPath(city, c)
+      if path then
+        frontWalker(cam, path, t, hash(c.id, 3), COATS[c.id % #COATS + 1], c.id)
+      end
     end
   end
 end
@@ -360,7 +467,7 @@ local function drawCrews(city, cam, t)
         if cam.scale > 0.45 then
           local w = math.sin(t * 0.7 + i) * 10
           local wx, wy = cam:toScreen(mx + dx / len * w, my + dy / len * w)
-          person(wx, wy, cam.scale, { 0.98, 0.62, 0.22 }, t, i)
+          person(wx, wy, dx / len * math.cos(t * 0.7 + i), dy / len * math.cos(t * 0.7 + i) + 1e-3, cam.scale, { 0.98, 0.62, 0.22 }, t, i)
         end
       end
     end
@@ -458,35 +565,36 @@ local function drawShoppers(city, cam, t)
   if cam.scale < 0.45 or not city.shops then return end
   for _, n in ipairs(city:shops()) do
     if cam:sees(n.x, n.y, 260 * cam.scale) then
-      local st = city:streetAt(n.x, n.y)
-      if st then
-        local horizontal = st.ay == st.by
-        -- The kerb point in front of the shop.
-        local kx, ky = horizontal and n.x or st.ax, horizontal and st.ay or n.y
-        local passing = math.min(24, math.ceil((n.passing or 0) / 8))
-        for i = 1, passing do
-          local dir = i % 2 == 0 and 1 or -1
-          local span = 520
-          local s = ((hash(n.id, i, 31) * span + dir * t * (8 + 4 * hash(n.id, i, 32))) % span) - span / 2
-          local side = (hash(n.id, i, 33) - 0.5) * 10
-          local x = horizontal and kx + s or kx + side
-          local y = horizontal and ky + side or ky + s
-          if cam:sees(x, y, 10) then
-            local sx, sy = cam:toScreen(x, y)
-            person(sx, sy, cam.scale, COATS[math.floor(hash(n.id, i, 34) * #COATS) + 1], t, i)
-          end
-        end
-        local inside = math.min(10, math.ceil((city:shopServed(n) or 0) / 6))
+      local path = frontPath(city, n)
+      local served = city:shopServed(n) or 0
+      if path then
+        -- Customers go in by the front path and come out again, each on
+        -- their own clock; the busier the day, the more of them.
+        local inside = math.min(10, math.ceil(served / 5))
         for i = 1, inside do
-          -- Kerb to door and back, each on its own clock.
-          local cycle = 9 + 4 * hash(n.id, i, 41)
-          local k = ((t + hash(n.id, i, 42) * cycle) % cycle) / cycle
-          local f = k < 0.5 and k * 2 or (1 - k) * 2
-          local jitter = (hash(n.id, i, 43) - 0.5) * 16
-          local ax, ay = kx + (horizontal and jitter or 0), ky + (horizontal and 0 or jitter)
-          local x, y = ax + (n.x - ax) * f * 0.85, ay + (n.y + 6 - ay) * f * 0.85
-          local sx, sy = cam:toScreen(x, y)
-          person(sx, sy, cam.scale, COATS[math.floor(hash(n.id, i, 44) * #COATS) + 1], t, i + 7)
+          frontWalker(cam, path, t, hash(n.id, i, 42), COATS[math.floor(hash(n.id, i, 44) * #COATS) + 1],
+            n.id + i, path.len / 7 * 2 + 6 + 6 * hash(n.id, i, 41))
+        end
+        -- The street in front carries the crowd that passed today, on the
+        -- clear stretch the kerb lands on.
+        local d = city:districtAt(n.x, n.y)
+        if d then
+          for _, run in ipairs(pavementRuns(city, d)) do
+            local span = run[2] - run[1]
+            local extra = math.min(16, math.ceil((n.passing or 0) / 10))
+            for i = 1, extra do
+              local speed = 7 + 4 * hash(n.id, i, 32)
+              local v = (t * speed + hash(n.id, i, 31) * 2 * span) / span
+              local s = run[1] + tri(v) * span
+              local x, y, dx, dy = perimeterPoint(d, s, PAVE)
+              if (x - path.kx) ^ 2 + (y - path.ky) ^ 2 < 280 * 280 and cam:sees(x, y, 10) then
+                local back = (v % 2) >= 1
+                local sx, sy = cam:toScreen(x, y)
+                person(sx, sy, back and -dx or dx, back and -dy or dy, cam.scale,
+                  COATS[math.floor(hash(n.id, i, 34) * #COATS) + 1], t, n.id + i)
+              end
+            end
+          end
         end
       end
     end
@@ -498,7 +606,7 @@ function Traffic.ground(city, cam, visible)
   local t = R.t or 0
   drawWater(city, cam, t)
   drawStreets(city, cam, visible, t)
-  drawNeighbours(city, cam, t)
+  drawResidents(city, cam, t)
   drawShoppers(city, cam, t)
   drawCrews(city, cam, t)
 end
@@ -510,5 +618,5 @@ function Traffic.air(city, cam)
   drawPlanes(city, cam, t)
 end
 
-Traffic._hash, Traffic._perimeterPoint = hash, perimeterPoint
+Traffic._hash, Traffic._perimeterPoint, Traffic._frontPath = hash, perimeterPoint, frontPath
 return Traffic
