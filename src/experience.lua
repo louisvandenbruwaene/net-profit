@@ -152,7 +152,16 @@ function E.clientName(c,n)
     workshop={"Finch & Sons","Atlas Repairs","Cooper Works"},
     home={"Hazel Cottage","Birch House","Linden Terrace","Ash Cottage"},
     factory={"Northstar Mills","Union Foundry","Beacon Works"},
-    subscriber={"Home Office","Corner Studio","Attic Flat"}}
+    subscriber={"Home Office","Corner Studio","Attic Flat"},
+    cafe={"Corner Cafe","The Daily Grind","Bean There"},
+    bakery={"The Crusty Loaf","Rise & Shine","Flour Power"},
+    boutique={"Thread & Needle","Maison Belle","The Wardrobe"},
+    cinema={"The Picture House","Roxy","The Plaza"}}
+  -- A big project is named for what it is.
+  if City.PROJECT_BY and City.PROJECT_BY[n.clientType or ""] then
+    local spec=City.PROJECT_BY[n.clientType]
+    return spec.name:sub(1,1)..spec.name:sub(2):lower()
+  end
   local list=names[n.clientType] or names.house
   return list[(n.id-1)%#list+1].." "..n.id
 end

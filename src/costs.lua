@@ -126,6 +126,7 @@ return function(City)
   -- utility they take: each one's contract amount times its price less what a
   -- unit of that trade costs to deliver. One figure, however many trades.
   function City:clientKeep(c)
+    if City.isShop(c) then return self:shopIncome(c) - City.SHOP_BY[c.clientType].upkeep end
     local keep = 0
     local wants = c.demands or { [c.commodity] = c.demand }
     for key, want in pairs(wants) do
