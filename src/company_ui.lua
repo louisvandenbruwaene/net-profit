@@ -1090,6 +1090,25 @@ local function buildPanel()
         function(ix,iy) SF.mark(spec.mark,ix,iy,13) end)
     end
   end
+  -- Big projects: one of each, for the trade in hand once its licence is held.
+  -- Dim until the company has the customers to justify one.
+  if not state.people then
+    for _,spec in ipairs(City.PROJECTS) do
+      if spec.commodity==state.commodity and city.licences[spec.commodity] and not city:projectNode(spec.key) then
+        local locked=city:projectLocked(spec.key)
+        local income=City.projectIncome(spec.key)
+        local nm=spec.name:sub(1,1)..spec.name:sub(2):lower()
+        tile("project-"..spec.key,nm,spec.price,not locked and city.money>=spec.price,
+          state.tool=="project" and state.project==spec.key,Graph.COMMODITIES[spec.commodity].color,
+          function()
+            if state.tool=="project" and state.project==spec.key then state.tool=nil
+            else state.tool,state.project="project",spec.key end
+          end,
+          locked or (city:quantity(spec.commodity,spec.demand).."  $"..income.."/d  "..math.ceil(spec.price/income).."d back"),
+          function(ix,iy) Draw.clientBuilding(spec.key,ix,iy+2,10,Graph.COMMODITIES[spec.commodity].color,spec.commodity,locked~=nil or city.money<spec.price,true) end)
+      end
+    end
+  end
   y=y+math.ceil(math.max(shown,1)/5)*(TS+4)+10
   -- The works. Nine buildings that turn one thing into another, listed with
   -- what they eat, because that is the only thing worth knowing about them.
@@ -1691,6 +1710,7 @@ local function offerRow(c,x,y,w,h,prefix,onAccept)
   local tip=c.powerRequest and not c.prospect and ("This "..E.clientName(city,c).." wants electricity too: "..city:quantity("power",City.DUAL.demand[c.clientType] or City.DUAL.demand.house))
     or (c.demands and c.demands.water and c.demands.power) and ("Water "..city:quantity("water",c.demands.water).." + "..city:quantity("power",c.demands.power))
     or city:quantity(c.commodity,c.demand)
+  if c.referredBy then tip=tip.."\nReferral" end
   -- Pointing at an offer marks the house on the map and prices the pipe to it.
   local mx,my=mouse()
   if mx>=x and mx<x+bodyW and my>=y and my<y+h then
@@ -2517,7 +2537,8 @@ local overlays={}
 -- A short line at the foot of the map: what just happened, or what the tool
 -- in hand does. It is the only text that is not in a menu.
 local function toastPill(open)
-  local message=state.toast or (state.tool and (string.upper(state.tool).."  -  Esc to cancel"))
+  local held=state.tool=="project" and City.PROJECT_BY[state.project or ""] and City.PROJECT_BY[state.project].name or state.tool
+  local message=state.toast or (held and (string.upper(held).."  -  Esc to cancel"))
   if not message or message=="" then return end
   local left=open and UI.width or 0
   local f=R.fonts.body

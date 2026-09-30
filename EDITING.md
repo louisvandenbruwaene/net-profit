@@ -15,6 +15,7 @@ Most everyday balance changes now live in `src/data/`. These files contain value
 | Building levels | `src/data/upgrades.lua` | the four-level ladders, what each level gives, `DISTRIBUTION` (radius, default minimum price, upkeep, daily limit), `WELL_NAMES` |
 | Unit costs | `src/data/economy.lua` | `extractPerUnit` (pumping cost a unit), `sourceUpkeep`; the display logic is `src/costs.lua` |
 | Population and transport | `src/data/population.lua` | settlement, trips, fares and passenger routes |
+| Big projects and referrals | `src/data/projects.lua` | hospital/college/stadium/airport price, demand, rate, customer threshold and how many offers each draws; `REFERRAL` (streak, chance, premium) |
 
 For example, change `startMoney = 750` to `startMoney = 1000` in `economy.lua`. Restart with `make run` and create a company in an empty slot to try the new opening. An existing company's cash is saved, so changing starting money does not change its bank balance.
 
