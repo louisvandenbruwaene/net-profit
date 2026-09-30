@@ -2970,7 +2970,10 @@ function Draw.world(city, cam, state)
         lg.circle("line",mx,my,City.SHOP_DATA.BENCH.reach*cam.scale)
       else
         err = spec and city:shopError(spec.key, wx, wy) or "choose a shop"; cost = spec and spec.cost or 0
-        if spec then Draw.clientBuilding(spec.key, mx, my, math.max(3, R.sym(17, cam.scale)), P.energy, spec.main, true, false) end
+        if spec then
+          local gx, gy = cam:toScreen(city:shopSpot(wx, wy))
+          Draw.clientBuilding(spec.key, gx, gy, math.max(3, R.sym(17, cam.scale)), P.energy, spec.main, true, false)
+        end
       end
       if err == "not enough cash" then err = nil end
       -- The street it would stand on, lit.
