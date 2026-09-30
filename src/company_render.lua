@@ -4,6 +4,7 @@ local City = require("city")
 local R = require("render")
 local E = require("experience")
 local Scenery = require("scenery")
+local Traffic = require("traffic")
 local Shape = require("terrain_shape")
 local Draw = {}
 local lg = love.graphics
@@ -2364,6 +2365,8 @@ function Draw.world(city, cam, state)
   end
 
   drawLinks(city, cam, state)
+  fading(false)
+  Traffic.ground(city, cam, districtVisible)
 
   for _, n in ipairs(city.g:aliveNodes()) do
     if (not state.filter or not n.commodity or n.commodity==state.filter or (n.demands and n.demands[state.filter]))
@@ -2472,7 +2475,7 @@ function Draw.world(city, cam, state)
         local title = n.supplyClosed and "SHUT"
           or n.demands and n.demands.water and n.demands.power and "short"
           or city:quantityPair(n.commodity,served,n.demand,city:voltageOf(n))
-        label(title,x,y+r*1.5+8,P.warn)
+        label(title,x,y+r*1.5+8,city:leavesTomorrow(n) and P.bad or P.warn)
       end
     elseif n.kind == "source" then
       if building then
@@ -2692,6 +2695,8 @@ function Draw.world(city, cam, state)
     if state.advisorFocus then mark(state.advisorFocus.kind,state.advisorFocus.id,P.good) end
     lg.setLineWidth(1)
   end
+  fading(false)
+  Traffic.air(city, cam)
   R.drawEffects(cam,"shapes")
   local mx,my = love.mouse.getPosition()
   if state.drag and state.transit then

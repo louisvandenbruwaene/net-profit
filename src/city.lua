@@ -2479,6 +2479,30 @@ end
 -- Every leak the company can afford, cheapest first, in one decision. The
 -- point is not to save money -- it saves none -- but to save the twenty clicks
 -- that stand between a player and the part of the game they came for.
+-- Repairs made by hand, remembered by day: once mending is a daily chore the
+-- top bar offers a crew, once.
+function City:noteHandRepair()
+  local days = self.handRepairDays or {}
+  if days[#days] ~= self.day then days[#days + 1] = self.day end
+  while #days > 5 do table.remove(days, 1) end
+  self.handRepairDays = days
+end
+
+function City:crewPitch()
+  if (self.crews or 0) > 0 or self.crewPitched then return nil end
+  local recent = 0
+  for _, d in ipairs(self.handRepairDays or {}) do
+    if self.day - d < 5 then recent = recent + 1 end
+  end
+  if recent < 3 then return nil end
+  return { hire = City.crewHire, wage = City.crewWage }
+end
+
+function City:declineCrew()
+  self.crewPitched = true
+  return true
+end
+
 function City:repairAll()
   local order = {}
   for _, e in ipairs(self.g.edges) do
@@ -2495,6 +2519,7 @@ function City:repairAll()
     end
   end
   if fixed == 0 then return nil, "nothing to repair" end
+  self:noteHandRepair()
   self:note("Repaired %d main%s for $%d", fixed, fixed == 1 and "" or "s", spent)
   self:refresh()
   return { fixed = fixed, spent = spent }
@@ -2519,6 +2544,7 @@ function City:repairPipe(id)
   if cost > self.money then return nil, "not enough cash" end
   self:spend(cost)
   mend(e)
+  self:noteHandRepair()
   self:refresh()
   return cost
 end
@@ -3695,6 +3721,21 @@ function City:chokes()
   end
   chokeCache[self] = { detail = self.detail, edges = edges, nodes = nodes }
   return edges, nodes
+end
+
+-- Customers who walk out at the next close unless something changes today:
+-- short, patience on its last day, and not in the grace a growth spurt gives.
+function City:leavesTomorrow(c)
+  return c.kind == "client" and not c.prospect and not self:fullyServed(c)
+    and (c.grace or 99) <= 1 and not (c.grewOn and self.day - c.grewOn < City.GROWTH.patience)
+end
+
+function City:leavingTomorrow()
+  local out = {}
+  for _, c in ipairs(self:clientList()) do
+    if self:leavesTomorrow(c) then out[#out + 1] = c end
+  end
+  return out
 end
 
 function City:dailyRevenue()
@@ -5128,6 +5169,7 @@ function City:hireCrew()
   if City.crewHire > self.money then return nil, "not enough cash" end
   self:spend(City.crewHire)
   self.crews = (self.crews or 0) + 1
+  self.crewPitched = true
   self:note("Maintenance crew hired: %d on the books at $%d a day each",
     self.crews, City.crewWage)
   return true

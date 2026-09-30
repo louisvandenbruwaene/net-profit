@@ -451,7 +451,7 @@ local function action(name,...)
       toast(({repairPipe="Pipe repaired",replacePipe="Main replaced",buyAds="Advertising booked",
         invest="Investment placed",upgradeQuality="Better pipe unlocked",buyLicence="Trade licence acquired",
         acceptClient="Customer signed",declineClient="Offer declined",upgradeSource="Well deepened",
-        hireCrew="Crew hired",dismissCrew="Crew stood down",buyPermit="Permit granted",
+        hireCrew="Crew hired",dismissCrew="Crew stood down",declineCrew="No crew",buyPermit="Permit granted",
         borrow="Funds drawn",repay="Loan repaid",setGate="Gate set",
         layLink=(name=="layLink" and result.mode=="road") and "Road laid" or "Route opened",
         setLinkPrice="Price set",setStationPrice="Pump price set",
