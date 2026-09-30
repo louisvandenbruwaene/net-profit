@@ -435,6 +435,11 @@ local function action(name,...)
       end
     elseif name=="layLink" then
       state.link=result.id; state.node=nil; state.edge=nil; A.play("link")
+    elseif name=="buildShop" then
+      state.node=result.id; state.edge=nil; state.tool=nil; state.shop=nil
+      R.ring(result.x,result.y,P.good); A.play("place")
+    elseif name=="buildBench" then
+      R.ring(result.x,result.y,P.good); A.play("place")
     elseif name=="buildProject" then
       state.node=result.id; state.edge=nil; state.tool=nil; state.project=nil
       R.ring(result.x,result.y,P.good); R.burst(result.x,result.y,P.energy,30); A.play("unlock",0.8)
@@ -462,6 +467,7 @@ local function action(name,...)
       toast(({repairPipe="Pipe repaired",replacePipe="Main replaced",buyAds="Advertising booked",
         invest="Investment placed",upgradeQuality="Better pipe unlocked",buyLicence="Trade licence acquired",
         acceptClient="Customer signed",declineClient="Offer declined",upgradeSource="Well deepened",
+        buildShop="Shop opened",buildBench="Bench placed",expandShop="Shop expanded",setShopPrice="Price set",
         hireCrew="Crew hired",dismissCrew="Crew stood down",declineCrew="No crew",buyPermit="Permit granted",
         borrow="Funds drawn",repay="Loan repaid",setGate="Gate set",
         layLink=(name=="layLink" and result.mode=="road") and "Road laid" or "Route opened",
@@ -672,6 +678,8 @@ function love.mousepressed(x,y,button)
     elseif state.tool=="terminal" then action("build",wx,wy,state.tool,state.havenKind or "port")
     elseif state.tool=="works" then action("build",wx,wy,state.tool,state.recipe or "brewery")
     elseif state.tool=="project" then action("buildProject",state.project,wx,wy)
+    elseif state.tool=="shop" then action("buildShop",state.shop,wx,wy)
+    elseif state.tool=="bench" then action("buildBench",wx,wy)
     else
       local kind=state.tool=="grid" and "pole" or state.tool
       action("build",wx,wy,kind,state.commodity)

@@ -449,12 +449,57 @@ local function drawPlanes(city, cam, t)
   end
 end
 
--- Under the buildings: streets, water, neighbours, crews.
+--------------------------------------------------------------------------------
+-- Shoppers. Round each shop, the street carries as many walkers as really
+-- passed it today, and the ones who went in walk from the kerb to the door.
+--------------------------------------------------------------------------------
+
+local function drawShoppers(city, cam, t)
+  if cam.scale < 0.45 or not city.shops then return end
+  for _, n in ipairs(city:shops()) do
+    if cam:sees(n.x, n.y, 260 * cam.scale) then
+      local st = city:streetAt(n.x, n.y)
+      if st then
+        local horizontal = st.ay == st.by
+        -- The kerb point in front of the shop.
+        local kx, ky = horizontal and n.x or st.ax, horizontal and st.ay or n.y
+        local passing = math.min(24, math.ceil((n.passing or 0) / 8))
+        for i = 1, passing do
+          local dir = i % 2 == 0 and 1 or -1
+          local span = 520
+          local s = ((hash(n.id, i, 31) * span + dir * t * (8 + 4 * hash(n.id, i, 32))) % span) - span / 2
+          local side = (hash(n.id, i, 33) - 0.5) * 10
+          local x = horizontal and kx + s or kx + side
+          local y = horizontal and ky + side or ky + s
+          if cam:sees(x, y, 10) then
+            local sx, sy = cam:toScreen(x, y)
+            person(sx, sy, cam.scale, COATS[math.floor(hash(n.id, i, 34) * #COATS) + 1], t, i)
+          end
+        end
+        local inside = math.min(10, math.ceil((city:shopServed(n) or 0) / 6))
+        for i = 1, inside do
+          -- Kerb to door and back, each on its own clock.
+          local cycle = 9 + 4 * hash(n.id, i, 41)
+          local k = ((t + hash(n.id, i, 42) * cycle) % cycle) / cycle
+          local f = k < 0.5 and k * 2 or (1 - k) * 2
+          local jitter = (hash(n.id, i, 43) - 0.5) * 16
+          local ax, ay = kx + (horizontal and jitter or 0), ky + (horizontal and 0 or jitter)
+          local x, y = ax + (n.x - ax) * f * 0.85, ay + (n.y + 6 - ay) * f * 0.85
+          local sx, sy = cam:toScreen(x, y)
+          person(sx, sy, cam.scale, COATS[math.floor(hash(n.id, i, 44) * #COATS) + 1], t, i + 7)
+        end
+      end
+    end
+  end
+end
+
+-- Under the buildings: streets, water, neighbours, shoppers, crews.
 function Traffic.ground(city, cam, visible)
   local t = R.t or 0
   drawWater(city, cam, t)
   drawStreets(city, cam, visible, t)
   drawNeighbours(city, cam, t)
+  drawShoppers(city, cam, t)
   drawCrews(city, cam, t)
 end
 

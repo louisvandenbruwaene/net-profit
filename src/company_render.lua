@@ -465,6 +465,16 @@ end
 -- reading the disc gave is never lost. Far out the disc comes back.
 local WALL, ROOF_L, ROOF_D = { 0.74, 0.70, 0.62 }, { 0.58, 0.33, 0.27 }, { 0.40, 0.23, 0.20 }
 local SLATE_L, SLATE_D = { 0.46, 0.49, 0.53 }, { 0.30, 0.32, 0.36 }
+-- A park bench from above: slats, a back, two legs' shadows.
+function Draw.bench(x, y, k)
+  k = k or 1
+  lg.setColor(0, 0, 0, 0.25); lg.rectangle("fill", x - 7 * k + 1, y - 2 * k + 2, 14 * k, 5 * k, k)
+  lg.setColor(0.52, 0.36, 0.22); lg.rectangle("fill", x - 7 * k, y - 2 * k, 14 * k, 4 * k, k)
+  lg.setColor(0.40, 0.27, 0.16); lg.rectangle("fill", x - 7 * k, y - 4 * k, 14 * k, 1.6 * k)
+  lg.setColor(0.30, 0.30, 0.32); lg.rectangle("fill", x - 7.5 * k, y - 4 * k, 1.2 * k, 6 * k)
+  lg.rectangle("fill", x + 6.3 * k, y - 4 * k, 1.2 * k, 6 * k)
+end
+
 function Draw.clientBuilding(kind, x, y, r, accent, commodity, ghost, lit)
   local a = ghost and 0.55 or 1
   local function c(t, k) k = k or 1; lg.setColor(t[1] * k, t[2] * k, t[3] * k, a) end
@@ -568,6 +578,39 @@ function Draw.clientBuilding(kind, x, y, r, accent, commodity, ghost, lit)
           lg.circle("fill", cx + 1.5 * u + ph * 6 * u, top - 11 * u - ph * 8 * u, (1.5 + ph * 2.5) * u)
         end
       end
+    end
+  elseif kind == "cafe" or kind == "bakery" or kind == "boutique" or kind == "cinema" then
+    -- A shopfront seen from above and in front: a flat roof, a striped awning
+    -- in the shop's colours, a lit window, and for a cinema its marquee.
+    local glass = lit and { 1.0, 0.86, 0.52 } or { 0.22, 0.28, 0.34 }
+    local w = (kind == "cinema" and 24 or kind == "boutique" and 18 or 16) * u
+    local stripes = ({ cafe = { { 0.86, 0.30, 0.28 }, { 0.95, 0.93, 0.88 } }, bakery = { { 0.92, 0.70, 0.30 }, { 0.98, 0.94, 0.84 } },
+      boutique = { { 0.62, 0.42, 0.78 }, { 0.96, 0.94, 0.98 } }, cinema = { { 0.20, 0.22, 0.30 }, { 0.86, 0.30, 0.28 } } })[kind]
+    c(kind == "cinema" and { 0.30, 0.28, 0.36 } or { 0.84, 0.78, 0.66 })
+    lg.rectangle("fill", x - w / 2, y - 10 * u, w, 17 * u)
+    c({ 0.46, 0.49, 0.53 }); lg.rectangle("fill", x - w / 2 - 0.5 * u, y - 11 * u, w + u, 3 * u)
+    outline("line", x - w / 2, y - 10 * u, w, 17 * u)
+    c(glass); lg.rectangle("fill", x - w / 2 + 2 * u, y - 1 * u, w - 4 * u, 5 * u)
+    c({ 0.30, 0.22, 0.15 }); lg.rectangle("fill", x - 1.4 * u, y + 1 * u, 2.8 * u, 6 * u)
+    local n = kind == "cinema" and 8 or 6
+    for i = 0, n - 1 do
+      c(stripes[i % 2 + 1])
+      lg.polygon("fill", x - w / 2 + i * w / n, y - 5 * u, x - w / 2 + (i + 1) * w / n, y - 5 * u,
+        x - w / 2 + (i + 1) * w / n + 0.6 * u, y - 1.5 * u, x - w / 2 + i * w / n + 0.6 * u, y - 1.5 * u)
+    end
+    if kind == "cinema" then
+      -- Marquee lights running round the sign.
+      c({ 0.86, 0.30, 0.28 }); lg.rectangle("fill", x - 7 * u, y - 9.5 * u, 14 * u, 4 * u)
+      for i = 0, 6 do
+        local on = lit and ((math.floor(R.t * 6) + i) % 2 == 0)
+        lg.setColor(on and 1 or 0.6, on and 0.92 or 0.55, on and 0.6 or 0.4, a)
+        lg.circle("fill", x - 6 * u + i * 2 * u, y - 9.8 * u, 0.5 * u)
+      end
+    elseif kind == "bakery" then
+      c({ 0.72, 0.52, 0.30 }); lg.ellipse("fill", x, y - 8 * u, 3 * u, 1.6 * u)
+    elseif kind == "cafe" then
+      c({ 0.95, 0.93, 0.88 }); lg.circle("fill", x + w / 2 + 2.5 * u, y + 5 * u, 1.6 * u)
+      c({ 0.95, 0.93, 0.88 }); lg.circle("fill", x - w / 2 - 2.5 * u, y + 5 * u, 1.6 * u)
     end
   elseif kind == "hospital" then
     -- A flat-roofed block with two wings, rows of windows, and the red cross
@@ -2439,6 +2482,12 @@ function Draw.world(city, cam, state)
   drawLinks(city, cam, state)
   fading(false)
   Traffic.ground(city, cam, districtVisible)
+  for _, b in ipairs(city.benches or {}) do
+    if cam:sees(b.x, b.y, 30) then
+      local bx, by = cam:toScreen(b.x, b.y)
+      Draw.bench(bx, by, math.max(0.5, R.sym(1.4, cam.scale)))
+    end
+  end
 
   for _, n in ipairs(city.g:aliveNodes()) do
     if (not state.filter or not n.commodity or n.commodity==state.filter or (n.demands and n.demands[state.filter]))
@@ -2912,7 +2961,26 @@ function Draw.world(city, cam, state)
       lg.setColor(P.bad[1], P.bad[2], P.bad[3], 0.8); lg.setLineWidth(2); lg.line(pts)
     end
     local err, cost, seam
-    if state.tool=="project" then
+    if state.tool=="shop" or state.tool=="bench" then
+      local spec = City.SHOP_BY[state.shop or ""]
+      if state.tool=="bench" then
+        err = city:benchError(wx, wy); cost = City.SHOP_DATA.BENCH.cost
+        Draw.bench(mx, my, math.max(0.5, R.sym(1.4, cam.scale)))
+        lg.setColor(P.with(P.good,0.35)); lg.setLineWidth(1)
+        lg.circle("line",mx,my,City.SHOP_DATA.BENCH.reach*cam.scale)
+      else
+        err = spec and city:shopError(spec.key, wx, wy) or "choose a shop"; cost = spec and spec.cost or 0
+        if spec then Draw.clientBuilding(spec.key, mx, my, math.max(3, R.sym(17, cam.scale)), P.energy, spec.main, true, false) end
+      end
+      if err == "not enough cash" then err = nil end
+      -- The street it would stand on, lit.
+      local st = city:streetAt(wx, wy)
+      if st then
+        local ax, ay = cam:toScreen(st.ax, st.ay)
+        local bx, by = cam:toScreen(st.bx, st.by)
+        lg.setColor(P.with(P.energy, 0.5)); lg.setLineWidth(math.max(2, 6 * cam.scale)); lg.line(ax, ay, bx, by)
+      end
+    elseif state.tool=="project" then
       local spec = City.PROJECT_BY[state.project or ""]
       err = spec and city:projectError(spec.key, wx, wy) or "choose a project"
       if err == "not enough cash" then err = nil end

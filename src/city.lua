@@ -3542,6 +3542,7 @@ end
 -- What a customer pays today, or with `full` what they would pay if supplied
 -- in full. A household's second utility is paid at its own rate.
 function City:clientIncome(c, full)
+  if City.isShop(c) then return self:shopIncome(c) end
   local by = (self.servedBy or {})[c.id] or {}
   local function pay(key, want, got, rate)
     return math.floor((full and want or got or 0) * rate * self:eventRate(key) + 0.5)
@@ -3828,7 +3829,10 @@ function City:endDay()
   local referrers = {}
   for _, c in ipairs(self:clientList()) do
     report.revenue = report.revenue + self:clientIncome(c)
-    if self:fullyServed(c) then
+    if City.isShop(c) then
+      -- A shop is the company's own: it has takings, not patience.
+      report.shopVisitors = (report.shopVisitors or 0) + self:shopServed(c)
+    elseif self:fullyServed(c) then
       c.grace = c.patience or City.CLIENTS[c.clientType].patience
       -- Loyalty: a customer kept fully supplied for a run of closes pays a
       -- little more, a few times over. Reliability is the product.
@@ -5150,6 +5154,7 @@ function City:structureUpkeep(n)
   elseif k == "depot" then return 3
   elseif k == "lab" then return City.INFRA.pollution.labUpkeep
   elseif k == "filtration" then return 4
+  elseif k == "client" and City.SHOP_BY and City.SHOP_BY[n.clientType or ""] then return City.SHOP_BY[n.clientType].upkeep
   elseif k == "client" or k == "source" or k == "station" or k == "resort" then return 0
   end
   return 1
@@ -5240,5 +5245,6 @@ require("costs")(City)
 require("terrain_life")(City)
 require("projects")(City)
 require("usage")(City)
+require("shops")(City)
 
 return City

@@ -299,7 +299,37 @@ local function levelBlock(n,y)
   return y+4
 end
 
+-- A shop: who came in against what it holds, who walked by, the price with
+-- its two buttons, the day's takings, and the next size up.
+local function inspectShop(n,y)
+  local spec=City.SHOP_BY[n.clientType]
+  local cap=city:shopCapacity(n)
+  local served=city:shopServed(n)
+  row("Customers",served.." / "..cap,y,served<(n.visitors or 0) and P.warn or P.good,
+    (n.visitors or 0)>served and ((n.visitors-served).." turned away: short of supply") or nil)
+  row("Passing",tostring(n.passing or 0),y+26,P.textDim,"People who walked this street today")
+  row("Price","$"..n.price,y+52,P.energy,"Dearer draws fewer in, cheaper draws more")
+  button("shop-price-down","-",M+CW-86,y+46,40,28,function() act("setShopPrice",n.id,n.price-1) end,n.price>1)
+  button("shop-price-up","+",M+CW-42,y+46,40,28,function() act("setShopPrice",n.id,n.price+1) end,n.price<99)
+  local keep=city:clientKeep(n)
+  row("You keep",City.signed(keep).." / day",y+80,keep<0 and P.bad or P.good,
+    "$"..city:shopIncome(n).." takings, $"..spec.upkeep.." upkeep")
+  for key,per in pairs(spec.needs) do
+    local got=key==n.commodity and (city.served[n.id] or 0) or ((city.servedBy[n.id] or {})[key] or 0)
+    y=y+26
+    row(string.upper(key),city:quantityPair(key,got,city:want(n,key),key=="power" and city:voltageOf(n) or nil),y+80,Graph.COMMODITIES[key].color)
+  end
+  local nextLevel=(n.level or 1)+1
+  if spec.levels[nextLevel] then
+    local price=spec.levelCost[nextLevel]
+    button("shop-expand","Expand to "..spec.levels[nextLevel].."  $"..price,M,y+112,CW,36,
+      function() act("expandShop",n.id) end,city.money>=price,"More customers a day")
+  end
+  return y+160
+end
+
 local function inspectClient(n,y)
+  if City.isShop(n) then return inspectShop(n,y) end
   if n.demands then
     for _,key in ipairs(Graph.ALL) do
       local want=n.demands[key]
@@ -1111,6 +1141,28 @@ local function buildPanel()
     end
   end
   y=y+math.ceil(math.max(shown,1)/5)*(TS+4)+10
+  -- Shops, and the bench that keeps people by them. Offered once the cafe is.
+  if not state.people and not city:shopLocked("cafe") then
+    heading("SHOPS",y); y=y+22
+    shown=0
+    for _,spec in ipairs(City.SHOPS) do
+      local locked=city:shopLocked(spec.key)
+      local nm=spec.name:sub(1,1)..spec.name:sub(2):lower()
+      tile("shop-"..spec.key,nm,spec.cost,not locked and city.money>=spec.cost,
+        state.tool=="shop" and state.shop==spec.key,P.energy,
+        function()
+          if state.tool=="shop" and state.shop==spec.key then state.tool=nil
+          else state.tool,state.shop="shop",spec.key end
+        end,
+        locked or (spec.levels[1].." a day, $"..spec.price.." each"),
+        function(ix,iy) Draw.clientBuilding(spec.key,ix,iy+2,10,P.energy,spec.main,locked~=nil or city.money<spec.cost,true) end)
+    end
+    local bc=City.SHOP_DATA.BENCH.cost
+    tile("tool-bench","Bench",bc,city.money>=bc,state.tool=="bench",P.good,
+      function() state.tool=state.tool~="bench" and "bench" or nil end,"People linger: shops near it draw more",
+      function(ix,iy) Draw.bench(ix,iy,1.4) end)
+    y=y+math.ceil(math.max(shown,1)/5)*(TS+4)+10
+  end
   -- The works. Nine buildings that turn one thing into another, listed with
   -- what they eat, because that is the only thing worth knowing about them.
   if not state.people and city:unlocked("works") then
@@ -2574,7 +2626,8 @@ local overlays={}
 -- A short line at the foot of the map: what just happened, or what the tool
 -- in hand does. It is the only text that is not in a menu.
 local function toastPill(open)
-  local held=state.tool=="project" and City.PROJECT_BY[state.project or ""] and City.PROJECT_BY[state.project].name or state.tool
+  local held=state.tool=="project" and City.PROJECT_BY[state.project or ""] and City.PROJECT_BY[state.project].name
+    or state.tool=="shop" and City.SHOP_BY[state.shop or ""] and City.SHOP_BY[state.shop].name or state.tool
   local message=state.toast or (held and (string.upper(held).."  -  Esc to cancel"))
   if not message or message=="" then return end
   local left=open and UI.width or 0
@@ -2723,6 +2776,10 @@ local function hoverCard()
       if p.cost==0 then add("Ready",P.good)
       elseif p.cost then add(string.format("Pipe ~$%d  %s/day",p.cost,City.signed(p.net or 0)),(p.net or 0)>=0 and P.good or P.warn)
       elseif not p.multipleUtilities then add("Needs supply",P.warn) end
+    elseif City.isShop(n) then
+      local served=city:shopServed(n)
+      add(served.." / "..city:shopCapacity(n).." in   "..(n.passing or 0).." passing",served<(n.visitors or 0) and P.warn or P.good)
+      add("$"..n.price.." each",P.energy)
     else
       -- One line per utility they take, each against what it delivered.
       for _,key in ipairs(Graph.TRADES) do

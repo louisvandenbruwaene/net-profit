@@ -64,9 +64,20 @@ return function(City)
     local day = self.day
     local flat = City.FLAT_USAGE
     local nodes = self.g.nodes
+    -- Shops draw by their visitors, walked fresh every refresh: prices,
+    -- benches and new neighbours all change who comes in.
+    local anyShop = false
     for i = 1, #nodes do
       local c = nodes[i]
-      if c.alive and c.kind == "client" and not c.prospect then
+      if c.alive and c.kind == "client" and City.SHOP_BY and City.SHOP_BY[c.clientType or ""] then anyShop = true; break end
+    end
+    if anyShop then
+      self:walkStreets(day, self.usagePeak)
+      for _, n in ipairs(self:shops()) do self:shopUse(n) end
+    end
+    for i = 1, #nodes do
+      local c = nodes[i]
+      if c.alive and c.kind == "client" and not c.prospect and not (anyShop and c.shop) then
         if flat then
           c.use, c.useDay = c.demand, nil
           if c.demands then

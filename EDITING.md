@@ -17,6 +17,7 @@ Most everyday balance changes now live in `src/data/`. These files contain value
 | Population and transport | `src/data/population.lua` | settlement, trips, fares and passenger routes |
 | Big projects and referrals | `src/data/projects.lua` | hospital/college/stadium/airport price, demand, rate, customer threshold and how many offers each draws; `REFERRAL` (streak, chance, premium) |
 | Daily use | `src/data/usage.lua` | share of the contract each customer type uses, day-to-day spread, weekday curves, weather kinds and what each does per trade |
+| Shops and footfall | `src/data/shops.lua` | shop prices, capacity per level, expansion costs, chance to go in, what each visitor uses; residents per building, reach, weekday and weather crowds, bench reach and boost |
 
 For example, change `startMoney = 750` to `startMoney = 1000` in `economy.lua`. Restart with `make run` and create a company in an empty slot to try the new opening. An existing company's cash is saved, so changing starting money does not change its bank balance.
 
