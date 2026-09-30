@@ -1747,6 +1747,30 @@ local function offerRow(c,x,y,w,h,prefix,onAccept)
   end
 end
 
+-- The crew, offered in the offer slot once repairs have become daily: the
+-- same shape as an offer, so it is answered the same way.
+local function crewRow(pitch,x,y,w,h)
+  local stacked=w<260
+  local bw=stacked and 62 or math.min(74,math.floor(w*0.24))
+  local bodyW=stacked and w-bw-6 or w-2*bw-12
+  button("crew-pitch","",x,y,bodyW,h,function() end,true,
+    "Repair crew\nFixes the worst leak every night",false,P.warn)
+  local text=S.get("crews").." Crew  $"..pitch.wage.."/d"
+  local font=h>=40 and "mid" or "body"
+  single(text,x+10,y+(h-R.fonts[font]:getHeight())/2,font,P.text,bodyW-20)
+  local hire=function() act("hireCrew") end
+  local no=function() act("declineCrew") end
+  local ok=city.money>=pitch.hire
+  if stacked then
+    local half=math.floor((h-2)/2)
+    button("crew-hire","Hire $"..pitch.hire,x+bodyW+6,y,bw,half,hire,ok,nil,false,P.good)
+    button("crew-no","No",x+bodyW+6,y+h-half,bw,half,no,true,nil,false,P.bad)
+  else
+    button("crew-hire","Hire $"..pitch.hire,x+bodyW+6,y,bw,h,hire,ok,nil,false,P.good)
+    button("crew-no","No",x+bodyW+12+bw,y,bw,h,no,true,nil,false,P.bad)
+  end
+end
+
 local function customers()
   local y=TOP-state.scroll
   button("sort-clients",state.clientSort=="income" and "Sort: daily income" or "Sort: most urgent",M,y,CW,30,function()
@@ -2383,8 +2407,11 @@ local function topBar(open)
   local bw=math.min(330,rx-offerX)
   local request=city:nextRequest()
   if bw>=150 then
+    local pitch=not request and city:crewPitch()
     if request then
       offerRow(request,rx-bw,10,bw,40,"bar-")
+    elseif pitch then
+      crewRow(pitch,rx-bw,10,bw,40)
     else
       lg.setColor(P.with(P.panelEdge,0.35)); lg.setLineWidth(1); lg.rectangle("line",rx-bw,10,bw,40,6)
       single("No offers",rx-bw,22,"small",P.textFaint,bw,"center")
@@ -2414,8 +2441,21 @@ local function topBar(open)
   single(cash,x0,16,UI.headerFont(cash,cashW),cashColor,cashW)
   UI.cashX=x0
   single("Tomorrow  "..City.signed(net),dayX,10,"body",net>=0 and P.good or P.bad,dayW)
-  single(supplied.."/"..#clients.." supplied",dayX,34,"small",
-    supplied<#clients and P.warn or P.textDim,dayW)
+  -- Somebody leaving at the next close outranks the count: the line says how
+  -- many and is a button to the choke that is starving the first of them.
+  local leaving=city:leavingTomorrow()
+  if #leaving>0 then
+    local first=leaving[1]
+    button("bar-leaving","",dayX-4,32,dayW+8,20,function()
+      local why,at=city:constraintFor(first.id)
+      if at and (why=="main" or why=="repair") then act("focusEdge",at)
+      else act("openClient",first.id) end
+    end,true,"Leaves at the next close: show why",false,P.bad)
+    single(supplied.."/"..#clients.."  "..#leaving.." leaving",dayX,34,"small",P.bad,dayW)
+  else
+    single(supplied.."/"..#clients.." supplied",dayX,34,"small",
+      supplied<#clients and P.warn or P.textDim,dayW)
+  end
 end
 
 local function settingsMenu()
