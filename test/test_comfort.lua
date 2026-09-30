@@ -28,7 +28,7 @@ c.money=1000000
 for _,d in ipairs(c.districts) do d.owned=true end
 c.reputation=100
 r=assert(c:endDay())
-local top=City.rules.requestMax
+local top=c:requestLimit()
 check(#r.arrivals>=top-1 and #r.arrivals<=top,"maximum reputation brings up to the request limit with space available")
 check(#c:clientList(true)==1+#r.arrivals,"every arrival appears in the client list")
 check(assert(Save.unpack(Save.pack(c))).lastReport.arrivals[#r.arrivals].id==r.arrivals[#r.arrivals].id,"all arrivals survive loading")

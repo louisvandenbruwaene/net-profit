@@ -465,6 +465,24 @@ function E.growthForecast(c,horizon)
   end)
 end
 
+-- Tomorrow at its worst: the day's weather and weekday with every customer at
+-- the top of their range, solved on a copy. How many who are supplied today
+-- would be short, and the choke that would starve the most of them.
+function E.peakTomorrow(c)
+  return memo(c,"peak",function()
+    local copy=assert(Save.unpack(Save.pack(c)))
+    copy.day=c.day+1
+    copy.usagePeak=true
+    copy:refresh()
+    local count=0
+    for _,cl in ipairs(copy:shortCustomers()) do
+      local now=c.g.nodes[cl.id]
+      if now and c:fullyServed(now) then count=count+1 end
+    end
+    return {count=count}
+  end)
+end
+
 -- Where a second well for a maxed one would go: the nearest free deposit of
 -- its trade, tied into the nearest node on the same network with a connection
 -- free. Each candidate is tried on a copy, so what is offered is known to work,

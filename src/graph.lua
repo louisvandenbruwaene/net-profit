@@ -511,7 +511,11 @@ function Graph:buildNetwork(uncapped, commodity)
          and not node.supplyClosed
          and (not commodity or (node.demands and node.demands[commodity]) or node.commodity == commodity) then
         -- The service valve controls only this customer's draw, not the main.
-        net:arc(vout, TT, uncapped and INF or (node.demands and node.demands[commodity]) or (node.demand or INF))
+        -- Today's use where the city has set one, the contract otherwise.
+        local want = (node.uses and node.uses[commodity])
+          or (node.demands and node.demands[commodity])
+        if not want and node.use and (not commodity or commodity == node.commodity) then want = node.use end
+        net:arc(vout, TT, uncapped and INF or want or (node.demand or INF))
         node._drainArc = net.m - 1
       elseif node.kind == "depot" and node.intakeRequest and node.commodity==commodity then
         -- Fill storage only after customers and production inputs have been
