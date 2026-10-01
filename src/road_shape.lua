@@ -527,7 +527,13 @@ local function build(city)
             local x, y = frame(um + taper * t, high.r.h + w)
             pts[#pts + 1] = { x = x, y = y, h = max(0.05, w), k = "ramp" }
           end
-          shape.ramps[#shape.ramps + 1] = { pts = pts, node = id }
+          -- Traffic keeps right, so the near carriageway runs one way past
+          -- the roundabout: off it by the slip road traffic meets first.
+          local into = -high.dy * mx + high.dx * my < 0
+          local ramp = { pts = pts, node = id, off = into, hx = high.dx, hy = high.dy, mx = mx, my = my, lane = high.r.h * 0.77 }
+          shape.ramps[#shape.ramps + 1] = ramp
+          round.ramps = round.ramps or {}
+          table.insert(round.ramps, ramp)
           local off = high.r.h + 2 * RH + RoadShape.pave("highway") + 3
           local sx, sy = frame(um + taper + 50, off)
           shape.signs[#shape.signs + 1] = { kind = "exit", x = sx, y = sy, dx = -high.dx, dy = -high.dy }
@@ -611,7 +617,9 @@ local function build(city)
         -- the negative side of the across vector (-e.y, e.x).
         entries[#entries + 1] = { dx = e[1], dy = e[2], a = -r.h, b = 0 }
       end
-      shape.rounds[#shape.rounds + 1] = { x = rd.x, y = rd.y, r = rd.r, node = id, entries = entries }
+      shape.rounds[#shape.rounds + 1] = { x = rd.x, y = rd.y, r = rd.r, node = id, entries = entries,
+        ramps = rd.ramps or {}, link = r.l, through = rd.through, arm = arms[1],
+        reach = sqrt((nodes[other(r, id)].x - rd.x) ^ 2 + (nodes[other(r, id)].y - rd.y) ^ 2) - bodyOf(nodes[other(r, id)]) }
     end
   end
 

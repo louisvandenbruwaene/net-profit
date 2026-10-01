@@ -674,10 +674,181 @@ local function along_(pts, s)
   return pts[1], pts[2], 1, 0
 end
 
+-- Roundabouts. Cars keep right, so they go round anticlockwise on the map
+-- (the angle falling, with y down), in the middle of the ring.
+local RING = (RoadShape.ISLAND + 1.2 + RoadShape.ROUND) / 2
+-- The way from a point outside a ring, round it, to another point outside:
+-- straight in, round, straight out, as a function of the fraction gone.
+local function ringWay(cx, cy, ax, ay, bx, by)
+  local ta, tb = math.atan2(ay - cy, ax - cx), math.atan2(by - cy, bx - cx)
+  local delta = (ta - tb) % (2 * math.pi)
+  if delta < 0.3 then delta = delta + 2 * math.pi end
+  local px, py = cx + math.cos(ta) * RING, cy + math.sin(ta) * RING
+  local qx, qy = cx + math.cos(tb) * RING, cy + math.sin(tb) * RING
+  local l1 = math.sqrt((px - ax) ^ 2 + (py - ay) ^ 2)
+  local l2 = RING * delta
+  local l3 = math.sqrt((bx - qx) ^ 2 + (by - qy) ^ 2)
+  local total = l1 + l2 + l3
+  local function pos(d)
+    if d <= l1 then local f = l1 > 0 and d / l1 or 1; return ax + (px - ax) * f, ay + (py - ay) * f end
+    d = d - l1
+    if d <= l2 then local th = ta - d / RING; return cx + math.cos(th) * RING, cy + math.sin(th) * RING end
+    local f = l3 > 0 and math.min(1, (d - l2) / l3) or 1
+    return qx + (bx - qx) * f, qy + (by - qy) * f
+  end
+  return pos, total, ta, delta
+end
+
+-- Where a car is, heading which way, a fraction `f` of the way round.
+local function ringAt(pos, total, f)
+  local d = math.max(0, math.min(total, f * total))
+  local x, y = pos(d)
+  local x0, y0 = pos(math.max(0, d - 0.6))
+  local x1, y1 = pos(math.min(total, d + 0.6))
+  local dx, dy = x1 - x0, y1 - y0
+  local l = math.max(1e-6, math.sqrt(dx * dx + dy * dy))
+  return x, y, dx / l, dy / l
+end
+
+-- A road running through roundabouts: where along it each one's middle is.
+local function ringsOn(city, g, ch)
+  if ch.rings then return ch.rings end
+  local rings = {}
+  for _, rd in ipairs(RoadShape.get(city).rounds or {}) do
+    if rd.through then
+      local mine = false
+      for _, r in ipairs(ch.links) do if r.l == rd.link then mine = true end end
+      if mine then
+        local best, bs, run = math.huge, 0, 0
+        for i = 3, #ch.pts, 2 do
+          local ax, ay, bx, by = ch.pts[i - 2], ch.pts[i - 1], ch.pts[i], ch.pts[i + 1]
+          local dx, dy = bx - ax, by - ay
+          local seg = math.sqrt(dx * dx + dy * dy)
+          local f = seg > 0 and math.max(0, math.min(1, ((rd.x - ax) * dx + (rd.y - ay) * dy) / (seg * seg))) or 0
+          local d = (ax + dx * f - rd.x) ^ 2 + (ay + dy * f - rd.y) ^ 2
+          if d < best then best, bs = d, run + seg * f end
+          run = run + seg
+        end
+        if best < 9 then rings[#rings + 1] = { s = bs, x = rd.x, y = rd.y, span = rd.r + 4 } end
+      end
+    end
+  end
+  ch.rings = rings
+  return rings
+end
+
+-- The ways cars take through a roundabout's slip roads: off the highway,
+-- round, and down the road (or back onto the highway if the road is no more
+-- than the roundabout); and up the road, round, and onto the highway. Each
+-- is one polyline, from 120 m up the highway to the end of the road.
+local function loopsOf(city, g)
+  if g.loops then return g.loops end
+  local loops = {}
+  local function add(out, x, y) out[#out + 1] = x; out[#out + 1] = y end
+  local function round(out, rd, bx, by)
+    local ax, ay = out[#out - 1], out[#out]
+    local pos, total = ringWay(rd.x, rd.y, ax, ay, bx, by)
+    local n = math.max(6, math.ceil(total / 2))
+    for j = 1, n - 1 do add(out, pos(total * j / n)) end
+  end
+  for k, rd in ipairs(RoadShape.get(city).rounds or {}) do
+    local off, on
+    for _, ramp in ipairs(rd.ramps) do if ramp.off then off = ramp else on = ramp end end
+    -- The ramp's lane on the highway it joins.
+    local function onHighway(ramp)
+      local e = ramp.pts[#ramp.pts]
+      local hh = ramp.lane / 0.77
+      return e.x - ramp.mx * (hh - ramp.lane), e.y - ramp.my * (hh - ramp.lane)
+    end
+    local arm, outs, ins = rd.arm, nil, nil
+    if arm and rd.reach > rd.r + 20 then
+      local ex, ey = arm[1], arm[2]
+      local lw = 8 * 0.48
+      -- Driving out along e, the right-hand lane is on the (-e.y, e.x) side.
+      local ox, oy = -ey * lw, ex * lw
+      outs = { rd.x + ex * (rd.r + 2) + ox, rd.y + ey * (rd.r + 2) + oy, rd.x + ex * rd.reach + ox, rd.y + ey * rd.reach + oy }
+      ins = { rd.x + ex * rd.reach - ox, rd.y + ey * rd.reach - oy, rd.x + ex * (rd.r + 2) - ox, rd.y + ey * (rd.r + 2) - oy }
+    end
+    if off then
+      local pts = {}
+      local hx, hy = onHighway(off)
+      add(pts, hx + off.hx * 120, hy + off.hy * 120); add(pts, hx, hy)
+      for j = #off.pts, 1, -1 do add(pts, off.pts[j].x, off.pts[j].y) end
+      local tail
+      if outs then tail = outs
+      elseif on then
+        tail = {}
+        for _, q in ipairs(on.pts) do add(tail, q.x, q.y) end
+        local qx, qy = onHighway(on)
+        add(tail, qx, qy); add(tail, qx + on.hx * 120, qy + on.hy * 120)
+      end
+      if tail then
+        round(pts, rd, tail[1], tail[2])
+        for j = 1, #tail do pts[#pts + 1] = tail[j] end
+        loops[#loops + 1] = { pts = pts, link = rd.link, id = k * 4 + 1 }
+      end
+    end
+    if on and ins then
+      local pts = { ins[1], ins[2], ins[3], ins[4] }
+      local first = on.pts[1]
+      round(pts, rd, first.x, first.y)
+      for _, q in ipairs(on.pts) do add(pts, q.x, q.y) end
+      local qx, qy = onHighway(on)
+      add(pts, qx, qy); add(pts, qx + on.hx * 120, qy + on.hy * 120)
+      loops[#loops + 1] = { pts = pts, link = rd.link, id = k * 4 + 2 }
+    end
+  end
+  for _, lp in ipairs(loops) do
+    local len = 0
+    local x0, y0, x1, y1 = math.huge, math.huge, -math.huge, -math.huge
+    for i = 1, #lp.pts, 2 do
+      if i > 1 then len = len + math.sqrt((lp.pts[i] - lp.pts[i - 2]) ^ 2 + (lp.pts[i + 1] - lp.pts[i - 1]) ^ 2) end
+      x0, x1 = math.min(x0, lp.pts[i]), math.max(x1, lp.pts[i])
+      y0, y1 = math.min(y0, lp.pts[i + 1]), math.max(y1, lp.pts[i + 1])
+    end
+    lp.len, lp.box = len, { x0, y0, x1, y1 }
+  end
+  g.loops = loops
+  return loops
+end
+
+local function drawLoops(city, cam, t, g, byLink)
+  for _, lp in ipairs(loopsOf(city, g)) do
+    local b = lp.box
+    local rec = byLink[lp.link.id] or {}
+    -- Half the road's cars come and go by the highway, each way.
+    local n = math.min(6, math.ceil((rec.car or 0) / 6))
+    if n > 0 and cam:seesBox(b[1], b[2], b[3], b[4], 20) then
+      -- One lane the whole way: a car that catches up queues behind.
+      local cars = {}
+      for i = 1, n do
+        local speed = SPEED.car * (0.9 + 0.2 * hash(lp.id, i, 3))
+        cars[i] = { s = (hash(lp.id, i, 1) * lp.len + t * speed) % (lp.len + 40) - 20, i = i,
+          kind = hash(lp.id, i, 9) < 0.15 and "van" or "car" }
+      end
+      table.sort(cars, function(p, q) return p.s > q.s end)
+      for k = 2, #cars do
+        local gap = 14
+        if cars[k - 1].s - cars[k].s < gap then cars[k].s = cars[k - 1].s - gap end
+      end
+      for _, v in ipairs(cars) do
+        if v.s > 2 and v.s < lp.len - 2 then
+          local x, y, ux, uy = along_(lp.pts, v.s)
+          if cam:sees(x, y, 20) then
+            local sx, sy = cam:toScreen(x, y)
+            vehicle(v.kind, sx, sy, ux, uy, cam.scale, CAR_COLOURS[math.floor(hash(lp.id, v.i, 4) * #CAR_COLOURS) + 1])
+          end
+        end
+      end
+    end
+  end
+end
+
 local function drawRoads(city, cam, t)
   if cam.scale < 0.2 then return end
   local g = geo(city)
   local byLink = (city.transit or {}).byLink or {}
+  drawLoops(city, cam, t, g, byLink)
   for _, ch in ipairs(chains(city, g)) do
     local b = ch.box
     if cam:seesBox(b[1], b[2], b[3], b[4], 20) then
@@ -725,10 +896,22 @@ local function drawRoads(city, cam, t)
           local s = v.s
           if s > 6 and s < ch.len - 6 then
             if v.dir < 0 then s = ch.len - s end
-            local x, y, ux, uy = along_(ch.pts, s)
-            ux, uy = ux * v.dir, uy * v.dir
             local lane = ch.half * v.lane
-            x, y = x - uy * lane, y + ux * lane
+            local function lanePt(ss)
+              local x, y, ux, uy = along_(ch.pts, ss)
+              ux, uy = ux * v.dir, uy * v.dir
+              return x - uy * lane, y + ux * lane, ux, uy
+            end
+            local x, y, ux, uy = lanePt(s)
+            -- Through a roundabout, round it rather than over the island.
+            for _, rg in ipairs(ringsOn(city, g, ch)) do
+              if math.abs(s - rg.s) < rg.span then
+                local ax, ay = lanePt(rg.s - v.dir * rg.span)
+                local bx, by = lanePt(rg.s + v.dir * rg.span)
+                local pos, total = ringWay(rg.x, rg.y, ax, ay, bx, by)
+                x, y, ux, uy = ringAt(pos, total, ((s - rg.s) * v.dir + rg.span) / (2 * rg.span))
+              end
+            end
             if cam:sees(x, y, 20) then
               local sx, sy = cam:toScreen(x, y)
               vehicle(v.kind, sx, sy, ux, uy, cam.scale, CAR_COLOURS[math.floor(hash(ch.id, v.i, 4) * #CAR_COLOURS) + 1])
