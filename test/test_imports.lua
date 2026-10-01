@@ -104,6 +104,20 @@ do
   assert(c:orderImport(port.id,"steel",20))
   c:endDay()
   check(c.convoys[#c.convoys].to==near.id,"and to the nearest when none was chosen")
+
+  -- A haven's own choice: every order goes there unless it says otherwise.
+  assert(c:setImportYard(port.id,far.id))
+  check(c:importYardOf(port)==far,"a haven keeps the yard its orders go to")
+  local copy=assert(Save.unpack(Save.pack(c)))
+  check(copy:importYardOf(copy.g.nodes[port.id]).id==far.id,"and keeps it across a save")
+  assert(c:orderImport(port.id,"steel",20)); c:endDay()
+  check(c.convoys[#c.convoys].to==far.id,"orders then go there by default")
+  assert(c:orderImport(port.id,"steel",20,near.id)); c:endDay()
+  check(c.convoys[#c.convoys].to==near.id,"an order can still name another yard")
+  assert(c:setImportYard(port.id,nil))
+  assert(c:orderImport(port.id,"steel",20)); c:endDay()
+  check(c.convoys[#c.convoys].to==near.id,"and clearing the choice goes back to the nearest")
+  check(select(2,c:setImportYard(port.id,port.id))=="choose a yard","only a yard can be chosen")
 end
 
 print("a solar array is assembled from its panels")

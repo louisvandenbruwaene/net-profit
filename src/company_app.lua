@@ -490,6 +490,7 @@ local function action(name,...)
         borrow="Funds drawn",repay="Loan repaid",setGate="Gate set",
         layLink=(name=="layLink" and result.mode=="road") and (result.roadType=="bridge" and "Bridge built" or "Road laid") or "Route opened",
         orderImport="Ordered: lands tomorrow",
+        setImportYard=(name=="setImportYard" and result.importYard) and ("Orders go to yard "..result.importYard) or "Orders go to the nearest yard",
         setLinkPrice="Price set",setStationPrice="Pump price set",
         addVehicle="Vehicle added",removeVehicle="Vehicle sold",demolishLink="Line lifted",
         upgradeResort="Resort built up",upgradeTower="Tower upgraded",raiseTowerVoltage="Voltage raised",upgradeCable="Cable upgraded",upgradeLevel="Building upgraded"})[name] or "Network updated")

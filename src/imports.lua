@@ -65,7 +65,27 @@ return function(City)
     return nil
   end
 
-  -- `yardId`: the yard it is hauled on to; the nearest when left out.
+  -- The yard a haven's orders go on to unless an order says otherwise. Kept
+  -- on the haven, so it holds across days and saves; nil is the nearest yard
+  -- there is a way to.
+  function City:importYardOf(haven)
+    local y = haven and haven.importYard and self.g.nodes[haven.importYard]
+    return y and y.alive and y.kind == "dc" and y or nil
+  end
+
+  function City:setImportYard(havenId, yardId)
+    local haven = self.g.nodes[havenId]
+    if not (haven and haven.alive and haven.kind == "terminal") then return nil, "choose a haven" end
+    if yardId then
+      local y = self.g.nodes[yardId]
+      if not (y and y.alive and y.kind == "dc") then return nil, "choose a yard" end
+    end
+    haven.importYard = yardId
+    return haven
+  end
+
+  -- `yardId`: the yard it is hauled on to; the haven's own choice when left
+  -- out, and the nearest when the haven has none.
   function City:orderImport(havenId, key, units, yardId)
     units = math.floor(units or 0)
     local why = self:shipmentError(havenId, key, units)
@@ -73,7 +93,7 @@ return function(City)
     local cost = self:shipmentCost(havenId, key, units)
     self:spend(cost)
     self.shipments = self.shipments or {}
-    local yard = yardId and self.g.nodes[yardId]
+    local yard = yardId and self.g.nodes[yardId] or self:importYardOf(self.g.nodes[havenId])
     local o = { haven = havenId, key = key, units = units, cost = cost, day = self.day, arrive = self.day + City.IMPORT.leadDays,
       yard = yard and yard.alive and yard.kind == "dc" and yard.id or nil }
     self.shipments[#self.shipments + 1] = o
