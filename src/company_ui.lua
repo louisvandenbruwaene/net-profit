@@ -707,6 +707,11 @@ local function importMenu(n,spec,y)
     if coming[k] then row("On the way",coming[k].." "..S.get(k),y,P.energy); y=y+24 end
     if landed[k] then row("Landed today",landed[k].." "..S.get(k),y,P.good); y=y+24 end
   end
+  for _,cv in ipairs(city.convoys or {}) do
+    if cv.stock and cv.from==n.id then
+      row("Inland by "..City.HAUL[cv.mode].name,cv.units.." "..S.get(cv.key),y,P.energy,"In the yard tomorrow morning"); y=y+24
+    end
+  end
   return y
 end
 

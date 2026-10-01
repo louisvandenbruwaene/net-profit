@@ -659,7 +659,7 @@ function City:upgradeResort(id)
   local short = self:materialError(bill)
   if short then return nil, short end
   self:spend(cost)
-  self:spendMaterials(bill)
+  self:spendMaterials(bill, 1, n.x, n.y)
   n.level = (n.level or 1) + 1
   n.paid = (n.paid or 0) + cost
   self:note("Resort %d built up to level %d for $%d", n.id, n.level, cost)

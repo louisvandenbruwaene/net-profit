@@ -5,7 +5,8 @@
 -- the player picks a good and a quantity, pays the landed price up front (list
 -- price times that haven's freight multiplier), and the cargo comes in on the
 -- next day's tide: a freighter for a harbour, lorries for a road head, a plane
--- for an air apron. It lands straight into the yards' stock, ready to build with.
+-- for an air apron. From there it is hauled on to the nearest yard (haulage.lua)
+-- and is in stock the morning after; with no yard, the quay is the store.
 --
 -- An order is a row in `city.shipments` until it lands (`city.orders` is the
 -- departments, a different thing); what landed on a day stays
@@ -43,7 +44,7 @@ return function(City)
   function City:storeRoom(key)
     local yards = #self.g:nodesOfKind("dc")
     local cap = yards > 0 and yards * City.yardStock or City.IMPORT.quayStock
-    return math.max(0, cap - self:materialStock(key) - self:shippedUnits(key))
+    return math.max(0, cap - self:materialStock(key) - self:shippedUnits(key) - (self.inlandUnits and self:inlandUnits(key) or 0))
   end
 
   function City:shipmentCost(havenId, key, units)
@@ -84,11 +85,11 @@ return function(City)
     self.landings = {}
     for _, o in ipairs(self.shipments or {}) do
       if o.arrive <= self.day then
-        self.stock = self.stock or {}
-        self.stock[o.key] = (self.stock[o.key] or 0) + o.units
         landed[o.key] = (landed[o.key] or 0) + o.units
         self.landings[#self.landings + 1] = { haven = o.haven, key = o.key, units = o.units, day = self.day }
         self:note("Landed %d %s", o.units, string.lower(Graph.COMMODITIES[o.key].name))
+        -- On to the yards; with none, the quay is the store.
+        self:haulInland(o.haven, o.key, o.units)
       else
         keep[#keep + 1] = o
       end

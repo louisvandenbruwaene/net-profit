@@ -113,8 +113,10 @@ function City:materialError(bill, scale)
   return nil
 end
 
-function City:spendMaterials(bill, scale)
+-- `x, y`: where the materials are used. They are driven there (haulage.lua).
+function City:spendMaterials(bill, scale, x, y)
   scale = scale or 1
+  if x and self.deliverToSite then self:deliverToSite(bill, scale, x, y) end
   self.stock = self.stock or {}
   for material, amount in pairs(bill or {}) do
     self.stock[material] = math.max(0, (self.stock[material] or 0) - math.ceil(amount * scale))
@@ -2028,7 +2030,7 @@ function City:upgradeSource(id)
   local step = self:upgradeStep(n)
   local trade = City.trade[n.commodity] or City.trade.water
   self:spend(cost)
-  if bill then self:spendMaterials(bill) end
+  if bill then self:spendMaterials(bill, 1, n.x, n.y) end
   n.level = level + 1
   n.output = (n.output or trade.sourceOutput) + step
   if n.cap then n.output = math.min(n.output, n.cap) end
@@ -2176,7 +2178,7 @@ local function buildPlain(self, x, y, kind, commodity)
   local short = self:materialError(bill)
   if short then return nil, short end
   self:spend(cost)
-  self:spendMaterials(bill)
+  self:spendMaterials(bill, 1, x, y)
   local n = self.g:addNode(x, y, kind)
   n.paid = cost
   if kind == "works" then
@@ -2274,7 +2276,10 @@ local function layPipePlain(self, a, b, commodity, size, rail, grade)
   local short = self:materialError(bill, scale)
   if short then return nil, short end
   self:spend(cost)
-  self:spendMaterials(bill, scale)
+  do
+    local na, nb = self.g.nodes[a], self.g.nodes[b]
+    self:spendMaterials(bill, scale, na and (na.x + nb.x) / 2, na and (na.y + nb.y) / 2)
+  end
 
   local spec = not mode and City.asSize(size) or nil
   local capacity = spec and spec.cap or 1
@@ -2874,7 +2879,7 @@ local function buySourcePlain(self, commodity, px, py, plant)
     if short then return nil, short end
     local trade = City.trade[commodity] or City.trade.water
     self:spend(cost)
-    self:spendMaterials(bill)
+    self:spendMaterials(bill, 1, px, py)
     local s = self.g:addNode(px, py, "source")
     s.commodity, s.paid, s.level = commodity, cost, 1
     -- Four ports: enough for a well, a rig or a plant to feed a couple of
@@ -4069,7 +4074,9 @@ function City:endDay()
 
   report.interestPaid = self:loanInterest()
   self.day = self.day + 1
-  -- Freight ordered yesterday comes in overnight and is in the yards by morning.
+  -- Loads hauled inland yesterday reach the yards; freight ordered yesterday
+  -- comes in overnight and sets off inland.
+  report.hauled = self:settleConvoys()
   report.imported = self:landShipments()
   if self.money < 0 and self:investedTotal() == 0 then
     self.bankrupt = true
@@ -5307,6 +5314,7 @@ require("terrain_life")(City)
 require("projects")(City)
 require("usage")(City)
 require("shops")(City)
+require("haulage")(City)
 require("imports")(City)
 
 return City
