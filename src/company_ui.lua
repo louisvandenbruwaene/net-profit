@@ -1540,7 +1540,8 @@ local function inspectorPanel(n,e)
         end
         for _,cv in ipairs(city.convoys or {}) do
           if cv.stock and cv.to==n.id then
-            row("Tomorrow by "..City.HAUL[cv.mode].name,cv.units.." "..S.get(cv.key),tail,P.energy); tail=tail+24
+            local days=(cv.arrive or city.day+1)-city.day
+            row((days<=1 and "Tomorrow" or ("In "..days.." days")).." by "..City.HAUL[cv.mode].name,cv.units.." "..S.get(cv.key),tail,P.energy); tail=tail+24
           end
         end
         tail=tail+8

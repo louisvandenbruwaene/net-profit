@@ -107,7 +107,59 @@ return function(City)
   end
 
   -- The way from a building to a point (and the building there, if any).
+  -- What a rail line can still carry today: its wagons, less the freight it
+  -- already runs every day.
+  function City:railSpare(e)
+    local used = 0
+    for _, flows in pairs(self.edgeFlowBy or {}) do used = used + math.abs(flows[e.id] or 0) end
+    return math.max(0, math.floor((e.cap or 0) - used))
+  end
+
+  -- The company's railway from one freight building to another: the shortest
+  -- run of rail lines between them, through any yards or havens on the way,
+  -- using only lines with room today. Returns the stops in order and the
+  -- most it can carry in a day (the tightest line).
+  function City:railPath(from, to)
+    local dist, prev, done = { [from.id] = 0 }, {}, {}
+    while true do
+      local u, best
+      for id, d in pairs(dist) do
+        if not done[id] and (not best or d < best or (d == best and id < u)) then u, best = id, d end
+      end
+      if not u then return nil end
+      if u == to.id then break end
+      done[u] = true
+      for _, e in ipairs(self.g:edgesAt(u)) do
+        if e.alive and e.rail and (e.bulk or "rail") == "rail" and self:railSpare(e) > 0 then
+          local v = e.a == u and e.b or e.a
+          local n = self.g.nodes[v]
+          if n and n.alive and not done[v] then
+            local d = best + self:nodeDistance(u, v)
+            if not dist[v] or d < dist[v] then dist[v], prev[v] = d, e end
+          end
+        end
+      end
+    end
+    local stops, cap, at = { to }, math.huge, to.id
+    while prev[at] do
+      local e = prev[at]
+      cap = math.min(cap, self:railSpare(e))
+      at = e.a == at and e.b or e.a
+      table.insert(stops, 1, self.g.nodes[at])
+    end
+    return stops, cap
+  end
+
   function City:haulRoute(from, tx, ty, to)
+    -- The company's own railway, where it reaches.
+    if to then
+      local stops, cap = self:railPath(from, to)
+      if stops and #stops > 1 and cap > 0 then
+        local pts = {}
+        for _, n in ipairs(stops) do pts[#pts + 1] = n.x; pts[#pts + 1] = n.y end
+        return { mode = "train", pts = pts, cap = cap }
+      end
+    end
     if to then
       for _, e in ipairs(self.g:edgesAt(from.id)) do
         if e.alive and e.rail and (e.a == to.id or e.b == to.id) and BULK[e.bulk or "rail"] then
@@ -160,8 +212,8 @@ return function(City)
     return math.ceil(units * (rate.haulPerUnit + polyLength(route.pts) * rate.haulPerM))
   end
 
-  local function convoy(self, key, units, from, tx, ty, to, stock, day)
-    local route = self:haulRoute(from, tx, ty, to)
+  local function convoy(self, key, units, from, tx, ty, to, stock, day, route)
+    route = route or self:haulRoute(from, tx, ty, to)
     if not route then return nil end
     local c = { key = key, units = units, from = from.id, to = to and to.id or nil, mode = route.mode,
       pts = route.pts, len = polyLength(route.pts), day = day or self.day, stock = stock or nil }
@@ -219,7 +271,20 @@ return function(City)
       self.stock[key] = (self.stock[key] or 0) + units
       return nil
     end
-    local c, route = convoy(self, key, units, haven, yard.x, yard.y, yard, true, today)
+    local route = self:haulRoute(haven, yard.x, yard.y, yard)
+    -- A railway carries what its spare wagons hold in a day; a bigger order
+    -- goes up the line a trainload a day until it is all in.
+    local loads = { units }
+    if route and route.cap and units > route.cap then
+      loads = {}
+      local left = units
+      while left > 0 do loads[#loads + 1] = math.min(route.cap, left); left = left - loads[#loads] end
+    end
+    local c
+    for k, load in ipairs(loads) do
+      local cv = convoy(self, key, load, haven, yard.x, yard.y, yard, true, today + k - 1, route)
+      if cv then cv.arrive = today + k; c = c or cv end
+    end
     if not c then
       -- No way inland the company has built: the quay keeps it.
       self.stock = self.stock or {}
@@ -227,13 +292,17 @@ return function(City)
       self:note("%d %s kept on the quay: no way inland", units, string.lower(Graph.COMMODITIES[key].name))
       return nil
     end
-    c.arrive = today + 1
     -- Haulage is a bill like any other day's cost: it is paid even short.
     local cost = self:haulCost(route, units)
     self.money = self.money - cost
     c.cost = cost
-    self:note("%d %s on to the yard by %s for $%d", units, string.lower(Graph.COMMODITIES[key].name),
-      City.HAUL[route.mode].name, cost)
+    if #loads > 1 then
+      self:note("%d %s on to the yard by %s for $%d, %d trainloads over %d days", units,
+        string.lower(Graph.COMMODITIES[key].name), City.HAUL[route.mode].name, cost, #loads, #loads)
+    else
+      self:note("%d %s on to the yard by %s for $%d", units, string.lower(Graph.COMMODITIES[key].name),
+        City.HAUL[route.mode].name, cost)
+    end
     return c
   end
 

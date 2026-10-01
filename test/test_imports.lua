@@ -209,4 +209,44 @@ do
   local ux,uy=c:railAxis(rail)
   check(math.abs(ux*ux+uy*uy-1)<1e-9,"a rail terminal lies on a main line")
 end
+
+print("rail lines carry imports inland from the rail terminal")
+do
+  local c=T.sandbox(24,true)
+  c.stock.steel=2000; c.stock.glass=0
+  local d=c.districts[City.MAP.start]
+  local x0,y0=d.x+150,d.y+200
+  local rail=assert(c:build(x0,y0,"terminal","railhead"))
+  local mid=c.g:addNode(x0+500,y0,"dc")
+  local far=c.g:addNode(x0+500,y0+400,"dc")
+  c:refresh()
+  assert(c:layPipe(rail.id,mid.id,"steel",1,"rail"))
+  assert(c:layPipe(mid.id,far.id,"steel",1,"rail"))
+  c:refresh()
+  local stops,cap=c:railPath(rail,far)
+  check(stops and #stops==3 and stops[2]==mid and cap>0,"the railway runs on through the yard between")
+  assert(c:setImportYard(rail.id,far.id))
+  assert(c:orderImport(rail.id,"glass",math.min(cap,20)))
+  c:endDay()
+  local cv=c.convoys[#c.convoys]
+  check(cv.mode=="train" and #cv.pts==6 and cv.to==far.id,"an order goes inland by train, stop by stop")
+  c:endDay()
+  check(c:materialStock("glass")==math.min(cap,20),"and is in the far yard the next morning")
+
+  -- More than the line has room for in a day goes up a trainload a day.
+  c:refresh()
+  local _,room=c:railPath(rail,far)
+  local units=room*2+5
+  assert(c:orderImport(rail.id,"glass",units))
+  c:endDay()
+  local loads={}
+  for _,v in ipairs(c.convoys) do if v.key=="glass" and v.stock then loads[#loads+1]=v end end
+  check(#loads==3,"a big order is split into trainloads ("..#loads..")")
+  check(loads[1].arrive+1==loads[2].arrive and loads[2].arrive+1==loads[3].arrive,"one a day")
+  local before=c:materialStock("glass")
+  c:endDay()
+  check(c:materialStock("glass")==before+loads[1].units,"the first trainload is in the next morning")
+  c:endDay(); c:endDay()
+  check(c:materialStock("glass")==before+units,"and the last two days later")
+end
 print(T.checks.." import checks passed")

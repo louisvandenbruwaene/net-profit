@@ -784,6 +784,10 @@ Status: shipped. What a later session must know:
 - **Havens** are five doors (`City.GATEWAYS`): harbour, road head, air apron,
   rail terminal (on a main line off the map, `City:railAxis`) and river wharf
   (on a bank, `City:wharfBerth`). Each lands orders by its own vehicle.
+- **Rail inland:** an order whose haven reaches the yard by the company's rail
+  lines (through other yards or havens, `City:railPath`) goes by train, as much a
+  day as the tightest line has spare after its regular freight (`railSpare`); a
+  bigger order goes up a trainload a day.
 - **Haulage** (`src/haulage.lua`): a landed order is hauled on to the nearest
   yard by the best built way (own line, semi on roads, barge, plane, lorry
   overland, never through water) and is in stock a day later; its haulage is
