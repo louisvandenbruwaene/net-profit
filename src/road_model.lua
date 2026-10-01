@@ -10,7 +10,7 @@ return function(City)
  -- A bridge is the one road that may cross water, and the only way over it:
  -- none stands until the company builds it. It is priced by the metre of
  -- water it spans and charges a toll, like a highway.
- City.BRIDGE={perWaterM=3.2,toll=2}
+ City.BRIDGE=require('data.freight').BRIDGE
  -- Is this spot water: the river, or the sea anywhere off an island's shore.
  function City:isWater(x,y)
   if self:riverAt(x,y) then return true end

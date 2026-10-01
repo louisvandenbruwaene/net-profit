@@ -4,13 +4,13 @@ Most everyday balance changes now live in `src/data/`. These files contain value
 
 | What you want to change | File | Examples |
 | --- | --- | --- |
-| Money and running costs | `src/data/economy.lua` | `rules.startMoney`, `price.junction`, `trade.water.sourceBase`, loan interest, crew wages |
+| Money and running costs | `src/data/economy.lua` | `rules.startMoney`, `price.junction`, `trade.water.sourceBase`, `loanRate` (1% a week), `loanLeverage` (debt per dollar of own capital), crew wages |
 | Pipes and connections | `src/data/pipes.lua` | capacities, lining costs, leakage modifiers, endpoint size limits |
 | Engineering, farms and environment | `src/data/infrastructure.lua` | tower spacing, booster distances, upgrade prices, customer voltages, amperage, pump head, filtration, pollution, cleanup and farm recipes |
 | Terrain size and frequency | `src/data/terrain.lua` | park and mountain size ranges, massive obstacle chance and distance from the start |
 | Customers | `src/data/customers.lua` | daily rates, demand ranges, patience, spawn weights, `DUAL` (how many households ever want a second utility) |
 | Factories and sources | `src/data/production.lua` | recipes, inputs, output, construction cost, extractors and power plants |
-| Freight and storage | `src/data/freight.lua` | transport modes, hubs, havens, material bills and warehouse limits |
+| Freight and storage | `src/data/freight.lua` | transport modes, hubs, havens, material bills and warehouse limits; `IMPORT` (order step, lead days, quay room), `HAUL` (inland vehicles: load, speed, rate), `BRIDGE` (price a metre of water, starting toll) |
 | Unlocks and rewards | `src/data/progression.lua` | customer thresholds, municipal grants, staff and permits |
 | Building levels | `src/data/upgrades.lua` | the four-level ladders, what each level gives, `DISTRIBUTION` (radius, default minimum price, upkeep, daily limit), `WELL_NAMES` |
 | Unit costs | `src/data/economy.lua` | `extractPerUnit` (pumping cost a unit), `sourceUpkeep`; the display logic is `src/costs.lua` |
