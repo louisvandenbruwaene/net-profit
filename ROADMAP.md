@@ -758,3 +758,36 @@ route or a resort before there is anyone to use it.
   top of 14.4 rather than a rework of it.
 - **Insurance, loans against future toll revenue, or other financial products
   for the passenger side.** The existing credit system already covers it.
+
+## 15. A map that moves for a reason (built 2026-10-01)
+
+Status: shipped. What a later session must know:
+
+- **Traffic is drawn from the day, never invented** (`src/traffic.lua`). Road
+  vehicles come from `city.transit.byLink`, freight from `city.edgeFlowBy`, a
+  harbour ship from what the haven landed (`produced` plus this morning's
+  `landings`), ferries and airliners from routes with trips, flights at an
+  airport project only while it is supplied. Positions are functions of `R.t`
+  and hashes; nothing reads `City:random()` and nothing is saved.
+- **People** live in buildings on the map and walk to the pavement of a player
+  road nearby or round their own garden (`routeOf`, worked out at most 24 a
+  frame). `standable` keeps them off carriageways, water and buildings.
+- **Land is seamless.** Plot edges are survey lines, not streets or hedges.
+  Obstacles may spill over a line (`TERRAIN.spill`); saved terrain never moves.
+- **Roads are all the player's.** `City.ROAD_WIDTH`/`PAVEMENT` set how they are
+  drawn; only a `bridge` road crosses water (`City:isWater`, `waterAlong`) and it
+  is tolled like a highway (`City.tolled`). Shops stand by a normal player road.
+- **Credit** is `loanLeverage` x own capital (net worth) at `loanRate` 1% a week.
+- **Imports** (`src/imports.lua`): an order at a haven is paid now and lands the
+  next morning. It is kept in `city.shipments`; `city.orders` is the
+  departments and must never be reused.
+- **Haulage** (`src/haulage.lua`): a landed order is hauled on to the nearest
+  yard by the best built way (own line, semi on roads, barge, plane, lorry
+  overland, never through water) and is in stock a day later; its haulage is
+  part of that close's expenses. Materials spent on a building are driven to
+  its site (`spendMaterials(bill, scale, x, y)`). All in `city.convoys`.
+
+Not done, and worth doing next: vehicles carry on across a bend instead of
+starting afresh on each road segment; a site that has to wait for its
+materials (today a build is finished the moment it is paid for); orders that
+land into a chosen yard rather than the nearest.
