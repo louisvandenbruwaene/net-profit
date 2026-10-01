@@ -282,4 +282,42 @@ do
  for _,d in ipairs(drives) do if #d.r.rings>0 then through=true end end
  check(through,'round the roundabout at the interchange')
 end
+-- A highway branching off another is a motorway junction: the main line runs
+-- straight through it, and every way between the branch and the main line is
+-- a slip road, the far carriageway's over a flyover, never across on the level.
+do
+ local Journeys=require('journeys')
+ local RS=require('road_shape')
+ local c=world()
+ local w=node(c,'interchange',400,900); local x=node(c,'interchange',900,900); local z=node(c,'interchange',1400,900)
+ local y=node(c,'interchange',950,1500)
+ local wx=road(c,w,x,'highway'); local xz=road(c,x,z,'highway'); local xy=road(c,x,y,'highway')
+ local shape=RS.get(c)
+ check(shape.role[x.id]=='fork','three highways with a straight pair meet at a motorway junction')
+ local overs,slips=0,0
+ for _,r in ipairs(shape.ramps) do if r.node==x.id and r.fork then if r.over then overs=overs+1 else slips=slips+1 end end end
+ check(overs==1 and slips==4,'one flyover and four slip roads ('..overs..', '..slips..')')
+ check(#shape.pads==0,'and no flat junction')
+ local function id(l) return type(l)=='table' and l.id or l end
+ for _,way in ipairs({{{wx,xy},w},{{xz,xy},z},{{xy,xz},y},{{xy,wx},y}}) do
+  local path=Journeys.build(c,{id(way[1][1]),id(way[1][2])},way[2].id,false)
+  check(path,'a drive through the junction has a way')
+  local worst,ramp=0,false
+  for i=2,#path.x do worst=math.max(worst,math.sqrt((path.x[i]-path.x[i-1])^2+(path.y[i]-path.y[i-1])^2)) end
+  for i=1,#path.kind do if path.kind[i]=='ramp' then ramp=true end end
+  check(worst<12,'no jump through the junction (longest step '..string.format('%.1f',worst)..' m)')
+  check(ramp,'by its slip roads')
+ end
+end
+-- Nothing stands on a road, and no road runs through anything standing.
+do
+ local c=world()
+ local w=node(c,'interchange',400,900); local x=node(c,'interchange',900,900)
+ road(c,w,x,'highway')
+ check(c:spacingError(650,905,'manifold')=='a road runs there','a building cannot go up on a highway')
+ check(c:spacingError(650,960,'manifold')==nil,'but can beside it')
+ node(c,'manifold',650,1215)
+ local p=c:roadPlan(400,1200,900,1200,'road')
+ check(p.err=='a building is in the way','a road may not clip a building with its kerb ('..tostring(p.err)..')')
+end
 print(count..' transport and household checks passed')

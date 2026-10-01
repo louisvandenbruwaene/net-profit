@@ -958,6 +958,9 @@ City.riverWidth = 170
 City.riverWellReach = 220
 City.riverStep = 40
 City.riverLength = 30000
+-- How far upstream the estuary runs straight out of the coast before it
+-- takes up its own course.
+City.MOUTH_REACH = 720
 
 -- The course is a pure function of the river table, so it is rebuilt after a
 -- load rather than written into the save.
@@ -1027,7 +1030,24 @@ local function sampleCourse(start, heading, length, width, rng, opts)
     phase = phase + 2 * math.pi * step / wave
   end
   -- The mouth meets the coast square on, so the estuary opens into the sea.
-  if opts.mouth then p.nx[1], p.ny[1] = -1, 0 end
+  -- The first reach is eased onto the line straight out of the mouth, so both
+  -- banks flare alike instead of one slanting off with the channel's heading.
+  -- Past MOUTH_REACH the course is untouched, and it joins it smoothly.
+  if opts.mouth then
+    local reach = City.MOUTH_REACH
+    local m = math.min(p.n, math.floor(reach / step) + 1)
+    local x0 = p.x[1]
+    for j = 2, m do
+      local t = (j - 1) * step / reach
+      p.x[j] = x0 + (p.x[j] - x0) * t * t * (3 - 2 * t)
+    end
+    for j = 2, m do
+      local dx, dy = p.x[math.min(p.n, j + 1)] - p.x[j - 1], p.y[math.min(p.n, j + 1)] - p.y[j - 1]
+      local l = math.sqrt(dx * dx + dy * dy)
+      p.nx[j], p.ny[j] = -dy / l, dx / l
+    end
+    p.nx[1], p.ny[1] = -1, 0
+  end
   return p
 end
 
@@ -1486,6 +1506,10 @@ function City:spacingError(x, y, kind)
     if (n.x - x) ^ 2 + (n.y - y) ^ 2 < (ring + other + City.RING_GAP) ^ 2 then
       return "too close to another structure"
     end
+  end
+  -- Nothing stands on a road, its slip roads or its roundabouts.
+  if self.links and next(self.links) and require("road_shape").clearance(self, x, y, body) < body then
+    return "a road runs there"
   end
   for _, e in ipairs(self.g.edges) do
     if e.alive and City.lineBlockedByBuildings(e) then

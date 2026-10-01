@@ -205,6 +205,17 @@ local function aroundRings(path, rounds)
   return path
 end
 
+-- A polyline moved over to the right of the way it runs, by `off` metres.
+local function keepRight(pts, off)
+  local out = {}
+  for i, p in ipairs(pts) do
+    local a, b = pts[max(1, i - 1)], pts[min(#pts, i + 1)]
+    local ux, uy = norm(b.x - a.x, b.y - a.y)
+    out[i] = { x = p.x - uy * off, y = p.y + ux * off, kind = "ramp" }
+  end
+  return out
+end
+
 local function append(path, more)
   for i, p in ipairs(more) do
     local last = path[#path]
@@ -251,7 +262,68 @@ local function build(city, shape, links, from, fast, info)
     local kind = RoadShape.visual(l)
     local role = shape.role[at]
     local turned = false
-    if k > 1 and role == "pass" and (kind == "highway") ~= (prevKind == "highway") then
+    local fork = shape.forks and shape.forks[at]
+    if k > 1 and role == "fork" and fork and (fork[l] or false) ~= (fork[prevLink] or false) then
+      -- A motorway junction: between the branch and the main line by the
+      -- slip road for the way we are going, over the flyover first or last
+      -- when that way is the far carriageway.
+      local m = nodes[at]
+      if fork[l] then
+        local fx, fy = norm(nodes[nextNode].x - m.x, nodes[nextNode].y - m.y)
+        local ramp
+        for _, r in ipairs(shape.ramps) do
+          if r.node == at and r.fork and r.merge and r.branch == prevLink and r.hx * fx + r.hy * fy > 0 then ramp = r end
+        end
+        if ramp then
+          if ramp.flyover then append(path, keepRight(ramp.flyover.pts, 4.4)) end
+          for i, q in ipairs(ramp.pts) do
+            path[#path + 1] = { x = q.x, y = q.y, kind = "ramp" }
+            if i == 21 then path[#path].mark = { merge = { ramp = ramp } } end
+          end
+          local hw = resample(c)
+          local e = ramp.pts[#ramp.pts]
+          local bi, bd = 1, math.huge
+          for i, q in ipairs(hw) do
+            local d = dist(q.x, q.y, e.x, e.y)
+            if d < bd then bi, bd = i, d end
+          end
+          local rest = {}
+          for i = bi, #hw do rest[#rest + 1] = hw[i] end
+          if #rest >= 2 then append(path, laneSide(rest, highwayLane(rest, fast, true, false))) end
+          turned = true
+        end
+      else
+        local back = prevLink.a == at and prevLink.b or prevLink.a
+        local fx, fy = norm(nodes[back].x - m.x, nodes[back].y - m.y)
+        local ramp
+        for _, r in ipairs(shape.ramps) do
+          if r.node == at and r.fork and not r.over and not r.merge and r.branch == l and r.hx * fx + r.hy * fy > 0 then ramp = r end
+        end
+        if ramp then
+          local e = ramp.pts[#ramp.pts]
+          local bi, bd
+          for i = #path, max(1, #path - 120), -1 do
+            local d = dist(path[i].x, path[i].y, e.x, e.y)
+            if not bd or d < bd then bi, bd = i, d end
+          end
+          if bi and bd < 30 then
+            local kept = {}
+            for i = 1, bi do kept[i] = path[i] end
+            path = kept
+            for i = #ramp.pts, 1, -1 do path[#path + 1] = { x = ramp.pts[i].x, y = ramp.pts[i].y, kind = "ramp" } end
+            if ramp.flyover then
+              local rev = {}
+              for i = #ramp.flyover.pts, 1, -1 do rev[#rev + 1] = ramp.flyover.pts[i] end
+              append(path, keepRight(rev, 4.4))
+            end
+            local rs = resample(c)
+            append(path, laneSide(rs, highwayLane(rs, fast, true, false)))
+            turned = true
+          end
+        end
+      end
+    end
+    if not turned and k > 1 and role == "pass" and (kind == "highway") ~= (prevKind == "highway") then
       local m = nodes[at]
       if kind == "highway" then
         -- Up the slip road: the one that joins the highway going our way.
@@ -362,7 +434,9 @@ local function build(city, shape, links, from, fast, info)
       -- to the slow lane before it.
       if kind == "highway" and links[k + 1] then
         local nl = city.links[links[k + 1]]
-        if nl and RoadShape.visual(nl) ~= "highway" and shape.role[nextNode] == "pass" then
+        local nf = shape.forks and shape.forks[nextNode]
+        if nl and ((RoadShape.visual(nl) ~= "highway" and shape.role[nextNode] == "pass")
+            or (nf and (nf[nl] or false) ~= (nf[l] or false))) then
           local rs = resample(c)
           laneOf = highwayLane(rs, fast, false, true)
         end

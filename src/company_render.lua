@@ -1491,6 +1491,26 @@ local function drawSea(city, cam, state)
         lg.setColor(0.16, 0.30, 0.38, 0.10 + 0.05 * (1 - f))
         lg.ellipse("fill", sx, sy, rx, ry)
       end
+      -- The channel itself carries on past the coastline, spreading and
+      -- fading into the sea, so the river never stops at a straight line.
+      -- Each band is the river's own colour at the coast and gone 260 m out.
+      local hw = p.hw[1]
+      for _, band in ipairs({ { 1, 0.12, 0.26, 0.36 }, { 0.52, 0.07, 0.17, 0.28 } }) do
+        local w0, out = hw * band[1], 260
+        local verts = {}
+        for k = 0, 8 do
+          local t = k / 8
+          local e = t * t
+          local w = w0 * (1 + 0.9 * e)
+          local ax, ay = cam:toScreen(mid - w, -out * t)
+          local bx, by = cam:toScreen(mid + w, -out * t)
+          local a = (1 - t) ^ 1.6
+          verts[#verts + 1] = { ax, ay, band[2], band[3], band[4], a }
+          verts[#verts + 1] = { bx, by, band[2], band[3], band[4], a }
+        end
+        local mesh = lg.newMesh({ { "VertexPosition", "float", 2 }, { "VertexColor", "float", 4 } }, verts, "strip", "stream")
+        lg.setColor(1, 1, 1, 1); lg.draw(mesh); mesh:release()
+      end
     end)
   end
   -- The beach narrows to nothing as it reaches the river mouth, so the sand
