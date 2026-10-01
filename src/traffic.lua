@@ -296,8 +296,9 @@ end
 
 -- Open ground a person could stand on: not water, not rough ground, not a
 -- carriageway, not inside a building (`except` is the one whose door it is).
-local function standable(city, g, x, y, except)
-  if city:isWater(x, y) or city:obstacleAt(x, y) then return false end
+local function standable(city, g, x, y, except, deck)
+  -- `deck`: on a bridge's pavement, the water below is no obstacle.
+  if (not deck and city:isWater(x, y)) or (not deck and city:obstacleAt(x, y)) then return false end
   if onCarriageway(g, x, y) then return false end
   local gx, gy = math.floor(x / 60), math.floor(y / 60)
   for ix = gx - 1, gx + 1 do
@@ -337,7 +338,7 @@ local function paveRuns(city, g, r, side)
   local runs, open = {}, nil
   for s = 0, r.len, 5 do
     local x, y = pavePoint(r, s, side)
-    local ok = standable(city, g, x, y)
+    local ok = standable(city, g, x, y, nil, r.kind == "bridge")
     if ok and not open then open = s end
     if not ok and open then
       if s - open >= 25 then runs[#runs + 1] = { open, s - 5 } end
