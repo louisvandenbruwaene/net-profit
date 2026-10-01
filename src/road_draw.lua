@@ -12,6 +12,7 @@
 --              one again, on its own deck, with a shadow on the road below
 --   signs      give way, speed limits, motorway and exit boards
 local RS = require("road_shape")
+local City = require("city")
 local R = require("render")
 
 local Roads = {}
@@ -278,6 +279,25 @@ local function sign(cam, sg)
   end
 end
 
+-- A road that stops at a bend node with nothing beyond it ends in a rounded
+-- turning head rather than a cut edge.
+local function deadEnds(city, shape, ch)
+  local out = {}
+  for _, which in ipairs({ "a", "b" }) do
+    local id = ch[which]
+    local n = city.g.nodes[id]
+    if n and City.ROAD_JUNCTIONS[n.kind] and shape.role[id] == "end" then
+      out[#out + 1] = which == "a" and ch.pts[1] or ch.pts[#ch.pts]
+    end
+  end
+  return out
+end
+local function cap(cam, p, r, colour)
+  local sx, sy = cam:toScreen(p.x, p.y)
+  lg.setColor(colour)
+  lg.circle("fill", sx, sy, r * scaleFor(cam, p.h))
+end
+
 function Roads.draw(city, cam)
   local shape = RS.get(city)
   markFade = math.max(0, math.min(1, (cam.scale - 0.2) / 0.45))
@@ -333,11 +353,13 @@ function Roads.draw(city, cam)
   for _, ch in ipairs(visible) do
     local nx, ny = nrm(ch)
     band(cam, ch.pts, nx, ny, function(p) return -outerOf(p) end, outerOf, vergeOf)
+    for _, p in ipairs(deadEnds(city, shape, ch)) do cap(cam, p, outerOf(p), vergeOf(p)) end
   end
   for _, pad in ipairs(pads) do drawPad(cam, pad, "road", SURFACE[padKind(pad)] or SURFACE.road) end
   for _, ch in ipairs(visible) do
     local nx, ny = nrm(ch)
     band(cam, ch.pts, nx, ny, function(p) return -p.h end, function(p) return p.h end, surfaceOf)
+    for _, p in ipairs(deadEnds(city, shape, ch)) do cap(cam, p, p.h, surfaceOf(p)) end
     -- A kerb line where a pavement meets the road.
     if cam.scale > 0.45 then
       for _, side in ipairs({ -1, 1 }) do line(cam, ch.pts, nx, ny, "road", side, 0, 0.5, { 0.66, 0.66, 0.64, 0.8 }) end
@@ -405,8 +427,35 @@ function Roads.ghost(city, cam, plan, ok)
   lg.setFont(font)
   local tw, th = font:getWidth(text), font:getHeight()
   local tx, ty = bx + 14, by - th - 10
+  -- Kept on screen, flipping to the left of the pointer near the right edge.
+  if tx + tw + 8 > cam.vx + cam.vw then tx = bx - 14 - tw end
+  ty = math.max(cam.vy + 6, ty)
   lg.setColor(0.08, 0.09, 0.10, 0.85); lg.rectangle("fill", tx - 6, ty - 3, tw + 12, th + 6, 4)
   lg.setColor(col[1], col[2], col[3], 1); lg.print(text, tx, ty)
+end
+
+-- A selected or hovered road: both kerbs traced in a bright line, with a
+-- soft wash over the carriageway, along its own curves.
+function Roads.highlight(city, cam, l, colour, strong)
+  local pieces = RS.get(city).pieces[l.id]
+  if not pieces then return end
+  for _, pts in ipairs(pieces) do
+    if #pts >= 2 then
+      local nx, ny = normals(pts)
+      band(cam, pts, nx, ny, function(p) return -outerOf(p) end, outerOf, function() return { colour[1], colour[2], colour[3], strong and 0.22 or 0.14 } end)
+      for _, side in ipairs({ -1, 1 }) do
+        local poly = {}
+        for i, p in ipairs(pts) do
+          local sx, sy = cam:toScreen(p.x, p.y)
+          local o = side * (outerOf(p) + 1) * scaleFor(cam, p.h)
+          poly[#poly + 1] = sx + nx[i] * o; poly[#poly + 1] = sy + ny[i] * o
+        end
+        lg.setColor(colour[1], colour[2], colour[3], strong and 0.95 or 0.6)
+        lg.setLineWidth(strong and 2.5 or 1.5)
+        lg.line(poly)
+      end
+    end
+  end
 end
 
 return Roads

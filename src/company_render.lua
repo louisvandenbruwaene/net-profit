@@ -1903,16 +1903,7 @@ local function drawLinks(city, cam, state)
       if l.mode == "road" then
         -- The road itself is drawn with the ground (road_draw.lua); a
         -- selected one is outlined along its own curves.
-        if hot then
-          local half = City.ROAD_WIDTH[City.roadVisual(l)] / 2
-          for _, piece in ipairs(RoadShape.get(city).pieces[l.id] or {}) do
-            local line = {}
-            for _, p in ipairs(piece) do local sx, sy = cam:toScreen(p.x, p.y); line[#line + 1] = sx; line[#line + 1] = sy end
-            if #line >= 4 then
-              lg.setColor(P.with(P.text, 0.35)); lg.setLineWidth(math.max(3, half * 2 * cam.scale + 6)); lg.line(line)
-            end
-          end
-        end
+        if hot then Roads.highlight(city, cam, l, P.energy, state.link == l.id) end
       else
         local spec = City.ROUTES[l.mode]
         lg.setColor(P.with(spec.colour, 0.9)); lg.setLineWidth(math.max(1.4, 2.2 * cam.scale))
