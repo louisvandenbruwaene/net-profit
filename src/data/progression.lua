@@ -38,7 +38,8 @@ Data.TOOL_UNLOCK = {
 -- The next trade's chip shows from this many customers.
 Data.NEXT_TRADE_AT = 5
 -- Roads and routes wait for this many customers, even where people live.
-Data.ROADS_AT = 15
+-- The same as the first shop, which needs a road to stand on.
+Data.ROADS_AT = 6
 -- Projects and shops show, dim, this many customers before they open.
 Data.TEASE = 4
 -- Leaks ramp up over the first days, so an opening is not a repair bill.

@@ -1,14 +1,28 @@
--- traffic.lua -- the town going about its day: cars and trucks on the streets
--- between plots, people on the pavements and between neighbours, boats on the
--- river and at sea, birds over the woods, airliners overhead, and a crew van
--- at every leak a crew is out to.
+-- traffic.lua -- everything that moves on the map, and only for a reason.
 --
--- Pure decoration. Every position is a function of R.t and of hashes of things
--- that already exist, so nothing here is saved, nothing reads City:random(),
--- and the same frame always draws the same traffic.
+-- Nothing here is scenery. Every vehicle is one the company's own day put
+-- there, and every person lives in a building on the map:
+--   * cars, vans, trucks and buses drive the roads the player laid, as many
+--     as the day's trips used that road (`city.transit.byLink`), each in its
+--     own lane;
+--   * freight lines carry their day's flow: trucks on a trucking line, a
+--     train on rail, a ship on a sea lane, a freighter on an air lane;
+--   * a harbour sees a ship come in only on a day it lands cargo, a road
+--     head sees lorries (company_render), an air apron a freighter;
+--   * ferries and airliners run only on routes that carried passengers, and
+--     an airport project brings flights only while it is supplied;
+--   * people walk out of the houses, shops and works they live and work in,
+--     onto the pavement of a road beside them if there is one, or round
+--     their own garden if not. Never on a carriageway, never through water
+--     or a building. More of them as the district's population grows.
+--
+-- Positions are functions of R.t and of hashes of things that exist, so
+-- nothing is saved, nothing reads City:random(), and a frame is repeatable.
 local R = require("render")
-local P = require("palette")
 local City = require("city")
+local Graph = require("graph")
+local Shape = require("terrain_shape")
+local ShopData = require("data.shops")
 
 local Traffic = {}
 local lg = love and love.graphics
@@ -22,6 +36,8 @@ end
 -- when the camera pulls back, with a floor so nothing shrinks to grit.
 local function px(base, scale, floor) return math.max(floor or 1, R.sym(base, scale)) end
 
+local function ease(f) return f * f * (3 - 2 * f) end
+
 local CAR_COLOURS = {
   { 0.86, 0.30, 0.28 }, { 0.92, 0.88, 0.80 }, { 0.30, 0.52, 0.86 }, { 0.20, 0.22, 0.26 },
   { 0.95, 0.76, 0.30 }, { 0.55, 0.60, 0.64 }, { 0.36, 0.66, 0.46 },
@@ -31,65 +47,14 @@ local COATS = {
   { 0.34, 0.46, 0.36 }, { 0.44, 0.34, 0.48 }, { 0.22, 0.24, 0.28 }, { 0.58, 0.46, 0.34 },
 }
 
+local function cargoColour(key)
+  local spec = Graph.COMMODITIES[key or ""]
+  return spec and spec.color or { 0.55, 0.60, 0.64 }
+end
+
 --------------------------------------------------------------------------------
--- Streets. A land plot fills its cell, so the gap drawn between two plots is
--- the cell boundary, and that is the street. Each plot's own cars go round it
--- clockwise, inset from the boundary, so the plot next door's cars share the
--- street going the other way: two lanes with no lane table anywhere.
+-- Drawing: road vehicles, people, boats, aircraft
 --------------------------------------------------------------------------------
-
-local function perimeterPoint(d, s, inset)
-  local w, h = d.w - inset * 2, d.h - inset * 2
-  local x0, y0 = d.x + inset, d.y + inset
-  s = s % (2 * (w + h))
-  if s < w then return x0 + s, y0, 1, 0 end
-  s = s - w
-  if s < h then return x0 + w, y0 + s, 0, 1 end
-  s = s - h
-  if s < w then return x0 + w - s, y0 + h, -1, 0 end
-  s = s - w
-  return x0, y0 + h - s, 0, -1
-end
-
--- Where a street runs through the river it needs a bridge. Found once per plot
--- by sampling its boundary, and kept for as long as the plot and river last.
-local bridgesOf = setmetatable({}, { __mode = "k" })
-local function bridges(city, d)
-  local cached = bridgesOf[d]
-  if cached and cached.river == city.river then return cached.spans end
-  local spans, open = {}, nil
-  local len = 2 * (d.w + d.h)
-  for s = 0, len, 8 do
-    local x, y = perimeterPoint(d, s, 0)
-    local wet = y >= 0 and city:riverAt(x, y)
-    if wet and not open then open = s end
-    if not wet and open then spans[#spans + 1] = { open - 14, s + 14 }; open = nil end
-  end
-  if open then spans[#spans + 1] = { open - 14, len + 14 } end
-  bridgesOf[d] = { river = city.river, spans = spans }
-  return spans
-end
-
-local function drawBridges(city, cam, d)
-  for _, span in ipairs(bridges(city, d)) do
-    local ax, ay, dx, dy = perimeterPoint(d, span[1], 0)
-    local bx, by = perimeterPoint(d, span[2], 0)
-    local sax, say = cam:toScreen(ax, ay)
-    local sbx, sby = cam:toScreen(bx, by)
-    local deck = px(18, cam.scale, 3)
-    lg.setColor(0, 0, 0, 0.35); lg.setLineWidth(deck + 4)
-    lg.line(sax + 2, say + 3, sbx + 2, sby + 3)
-    lg.setColor(0.30, 0.31, 0.33, 1); lg.setLineWidth(deck)
-    lg.line(sax, say, sbx, sby)
-    if deck > 6 then
-      -- Parapets either side.
-      local nx, ny = -dy * deck / 2, dx * deck / 2
-      lg.setColor(0.62, 0.62, 0.60, 1); lg.setLineWidth(math.max(1, deck * 0.12))
-      lg.line(sax + nx, say + ny, sbx + nx, sby + ny)
-      lg.line(sax - nx, say - ny, sbx - nx, sby - ny)
-    end
-  end
-end
 
 -- A car, van, truck or bus seen from above, pointing along (dx, dy).
 local function vehicle(kind, x, y, dx, dy, scale, colour)
@@ -132,11 +97,9 @@ local function person(x, y, dx, dy, scale, coat, t, phase, still)
   lg.push(); lg.translate(x, y); lg.rotate(math.atan2(dy, dx))
   lg.setColor(0, 0, 0, 0.22); lg.ellipse("fill", r * 0.35, r * 0.55, r * 0.9, r * 1.05)
   local stride = still and 0 or math.sin(t * 7 + phase) * r * 0.55
-  -- Legs: two dark strokes, one ahead and one behind.
   lg.setColor(0.18, 0.19, 0.22)
   lg.ellipse("fill", stride, -r * 0.32, r * 0.42, r * 0.22)
   lg.ellipse("fill", -stride, r * 0.32, r * 0.42, r * 0.22)
-  -- Shoulders and coat, arms swinging opposite the legs.
   lg.setColor(coat[1] * 0.8, coat[2] * 0.8, coat[3] * 0.8)
   lg.ellipse("fill", -stride * 0.5, -r * 0.78, r * 0.3, r * 0.2)
   lg.ellipse("fill", stride * 0.5, r * 0.78, r * 0.3, r * 0.2)
@@ -148,46 +111,187 @@ local function person(x, y, dx, dy, scale, coat, t, phase, still)
   lg.pop()
 end
 
---------------------------------------------------------------------------------
--- Where people may walk. The pavement runs along each plot just inside its
--- edge, and is cut wherever something stands on it: the river, a wood, rough
--- ground, a building. Walkers keep to one clear stretch and turn at its ends.
--- A building's front path, door to kerb, is walked only if it is clear too.
--- Both are worked out once per change to the company and kept.
---------------------------------------------------------------------------------
-
-local PAVE = 8.5
-local walkCache = setmetatable({}, { __mode = "k" })
-
-local function walkData(city)
-  local rev = city.revision or 0
-  local w = walkCache[city]
-  if w and w.rev == rev and w.nodes == #city.g.nodes then return w end
-  w = { rev = rev, nodes = #city.g.nodes, runs = {}, doors = {} }
-  -- Buildings in a coarse grid, so a sample asks only its neighbours.
-  local grid = {}
-  for _, n in ipairs(city.g.nodes) do
-    if n.alive and n.kind ~= "corner" then
-      local k = math.floor(n.x / 60) * 65536 + math.floor(n.y / 60)
-      grid[k] = grid[k] or {}; table.insert(grid[k], n)
-    end
-  end
-  w.grid = grid
-  walkCache[city] = w
-  return w
+-- A hull from above: square stern, parallel sides, a fine bow.
+local function hull(L, W, ox, oy)
+  ox, oy = ox or 0, oy or 0
+  return { ox - L / 2, oy - W * 0.42, ox - L * 0.47, oy - W / 2, ox + L * 0.18, oy - W / 2,
+           ox + L * 0.36, oy - W * 0.36, ox + L / 2, oy, ox + L * 0.36, oy + W * 0.36,
+           ox + L * 0.18, oy + W / 2, ox - L * 0.47, oy + W / 2, ox - L / 2, oy + W * 0.42 }
 end
 
--- Is this spot open ground a person could stand on? `except` is the building
--- whose own door the path leaves from.
-local function standable(city, w, x, y, except)
-  if y < 0 then return false end
-  if city:obstacleAt(x, y) then return false end
+-- Wake and bow wave, in the boat's own frame, for a boat under way.
+local function wake(L, W, t, phase, speed)
+  if speed <= 0 then return end
+  local a = math.min(1, speed)
+  local shimmer = 0.5 + 0.5 * math.sin(t * 3 + phase)
+  -- A churned trail straight astern, fading out.
+  for i = 1, 6 do
+    local f = i / 6
+    lg.setColor(0.88, 0.94, 1, (0.20 - 0.03 * i) * a)
+    lg.ellipse("fill", -L / 2 - f * L * 1.2, 0, L * 0.16, W * (0.22 + 0.25 * f))
+  end
+  -- The Kelvin wedge: two lines opening out from the stern quarters.
+  lg.setColor(0.88, 0.94, 1, (0.16 + 0.08 * shimmer) * a); lg.setLineWidth(math.max(1, W * 0.10))
+  lg.line(-L * 0.35, -W * 0.5, -L * 1.9, -W * 1.9)
+  lg.line(-L * 0.35, W * 0.5, -L * 1.9, W * 1.9)
+  -- Bow wave curling off both sides.
+  lg.setColor(1, 1, 1, 0.35 * a); lg.setLineWidth(math.max(1, W * 0.12))
+  lg.line(L * 0.5, 0, L * 0.30, -W * 0.62, L * 0.10, -W * 0.72)
+  lg.line(L * 0.5, 0, L * 0.30, W * 0.62, L * 0.10, W * 0.72)
+end
+
+-- Boats: a container ship, a passenger ferry, a sailing yacht. Lengths are
+-- world metres; `speed` 0 is moored (no wake), 1 is full ahead.
+local BOAT = { ship = { 120, 20 }, ferry = { 54, 15 }, sail = { 16, 5.5 } }
+local function boat(kind, x, y, dx, dy, scale, t, phase, speed, cargo)
+  local spec = BOAT[kind]
+  local L = math.max(kind == "sail" and 5 or 9, spec[1] * scale)
+  local W = L * spec[2] / spec[1]
+  lg.push(); lg.translate(x, y); lg.rotate(math.atan2(dy, dx))
+  if L > 14 then wake(L, W, t, phase, speed) end
+  -- Shadow on the water, then the hull.
+  lg.setColor(0, 0, 0, 0.30); lg.polygon("fill", hull(L, W, 1.5, 2.5))
+  if kind == "ship" then
+    lg.setColor(0.52, 0.16, 0.14); lg.polygon("fill", hull(L, W))
+    lg.setColor(0.30, 0.32, 0.34); lg.polygon("fill", hull(L * 0.94, W * 0.82, -L * 0.01))
+    -- Containers in bays of two rows, coloured by what was landed, then the
+    -- accommodation block aft with its funnel.
+    local bays = L > 30 and 8 or 4
+    local bw = L * 0.62 / bays
+    for i = 0, bays - 1 do
+      for row = 0, 1 do
+        local c = cargo and #cargo > 0 and cargoColour(cargo[(i + row) % #cargo + 1]) or { 0.55, 0.58, 0.60 }
+        local shade = 0.82 + 0.18 * hash(phase, i, row)
+        lg.setColor(c[1] * shade, c[2] * shade, c[3] * shade)
+        lg.rectangle("fill", -L * 0.26 + i * bw, -W * 0.36 + row * W * 0.37, bw * 0.9, W * 0.34)
+      end
+    end
+    lg.setColor(0.94, 0.94, 0.92); lg.rectangle("fill", -L * 0.43, -W * 0.38, L * 0.13, W * 0.76, W * 0.08)
+    lg.setColor(0.16, 0.18, 0.22); lg.rectangle("fill", -L * 0.41, -W * 0.30, L * 0.02, W * 0.6)
+    lg.setColor(0.20, 0.20, 0.22); lg.circle("fill", -L * 0.465, 0, W * 0.14)
+  elseif kind == "ferry" then
+    lg.setColor(0.94, 0.94, 0.92); lg.polygon("fill", hull(L, W))
+    lg.setColor(0.24, 0.42, 0.66); lg.polygon("fill", hull(L * 0.78, W * 0.7, -L * 0.04))
+    lg.setColor(0.96, 0.96, 0.94); lg.rectangle("fill", -L * 0.30, -W * 0.25, L * 0.48, W * 0.5, W * 0.1)
+    if L > 18 then
+      lg.setColor(0.16, 0.22, 0.30)
+      for i = 0, 5 do lg.rectangle("fill", -L * 0.27 + i * L * 0.075, -W * 0.20, L * 0.04, W * 0.4) end
+    end
+  else
+    lg.setColor(0.96, 0.96, 0.94); lg.polygon("fill", hull(L, W))
+    lg.setColor(0.62, 0.48, 0.32); lg.polygon("fill", hull(L * 0.7, W * 0.6, -L * 0.08))
+    -- The sail, sheeted out to leeward of a steady westerly.
+    local leeward = math.sin(math.atan2(dy, dx)) >= 0 and -1 or 1
+    lg.setColor(1, 1, 1, 0.95)
+    lg.polygon("fill", L * 0.18, 0, -L * 0.42, leeward * W * 0.9, -L * 0.30, leeward * W * 0.25)
+    lg.setColor(0.25, 0.25, 0.25); lg.circle("fill", L * 0.18, 0, math.max(0.8, W * 0.12))
+  end
+  lg.pop()
+end
+
+-- An aircraft from above, nose along (dx, dy), `s` its span on screen.
+local function plane(x, y, dx, dy, s, livery)
+  lg.push(); lg.translate(x, y); lg.rotate(math.atan2(dy, dx))
+  lg.ellipse("fill", 0, 0, s * 0.5, s * 0.065)
+  lg.polygon("fill", s * 0.10, -s * 0.05, -s * 0.12, -s * 0.5, -s * 0.21, -s * 0.5, -s * 0.07, -s * 0.05,
+    -s * 0.07, s * 0.05, -s * 0.21, s * 0.5, -s * 0.12, s * 0.5, s * 0.10, s * 0.05)
+  lg.polygon("fill", -s * 0.36, 0, -s * 0.46, -s * 0.19, -s * 0.51, -s * 0.19, -s * 0.47, 0,
+    -s * 0.51, s * 0.19, -s * 0.46, s * 0.19)
+  if livery then
+    local r, g, b, a = lg.getColor()
+    lg.setColor(livery[1], livery[2], livery[3], a)
+    lg.rectangle("fill", -s * 0.42, -s * 0.02, s * 0.8, s * 0.04)
+    lg.setColor(r, g, b, a)
+  end
+  lg.pop()
+end
+
+-- An aircraft at `alt` (0 on the ground, 1 at cruise): a shadow that falls
+-- away from it as it climbs, then the plane, a little bigger up high.
+local function flying(cam, x, y, dx, dy, alt, livery, size)
+  local s = px(size or 40, cam.scale, 8) * (1 + 0.25 * alt)
+  local sx, sy = cam:toScreen(x, y)
+  lg.setColor(0, 0, 0, 0.22 - 0.06 * alt); plane(sx + s * 1.4 * alt + 1, sy + s * 2.2 * alt + 1, dx, dy, s / (1 + 0.25 * alt))
+  lg.setColor(0.94, 0.95, 0.96, 0.97); plane(sx, sy, dx, dy, s, livery)
+end
+
+--------------------------------------------------------------------------------
+-- Where things can go. Built once per change to the company and kept: the
+-- roads as segments with their widths, the buildings in a coarse grid, and
+-- for each building the way out of its door.
+--------------------------------------------------------------------------------
+
+local CELL = 120
+local geoCache = setmetatable({}, { __mode = "k" })
+
+local function bodyOf(n)
+  if n.kind == "client" then return City.PROJECT_BY and City.PROJECT_BY[n.clientType or ""] and 34 or 22 end
+  if n.kind == "corner" then return 0 end
+  return 16
+end
+
+local function geo(city)
+  local rev, links = city.revision or 0, #(city.links or {})
+  local g = geoCache[city]
+  if g and g.rev == rev and g.links == links and g.nodes == #city.g.nodes then return g end
+  g = { rev = rev, links = links, nodes = #city.g.nodes, roads = {}, roadGrid = {}, grid = {}, routes = {}, runs = {} }
+  for _, l in ipairs(city.links or {}) do
+    local na, nb = city.g.nodes[l.a], city.g.nodes[l.b]
+    if l.alive and l.mode == "road" and na and nb and na.alive and nb.alive then
+      local dx, dy = nb.x - na.x, nb.y - na.y
+      local len = math.sqrt(dx * dx + dy * dy)
+      if len > 1 then
+        local kind = l.roadType or "road"
+        local r = { l = l, kind = kind, ax = na.x, ay = na.y, bx = nb.x, by = nb.y, len = len,
+          ux = dx / len, uy = dy / len, half = City.ROAD_WIDTH[kind] / 2,
+          pave = kind == "road" and City.PAVEMENT or kind == "offroad" and 4 or 0 }
+        g.roads[#g.roads + 1] = r
+        for cx = math.floor((math.min(na.x, nb.x) - 30) / CELL), math.floor((math.max(na.x, nb.x) + 30) / CELL) do
+          for cy = math.floor((math.min(na.y, nb.y) - 30) / CELL), math.floor((math.max(na.y, nb.y) + 30) / CELL) do
+            local k = cx * 65536 + cy
+            g.roadGrid[k] = g.roadGrid[k] or {}
+            table.insert(g.roadGrid[k], r)
+          end
+        end
+      end
+    end
+  end
+  for _, n in ipairs(city.g.nodes) do
+    if n.alive and bodyOf(n) > 0 then
+      local k = math.floor(n.x / 60) * 65536 + math.floor(n.y / 60)
+      g.grid[k] = g.grid[k] or {}; table.insert(g.grid[k], n)
+    end
+  end
+  geoCache[city] = g
+  return g
+end
+
+-- Distance from a point to a road's centre line, and how far along it.
+local function along(r, x, y)
+  local s = (x - r.ax) * r.ux + (y - r.ay) * r.uy
+  local c = math.max(0, math.min(r.len, s))
+  local qx, qy = r.ax + r.ux * c - x, r.ay + r.uy * c - y
+  return math.sqrt(qx * qx + qy * qy), s
+end
+
+local function onCarriageway(g, x, y)
+  for _, r in ipairs(g.roadGrid[math.floor(x / CELL) * 65536 + math.floor(y / CELL)] or {}) do
+    if along(r, x, y) < r.half + 0.5 then return true end
+  end
+  return false
+end
+
+-- Open ground a person could stand on: not water, not rough ground, not a
+-- carriageway, not inside a building (`except` is the one whose door it is).
+local function standable(city, g, x, y, except)
+  if y < 0 or city:obstacleAt(x, y) or city:riverAt(x, y) then return false end
+  if onCarriageway(g, x, y) then return false end
   local gx, gy = math.floor(x / 60), math.floor(y / 60)
   for ix = gx - 1, gx + 1 do
     for iy = gy - 1, gy + 1 do
-      for _, n in ipairs(w.grid[ix * 65536 + iy] or {}) do
+      for _, n in ipairs(g.grid[ix * 65536 + iy] or {}) do
         if n ~= except then
-          local body = n.kind == "client" and (City.PROJECT_BY and City.PROJECT_BY[n.clientType or ""] and 34 or 22) or 16
+          local body = bodyOf(n)
           if (n.x - x) ^ 2 + (n.y - y) ^ 2 < body * body then return false end
         end
       end
@@ -196,101 +300,236 @@ local function standable(city, w, x, y, except)
   return true
 end
 
--- The clear stretches of one plot's pavement, as {a, b} along its perimeter.
-local function pavementRuns(city, d)
-  local w = walkData(city)
-  local key = d.id or ((d.col or 0) * 131 + (d.row or 0))
-  if w.runs[key] then return w.runs[key] end
+local function clear(city, g, ax, ay, bx, by, except, from)
+  local dx, dy = bx - ax, by - ay
+  local len = math.sqrt(dx * dx + dy * dy)
+  for k = from or 0, len, 5 do
+    if not standable(city, g, ax + dx * k / len, ay + dy * k / len, except) then return false end
+  end
+  return standable(city, g, bx, by, except)
+end
+
+-- A point on one side of a road's pavement: `side` +1 or -1.
+local function pavePoint(r, s, side)
+  local off = side * (r.half + r.pave / 2)
+  return r.ax + r.ux * s - r.uy * off, r.ay + r.uy * s + r.ux * off
+end
+
+-- The clear stretches of one side of a road's pavement, as {a, b} along it.
+-- Cut wherever something stands on it, including another road's carriageway:
+-- people do not walk across junctions.
+local function paveRuns(city, g, r, side)
+  local key = r.l.id * 2 + (side > 0 and 1 or 0)
+  if g.runs[key] then return g.runs[key] end
   local runs, open = {}, nil
-  local len = 2 * (d.w + d.h - PAVE * 4)
-  for s = 0, len, 6 do
-    local x, y = perimeterPoint(d, s, PAVE)
-    local ok = standable(city, w, x, y)
+  for s = 0, r.len, 5 do
+    local x, y = pavePoint(r, s, side)
+    local ok = standable(city, g, x, y)
     if ok and not open then open = s end
     if not ok and open then
-      if s - open >= 40 then runs[#runs + 1] = { open, s - 6 } end
+      if s - open >= 25 then runs[#runs + 1] = { open, s - 5 } end
       open = nil
     end
   end
-  if open and len - open >= 40 then runs[#runs + 1] = { open, len } end
-  w.runs[key] = runs
+  if open and r.len - open >= 25 then runs[#runs + 1] = { open, r.len } end
+  g.runs[key] = runs
   return runs
 end
 
--- A building's way out: its door, the kerb straight across from it on its
--- own plot's nearest edge, and the pavement run that kerb lands on. Nil if
--- anything stands between.
-local function frontPath(city, n)
-  local w = walkData(city)
-  local cached = w.doors[n.id]
+-- A building's way out. With a road (with a pavement or verge) near, it is
+-- the walk from the door straight to the pavement on this side of it, and
+-- the clear stretch of pavement that lands on. Without one, a stroll out
+-- into its own ground and back. False if nothing is clear at all.
+local function routeOf(city, n)
+  local g = geo(city)
+  local cached = g.routes[n.id]
   if cached ~= nil then return cached or nil end
-  local d = city:districtAt(n.x, n.y)
-  local result = false
-  if d and not d.island then
-    local sides = {
-      { dist = n.y - d.y, kx = n.x, ky = d.y + PAVE },
-      { dist = d.y + d.h - n.y, kx = n.x, ky = d.y + d.h - PAVE },
-      { dist = n.x - d.x, kx = d.x + PAVE, ky = n.y },
-      { dist = d.x + d.w - n.x, kx = d.x + d.w - PAVE, ky = n.y },
-    }
-    table.sort(sides, function(a, b) return a.dist < b.dist end)
-    local side = sides[1]
-    if side.dist < 260 then
-      local dx, dy = side.kx - n.x, side.ky - n.y
-      local len = math.sqrt(dx * dx + dy * dy)
-      local clear = true
-      for k = 18, len, 6 do
-        local x, y = n.x + dx * k / len, n.y + dy * k / len
-        if not standable(city, w, x, y, n) then clear = false; break end
-      end
-      if clear and standable(city, w, side.kx, side.ky, n) then
-        result = { dx = n.x, dy = n.y, kx = side.kx, ky = side.ky, len = len }
+  local body = bodyOf(n)
+  local best
+  for cx = math.floor(n.x / CELL) - 2, math.floor(n.x / CELL) + 2 do
+    for cy = math.floor(n.y / CELL) - 2, math.floor(n.y / CELL) + 2 do
+      for _, r in ipairs(g.roadGrid[cx * 65536 + cy] or {}) do
+        if r.pave > 0 then
+          local d, s = along(r, n.x, n.y)
+          if s > 8 and s < r.len - 8 and d < 240 and (not best or d < best.d) then best = { r = r, d = d, s = s } end
+        end
       end
     end
   end
-  w.doors[n.id] = result
+  local result = false
+  if best then
+    local r = best.r
+    local side = ((n.x - r.ax) * -r.uy + (n.y - r.ay) * r.ux) >= 0 and 1 or -1
+    local kx, ky = pavePoint(r, best.s, side)
+    if clear(city, g, n.x, n.y, kx, ky, n, body) then
+      for _, run in ipairs(paveRuns(city, g, r, side)) do
+        if best.s >= run[1] - 3 and best.s <= run[2] + 3 then
+          local dx, dy = kx - n.x, ky - n.y
+          local len = math.sqrt(dx * dx + dy * dy)
+          result = { road = r, side = side, s = best.s, run = run, kx = kx, ky = ky,
+            ox = n.x + dx / len * body * 0.8, oy = n.y + dy / len * body * 0.8, len = len - body * 0.8 }
+          break
+        end
+      end
+    end
+  end
+  if not result then
+    for i = 0, 7 do
+      local a = (hash(n.id, 1) + i / 8) * math.pi * 2
+      local reach = body + 22 + 26 * hash(n.id, i, 2)
+      local ox, oy = n.x + math.cos(a) * body * 0.8, n.y + math.sin(a) * body * 0.8
+      local ex, ey = n.x + math.cos(a) * reach, n.y + math.sin(a) * reach
+      if clear(city, g, ox, oy, ex, ey, n, 4) then
+        result = { ox = ox, oy = oy, kx = ex, ky = ey, len = reach - body * 0.8 }
+        break
+      end
+    end
+  end
+  g.routes[n.id] = result
   return result or nil
 end
 
-local function tri(v) v = v % 2; return v < 1 and v or 2 - v end
+--------------------------------------------------------------------------------
+-- People
+--------------------------------------------------------------------------------
 
-local function drawStreets(city, cam, visible, t)
-  if cam.scale < 0.22 then return end
-  for _, d in ipairs(city.districts or {}) do
-    if not d.island and visible(d) and d.y >= 0 and cam:seesBox(d.x - 30, d.y - 30, d.x + d.w + 30, d.y + d.h + 30) then
-      drawBridges(city, cam, d)
-      local id = d.id or (d.col or 0) * 31 + (d.row or 0)
-      local len = 2 * (d.w + d.h - 8 * 2)
-      -- Owned ground is where the company's customers live: busy. Next door is
-      -- quiet country.
-      local count = math.floor(len / (d.owned and 230 or 700))
-      local speed = 46 + 10 * hash(id, 1)
-      for i = 1, count do
-        local s = (i + 0.35 * hash(id, i, 2)) * len / count + t * speed
-        local x, y, dx, dy = perimeterPoint(d, s, 5)
-        if cam:sees(x, y, 20) then
-          local roll = hash(id, i, 3)
-          local kind = roll < 0.13 and "truck" or roll < 0.18 and "bus" or roll < 0.3 and "van" or "car"
-          local sx, sy = cam:toScreen(x, y)
-          vehicle(kind, sx, sy, dx, dy, cam.scale, CAR_COLOURS[math.floor(hash(id, i, 4) * #CAR_COLOURS) + 1])
+-- One outing: out of the door, along the pavement and back, or out into the
+-- garden and back; then a long spell indoors.
+local function outing(cam, rt, t, seed, coat, phase, opts)
+  local v = 6 + 3 * hash(seed, 1)
+  local out = rt.len / v
+  local stretch, s0 = 0, rt.s
+  if rt.road and not (opts and opts.noStroll) then
+    local target = rt.run[1] + (rt.run[2] - rt.run[1]) * hash(seed, 2)
+    stretch = target - rt.s
+  end
+  local walk = math.abs(stretch) / v
+  local pause = (opts and opts.pause) or (2 + 6 * hash(seed, 3))
+  local indoors = (opts and opts.indoors) or (6 + 26 * hash(seed, 4))
+  local cycle = 2 * (out + walk) + pause + indoors
+  local k = (t + hash(seed, 5) * cycle) % cycle
+  local x, y, dx, dy, still
+  local px0, py0, px1, py1 = rt.ox, rt.oy, rt.kx, rt.ky
+  local function door(f, outward)
+    x, y = px0 + (px1 - px0) * f, py0 + (py1 - py0) * f
+    dx, dy = (px1 - px0) * (outward and 1 or -1), (py1 - py0) * (outward and 1 or -1)
+  end
+  local function pave(f, outward)
+    local r = rt.road
+    x, y = pavePoint(r, s0 + stretch * f, rt.side)
+    local sign = (stretch >= 0 and 1 or -1) * (outward and 1 or -1)
+    dx, dy = r.ux * sign, r.uy * sign
+  end
+  if k < out then door(k / out, true)
+  elseif k < out + walk then pave((k - out) / walk, true)
+  elseif k < out + walk + pause then
+    if rt.road then pave(1, true) else door(1, true) end
+    still = true
+  elseif k < out + 2 * walk + pause then pave(1 - (k - out - walk - pause) / walk, false)
+  elseif k < 2 * (out + walk) + pause then door(1 - (k - out - 2 * walk - pause) / out, false)
+  else return end
+  if not cam:sees(x, y, 10) then return end
+  local sx, sy = cam:toScreen(x, y)
+  person(sx, sy, dx, dy, cam.scale, coat, t, phase, still)
+end
+
+-- How many of a building's people are out at once: its residents, scaled by
+-- how far its district has grown and by the weather.
+local function outNow(city, n, d, weather)
+  local res = ShopData.RESIDENTS[n.clientType or ""] or (n.kind == "client" and 3 or 2)
+  if res <= 0 then res = 4 end
+  local grow = 1 + math.min(2, ((d and d.population) or 0) / 450)
+  local share = n.prospect and 0.25 or 0.4
+  return math.max(1, math.min(10, math.floor(res * share * grow * weather + 0.5)))
+end
+
+local function drawPeople(city, cam, t)
+  if cam.scale < 0.45 then return end
+  local w = city.weatherOn and city:weatherOn(city.day or 1)
+  local weather = (w and ShopData.WEATHER[w.key]) or 1
+  for _, n in ipairs(city.g.nodes) do
+    if n.alive and (n.kind == "client" or n.kind == "works" or n.kind == "resort" or n.kind == "station")
+       and cam:sees(n.x, n.y, 300 * cam.scale) then
+      local rt = routeOf(city, n)
+      if rt then
+        local d = city:districtAt(n.x, n.y)
+        local count = City.isShop and City.isShop(n) and 1 or outNow(city, n, d, weather)
+        for i = 1, count do
+          outing(cam, rt, t, hash(n.id, i, 40), COATS[math.floor(hash(n.id, i, 41) * #COATS) + 1], n.id + i)
         end
       end
-      if cam.scale > 0.55 then
-        -- Pavement walkers, each pacing one clear stretch end to end.
-        for r, run in ipairs(pavementRuns(city, d)) do
-          local span = run[2] - run[1]
-          local walkers = math.max(1, math.floor(span / (d.owned and 150 or 500)))
-          for i = 1, walkers do
-            local speed = 6 + 4 * hash(id, r * 37 + i, 6)
-            local v = (t * speed + hash(id, r * 37 + i, 5) * 2 * span) / span
-            local f = tri(v)
-            local s = run[1] + f * span
-            local x, y, dx, dy = perimeterPoint(d, s, PAVE)
-            if cam:sees(x, y, 10) then
-              local back = (v % 2) >= 1
+    end
+  end
+end
+
+-- Shoppers: the ones who went in walk from the pavement to the door and back,
+-- and the pavement outside carries a share of everyone who passed today.
+local function drawShoppers(city, cam, t)
+  if cam.scale < 0.45 or not city.shops then return end
+  for _, n in ipairs(city:shops()) do
+    if cam:sees(n.x, n.y, 260 * cam.scale) then
+      local rt = routeOf(city, n)
+      if rt and rt.road then
+        local served = city:shopServed(n) or 0
+        for i = 1, math.min(10, math.ceil(served / 5)) do
+          outing(cam, rt, t, hash(n.id, i, 42), COATS[math.floor(hash(n.id, i, 44) * #COATS) + 1], n.id + i,
+            { noStroll = true, pause = 4 + 4 * hash(n.id, i, 45), indoors = 4 + 6 * hash(n.id, i, 46) })
+        end
+        local span = rt.run[2] - rt.run[1]
+        for i = 1, math.min(16, math.ceil((n.passing or 0) / 10)) do
+          local v = (t * (6 + 4 * hash(n.id, i, 32)) + hash(n.id, i, 31) * 2 * span) / span
+          local f = v % 2; f = f < 1 and f or 2 - f
+          local x, y = pavePoint(rt.road, rt.run[1] + f * span, rt.side)
+          if cam:sees(x, y, 10) then
+            local back = (v % 2) >= 1
+            local sx, sy = cam:toScreen(x, y)
+            person(sx, sy, back and -rt.road.ux or rt.road.ux, back and -rt.road.uy or rt.road.uy, cam.scale,
+              COATS[math.floor(hash(n.id, i, 34) * #COATS) + 1], t, n.id + i)
+          end
+        end
+      end
+    end
+  end
+end
+
+--------------------------------------------------------------------------------
+-- Roads: the day's trips, in lane
+--------------------------------------------------------------------------------
+
+local SPEED = { car = 42, van = 38, truck = 30, bus = 28 }
+local ROAD_PACE = { offroad = 0.6, road = 1, highway = 1.7 }
+
+local function drawRoads(city, cam, t)
+  if cam.scale < 0.2 then return end
+  local g = geo(city)
+  local byLink = (city.transit or {}).byLink or {}
+  for _, r in ipairs(g.roads) do
+    if cam:seesBox(math.min(r.ax, r.bx), math.min(r.ay, r.by), math.max(r.ax, r.bx), math.max(r.ay, r.by), 20) then
+      local rec = byLink[r.l.id] or {}
+      local fleet = {
+        { "car", math.min(10, math.ceil((rec.car or 0) / 3)) },
+        { "truck", r.kind == "offroad" and 0 or math.min(4, math.ceil((rec.truck or 0) / 2)) },
+        { "bus", r.kind == "offroad" and 0 or math.min(3, rec.bus or 0) },
+      }
+      local i = 0
+      for _, f in ipairs(fleet) do
+        for j = 1, f[2] do
+          i = i + 1
+          local kind = f[1]
+          if kind == "car" and hash(r.l.id, i, 9) < 0.15 then kind = "van" end
+          local dir = i % 2 == 0 and -1 or 1
+          local speed = SPEED[kind] * ROAD_PACE[r.kind] * (0.9 + 0.2 * hash(r.l.id, i, 3))
+          local s = (hash(r.l.id, i, 1) * r.len + t * speed) % (r.len + 40) - 20
+          if s > 6 and s < r.len - 6 then
+            if dir < 0 then s = r.len - s end
+            -- Keep right: a highway's slow lane is the outer one.
+            local lane = r.half * (r.kind == "highway" and (kind == "car" and 0.3 or 0.72) or 0.48)
+            local ux, uy = r.ux * dir, r.uy * dir
+            local x = r.ax + r.ux * s - uy * lane
+            local y = r.ay + r.uy * s + ux * lane
+            if cam:sees(x, y, 20) then
               local sx, sy = cam:toScreen(x, y)
-              person(sx, sy, back and -dx or dx, back and -dy or dy, cam.scale,
-                COATS[math.floor(hash(id, r * 37 + i, 7) * #COATS) + 1], t, r * 7 + i)
+              vehicle(kind, sx, sy, ux, uy, cam.scale, CAR_COLOURS[math.floor(hash(r.l.id, i, 4) * #CAR_COLOURS) + 1])
             end
           end
         end
@@ -300,145 +539,231 @@ local function drawStreets(city, cam, visible, t)
 end
 
 --------------------------------------------------------------------------------
--- Residents. Now and then somebody leaves a building by its front path, walks
--- to the kerb, and comes back. Only where that path is clear.
+-- Freight: the day's loads on the lines that carry them
 --------------------------------------------------------------------------------
 
--- Walk a front path: out, a pause at the kerb, back, a long spell indoors.
-local function frontWalker(cam, path, t, seed, coat, phase, cycle)
-  local walk = path.len / 7
-  cycle = cycle or walk * 2 + 30
-  local k = (t + seed * cycle) % cycle
-  local f, out
-  if k < walk then f, out = k / walk, true
-  elseif k < walk + 4 then f = 1
-  elseif k < walk * 2 + 4 then f, out = 1 - (k - walk - 4) / walk, false
-  else return end
-  local ddx, ddy = path.kx - path.dx, path.ky - path.dy
-  local x, y = path.dx + ddx * f, path.dy + ddy * f
-  if not cam:sees(x, y, 10) then return end
-  local sx, sy = cam:toScreen(x, y)
-  if out == nil then person(sx, sy, ddx, ddy, cam.scale, coat, t, phase, true)
-  else person(sx, sy, out and ddx or -ddx, out and ddy or -ddy, cam.scale, coat, t, phase) end
+-- Where a boat calls at a place: a harbour or a coastal stop on land is
+-- reached at the head of its jetty, out at sea; anything already on the
+-- water (an island, the river) is reached where it stands.
+local function quay(city, n)
+  if n.y >= 0 and n.y <= City.havenReach + 60 and not city:riverAt(n.x, n.y) then
+    return n.x + 24, City.JETTY_HEAD - 40
+  end
+  return n.x, n.y
 end
 
-local function drawResidents(city, cam, t)
-  if cam.scale < 0.55 then return end
-  for _, c in ipairs(city:clientList()) do
-    if not c.shop and cam:sees(c.x, c.y, 120 * cam.scale) then
-      local path = frontPath(city, c)
-      if path then
-        frontWalker(cam, path, t, hash(c.id, 3), COATS[c.id % #COATS + 1], c.id)
+-- What a freight line carries today: the units, the way they go (+1 a to b),
+-- and the trades in the load.
+local function freightOn(city, e)
+  local units, best, dir, cargo = 0, 0, 1, {}
+  for key, flows in pairs(city.edgeFlowBy or {}) do
+    local f = flows[e.id] or 0
+    if f ~= 0 then
+      units = units + math.abs(f)
+      cargo[#cargo + 1] = key
+      if math.abs(f) > best then best, dir = math.abs(f), f > 0 and 1 or -1 end
+    end
+  end
+  table.sort(cargo)
+  return units, dir, cargo
+end
+
+local function lineEnds(city, e, dir)
+  local na, nb = city.g.nodes[e.a], city.g.nodes[e.b]
+  if not (na and nb) then return end
+  if dir < 0 then na, nb = nb, na end
+  if e.bulk == "sea" then
+    local ax, ay = quay(city, na)
+    local bx, by = quay(city, nb)
+    na, nb = { x = ax, y = ay }, { x = bx, y = by }
+  end
+  local dx, dy = nb.x - na.x, nb.y - na.y
+  local len = math.max(1, math.sqrt(dx * dx + dy * dy))
+  return na.x, na.y, dx / len, dy / len, len
+end
+
+-- A train: a locomotive and its wagons, coupled along the line.
+local function train(cam, ax, ay, ux, uy, s, wagons, cargo, laden)
+  local step = 26
+  for i = 0, wagons do
+    local d = s - i * step
+    local x, y = ax + ux * d, ay + uy * d
+    if cam:sees(x, y, 30) then
+      local sx, sy = cam:toScreen(x, y)
+      local L, W = px(24 * 1.4, cam.scale, 3), px(7 * 1.4, cam.scale, 1.6)
+      lg.push(); lg.translate(sx, sy); lg.rotate(math.atan2(uy, ux))
+      lg.setColor(0, 0, 0, 0.3); lg.rectangle("fill", -L / 2 + 1, -W / 2 + 1.5, L, W)
+      if i == 0 then
+        lg.setColor(0.78, 0.22, 0.18); lg.rectangle("fill", -L / 2, -W / 2, L, W, W * 0.3)
+        lg.setColor(0.20, 0.22, 0.26); lg.rectangle("fill", L * 0.25, -W * 0.35, L * 0.15, W * 0.7)
+      else
+        lg.setColor(0.36, 0.36, 0.38); lg.rectangle("fill", -L / 2, -W / 2, L, W, W * 0.1)
+        if laden then
+          local c = cargoColour(cargo[(i - 1) % math.max(1, #cargo) + 1])
+          lg.setColor(c); lg.rectangle("fill", -L * 0.42, -W * 0.34, L * 0.84, W * 0.68)
+        end
       end
+      lg.pop()
     end
   end
 end
 
---------------------------------------------------------------------------------
--- The river carries barges both ways, the sea carries ships along the coast.
---------------------------------------------------------------------------------
-
-local riverLengths = setmetatable({}, { __mode = "k" })
-local function lengths(p)
-  local cum = riverLengths[p]
-  if cum then return cum end
-  cum = { 0 }
-  for i = 2, p.n do cum[i] = cum[i - 1] + math.sqrt((p.x[i] - p.x[i - 1]) ^ 2 + (p.y[i] - p.y[i - 1]) ^ 2) end
-  riverLengths[p] = cum
-  return cum
-end
-
-local function along(p, cum, s)
-  local lo, hi = 1, p.n
-  while hi - lo > 1 do
-    local mid = math.floor((lo + hi) / 2)
-    if cum[mid] <= s then lo = mid else hi = mid end
-  end
-  local seg = math.max(1e-6, cum[hi] - cum[lo])
-  local f = math.max(0, math.min(1, (s - cum[lo]) / seg))
-  local x = p.x[lo] + (p.x[hi] - p.x[lo]) * f
-  local y = p.y[lo] + (p.y[hi] - p.y[lo]) * f
-  local hw = p.hw[lo] + (p.hw[hi] - p.hw[lo]) * f
-  return x, y, (p.x[hi] - p.x[lo]) / seg, (p.y[hi] - p.y[lo]) / seg, hw
-end
-
-local function boat(kind, x, y, dx, dy, scale, t, phase)
-  local L = px(kind == "ship" and 110 or kind == "sail" and 34 or 50, scale, 5)
-  local W = L * (kind == "ship" and 0.2 or kind == "sail" and 0.36 or 0.3)
-  lg.push(); lg.translate(x, y); lg.rotate(math.atan2(dy, dx))
-  -- The wake: two lines opening out behind, shimmering.
-  local shimmer = 0.5 + 0.5 * math.sin(t * 3 + phase)
-  lg.setColor(0.85, 0.93, 1, 0.18 + 0.1 * shimmer); lg.setLineWidth(math.max(1, W * 0.14))
-  lg.line(-L * 0.45, -W * 0.3, -L * 1.6, -W * 1.5)
-  lg.line(-L * 0.45, W * 0.3, -L * 1.6, W * 1.5)
-  lg.setColor(0, 0, 0, 0.3)
-  lg.polygon("fill", -L / 2 + 2, -W / 2 + 2, L * 0.3 + 2, -W / 2 + 2, L / 2 + 2, 2, L * 0.3 + 2, W / 2 + 2, -L / 2 + 2, W / 2 + 2)
-  if kind == "sail" then
-    lg.setColor(0.93, 0.93, 0.90)
-    lg.polygon("fill", -L / 2, -W / 2, L * 0.25, -W / 2, L / 2, 0, L * 0.25, W / 2, -L / 2, W / 2)
-    lg.setColor(0.98, 0.98, 0.96); lg.polygon("fill", -L * 0.1, 0, L * 0.25, -W * 0.1, -L * 0.2, -W * 1.1)
-  else
-    lg.setColor(kind == "ship" and { 0.62, 0.20, 0.18 } or { 0.26, 0.30, 0.34 })
-    lg.polygon("fill", -L / 2, -W / 2, L * 0.3, -W / 2, L / 2, 0, L * 0.3, W / 2, -L / 2, W / 2)
-    if kind == "ship" then
-      -- Containers in rows, the bridge aft.
-      local cols = { { 0.30, 0.52, 0.86 }, { 0.95, 0.76, 0.30 }, { 0.36, 0.66, 0.46 }, { 0.86, 0.30, 0.28 } }
-      for i = 0, 5 do
-        lg.setColor(cols[(i + phase) % #cols + 1])
-        lg.rectangle("fill", -L * 0.3 + i * L * 0.1, -W * 0.36, L * 0.085, W * 0.72)
-      end
-      lg.setColor(0.92, 0.92, 0.90); lg.rectangle("fill", -L * 0.44, -W * 0.34, L * 0.1, W * 0.68)
-    else
-      lg.setColor(0.86, 0.66, 0.36); lg.rectangle("fill", -L * 0.34, -W * 0.3, L * 0.5, W * 0.6)
-      lg.setColor(0.92, 0.92, 0.90); lg.rectangle("fill", -L * 0.46, -W * 0.28, L * 0.1, W * 0.56)
-    end
-  end
-  lg.pop()
-end
-
-local function drawWater(city, cam, t)
+local function drawFreight(city, cam, t)
   if cam.scale < 0.14 then return end
-  local p = city:riverPath()
-  if p and p.n and p.n > 2 then
-    local cum = lengths(p)
-    local total = cum[p.n]
-    local count = math.max(2, math.floor(total / 900))
-    for i = 1, count do
-      local up = i % 2 == 0
-      local speed = up and 16 or 24
-      local s = (i / count * total + (up and -1 or 1) * t * speed) % total
-      local x, y, dx, dy, hw = along(p, cum, s)
-      if hw > 30 and cam:sees(x, y, 60) then
-        local off = hw * 0.38 * (up and 1 or -1)
-        -- Upstream is toward higher sample index; the channel's normal is (-dy, dx).
-        local bx, by = x - dy * off, y + dx * off
-        if not up then dx, dy = -dx, -dy end
-        local sx, sy = cam:toScreen(bx, by)
-        boat(hash(i, 3) < 0.4 and "sail" or "barge", sx, sy, dx, dy, cam.scale, t, i)
-      end
-    end
-  end
-  -- Coastal shipping, well out from the beach.
-  local b = city.bounds
-  for i = 1, 4 do
-    local dir = i % 2 == 0 and -1 or 1
-    local lane = -260 - 420 * hash(i, 11)
-    local span = b.w + 2400
-    local x = b.x - 1200 + ((hash(i, 12) * span + dir * t * (i == 1 and 28 or 18)) % span)
-    local y = lane + math.sin(t * 0.05 + i) * 30
-    if cam:sees(x, y, 120) then
-      local d = city:districtAt(x, y)
-      if not (d and d.island) then
-        local sx, sy = cam:toScreen(x, y)
-        boat(i <= 2 and "ship" or "sail", sx, sy, dir, 0, cam.scale, t, i)
+  for _, e in ipairs(city.g.edges) do
+    if e.alive and e.rail and e.bulk ~= "air" then
+      local units, dir, cargo = freightOn(city, e)
+      if units > 0 then
+        local mode = e.bulk or "rail"
+        local spec = City.MODES[mode] or City.MODES.rail
+        local loads = math.max(1, math.ceil(units / spec.wagonCap))
+        for back = 0, 1 do
+          local ax, ay, ux, uy, len = lineEnds(city, e, back == 0 and dir or -dir)
+          if ax and cam:seesBox(math.min(ax, ax + ux * len), math.min(ay, ay + uy * len),
+              math.max(ax, ax + ux * len), math.max(ay, ay + uy * len), 120) then
+            local laden = back == 0
+            if mode == "highway" then
+              -- Lorries out full and back empty, in their lanes.
+              local n = math.min(6, loads)
+              for i = 1, n do
+                local s = (hash(e.id, i, back) * len + t * 32) % (len + 40) - 20
+                if s > 10 and s < len - 10 then
+                  local x, y = ax + ux * s - uy * 4, ay + uy * s + ux * 4
+                  if cam:sees(x, y, 20) then
+                    local sx, sy = cam:toScreen(x, y)
+                    vehicle("truck", sx, sy, ux, uy, cam.scale, laden and cargoColour(cargo[(i - 1) % #cargo + 1]) or { 0.55, 0.58, 0.60 })
+                  end
+                end
+              end
+            elseif mode == "sea" then
+              local n = math.min(3, loads)
+              for i = 1, n do
+                local s = (hash(e.id, i, back) * len + t * 18) % (len + 300) - 150
+                if s > 40 and s < len - 40 then
+                  local x, y = ax + ux * s - uy * 20, ay + uy * s + ux * 20
+                  if cam:sees(x, y, 160) then
+                    local sx, sy = cam:toScreen(x, y)
+                    boat("ship", sx, sy, ux, uy, cam.scale, t, e.id + i, 1, laden and cargo or nil)
+                  end
+                end
+              end
+            else
+              -- One train each way, as long as the day's load needs.
+              local wagons = math.min(10, loads)
+              local cycle = (len + wagons * 26) / 36 + 20
+              local k = (t + hash(e.id, back, 7) * cycle) % cycle
+              local s = k * 36
+              if s < len + wagons * 26 then train(cam, ax - uy * 3, ay + ux * 3, ux, uy, math.min(s, len), wagons, cargo, laden) end
+            end
+          end
+        end
       end
     end
   end
 end
 
 --------------------------------------------------------------------------------
--- Crews. A company that pays for crews sees them: a van at each of the worst
--- leaks, beacon turning, somebody in hi-vis walking the main.
+-- Havens: a ship in for a harbour's day of cargo
+--------------------------------------------------------------------------------
+
+local function landedCargo(city, n)
+  local cargo = {}
+  for key, v in pairs((city.producedBy or {})[n.id] or {}) do if v > 0 then cargo[#cargo + 1] = key end end
+  table.sort(cargo)
+  return cargo
+end
+
+-- A ship's call at the harbour: in from open sea, alongside the jetty head,
+-- swung round by the tugs, and out again.
+local function drawHarbours(city, cam, t)
+  for _, n in ipairs(city.g.nodes) do
+    if n.alive and n.kind == "terminal" and (n.haven or "port") == "port" and n.y < City.havenReach + 60 then
+      local landed = (city.produced or {})[n.id] or 0
+      if landed > 0 and cam:seesBox(n.x - 300, -2000, n.x + 300, n.y, 100) then
+        local cargo = landedCargo(city, n)
+        local ships = math.min(3, math.ceil(landed / City.MODES.sea.wagonCap))
+        local berthX, berthY = n.x + 24, City.JETTY_HEAD + 72
+        local IN, MOOR, TURN, OUT = 30, 26, 8, 30
+        local cycle = IN + MOOR + TURN + OUT
+        for i = 1, ships do
+          local k = (t + (i - 1) * cycle / ships + hash(n.id, 3) * cycle) % cycle
+          local x, y, dx, dy, speed
+          if k < IN then
+            local f = ease(k / IN)
+            x, y, dx, dy, speed = berthX, berthY - 1700 * (1 - f), 0, 1, 1 - f * 0.8
+          elseif k < IN + MOOR then
+            x, y, dx, dy, speed = berthX, berthY + math.sin(t * 1.3 + i) * 1.2, 0, 1, 0
+          elseif k < IN + MOOR + TURN then
+            local a = math.pi / 2 + math.pi * ease((k - IN - MOOR) / TURN)
+            x, y, dx, dy, speed = berthX + 30 * math.sin(a - math.pi / 2), berthY, math.cos(a), math.sin(a), 0.2
+          else
+            local f = (k - IN - MOOR - TURN) / OUT
+            x, y, dx, dy, speed = berthX, berthY - 1700 * f * f, 0, -1, 0.3 + 0.7 * f
+          end
+          if cam:sees(x, y, 200) then
+            local sx, sy = cam:toScreen(x, y)
+            boat("ship", sx, sy, dx, dy, cam.scale, t, n.id + i, speed, k < IN + MOOR and cargo or nil)
+          end
+        end
+      end
+    end
+  end
+end
+
+-- Ferries on routes that carried passengers today, shuttling end to end.
+local function drawFerries(city, cam, t)
+  local byLink = (city.transit or {}).byLink or {}
+  for _, l in ipairs(city.links or {}) do
+    local rec = byLink[l.id]
+    if l.alive and l.mode == "ferry" and rec and (rec.trips or 0) > 0 then
+      local na, nb = city.g.nodes[l.a], city.g.nodes[l.b]
+      if na and nb then
+        local ax, ay = quay(city, na)
+        local bx, by = quay(city, nb)
+        na, nb = { x = ax, y = ay }, { x = bx, y = by }
+        local dx, dy = nb.x - na.x, nb.y - na.y
+        local len = math.max(1, math.sqrt(dx * dx + dy * dy))
+        local run, dock = len / 22, 10
+        local cycle = 2 * (run + dock)
+        for i = 1, math.max(1, l.vehicles or 1) do
+          local k = (t + (i - 1) * cycle / (l.vehicles or 1)) % cycle
+          local f, dir, speed
+          if k < run then f, dir, speed = ease(k / run), 1, 1
+          elseif k < run + dock then f, dir, speed = 1, 1, 0
+          elseif k < 2 * run + dock then f, dir, speed = 1 - ease((k - run - dock) / run), -1, 1
+          else f, dir, speed = 0, -1, 0 end
+          local x, y = na.x + dx * f, na.y + dy * f
+          if cam:sees(x, y, 80) then
+            local sx, sy = cam:toScreen(x, y)
+            boat("ferry", sx, sy, dx / len * dir, dy / len * dir, cam.scale, t, l.id + i, speed)
+          end
+        end
+      end
+    end
+  end
+end
+
+-- Yachts off a resort on the coast: its guests out on the water.
+local function drawYachts(city, cam, t)
+  for _, n in ipairs(city.g.nodes) do
+    if n.alive and n.kind == "resort" and n.y < 500 then
+      for i = 1, 2 + (n.level or 1) do
+        local cx, cy = n.x + (hash(n.id, i, 1) - 0.5) * 500, -220 - 260 * hash(n.id, i, 2)
+        local rx, ry = 160 + 120 * hash(n.id, i, 3), 50 + 40 * hash(n.id, i, 4)
+        local a = t * (0.025 + 0.02 * hash(n.id, i, 5)) * (i % 2 == 0 and 1 or -1) + hash(n.id, i, 6) * 6.28
+        local x, y = cx + math.cos(a) * rx, cy + math.sin(a) * ry
+        if cam:sees(x, y, 40) then
+          local sgn = i % 2 == 0 and 1 or -1
+          local sx, sy = cam:toScreen(x, y)
+          boat("sail", sx, sy, -math.sin(a) * rx * sgn, math.cos(a) * ry * sgn, cam.scale, t, i, 0.6)
+        end
+      end
+    end
+  end
+end
+
+--------------------------------------------------------------------------------
+-- Crews at the worst leaks, when the company pays for crews.
 --------------------------------------------------------------------------------
 
 local function drawCrews(city, cam, t)
@@ -475,7 +800,7 @@ local function drawCrews(city, cam, t)
 end
 
 --------------------------------------------------------------------------------
--- Overhead: birds wheeling over woods, airliners crossing the whole map.
+-- Overhead: birds over the woods, and aircraft only where there is a reason.
 --------------------------------------------------------------------------------
 
 local function drawBirds(city, cam, t)
@@ -498,115 +823,109 @@ local function drawBirds(city, cam, t)
   end
 end
 
-local function plane(x, y, dx, dy, s)
-  lg.push(); lg.translate(x, y); lg.rotate(math.atan2(dy, dx))
-  lg.rectangle("fill", -s * 0.5, -s * 0.06, s, s * 0.12, s * 0.06)
-  lg.polygon("fill", s * 0.08, 0, -s * 0.12, -s * 0.5, -s * 0.2, -s * 0.5, -s * 0.06, 0, -s * 0.2, s * 0.5, -s * 0.12, s * 0.5)
-  lg.polygon("fill", -s * 0.38, 0, -s * 0.48, -s * 0.2, -s * 0.52, -s * 0.2, -s * 0.46, 0, -s * 0.52, s * 0.2, -s * 0.48, s * 0.2)
-  lg.pop()
+-- A flight between two points along a gentle arc: climb, cruise, descend.
+local function flight(cam, ax, ay, bx, by, f, livery, size)
+  local dx, dy = bx - ax, by - ay
+  local cx, cy = (ax + bx) / 2 - dy * 0.18, (ay + by) / 2 + dx * 0.18
+  local x = (1 - f) ^ 2 * ax + 2 * (1 - f) * f * cx + f * f * bx
+  local y = (1 - f) ^ 2 * ay + 2 * (1 - f) * f * cy + f * f * by
+  local tx = 2 * (1 - f) * (cx - ax) + 2 * f * (bx - cx)
+  local ty = 2 * (1 - f) * (cy - ay) + 2 * f * (by - cy)
+  local alt = math.min(1, math.min(f, 1 - f) * 6)
+  if cam:sees(x, y, 200) then flying(cam, x, y, tx, ty, alt, livery, size) end
 end
 
--- Flight paths cross the company's own ground, where the player is looking,
--- rather than the middle of the surveyed map.
-local function home(city)
-  local x, y, n = 0, 0, 0
-  for _, d in ipairs(city.districts or {}) do
-    if d.owned then x, y, n = x + d.x + d.w / 2, y + d.y + d.h / 2, n + 1 end
+-- Landing and taking off along a runway: (rx, ry) its touchdown point, (ux,
+-- uy) the way it lands. The approach comes in from far out; the departure
+-- leaves the other way.
+local function runway(cam, t, rx, ry, ux, uy, seed, livery)
+  local APPROACH, ROLL, GROUND, CLIMB = 22, 7, 18, 20
+  local cycle = APPROACH + ROLL + GROUND + CLIMB
+  local k = (t + seed * cycle) % cycle
+  local x, y, alt
+  if k < APPROACH then
+    local f = k / APPROACH
+    local d = 2200 * (1 - f)
+    x, y, alt = rx - ux * d, ry - uy * d, (1 - f) * 0.9
+  elseif k < APPROACH + ROLL then
+    local f = (k - APPROACH) / ROLL
+    local d = 140 * (1 - (1 - f) ^ 2)
+    x, y, alt = rx + ux * d, ry + uy * d, 0
+  elseif k < APPROACH + ROLL + GROUND then
+    return
+  else
+    local f = (k - APPROACH - ROLL - GROUND) / CLIMB
+    local d = -120 + 2400 * f * f
+    x, y, alt = rx + ux * d, ry + uy * d, math.min(1, math.max(0, (d + 40) / 900))
   end
-  if n == 0 then local b = city.bounds; return b.x + b.w / 2, b.y + b.h / 2 end
-  return x / n, y / n
+  if cam:sees(x, y, 200) then flying(cam, x, y, ux, uy, alt, livery) end
 end
 
-local function drawPlanes(city, cam, t)
-  local cx, cy = home(city)
-  local reach = 6000
-  local seed = (city.river and city.river.meander or 7) % 1000
-  for i = 1, 4 do
-    local ang = hash(seed, i, 21) * math.pi * 2
-    local dx, dy = math.cos(ang), math.sin(ang)
-    local ox = cx + (hash(seed, i, 22) - 0.5) * 1600
-    local oy = cy + (hash(seed, i, 23) - 0.5) * 1000
-    local speed = 240
-    local flight = reach * 2 / speed
-    local cycle = flight + 20 + 60 * hash(seed, i, 24)
-    local k = (t + hash(seed, i, 25) * cycle) % cycle
-    if k < flight then
-      local s = -reach + k * speed
-      local x, y = ox + dx * s, oy + dy * s
-      local size = px(46, cam.scale, 10)
-      if cam:sees(x, y, size * 6) then
-        -- Contrail: two faint lines streaming back from the engines.
-        local sx, sy = cam:toScreen(x, y)
-        local trail = math.min(k * speed, 900) * cam.scale
-        local nx, ny = -dy * size * 0.18, dx * size * 0.18
-        lg.setLineWidth(math.max(1, size * 0.06))
-        for q = 0, 5 do
-          local a0, a1 = q / 6 * trail, (q + 1) / 6 * trail
-          lg.setColor(1, 1, 1, 0.16 * (1 - q / 6))
-          lg.line(sx + nx - dx * a0, sy + ny - dy * a0, sx + nx - dx * a1, sy + ny - dy * a1)
-          lg.line(sx - nx - dx * a0, sy - ny - dy * a0, sx - nx - dx * a1, sy - ny - dy * a1)
+local function drawAir(city, cam, t)
+  local byLink = (city.transit or {}).byLink or {}
+  for _, n in ipairs(city.g.nodes) do
+    if n.alive then
+      -- An air freight apron, on a day it lands cargo: the freighter in and out.
+      if n.kind == "terminal" and n.haven == "airfield" and ((city.produced or {})[n.id] or 0) > 0 then
+        local a = (math.floor(Shape.hash(n.x, n.y, 90) * 4) - 1.5) * 0.35
+        local ux, uy = math.cos(a), math.sin(a)
+        local rx, ry = n.x - uy * 27 - ux * 110, n.y + ux * 27 - uy * 110
+        local cargo = landedCargo(city, n)
+        runway(cam, t, rx, ry, ux, uy, hash(n.id, 1), cargo[1] and cargoColour(cargo[1]))
+      end
+      -- An airport the company supplies: its flights come and go.
+      if n.kind == "client" and n.clientType == "airport" and not n.prospect and city:fullyServed(n) then
+        local a = Shape.hash(n.x, n.y, 91) * math.pi * 2
+        local ux, uy = math.cos(a), math.sin(a)
+        for i = 1, 2 do
+          runway(cam, t, n.x - ux * 60, n.y - uy * 60, ux, uy, hash(n.id, i, 2), { 0.30, 0.52, 0.86 })
         end
-        -- Shadow far below and to the side: it is high up.
-        lg.setColor(0, 0, 0, 0.22); plane(sx + size * 1.6, sy + size * 2.4, dx, dy, size)
-        lg.setColor(0.93, 0.94, 0.95, 0.95); plane(sx, sy, dx, dy, size)
-        lg.setColor(0.86, 0.30, 0.28, 0.9)
-        lg.circle("fill", sx - dx * size * 0.48, sy - dy * size * 0.48, math.max(1, size * 0.05))
+      end
+    end
+  end
+  -- Airliners on passenger routes that flew today, out and back.
+  for _, l in ipairs(city.links or {}) do
+    local rec = byLink[l.id]
+    if l.alive and l.mode == "air" and rec and (rec.trips or 0) > 0 then
+      local na, nb = city.g.nodes[l.a], city.g.nodes[l.b]
+      if na and nb then
+        local len = math.sqrt((nb.x - na.x) ^ 2 + (nb.y - na.y) ^ 2)
+        local leg = len / 160 + 10
+        for i = 1, math.max(1, l.vehicles or 1) do
+          local k = (t + (i - 1) * leg * 2 / (l.vehicles or 1) + hash(l.id, i) * 10) % (leg * 2)
+          if k < leg then flight(cam, na.x, na.y, nb.x, nb.y, k / leg, { 0.86, 0.30, 0.28 })
+          else flight(cam, nb.x, nb.y, na.x, na.y, (k - leg) / leg, { 0.86, 0.30, 0.28 }) end
+        end
+      end
+    end
+  end
+  -- Air freight lanes carrying cargo today.
+  for _, e in ipairs(city.g.edges) do
+    if e.alive and e.rail and e.bulk == "air" then
+      local units, dir, cargo = freightOn(city, e)
+      if units > 0 then
+        local na, nb = city.g.nodes[e.a], city.g.nodes[e.b]
+        if dir < 0 then na, nb = nb, na end
+        local len = math.sqrt((nb.x - na.x) ^ 2 + (nb.y - na.y) ^ 2)
+        local leg = len / 160 + 10
+        local k = (t + hash(e.id, 1) * leg * 2) % (leg * 2)
+        local livery = cargo[1] and cargoColour(cargo[1])
+        if k < leg then flight(cam, na.x, na.y, nb.x, nb.y, k / leg, livery)
+        else flight(cam, nb.x, nb.y, na.x, na.y, (k - leg) / leg, nil) end
       end
     end
   end
 end
 
---------------------------------------------------------------------------------
--- Shoppers. Round each shop, the street carries as many walkers as really
--- passed it today, and the ones who went in walk from the kerb to the door.
---------------------------------------------------------------------------------
-
-local function drawShoppers(city, cam, t)
-  if cam.scale < 0.45 or not city.shops then return end
-  for _, n in ipairs(city:shops()) do
-    if cam:sees(n.x, n.y, 260 * cam.scale) then
-      local path = frontPath(city, n)
-      local served = city:shopServed(n) or 0
-      if path then
-        -- Customers go in by the front path and come out again, each on
-        -- their own clock; the busier the day, the more of them.
-        local inside = math.min(10, math.ceil(served / 5))
-        for i = 1, inside do
-          frontWalker(cam, path, t, hash(n.id, i, 42), COATS[math.floor(hash(n.id, i, 44) * #COATS) + 1],
-            n.id + i, path.len / 7 * 2 + 6 + 6 * hash(n.id, i, 41))
-        end
-        -- The street in front carries the crowd that passed today, on the
-        -- clear stretch the kerb lands on.
-        local d = city:districtAt(n.x, n.y)
-        if d then
-          for _, run in ipairs(pavementRuns(city, d)) do
-            local span = run[2] - run[1]
-            local extra = math.min(16, math.ceil((n.passing or 0) / 10))
-            for i = 1, extra do
-              local speed = 7 + 4 * hash(n.id, i, 32)
-              local v = (t * speed + hash(n.id, i, 31) * 2 * span) / span
-              local s = run[1] + tri(v) * span
-              local x, y, dx, dy = perimeterPoint(d, s, PAVE)
-              if (x - path.kx) ^ 2 + (y - path.ky) ^ 2 < 280 * 280 and cam:sees(x, y, 10) then
-                local back = (v % 2) >= 1
-                local sx, sy = cam:toScreen(x, y)
-                person(sx, sy, back and -dx or dx, back and -dy or dy, cam.scale,
-                  COATS[math.floor(hash(n.id, i, 34) * #COATS) + 1], t, n.id + i)
-              end
-            end
-          end
-        end
-      end
-    end
-  end
-end
-
--- Under the buildings: streets, water, neighbours, shoppers, crews.
+-- Under the buildings: what is on the ground and on the water.
 function Traffic.ground(city, cam, visible)
   local t = R.t or 0
-  drawWater(city, cam, t)
-  drawStreets(city, cam, visible, t)
-  drawResidents(city, cam, t)
+  drawHarbours(city, cam, t)
+  drawFerries(city, cam, t)
+  drawYachts(city, cam, t)
+  drawFreight(city, cam, t)
+  drawRoads(city, cam, t)
+  drawPeople(city, cam, t)
   drawShoppers(city, cam, t)
   drawCrews(city, cam, t)
 end
@@ -615,8 +934,8 @@ end
 function Traffic.air(city, cam)
   local t = R.t or 0
   drawBirds(city, cam, t)
-  drawPlanes(city, cam, t)
+  drawAir(city, cam, t)
 end
 
-Traffic._hash, Traffic._perimeterPoint, Traffic._frontPath = hash, perimeterPoint, frontPath
+Traffic._hash, Traffic._route, Traffic._standable, Traffic._geo = hash, routeOf, standable, geo
 return Traffic

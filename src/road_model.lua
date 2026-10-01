@@ -1,5 +1,11 @@
 local Graph=require('graph')
 return function(City)
+ -- Carriageway widths in metres, and the pavement a normal road has either
+ -- side. Traffic keeps to its lane and people to the pavement, off these.
+ City.ROAD_WIDTH={offroad=10,road=16,highway=26}
+ City.PAVEMENT=5
+ -- How far out to sea a harbour's jetty runs: a ship lies alongside it.
+ City.JETTY_HEAD=-210
  City.ROAD_TYPES={offroad={name='OFFROAD',factor=.5,colour={.65,.48,.30}},road={name='NORMAL ROAD',factor=1,colour={.65,.68,.72}},highway={name='HIGHWAY',factor=2,colour={.96,.80,.35}}}
  -- A corner is the cheap one: two ports, for bending a road round something
  -- rather than for meeting another road at it.

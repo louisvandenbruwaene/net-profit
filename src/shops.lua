@@ -1,8 +1,7 @@
 -- shops.lua -- shops on the streets, and the people who walk past them.
 --
--- A plot fills its map cell, so the boundary between two plots is a street.
--- Each street is walked every day by the residents of the buildings within
--- reach of it, more at the weekend and in sunshine, fewer in the rain. The
+-- A street is a normal road the company laid. Each one is walked every day
+-- by the residents of the buildings within reach of it, more at the weekend and in sunshine, fewer in the rain. The
 -- walkers go both ways, and pass the street's shops in order: each one may go
 -- in, and a full shop sends the rest on to the next. So where a shop stands,
 -- what it charges, how big it is and whether a bench keeps people nearby all
@@ -30,21 +29,28 @@ return function(City)
 
   function City.isShop(n) return n and n.kind == "client" and City.SHOP_BY[n.clientType or ""] ~= nil end
 
-  -- The street a point stands on: the nearest edge of its plot, if it is
-  -- close enough. Returns a key shared with the plot across the street, the
-  -- position along it, and the ends of the edge.
+  -- The street a point stands on: the nearest normal road the company laid,
+  -- if it is close enough. Plot edges are hedges, not streets. Returns a key
+  -- for the road, the position along it, and its ends.
   function City:streetAt(x, y)
-    local d = self:districtAt(x, y)
-    if not d or d.island then return nil end
-    local sides = {
-      { dist = y - d.y,          key = "h:" .. d.y .. ":" .. d.x,         s = x, ax = d.x, ay = d.y, bx = d.x + d.w, by = d.y },
-      { dist = d.y + d.h - y,    key = "h:" .. (d.y + d.h) .. ":" .. d.x, s = x, ax = d.x, ay = d.y + d.h, bx = d.x + d.w, by = d.y + d.h },
-      { dist = x - d.x,          key = "v:" .. d.x .. ":" .. d.y,         s = y, ax = d.x, ay = d.y, bx = d.x, by = d.y + d.h },
-      { dist = d.x + d.w - x,    key = "v:" .. (d.x + d.w) .. ":" .. d.y, s = y, ax = d.x + d.w, ay = d.y, bx = d.x + d.w, by = d.y + d.h },
-    }
-    table.sort(sides, function(a, b) return a.dist < b.dist end)
-    if sides[1].dist > D.STREET then return nil end
-    return sides[1]
+    local best
+    for _, l in ipairs(self.links or {}) do
+      local na, nb = self.g.nodes[l.a], self.g.nodes[l.b]
+      if l.alive and l.mode == "road" and (l.roadType or "road") == "road" and na and nb and na.alive and nb.alive then
+        local dx, dy = nb.x - na.x, nb.y - na.y
+        local len2 = math.max(1e-9, dx * dx + dy * dy)
+        local t = ((x - na.x) * dx + (y - na.y) * dy) / len2
+        if t > 0 and t < 1 then
+          local qx, qy = na.x + dx * t - x, na.y + dy * t - y
+          local dist = math.sqrt(qx * qx + qy * qy)
+          if dist <= D.STREET and (not best or dist < best.dist) then
+            best = { dist = dist, key = "road:" .. l.id, link = l, s = t * math.sqrt(len2),
+              ax = na.x, ay = na.y, bx = nb.x, by = nb.y }
+          end
+        end
+      end
+    end
+    return best
   end
 
   local function hashKey(s)
@@ -183,19 +189,25 @@ return function(City)
     local clients = 0
     for _, c in ipairs(self:clientList()) do if not City.isShop(c) then clients = clients + 1 end end
     if clients < spec.clients then return spec.clients .. " customers first" end
-    return nil
+    for _, l in ipairs(self.links or {}) do
+      if l.alive and l.mode == "road" and (l.roadType or "road") == "road" then return nil end
+    end
+    return "lay a road first"
   end
 
   -- Where a shop put down at (x, y) actually stands: squared up to the
-  -- street, a fixed step back from it, so its door faces the pavement.
+  -- road, a fixed step back from its kerb on the side it was put, so its
+  -- door faces the pavement.
   function City:shopSpot(x, y)
     local st = self:streetAt(x, y)
     if not st then return x, y end
-    local d = self:districtAt(x, y)
-    if st.ay == st.by then
-      return x, st.ay == d.y and d.y + D.SETBACK or d.y + d.h - D.SETBACK
-    end
-    return st.ax == d.x and d.x + D.SETBACK or d.x + d.w - D.SETBACK, y
+    local dx, dy = st.bx - st.ax, st.by - st.ay
+    local len = math.max(1e-9, math.sqrt(dx * dx + dy * dy))
+    local ux, uy = dx / len, dy / len
+    local side = ((x - st.ax) * -uy + (y - st.ay) * ux) >= 0 and 1 or -1
+    local back = City.ROAD_WIDTH.road / 2 + City.PAVEMENT + D.SETBACK
+    local fx, fy = st.ax + ux * st.s, st.ay + uy * st.s
+    return fx - uy * back * side, fy + ux * back * side
   end
 
   function City:shopError(key, x, y)
@@ -204,7 +216,7 @@ return function(City)
     if why then return why end
     why = self:placementError(x, y, "client")
     if why then return why end
-    if not self:streetAt(x, y) then return "build by a street" end
+    if not self:streetAt(x, y) then return "build beside a road" end
     if City.SHOP_BY[key].cost > self.money then return "not enough cash" end
     return nil
   end
@@ -265,7 +277,9 @@ return function(City)
   function City:benchError(x, y)
     local d = self:districtAt(x, y)
     if not (d and d.owned) then return "on your own ground" end
-    if not self:streetAt(x, y) then return "by a street" end
+    local st = self:streetAt(x, y)
+    if not st then return "beside a road" end
+    if st.dist < City.ROAD_WIDTH.road / 2 + City.PAVEMENT then return "not on the road" end
     if self:obstacleAt(x, y) then return "not on rough ground" end
     for _, b in ipairs(self.benches or {}) do
       if (b.x - x) ^ 2 + (b.y - y) ^ 2 < 30 ^ 2 then return "too close to another bench" end
