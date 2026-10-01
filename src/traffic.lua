@@ -382,7 +382,8 @@ local function routeOf(city, n)
     local r = best.r
     local side = ((n.x - r.ax) * -r.uy + (n.y - r.ay) * r.ux) >= 0 and 1 or -1
     local kx, ky = pavePoint(r, best.s, side)
-    if clear(city, g, n.x, n.y, kx, ky, n, body) then
+    local reach = math.sqrt((kx - n.x) ^ 2 + (ky - n.y) ^ 2)
+    if reach > body * 0.8 + 4 and clear(city, g, n.x, n.y, kx, ky, n, body) then
       for _, run in ipairs(paveRuns(city, g, r, side)) do
         if best.s >= run[1] - 3 and best.s <= run[2] + 3 then
           local dx, dy = kx - n.x, ky - n.y
