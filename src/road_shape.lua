@@ -531,6 +531,13 @@ local function build(city)
           local off = high.r.h + 2 * RH + RoadShape.pave("highway") + 3
           local sx, sy = frame(um + taper + 50, off)
           shape.signs[#shape.signs + 1] = { kind = "exit", x = sx, y = sy, dx = -high.dx, dy = -high.dy }
+          -- Traffic keeps right, so the near carriageway runs one way past
+          -- the roundabout: the slip road it leaves by comes into the ring
+          -- and gives way there; the other one only leaves the ring.
+          if -high.dy * mx + high.dx * my < 0 then
+            round.entries = round.entries or {}
+            table.insert(round.entries, { dx = ux, dy = uy, a = -RH * 1.3, b = RH * 1.3 })
+          end
         elseif high then
           -- m: across the highway toward the road; n: across the road toward
           -- the highway arm this slip road serves.
@@ -588,7 +595,24 @@ local function build(city)
   end
 
   for id, byRoad in pairs(rounds) do
-    for _, rd in pairs(byRoad) do shape.rounds[#shape.rounds + 1] = { x = rd.x, y = rd.y, r = rd.r, node = id } end
+    for r, rd in pairs(byRoad) do
+      local entries = rd.entries or {}
+      -- The road's own arms: the half of it coming in, its right-hand lane.
+      local lx, ly = dirFrom(id, r)
+      local arms = {}
+      if rd.through then arms = { { lx, ly }, { -lx, -ly } }
+      elseif not rd.far then
+        local far = nodes[other(r, id)]
+        local ex, ey = norm(far.x - rd.x, far.y - rd.y)
+        arms = { { ex, ey } }
+      end
+      for _, e in ipairs(arms) do
+        -- Heading in along -e, the right-hand side is (e.y, -e.x), which is
+        -- the negative side of the across vector (-e.y, e.x).
+        entries[#entries + 1] = { dx = e[1], dy = e[2], a = -r.h, b = 0 }
+      end
+      shape.rounds[#shape.rounds + 1] = { x = rd.x, y = rd.y, r = rd.r, node = id, entries = entries }
+    end
   end
 
   -- Where two streets cross with no junction, one goes over. A highway stays
