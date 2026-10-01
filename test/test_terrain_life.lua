@@ -2,6 +2,7 @@
 package.path='test/?.lua;src/?.lua;'..package.path
 local T=require('support')
 local City=require('city')
+City.INSTANT_BUILD=true -- about ground, not the night a works takes to go up
 local Save=require('company_save')
 local Shape=require('terrain_shape')
 local function check(v,m) T.check(v,m); print("  ok  "..m) end

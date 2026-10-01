@@ -3,6 +3,9 @@
 local City=require('city')
 local UI=require('company_ui')
 return function(app,capture,click,scrollTo,check)
+ -- These checks are about each control, not the night a works takes to go up.
+ local instant=City.INSTANT_BUILD
+ City.INSTANT_BUILD=true
  local c=City.new({seed=24,obstacles=0}); c.money=100000; c.obstacles={}
  c.stock={steel=500,concrete=500}; c.lining=4; c.licences.power=true
  c.guideDismissed=true; c.permits={river=true,park=true,bedrock=true}
@@ -126,4 +129,5 @@ return function(app,capture,click,scrollTo,check)
   check(UIm.HEAD_VALUE+bh<=UIm.HEAD_BAR,'the header control fits the bar at '..width)
   check(math.abs((dx+bw/2)-(width/2-14))<0.01,'and is centred between its lines at '..width)
  end
+ City.INSTANT_BUILD=instant
 end

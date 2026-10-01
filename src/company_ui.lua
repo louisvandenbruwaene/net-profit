@@ -601,6 +601,7 @@ end
 local function inspectWorks(n,y)
   local recipe=City.RECIPES[n.recipe or ""]
   if not recipe then return y+40 end
+  if n.assembling then single("Assembling: runs tomorrow",M,y,"small",P.energy,CW); y=y+26 end
   if recipe.farm then
     text((recipe.product or "Crops").." / reserves "..(City.INFRA.farmRadius*2).."m of land",M,y,"small",P.good,CW)
     y=y+26

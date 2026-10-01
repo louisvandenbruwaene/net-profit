@@ -793,7 +793,8 @@ street to the traffic on it (`chains` in traffic.lua).
 An order can be sent to any yard (the haven panel's yard button), the nearest
 by default.
 
-A solar array or wind park is assembled from the parts driven to it and runs
-from the next day (`n.assembling`). Every other build still works the moment it
-is paid for: extending the wait to works and reactors changes chains that
-existing companies and tests rely on, so it would need its own pass.
+Anything built of materials goes up from what is driven to it and runs from the
+next day (`n.assembling`): works with a bill of materials and every plant built
+of parts (solar, wind, reactor). The cash-only works that open a trade, wells
+and fittings work at once. Suites about something else pin `City.INSTANT_BUILD`
+the way they pin `FLAT_USAGE`.

@@ -1,6 +1,7 @@
 package.path='src/?.lua;'..package.path
 local City=require('city')
 City.FLAT_USAGE = true -- these checks are about flow: customers draw their whole contract
+City.INSTANT_BUILD = true -- and about what a building does, not the night it takes to go up
 local Save=require('company_save')
 local checks=0
 local function check(value,message) assert(value,message); checks=checks+1 end
