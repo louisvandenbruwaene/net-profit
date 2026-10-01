@@ -24,6 +24,16 @@ return function(City)
   City.HAUL = require("data.freight").HAUL
   local BULK = { rail = "train", highway = "semi", sea = "ship", air = "plane" }
 
+  -- Where a boat calls at a place: a harbour or anything else on the coast is
+  -- reached at the head of its jetty, out at sea; anything already on the
+  -- water (an island, the river) where it stands.
+  function City:quayPoint(n)
+    if n.y >= 0 and n.y <= City.havenReach + 60 and not self:riverAt(n.x, n.y) then
+      return n.x + 24, (City.JETTY_HEAD or -210) - 40
+    end
+    return n.x, n.y
+  end
+
   -- Where materials are kept: the yards, or failing any, the havens' quays.
   function City:nearestStore(x, y)
     local best, bd
@@ -70,7 +80,13 @@ return function(City)
     if to then
       for _, e in ipairs(self.g:edgesAt(from.id)) do
         if e.alive and e.rail and (e.a == to.id or e.b == to.id) and BULK[e.bulk or "rail"] then
-          return { mode = BULK[e.bulk or "rail"], pts = { from.x, from.y, to.x, to.y } }
+          local mode = BULK[e.bulk or "rail"]
+          if mode == "ship" then
+            local ax, ay = self:quayPoint(from)
+            local bx, by = self:quayPoint(to)
+            return { mode = mode, pts = { ax, ay, bx, by } }
+          end
+          return { mode = mode, pts = { from.x, from.y, to.x, to.y } }
         end
       end
     end
