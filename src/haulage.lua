@@ -167,14 +167,21 @@ return function(City)
   function City:haulInland(havenId, key, units, today, yardId)
     today = today or self.day
     local haven = self.g.nodes[havenId]
-    local yard, bd
+    -- The yard it was sent to, or else the nearest one there is a way to.
+    local yard
     local chosen = yardId and self.g.nodes[yardId]
-    if chosen and chosen.alive and chosen.kind == "dc" then yard, bd = chosen, -1 end
-    for _, n in ipairs(bd and {} or self.g:nodesOfKind("dc")) do
-      if n.alive then
-        local d = haven and (n.x - haven.x) ^ 2 + (n.y - haven.y) ^ 2 or 0
-        if not bd or d < bd then yard, bd = n, d end
+    if chosen and chosen.alive and chosen.kind == "dc" then
+      yard = chosen
+    elseif haven and haven.alive then
+      local yards = {}
+      for _, n in ipairs(self.g:nodesOfKind("dc")) do
+        if n.alive then yards[#yards + 1] = { n = n, d = (n.x - haven.x) ^ 2 + (n.y - haven.y) ^ 2 } end
       end
+      table.sort(yards, function(a, b) return a.d < b.d end)
+      for _, y in ipairs(yards) do
+        if self:haulRoute(haven, y.n.x, y.n.y, y.n) then yard = y.n; break end
+      end
+      yard = yard or (yards[1] and yards[1].n)
     end
     if not (haven and haven.alive and yard) then
       self.stock = self.stock or {}
