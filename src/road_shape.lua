@@ -320,7 +320,12 @@ local function build(city)
           local perp = max(base + 12 + ROUND, min(base + 34 + ROUND, fPerp - 6))
           local along = fAlong * min(1, perp / max(1, fPerp)) * 0.35
           rounds[id] = rounds[id] or {}
-          rounds[id][r] = { x = nodes[id].x + mx * perp + hx * along, y = nodes[id].y + my * perp + hy * along, r = ROUND }
+          -- A bare road end beyond it is nothing but a stub: the roundabout
+          -- is all of that road there is.
+          local farId = other(r, id)
+          local bare = City.ROAD_JUNCTIONS[far.kind] and #at[farId] == 1
+          rounds[id][r] = { x = nodes[id].x + mx * perp + hx * along, y = nodes[id].y + my * perp + hy * along, r = ROUND,
+            far = bare and farId or nil }
         end
       end
     end
@@ -373,9 +378,17 @@ local function build(city)
       if roundB and roundB.through then roundB = nil end
       if roundA then raw[1].x, raw[1].y = roundA.x, roundA.y end
       if roundB then raw[#raw].x, raw[#raw].y = roundB.x, roundB.y end
+      -- A stub swallowed by its roundabout: the road is a speck in the ring,
+      -- still there for the mouse.
+      local whole = (roundA and roundA.far == last and #raw == 2 and roundA) or (roundB and roundB.far == first and #raw == 2 and roundB)
+      if whole then
+        raw[1].x, raw[1].y = whole.x, whole.y
+        raw[2].x, raw[2].y = whole.x + 1, whole.y
+        roundA, roundB = nil, nil
+      end
       local pts = smooth(raw)
-      local trimA = (roundA and ROUND - 2) or setback[first] or (role[first] == "end" and bodyOf(nodes[first])) or 0
-      local trimB = (roundB and ROUND - 2) or setback[last] or (role[last] == "end" and bodyOf(nodes[last])) or 0
+      local trimA = (whole and 0) or (roundA and ROUND - 2) or setback[first] or (role[first] == "end" and bodyOf(nodes[first])) or 0
+      local trimB = (whole and 0) or (roundB and ROUND - 2) or setback[last] or (role[last] == "end" and bodyOf(nodes[last])) or 0
       local total = lengthOf(pts)
       if trimA + trimB > total - 2 then
         local k = max(0, total - 2) / max(1e-6, trimA + trimB)
