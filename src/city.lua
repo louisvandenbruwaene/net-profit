@@ -3295,6 +3295,21 @@ function City:refresh()
     if l.goodsEdge and not self.g.edges[l.goodsEdge].alive then l.alive=false end
   end
   for _,l in ipairs(self.links) do if l.mode=='road'  then l.roadType=l.roadType or 'road'; if not City.tolled(l) then l.toll=0 end end end
+  -- A bridge laid before bridges carried the road's own width, between
+  -- highways and nothing else, is a highway bridge: it is drawn that wide.
+  for _,l in ipairs(self.links) do
+    if l.alive and l.mode=='road' and l.roadType=='bridge' and not l.deck then
+      local high,other=0,0
+      for _,id in ipairs({l.a,l.b}) do
+        for _,m in ipairs(self.links) do
+          if m~=l and m.alive and m.mode=='road' and (m.a==id or m.b==id) then
+            if (m.deck or m.roadType)=='highway' then high=high+1 else other=other+1 end
+          end
+        end
+      end
+      if high>0 and other==0 then l.deck='highway' end
+    end
+  end
   self:forgetRoads()
   for _,n in ipairs(self.g:aliveNodes()) do
     if n.kind=='client' and City.HOUSEHOLD[n.clientType] then
