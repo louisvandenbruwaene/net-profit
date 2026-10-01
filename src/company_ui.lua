@@ -1600,7 +1600,7 @@ local function linkPanel(l)
       " a day to run. One sold back returns "..math.floor(City.REFUND*100+0.5).."% of its price.")
     ly=ly+38
   end
-  text(road and "Daily destinations are chosen per building. Vehicles travel when connected; highways and bridges charge tolls."
+  text(road and "Everyone at home goes somewhere each day, the cheapest way joined up. Each car pays the toll on a highway or bridge."
     or spec.blurb,M,ly+4,"small",P.textDim,CW)
   button("demolish-link",(road and "Lift the road" or "Close the route").."   +$"..math.floor((l.paid or 0)*City.REFUND),
     M,ly+66,CW,32,function() act("demolishLink",l.id) end,true,"Recovers "..math.floor(City.REFUND*100+0.5).."% of everything paid into it (Delete)")

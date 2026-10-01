@@ -50,6 +50,16 @@ Data.PEOPLE = {
   resortUpkeep = 40,
 
   maxVehicles = 8,
+
+  -- Every resident of a home goes somewhere each day: another building on the
+  -- map, picked at random, weighted toward places people go out to. They take
+  -- the cheapest way there they have, and stay home if none is worth it.
+  walkReach = 450,                -- metres a person will walk to a stop or from a car park
+  -- What an hour on the way is worth, as dollars per km by mode.
+  timeCost = { car = 0.4, bus = 0.6, ferry = 0.5, air = 0.05, walk = 3 },
+  tripBase = 4, tripPerKm = 2.5,  -- the most a trip is worth: base + per km as the crow flies
+  carFloor = 0.5,                 -- share of residents with a car to hand, at least
+  pull = { resort = 6, works = 2, shop = 3, project = 4, other = 1 },
 }
 
 Data.ROUTES = {
