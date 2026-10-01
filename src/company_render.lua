@@ -1470,14 +1470,36 @@ local function drawSea(city, cam, state)
   -- The estuary has no shore across it.
   local p = city:riverPath()
   local gapA, gapB = math.huge, -math.huge
-  if p and p.n > 0 then gapA, gapB = p.x[1] - p.hw[1], p.x[1] + p.hw[1] end
+  if p and p.n > 2 then
+    -- Where the river's outer banks, running on along its heading, meet the
+    -- coastline: the mouth is open between them, the same width either side
+    -- of the channel.
+    local dx, dy = p.x[3] - p.x[2], p.y[3] - p.y[2]
+    local l = math.sqrt(dx * dx + dy * dy); dx, dy = dx / l, dy / l
+    local nx, ny = -dy, dx
+    local w = p.hw[1] + math.max(10, p.hw[1] * 0.16)
+    local cross = w * (nx - dx * ny / dy)
+    gapA, gapB = p.x[1] - math.abs(cross), p.x[1] + math.abs(cross)
+    -- The river's fresh water fanning out into the sea, lighter and
+    -- siltier than the open water, the same either side of the mouth.
+    withinRows(0, coast, function()
+      local mid, half = (gapA + gapB) / 2, (gapB - gapA) / 2
+      for k = 5, 1, -1 do
+        local f = k / 5
+        local sx, sy = cam:toScreen(mid, 0)
+        local rx, ry = half * (1 + 1.1 * f) * cam.scale, (40 + 220 * f) * cam.scale
+        lg.setColor(0.16, 0.30, 0.38, 0.10 + 0.05 * (1 - f))
+        lg.ellipse("fill", sx, sy, rx, ry)
+      end
+    end)
+  end
   -- The beach narrows to nothing as it reaches the river mouth, so the sand
   -- turns the corner into the banks instead of stopping at a wall.
   local function edge(wx)
     local e = -20 - 7 * math.sin(wx / 90) - 4 * math.sin(wx / 37 + 1)
     local near = math.min(math.abs(wx - gapA), math.abs(wx - gapB))
     local taper = math.min(1, near / 90)
-    return e * (0.15 + 0.85 * taper * taper * (3 - 2 * taper))
+    return e * (0.45 + 0.55 * taper * taper * (3 - 2 * taper))
   end
   local step = math.max(12, 18 / math.max(0.2, cam.scale))
   local x0w = math.floor((left - 200) / step) * step
@@ -1507,6 +1529,17 @@ local function drawSea(city, cam, state)
     local _, wy2 = cam:toScreen(0, edge(b) + 5)
     lg.polygon("fill", ax, ay, bx, by, bx, wy2, ax, wy1)
   end)
+  -- The beach ends in a rounded sand spit either side of the mouth.
+  if gapA < gapB then
+    withinRows(0, coast, function()
+      for _, gx in ipairs({ gapA, gapB }) do
+        local sx, sy = cam:toScreen(gx, 0)
+        local r = math.max(2, 13 * cam.scale)
+        lg.setColor(0.52, 0.48, 0.36, 0.92); lg.circle("fill", sx, sy, r)
+        lg.setColor(0.36, 0.34, 0.28, 0.9); lg.setLineWidth(math.max(1, 2.5 * cam.scale)); lg.arc("line", "open", sx, sy, r, math.pi, 2 * math.pi)
+      end
+    end)
+  end
   -- Surf: a foam line that runs up the sand and slides back, and a fainter
   -- one further out.
   lg.setLineWidth(math.max(1, 2 * cam.scale))
@@ -1569,7 +1602,10 @@ local function bends(p)
     local d = b - a
     if d > math.pi then d = d - 2 * math.pi elseif d < -math.pi then d = d + 2 * math.pi end
     local curvature = d / (City.riverStep * (math.min(p.n, i + 2) - math.max(1, i - 2)))
-    bend[i] = math.min(1, math.abs(curvature) * p.hw[i] * 5)
+    -- Near the sea the channel runs straight out, centred: no deep pool or
+    -- sand bar thrown to one side at the mouth.
+    local open = math.max(0, math.min(1, (p.y[i] - 150) / 500))
+    bend[i] = math.min(1, math.abs(curvature) * p.hw[i] * 5) * open
     inner[i] = curvature > 0 and -1 or 1
   end
   p.bend, p.inner = bend, inner
@@ -1612,9 +1648,32 @@ local function riverPoint(p, s)
   return lerp(p.x), lerp(p.y), lerp(p.hw), lerp(p.nx), lerp(p.ny)
 end
 
+-- The main channel as drawn: its first bank normals follow the course
+-- instead of being squared to the coast, and it carries on a few steps out to
+-- sea so the coastline cuts it cleanly rather than its end showing.
+local function drawnCourse(p)
+  if p.drawn then return p.drawn end
+  local q = { n = 0, x = {}, y = {}, hw = {}, nx = {}, ny = {}, maxHalf = p.maxHalf, branches = p.branches }
+  local dx, dy = p.x[3] - p.x[2], p.y[3] - p.y[2]
+  local l = math.sqrt(dx * dx + dy * dy); dx, dy = dx / l, dy / l
+  for k = 4, 1, -1 do
+    q.n = q.n + 1
+    q.x[q.n], q.y[q.n], q.hw[q.n] = p.x[1] - dx * City.riverStep * k, p.y[1] - dy * City.riverStep * k, p.hw[1]
+    q.nx[q.n], q.ny[q.n] = p.nx[2], p.ny[2]
+  end
+  for i = 1, p.n do
+    q.n = q.n + 1
+    q.x[q.n], q.y[q.n], q.hw[q.n] = p.x[i], p.y[i], p.hw[i]
+    q.nx[q.n], q.ny[q.n] = p.nx[math.max(2, i)], p.ny[math.max(2, i)]
+  end
+  p.drawn = q
+  return q
+end
+
 local function drawRiver(city, cam)
   local p = city:riverPath()
   if not p then return end
+  if p.n > 2 then p = drawnCourse(p) end
   local _, top = cam:toWorld(cam.vx, cam.vy)
   local _, bottom = cam:toWorld(cam.vx, cam.vy + cam.vh)
   if bottom < 0 then return end

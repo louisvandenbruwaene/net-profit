@@ -1093,7 +1093,7 @@ local function buildPanel()
           function()
             if state.tool=="source" and state.plant==key then state.tool=nil
             else state.tool,state.plant="source",key end
-          end,city:quantity("power",spec.output,"high")..", "..({nuclear="burns fuel",wind="on an island",hydro="by the river",solar="needs panels"})[key],
+          end,city:quantity("power",spec.output,"high")..", "..({nuclear="burns fuel",wind="on an island",hydro="in the river",solar="needs panels"})[key],
           function(ix,iy)
             if key=="wind" then Draw.turbine(ix,iy,14) elseif key=="nuclear" then Draw.reactor(ix,iy,13)
             elseif key=="solar" then lg.setLineWidth(1.5); lg.rectangle("line",ix-8,iy-6,16,12); lg.line(ix,iy-6,ix,iy+6); lg.line(ix-8,iy,ix+8,iy)
