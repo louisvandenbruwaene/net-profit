@@ -142,7 +142,18 @@ return function(City)
   -- Materials spent on a building at (x, y): driven there from the nearest store.
   function City:deliverToSite(bill, scale, x, y)
     if not x then return end
-    local from = self:nearestStore(x, y)
+    -- The nearest store with a way to the site: yards first, then havens.
+    local stores = {}
+    for _, kind in ipairs({ "dc", "terminal" }) do
+      for _, n in ipairs(self.g:nodesOfKind(kind)) do
+        if n.alive then stores[#stores + 1] = { n = n, d = (n.x - x) ^ 2 + (n.y - y) ^ 2 + (kind == "dc" and 0 or 1e12) } end
+      end
+    end
+    table.sort(stores, function(a, b) return a.d < b.d end)
+    local from
+    for _, s in ipairs(stores) do
+      if self:haulRoute(s.n, x, y, nil) then from = s.n; break end
+    end
     if not from then return end
     for _, key in ipairs(Graph.ALL) do
       local amount = bill and bill[key]
