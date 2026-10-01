@@ -1276,25 +1276,13 @@ local function drawDistrictGround(city, cam)
         lg.setColor(0.58,0.53,0.40,d.owned and 0.95 or 0.75); lg.polygon("fill",shore(1))
         lg.setColor(d.owned and {0.16,0.25,0.18,1} or {0.12,0.18,0.15,1}); lg.polygon("fill",shore(0.86))
       else
-        -- A plot is a field with a verge round it: rounded, mottled grass
-        -- pinned to the world, and a lit top edge so it sits on the map rather
-        -- than being printed on it. Ground not yet bought is the same field,
-        -- greyer and hatched as undeveloped.
-        local m=math.max(2,10*cam.scale)
-        local px,py,pw,ph=x+m,y+m,w-m*2,h-m*2
-        -- The boundary between two plots is a hedgerow on a grass verge, not
-        -- a street: every road on the map is one the company laid.
-        lg.setColor(d.owned and {P.land[1]*0.82,P.land[2]*0.86,P.land[3]*0.82,1} or {0.080,0.110,0.105,1})
-        lg.rectangle("fill",x,y,w,h)
-        if cam.scale>0.3 then
-          lg.setColor(0.10,0.17,0.11,d.owned and 0.9 or 0.6); lg.setLineWidth(math.max(1.5,4*cam.scale))
-          lg.rectangle("line",x,y,w,h)
-        end
-        local round=math.max(3,18*cam.scale)
-        lg.setColor(0,0,0,0.22); lg.rectangle("fill",px,py+2,pw,ph,round)
-        lg.setColor(d.owned and {P.land[1],P.land[2],P.land[3],0.96} or {0.092,0.128,0.126,0.94})
-        lg.rectangle("fill",px,py,pw,ph,round)
-        Scenery.grass(d.x+10,d.y+10,d.w-20,d.h-20,px,py,cam.scale,d.owned and 1 or 0.8)
+        -- Land is one continuous field: a plot is a survey line, not a fence,
+        -- so owned plots meet edge to edge with nothing between them. Ground
+        -- not yet bought is the same field, greyer and hatched.
+        local px,py,pw,ph=x,y,w,h
+        lg.setColor(d.owned and {P.land[1],P.land[2],P.land[3],1} or {0.092,0.128,0.126,1})
+        lg.rectangle("fill",px,py,pw,ph)
+        Scenery.grass(d.x,d.y,d.w,d.h,px,py,cam.scale,d.owned and 1 or 0.8)
         if not d.owned and cam.scale>0.22 then
           -- Lines where (x - px) + (y - py) is constant, clipped to the plot.
           lg.setColor(1,1,1,0.022); lg.setLineWidth(1)
@@ -1305,11 +1293,6 @@ local function drawDistrictGround(city, cam)
             lg.line(x0,y0,x1,y1)
           end
         end
-        lg.setLineWidth(1)
-        lg.setColor(1,1,1,d.owned and 0.06 or 0.03)
-        lg.line(px+round,py+0.5,px+pw-round,py+0.5)
-        lg.setColor(0,0,0,0.25)
-        lg.line(px+round,py+ph-0.5,px+pw-round,py+ph-0.5)
       end
     end
   end
@@ -1323,11 +1306,7 @@ local function drawDistrictChrome(city, cam, state)
     local w, h = d.w * cam.scale, d.h * cam.scale
     local cx, cy = x + w / 2, y + h / 2
     if d.owned then
-      -- Plot edges step back as the camera pulls out, so the network, not
-      -- the survey grid, is the brightest thing on a zoomed-out map.
-      lg.setColor(P.with(P.panelEdge, cam.scale < 0.6 and 0.2 or 0.4))
-      if d.island then lg.ellipse("line", cx, cy, w / 2, h / 2)
-      else lg.rectangle("line", x, y, w, h) end
+      -- Owned land carries no line at all: it is simply the company's ground.
     else
       -- Ground you do not own is visibly not yours, but still legible enough
       -- to plan towards.
@@ -1339,9 +1318,8 @@ local function drawDistrictChrome(city, cam, state)
       do
         lg.setColor(P.with(hot and P.energy or buyable and P.good or P.textFaint, hot and 0.9 or cam.scale < 0.6 and 0.14 or 0.25))
         lg.setLineWidth(hot and 2 or 1)
-        local m = math.max(2, 10 * cam.scale)
         if d.island then lg.ellipse("line", cx, cy, w / 2 - 2, h / 2 - 2)
-        else lg.rectangle("line", x + m, y + m, w - m * 2, h - m * 2, math.max(3, 18 * cam.scale)) end
+        else lg.rectangle("line", x + 1, y + 1, w - 2, h - 2) end
       end
       -- Prices only when land is the question: the overview from far out, or
       -- the plot just clicked. Close in, a city of price tags is noise over
@@ -1823,8 +1801,7 @@ local function wetSpans(city, l, na, nb)
   for i = 0, steps do
     local t = i / steps
     local x, y = na.x + (nb.x - na.x) * t, na.y + (nb.y - na.y) * t
-    local o = y >= 0 and city:obstacleAt(x, y)
-    local wet = y < 0 or (o and o.kind == "river")
+    local wet = city:isWater(x, y)
     if wet and not open then open = t end
     if not wet and open then spans[#spans + 1] = { math.max(0, open - 12 / len), math.min(1, t + 12 / len) }; open = nil end
   end
@@ -1840,7 +1817,7 @@ function Draw.road(city, cam, l, ax, ay, bx, by, roundA, roundB)
   local kind = l.roadType or "road"
   local k = cam.scale
   local half = math.max(1.5, City.ROAD_WIDTH[kind] / 2 * k)
-  local pave = kind == "road" and math.max(1, City.PAVEMENT * k) or 0
+  local pave = (kind == "road" or kind == "bridge") and math.max(1, City.PAVEMENT * k) or 0
   local dx, dy = bx - ax, by - ay
   local len = math.max(1, math.sqrt(dx * dx + dy * dy))
   local nx, ny = -dy / len, dx / len
@@ -1856,6 +1833,15 @@ function Draw.road(city, cam, l, ax, ay, bx, by, roundA, roundB)
     local deck = half + pave + math.max(1.5, 3 * k)
     lg.setColor(0, 0, 0, 0.35); lg.setLineWidth(deck * 2 + 4); lg.line(x0 + 2, y0 + 4, x1 + 2, y1 + 4)
     lg.setColor(0.44, 0.44, 0.45); lg.setLineWidth(deck * 2); lg.line(x0, y0, x1, y1)
+    -- Piers down into the water, every so often under the deck.
+    local span = math.sqrt((x1 - x0) ^ 2 + (y1 - y0) ^ 2)
+    local step = math.max(14, 60 * k)
+    lg.setColor(0, 0, 0, 0.35)
+    for d = step / 2, span - step / 4, step do
+      local px, py = x0 + (x1 - x0) * d / span, y0 + (y1 - y0) * d / span
+      lg.rectangle("fill", px - nx * deck - 1 + 3, py - ny * deck + 5, 3, 3)
+      lg.rectangle("fill", px + nx * deck - 1 + 3, py + ny * deck + 5, 3, 3)
+    end
     lg.setColor(0.70, 0.70, 0.68); lg.setLineWidth(math.max(1, 1.6 * k))
     lg.line(x0 + nx * deck, y0 + ny * deck, x1 + nx * deck, y1 + ny * deck)
     lg.line(x0 - nx * deck, y0 - ny * deck, x1 - nx * deck, y1 - ny * deck)
@@ -2131,7 +2117,7 @@ function Draw.world(city, cam, state)
         for dx = -124, 116, 16 do lg.line(dx * k, 0, (dx + 8) * k, 0) end
         -- Trucks along the trunk road, both ways, only on a day this road
         -- head lands freight: one for every load it brought in.
-        local loads = math.min(4, math.ceil(((city.produced or {})[n.id] or 0) / City.MODES.highway.wagonCap))
+        local loads = math.min(4, math.ceil(Traffic.landedToday(city, n) / City.MODES.highway.wagonCap))
         for i = 0, loads - 1 do
           local ph = ((R.t * 0.12 + i / 4 + Shape.hash(n.x, n.y, 91)) % 1) * 2 - 1
           local dir = i % 2 == 0 and 1 or -1
@@ -2155,7 +2141,7 @@ function Draw.world(city, cam, state)
         lg.setColor(0.28, 0.29, 0.30); lg.rectangle("fill", -6 * k, -4 * k, 12 * k, 20 * k)
         local px, py, q = 18 * k, -24 * k, 1.5 * k
         -- The freighter stands on the apron only on a day it brought cargo.
-        lg.setColor(0.86, 0.88, 0.90, ((city.produced or {})[n.id] or 0) > 0 and 1 or 0)
+        lg.setColor(0.86, 0.88, 0.90, Traffic.landedToday(city, n) > 0 and 1 or 0)
         lg.polygon("fill", px - 14 * q, py, px + 14 * q, py - 2 * q, px + 14 * q, py + 2 * q)
         lg.polygon("fill", px + 2 * q, py - 12 * q, px + 6 * q, py - 12 * q, px + 5 * q, py + 12 * q, px + 1 * q, py + 12 * q)
         lg.polygon("fill", px - 13 * q, py - 5 * q, px - 11 * q, py - 5 * q, px - 11 * q, py + 5 * q, px - 13 * q, py + 5 * q)

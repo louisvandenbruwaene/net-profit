@@ -278,10 +278,12 @@ do
   local giants,kinds,small,large=0,{},0,0
   local bounded,dry,opening=true,true,true
   local giant
+  local spills=0
   for _,o in ipairs(c.obstacles) do if not o.grove then
     local d=c:districtAt(o.x,o.y)
-    bounded=bounded and (o.massive or (o.x-o.r>=d.x+29.99 and o.x+o.r<=d.x+d.w-29.99
-      and o.y-o.r>=d.y+29.99 and o.y+o.r<=d.y+d.h-29.99))
+    local m=math.max(29.99,o.r*City.TERRAIN.spill-0.01)
+    bounded=bounded and (o.massive or (o.x>=d.x+m and o.x<=d.x+d.w-m and o.y>=d.y+m and o.y<=d.y+d.h-m))
+    if not o.massive and (o.x-o.r<d.x or o.x+o.r>d.x+d.w or o.y-o.r<d.y or o.y+o.r>d.y+d.h) then spills=spills+1 end
     local edge=c:riverEdge(o.x,o.y)
     dry=dry and (o.massive or not edge or edge>=o.r+30)
     local distance=math.max(math.abs(d.col-2),math.abs(d.row-2))
@@ -297,7 +299,8 @@ do
   ok("both massive parks and mountains occur",giants>4 and kinds.park and kinds.bedrock)
   ok("small and large ordinary terrain also occurs",small>5 and large>5)
   ok("opening and immediate neighbours retain manageable sizes",opening)
-  ok("ordinary terrain leaves a clear strip inside its region",bounded)
+  ok("ordinary terrain is centred well inside its own region",bounded)
+  ok("and some of it spills over a plot line into the next",spills>3)
   ok("large terrain stays out of the river",dry)
   check("surveying terrain leaves the simulation random stream untouched",c.rng,rng)
   if giant then

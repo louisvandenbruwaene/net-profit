@@ -4,5 +4,6 @@ return {
   massive={min=400,max=850},
   massiveChance=0.30, -- one attempt per eligible region
   massiveDistance=3, -- Chebyshev distance from the starting region
-  border=30, -- clear strip around every region
+  border=30, -- the least distance from an obstacle's centre to its region's edge
+  spill=0.35, -- or this share of its radius: the rest may lie over the line
 }

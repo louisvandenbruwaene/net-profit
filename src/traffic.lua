@@ -244,7 +244,7 @@ local function geo(city)
         local kind = l.roadType or "road"
         local r = { l = l, kind = kind, ax = na.x, ay = na.y, bx = nb.x, by = nb.y, len = len,
           ux = dx / len, uy = dy / len, half = City.ROAD_WIDTH[kind] / 2,
-          pave = kind == "road" and City.PAVEMENT or kind == "offroad" and 4 or 0 }
+          pave = (kind == "road" or kind == "bridge") and City.PAVEMENT or kind == "offroad" and 4 or 0 }
         g.roads[#g.roads + 1] = r
         for cx = math.floor((math.min(na.x, nb.x) - 30) / CELL), math.floor((math.max(na.x, nb.x) + 30) / CELL) do
           for cy = math.floor((math.min(na.y, nb.y) - 30) / CELL), math.floor((math.max(na.y, nb.y) + 30) / CELL) do
@@ -284,7 +284,7 @@ end
 -- Open ground a person could stand on: not water, not rough ground, not a
 -- carriageway, not inside a building (`except` is the one whose door it is).
 local function standable(city, g, x, y, except)
-  if y < 0 or city:obstacleAt(x, y) or city:riverAt(x, y) then return false end
+  if city:isWater(x, y) or city:obstacleAt(x, y) then return false end
   if onCarriageway(g, x, y) then return false end
   local gx, gy = math.floor(x / 60), math.floor(y / 60)
   for ix = gx - 1, gx + 1 do
@@ -497,7 +497,7 @@ end
 --------------------------------------------------------------------------------
 
 local SPEED = { car = 42, van = 38, truck = 30, bus = 28 }
-local ROAD_PACE = { offroad = 0.6, road = 1, highway = 1.7 }
+local ROAD_PACE = { offroad = 0.6, road = 1, highway = 1.7, bridge = 1 }
 
 local function drawRoads(city, cam, t)
   if cam.scale < 0.2 then return end
@@ -666,21 +666,46 @@ end
 -- Havens: a ship in for a harbour's day of cargo
 --------------------------------------------------------------------------------
 
-local function landedCargo(city, n)
-  local cargo = {}
-  for key, v in pairs((city.producedBy or {})[n.id] or {}) do if v > 0 then cargo[#cargo + 1] = key end end
+-- What a haven brought in today: the day's draw on it and this morning's
+-- ordered cargo. Units, and the goods as a sorted list.
+local function landedToday(city, n)
+  local units, seen, cargo = (city.produced or {})[n.id] or 0, {}, {}
+  for key, v in pairs((city.producedBy or {})[n.id] or {}) do if v > 0 then seen[key] = true end end
+  local coming, landed = {}, {}
+  if city.havenShipments then coming, landed = city:havenShipments(n.id) end
+  for key, v in pairs(landed) do units = units + v; seen[key] = true end
+  for key in pairs(seen) do cargo[#cargo + 1] = key end
   table.sort(cargo)
-  return cargo
+  return units, cargo, coming
 end
+local function landedCargo(city, n) return select(2, landedToday(city, n)) end
+Traffic.landedToday = landedToday
 
 -- A ship's call at the harbour: in from open sea, alongside the jetty head,
 -- swung round by the tugs, and out again.
+local sighted = setmetatable({}, { __mode = "k" })
 local function drawHarbours(city, cam, t)
   for _, n in ipairs(city.g.nodes) do
     if n.alive and n.kind == "terminal" and (n.haven or "port") == "port" and n.y < City.havenReach + 60 then
-      local landed = (city.produced or {})[n.id] or 0
+      local landed, cargo = landedToday(city, n)
+      -- Ordered cargo still at sea: the freighter is on its way in, and rides
+      -- at anchor off the harbour until the morning it lands.
+      local i = 0
+      for _, o in ipairs(city.shipments or {}) do
+        if o.haven == n.id and i < 3 then
+          i = i + 1
+          -- Each order's ship sets out from the horizon the moment it is
+          -- placed, sails in, and rides at anchor until the morning it lands.
+          sighted[o] = sighted[o] or t
+          local f = math.min(1, (t - sighted[o]) / 70)
+          local x, y = n.x - 150 - (i - 1) * 80, -2800 + 1800 * ease(f) - (i - 1) * 170
+          if cam:sees(x, y, 200) then
+            local sx, sy = cam:toScreen(x, y + (f >= 1 and math.sin(t + i) * 1.5 or 0))
+            boat("ship", sx, sy, 0, 1, cam.scale, t, n.id + 7 * i, f >= 1 and 0 or 0.7, { o.key })
+          end
+        end
+      end
       if landed > 0 and cam:seesBox(n.x - 300, -2000, n.x + 300, n.y, 100) then
-        local cargo = landedCargo(city, n)
         local ships = math.min(3, math.ceil(landed / City.MODES.sea.wagonCap))
         local berthX, berthY = n.x + 24, City.JETTY_HEAD + 72
         local IN, MOOR, TURN, OUT = 30, 26, 8, 30
@@ -866,7 +891,7 @@ local function drawAir(city, cam, t)
   for _, n in ipairs(city.g.nodes) do
     if n.alive then
       -- An air freight apron, on a day it lands cargo: the freighter in and out.
-      if n.kind == "terminal" and n.haven == "airfield" and ((city.produced or {})[n.id] or 0) > 0 then
+      if n.kind == "terminal" and n.haven == "airfield" and landedToday(city, n) > 0 then
         local a = (math.floor(Shape.hash(n.x, n.y, 90) * 4) - 1.5) * 0.35
         local ux, uy = math.cos(a), math.sin(a)
         local rx, ry = n.x - uy * 27 - ux * 110, n.y + ux * 27 - uy * 110

@@ -674,6 +674,42 @@ local function inspectDistribution(n,y)
   return y
 end
 
+-- Ordering from abroad: one chip per good with its landed price, a quantity,
+-- and the order button. What is on its way is listed under it.
+local function importMenu(n,spec,y)
+  heading("IMPORT",y); y=y+22
+  local goods=city:importable()
+  if not state.importKey then state.importKey=goods[1] end
+  local per,cw=4,math.floor((CW+4)/4)-4
+  for i,key in ipairs(goods) do
+    local bx,by=M+((i-1)%per)*(cw+4),y+math.floor((i-1)/per)*38
+    local price=city:importPrice(key,n.haven)
+    button("import-"..key,S.get(key).." $"..string.format(price<10 and "%.1f" or "%d",price),bx,by,cw,34,
+      function() state.importKey=key end,true,
+      string.lower(Graph.COMMODITIES[key].name).." · in stock "..city:materialStock(key),
+      state.importKey==key,Graph.COMMODITIES[key].color)
+  end
+  y=y+math.ceil(#goods/per)*38+6
+  local key=state.importKey
+  local lot=City.IMPORT.lot
+  local units=math.max(1,math.min(state.importUnits or lot,math.max(1,city:storeRoom(key))))
+  stepper("import-units","Units",tostring(units),y,
+    function() state.importUnits=math.max(1,units-lot) end,function() state.importUnits=units+lot end,
+    units>1,units+lot<=city:storeRoom(key),"Room in the yards: "..city:storeRoom(key))
+  y=y+38
+  local cost=city:shipmentCost(n.id,key,units) or 0
+  local why=city:shipmentError(n.id,key,units)
+  button("import-order","Order "..units.." "..string.lower(Graph.COMMODITIES[key].name).."  $"..cost,M,y,CW,32,
+    function() act("orderImport",n.id,key,units) end,not why,why or "Lands tomorrow morning",nil,Graph.COMMODITIES[key].color)
+  y=y+40
+  local coming,landed=city:havenShipments(n.id)
+  for _,k in ipairs(goods) do
+    if coming[k] then row("On the way",coming[k].." "..S.get(k),y,P.energy); y=y+24 end
+    if landed[k] then row("Landed today",landed[k].." "..S.get(k),y,P.good); y=y+24 end
+  end
+  return y
+end
+
 local function inspectTerminal(n,y)
   local spec=City.HAVENS[n.haven or "port"] or City.HAVENS.port
   local landed=(city.producedBy or {})[n.id] or {}
@@ -683,30 +719,23 @@ local function inspectTerminal(n,y)
     spec.import<=1 and P.good or P.warn,
     "What this door charges over list price. Sea freight is the cheap way in, "..
     "air the dear one. It is the only difference between the three havens.")
-  text("Landed here today",M,y+58,"small",P.textDim)
-  local ly=y+80
-  local any=false
+  local ly=y+58
   for _,name in ipairs(Graph.TRADES) do
     local trade=City.trade[name]
-    if trade.importCost then
-      local units=landed[name] or 0
-      if units>0 then any=true end
-      row(string.upper(name),units>0 and (units.."  -$"..math.floor(units*trade.importCost*spec.import+0.5)) or "-",
+    local units=landed[name] or 0
+    if trade.importCost and units>0 then
+      row(string.upper(name),units.."  -$"..math.floor(units*trade.importCost*spec.import+0.5),
         ly,units>0 and Graph.COMMODITIES[name].color or P.textFaint,
         "Unlimited at $"..string.format("%.2f",trade.importCost*spec.import).." a unit landed. "..
         "You are billed only for what the city actually draws.")
       ly=ly+24
     end
   end
-  if not any then
-    ly=ly+paragraph("Nothing has moved yet: run track inland to draw on it.",ly,P.warn)+6
-  end
   ly=ly+14
   row("Freight bill today","-$"..math.floor((bill[n.id] or 0)+0.5),ly,P.bad)
   row("Berth upkeep","-$"..City.terminalUpkeep.." / day",ly+26,P.warn)
-  text("Imports goods for a fee. Requires freight routes. Cannot import electricity.",
-    M,ly+56,"small",P.textDim,CW)
-  return demolishBlock(n,ly+128,"Demolish the haven",
+  ly=importMenu(n,spec,ly+62)
+  return demolishBlock(n,ly+10,"Demolish the haven",
     "Closes the haven and frees its gateway. Every link tied into it is cut.")
 end
 
@@ -1368,18 +1397,21 @@ local function buildPanel()
           state.rail=nil; state.tool=nil; state.drag=nil; state.filter=nil
         end,true,
         key=="road" and ("Road: $"..City.PEOPLE.roadTiein*2 .." plus $"..string.format("%.2f",City.PEOPLE.roadPerM)..
-          " a metre. Drag directly between houses or businesses, or via road junctions. Bus stops are only for boarding buses. Only highways charge tolls.")
+          " a metre. Drag directly between houses or businesses, or via road junctions. Bus stops are only for boarding buses. Highways and bridges charge tolls.")
           or (spec.name..": $"..spec.vehicle.." a vehicle, "..spec.seats.." seats a day. "..spec.blurb),
         state.transit==key,key=="road" and P.energy or spec.colour)
     end
     y=y+40
-    for i,key in ipairs({"offroad","road","highway"}) do
-      button("road-type-"..key,({offroad="Offroad",road="Normal",highway="Highway"})[key],M+(i-1)*102,y,98,28,
+    local bw=math.floor((CW-12)/4)
+    for i,key in ipairs({"offroad","road","highway","bridge"}) do
+      button("road-type-"..key,({offroad="Offroad",road="Normal",highway="Highway",bridge="Bridge"})[key],M+(i-1)*(bw+4),y,bw,28,
         function()
           city.buildRoadType=key; state.transit="road"
           state.rail=nil; state.tool=nil; state.drag=nil; state.filter=nil
         end,true,
-        key=="offroad" and "Cars only. Uses offroad intersections." or key=="road" and "Cars, trucks and buses. Free to use. Uses roundabouts." or "All vehicles pay per highway segment. Dedicated interchanges; no bus stops.",
+        key=="offroad" and "Cars only. Uses offroad intersections." or key=="road" and "Cars, trucks and buses. Free to use. Uses roundabouts."
+          or key=="bridge" and ("The only road over water. $"..City.BRIDGE.perWaterM.." a metre of water, toll $"..City.BRIDGE.toll.." a vehicle.")
+          or "All vehicles pay per highway segment. Dedicated interchanges; no bus stops.",
         (city.buildRoadType or "road")==key,City.ROAD_TYPES[key].colour)
     end
     y=y+40
@@ -1511,11 +1543,11 @@ local function linkPanel(l)
   row(road and "Tolls today" or "Fares today","+$"..math.floor((rec.income or 0)+0.5),y+52,P.good)
   row("Upkeep",string.format("-$%.1f / day",city:linkUpkeep(l)),y+78,P.warn)
   local price=road and (l.toll or 0) or (l.fare or 0)
-  local max=road and (l.roadType=="highway" and City.PEOPLE.tollMax or 0) or spec.max
+  local max=road and (City.tolled(l) and City.PEOPLE.tollMax or 0) or spec.max
   stepper("link-price",road and "Toll" or "Fare","$"..price.." a trip",y+110,
     function() act("setLinkPrice",l.id,price-1) end,function() act("setLinkPrice",l.id,price+1) end,
     price>0,price<max,
-    road and "Each vehicle pays on every highway segment it crosses. Normal roads and offroads are free."
+    road and "Each vehicle pays on every highway segment and bridge it crosses. Normal roads and offroads are free."
       or "What every passenger pays for a seat. A driver takes the car instead if that is cheaper.")
   local ly=y+148
   if not road then
@@ -1526,7 +1558,7 @@ local function linkPanel(l)
       " a day to run. One sold back returns "..math.floor(City.REFUND*100+0.5).."% of its price.")
     ly=ly+38
   end
-  text(road and "Daily destinations are chosen per building. Vehicles travel when connected; only highways charge tolls."
+  text(road and "Daily destinations are chosen per building. Vehicles travel when connected; highways and bridges charge tolls."
     or spec.blurb,M,ly+4,"small",P.textDim,CW)
   button("demolish-link",(road and "Lift the road" or "Close the route").."   +$"..math.floor((l.paid or 0)*City.REFUND),
     M,ly+66,CW,32,function() act("demolishLink",l.id) end,true,"Recovers "..math.floor(City.REFUND*100+0.5).."% of everything paid into it (Delete)")
@@ -1695,7 +1727,7 @@ local function company()
     local limit,avail=city:loanLimit(),city:loanAvailable()
     row("Credit line","$"..(city.loan or 0).." / $"..limit,y+6,
       (city.loan or 0)>0 and P.warn or P.textDim,
-      "Borrow up to "..math.floor(City.loanRatio*100+0.5).."% of your assets. Interest: "..math.floor(City.loanRate*100+0.5).."% per week, paid daily.")
+      "Up to "..City.loanLeverage.."x your own capital ($"..city:ownCapital().."). "..(City.loanRate*100).."% a week, paid daily.")
     y=y+32
     if (city.loan or 0)>0 then row("Daily interest","-$"..city:loanInterest(),y,P.bad); y=y+26 end
     -- The amount is clamped to what the bank will actually lend, so the
@@ -1703,7 +1735,7 @@ local function company()
     local want=math.min(state.borrow or 500,avail)
     button("borrow-minus","-",M,y,34,34,function() state.borrow=math.max(100,(state.borrow or 500)-100) end,true,"Less")
     button("borrow","Borrow $"..want,M+41,y,218,34,function() act("borrow",want) end,
-      avail>0,"Interest: "..math.floor(City.loanRate*100+0.5).."% per week, paid daily. You can borrow $"..avail.." more.")
+      avail>0,(City.loanRate*100).."% a week, paid daily. $"..avail.." more available.")
     button("borrow-plus","+",M+266,y,34,34,function() state.borrow=(state.borrow or 500)+100 end,true,"More")
     if (city.loan or 0)>0 then
       button("repay","Repay $"..math.min(city.loan,city.money),

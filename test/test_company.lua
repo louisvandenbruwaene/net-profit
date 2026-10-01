@@ -389,18 +389,19 @@ do
   check(src.level<=City.sourceMaxLevel,"without ever passing the depth limit")
 end
 
-print("credit is fixed-rate and capped by what the company owns")
+print("credit is fixed-rate and capped by the owner's own capital")
 do
   local c=fresh(); supply(c)
   local limit=c:loanLimit()
-  check(limit==math.floor(c:collateral()*City.loanRatio),"credit is half of collateral")
+  check(limit==math.floor(c:valuation()*City.loanLeverage),"credit is a multiple of own capital")
+  check(City.new({seed=12,obstacles=0}):loanLimit()==math.floor(City.rules.startMoney*City.loanLeverage),"a new company borrows against its founding stake")
   check(not c:borrow(limit+1),"the bank will not exceed its limit")
   local worth,cash=c:valuation(),c.money
   assert(c:borrow(limit))
   check(c.money==cash+limit and c:valuation()==worth,"borrowing is cash, not income")
   check(c:loanAvailable()==0,"the line is fully drawn")
-  local w=c:valuation(); assert(c:invest(limit))
-  check(c:loanAvailable()==0 and c:valuation()==w,"an invested loan neither raises the limit nor the net worth")
+  local w=c:valuation(); assert(c:invest(math.min(limit,cash)))
+  check(c:loanAvailable()==0 and c:valuation()==w,"investing borrowed cash neither raises the limit nor the net worth")
   check(c:loanInterest()==math.ceil(limit*City.loanRate/7),"interest has no variance")
   check(c:dailyExpenses()>=c:loanInterest(),"interest is charged as an operating cost")
   assert(c:repay(limit))

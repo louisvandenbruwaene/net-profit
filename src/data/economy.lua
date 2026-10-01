@@ -115,9 +115,9 @@ Data.rules = {
   startMoney = 750,
 }
 
-Data.loanRate = 0.10          -- per week, on the outstanding balance
+Data.loanRate = 0.01          -- per week, on the outstanding balance
 
-Data.loanRatio = 0.50         -- of collateral
+Data.loanLeverage = 2.0       -- the most debt per dollar of the owner's own capital (net worth)
 
 Data.salvage = 0.3
 
