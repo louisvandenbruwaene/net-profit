@@ -213,7 +213,7 @@ local function build(city)
   --          other roads, the road over it as well
   --   pad    any other meeting of three or more
   --   end    a dead end, or a building the road stops at
-  local role, pairs_ = {}, {}
+  local role, pairs_, forks = {}, {}, {}
   for id, list in pairs(at) do
     local n = nodes[id]
     local junction = City.ROAD_JUNCTIONS[n.kind]
@@ -225,8 +225,23 @@ local function build(city)
     else
       local high, low = {}, {}
       for _, r in ipairs(list) do if r.kind == "highway" then high[#high + 1] = r else low[#low + 1] = r end end
+      -- Highways only, one pair of them running on through: a motorway
+      -- junction. The main line goes straight on, the others leave it by
+      -- slip roads and a flyover, never across it on the level.
+      local main
+      if #low == 0 and #high >= 3 then
+        local best = -0.3
+        for i = 1, #high do for j = i + 1, #high do
+          local ax, ay = dirFrom(id, high[i]); local bx, by = dirFrom(id, high[j])
+          if ax * bx + ay * by < best then best, main = ax * bx + ay * by, { high[i], high[j] } end
+        end end
+      end
       local straight = false
-      if #high == 2 and #low >= 1 then
+      if main then
+        role[id] = "fork"
+        pairs_[id] = { [main[1]] = main[2], [main[2]] = main[1] }
+        forks[id] = main
+      elseif #high == 2 and #low >= 1 then
         local ax, ay = dirFrom(id, high[1]); local bx, by = dirFrom(id, high[2])
         straight = ax * bx + ay * by < -0.5
       end
@@ -238,12 +253,15 @@ local function build(city)
           if ax * bx + ay * by < 0 then p[low[1]] = low[2]; p[low[2]] = low[1] end
         end
         pairs_[id] = p
-      else
+      elseif not main then
         role[id] = "pad"
       end
     end
   end
   shape.role = role
+  -- At a motorway junction, the two links that are its main line.
+  shape.forks = {}
+  for id, main in pairs(forks) do shape.forks[id] = { [main[1].l] = true, [main[2].l] = true } end
 
   -- How far back from a junction each arm stops, so arms that meet at a
   -- narrow angle still leave room for the kerb between them.
@@ -329,6 +347,23 @@ local function build(city)
         end
       end
     end
+  end
+  -- A motorway junction: each branch stops far enough short of the main line
+  -- for its slip roads to curve round onto it, and for its flyover to rise.
+  for id, main in pairs(forks) do
+    local hw = max(main[1].h, main[2].h)
+    local mx, my = dirFrom(id, main[1])
+    local d = 0
+    for _, r in ipairs(at[id]) do
+      if r ~= main[1] and r ~= main[2] then
+        local bx, by = dirFrom(id, r)
+        local sin = max(0.35, abs(bx * my - by * mx))
+        local m = nodes[other(r, id)]
+        local length = sqrt((m.x - nodes[id].x) ^ 2 + (m.y - nodes[id].y) ^ 2)
+        d = max(d, min((hw + RoadShape.pave("highway") + 46) / sin, length * 0.45))
+      end
+    end
+    setback[id] = d
   end
 
   -- Walk the streets. A chain runs from wherever a street starts, through
@@ -515,7 +550,7 @@ local function build(city)
     shape.ramps[#shape.ramps + 1] = ramp
     round.ramps = round.ramps or {}
     table.insert(round.ramps, ramp)
-    local off = high.r.h + 2 * RH + RoadShape.pave("highway") + 3
+    local off = high.r.h + RoadShape.pave("highway") + 3
     local sx, sy = frame(um + taper + 50, off)
     shape.signs[#shape.signs + 1] = { kind = "exit", x = sx, y = sy, dx = -high.dx, dy = -high.dy }
     -- Traffic keeps right, so the near carriageway runs one way past
@@ -597,11 +632,133 @@ local function build(city)
           end
           shape.ramps[#shape.ramps + 1] = { pts = pts, node = id }
           -- An exit sign on the verge before the slip road.
-          local off = high.r.h + 2 * RH + RoadShape.pave("highway") + 3
+          local off = high.r.h + RoadShape.pave("highway") + 3
           local sx, sy = frame(um + taper + 50, off)
           shape.signs[#shape.signs + 1] = { kind = "exit", x = sx, y = sy, dx = -high.dx, dy = -high.dy }
           -- And give way where it meets the road.
           shape.signs[#shape.signs + 1] = { kind = "giveway", x = ax - low.dx * (RH + 3) + nx * 4, y = ay - low.dy * (RH + 3) + ny * 4, dx = nx, dy = ny }
+        end
+      end
+    end
+  end
+
+  -- Motorway junctions. Traffic keeps right, so the branch reaches the near
+  -- carriageway by a slip road either side of it, curving onto the main
+  -- line and off it without crossing anything. To reach the far carriageway
+  -- it goes over the main line on a flyover and splits beyond it into a slip
+  -- road each way. Each slip road is stored from the branch end outward.
+  local FH = 5.5
+  -- The main line through a junction as a frame: u metres along it from the
+  -- node the way `d` points, w metres out to the side `m` points to,
+  -- following the line round its bends rather than straight on.
+  local function mainFrame(n, mainLink, d, m)
+    local ch
+    for _, c in ipairs(shape.chains) do
+      for _, r in ipairs(c.links) do if r.l == mainLink then ch = c end end
+      if ch then break end
+    end
+    if not ch then
+      return function(u, w) return n.x + d[1] * u + m[1] * w, n.y + d[2] * u + m[2] * w, d[1], d[2] end
+    end
+    local pts = ch.pts
+    local s0, best, run = 0, math.huge, 0
+    for i = 1, #pts do
+      if i > 1 then run = run + sqrt((pts[i].x - pts[i - 1].x) ^ 2 + (pts[i].y - pts[i - 1].y) ^ 2) end
+      local dd = (pts[i].x - n.x) ^ 2 + (pts[i].y - n.y) ^ 2
+      if dd < best then best, s0 = dd, run end
+    end
+    local _, _, ux, uy = RoadShape.at(pts, s0)
+    local sgn = (ux * d[1] + uy * d[2] >= 0) and 1 or -1
+    local side = ((-uy) * m[1] + ux * m[2] >= 0) and 1 or -1
+    return function(u, w)
+      local x, y, tx, ty = RoadShape.at(pts, max(0, s0 + sgn * u))
+      return x - ty * side * w, y + tx * side * w, tx * sgn, ty * sgn
+    end
+  end
+  local function slip(sx, sy, hx, hy, n, d, m, v, frame)
+    -- From (sx, sy) heading (hx, hy), round onto the main line's edge on the
+    -- side `m` points to, along `d`, and the taper into it.
+    local ua = (sx - n.x) * d[1] + (sy - n.y) * d[2]
+    local va = (sx - n.x) * m[1] + (sy - n.y) * m[2]
+    local vm = v + FH
+    local um = ua + max(70, (va - vm) * 1.9)
+    local ex, ey, tx, ty = frame(um, vm)
+    local k = sqrt((ex - sx) ^ 2 + (ey - sy) ^ 2) * 0.5
+    local c1x, c1y = sx + hx * k, sy + hy * k
+    local c2x, c2y = ex - tx * k, ey - ty * k
+    local pts = {}
+    for j = 0, 20 do
+      local t = j / 20
+      local a, b, c, dd = (1 - t) ^ 3, 3 * (1 - t) ^ 2 * t, 3 * (1 - t) * t * t, t ^ 3
+      pts[#pts + 1] = { x = a * sx + b * c1x + c * c2x + dd * ex, y = a * sy + b * c1y + c * c2y + dd * ey, h = FH, k = "ramp" }
+    end
+    local taper = 90
+    for j = 1, 10 do
+      local t = j / 10
+      local w = FH * (1 - t)
+      local x, y = frame(um + taper * t, v + w)
+      pts[#pts + 1] = { x = x, y = y, h = max(0.05, w), k = "ramp" }
+    end
+    return pts, um + taper
+  end
+  for id, main in pairs(forks) do
+    local n = nodes[id]
+    local hw = max(main[1].h, main[2].h)
+    local ax, ay = dirFrom(id, main[1])
+    for _, e in ipairs(shape.ends[id] or {}) do
+      if e.l ~= main[1].l and e.l ~= main[2].l then
+        -- m: across the main line toward the branch. dn: the way the near
+        -- carriageway runs (its right-hand side is m).
+        local m = { -ay, ax }
+        if m[1] * (e.x - n.x) + m[2] * (e.y - n.y) < 0 then m = { ay, -ax } end
+        local far = { -m[1], -m[2] }
+        local dn = { m[2], -m[1] }
+        local hx, hy = -e.dx, -e.dy
+        local sx, sy = -hy, hx
+        local arms = { { d = { ax, ay }, l = main[1].l }, { d = { -ax, -ay }, l = main[2].l } }
+        for _, arm in ipairs(arms) do
+          local d = arm.d
+          -- Near side: out of the branch's carriageway on d's side.
+          local side = (sx * d[1] + sy * d[2] > 0) and 1 or -1
+          local px, py = e.x + sx * side * e.h * 0.5, e.y + sy * side * e.h * 0.5
+          local frame = mainFrame(n, arm.l, d, m)
+          local pts, reach = slip(px, py, hx, hy, n, d, m, hw, frame)
+          local merge = d[1] * dn[1] + d[2] * dn[2] > 0
+          shape.ramps[#shape.ramps + 1] = { pts = pts, node = id, fork = true, branch = e.l, hx = d[1], hy = d[2],
+            near = true, merge = merge, lane = hw * 0.77 }
+          if not merge then
+            local gx, gy = frame(reach + 50, hw + RoadShape.pave("highway") + 3)
+            shape.signs[#shape.signs + 1] = { kind = "exit", x = gx, y = gy, dx = -d[1], dy = -d[2] }
+          end
+        end
+        -- The flyover: straight on over the main line until clear of it.
+        local va = (e.x - n.x) * m[1] + (e.y - n.y) * m[2]
+        local sin = max(0.35, -(hx * m[1] + hy * m[2]))
+        local L = (va + hw + RoadShape.pave("highway") + 40) / sin
+        local over = {}
+        for j = 0, 12 do
+          local t = j / 12
+          over[#over + 1] = { x = e.x + hx * L * t, y = e.y + hy * L * t, h = FH * 1.6, k = "ramp" }
+        end
+        local fly = { pts = over, node = id, fork = true, branch = e.l, over = true }
+        shape.ramps[#shape.ramps + 1] = fly
+        local gx, gy = over[#over].x, over[#over].y
+        for _, arm in ipairs(arms) do
+          local d = arm.d
+          local side = (sx * d[1] + sy * d[2] > 0) and 1 or -1
+          local px, py = gx + sx * side * FH * 0.8, gy + sy * side * FH * 0.8
+          local frame = mainFrame(n, arm.l, d, far)
+          -- Off the end of the flyover fanning out its own way, a Y, rather
+          -- than straight on and hooking back.
+          local fx, fy = norm(hx + d[1] * 0.9, hy + d[2] * 0.9)
+          local pts, reach = slip(px, py, fx, fy, n, d, far, hw, frame)
+          local merge = d[1] * dn[1] + d[2] * dn[2] < 0
+          shape.ramps[#shape.ramps + 1] = { pts = pts, node = id, fork = true, branch = e.l, hx = d[1], hy = d[2],
+            near = false, merge = merge, lane = hw * 0.77, flyover = fly }
+          if not merge then
+            local qx, qy = frame(reach + 50, hw + RoadShape.pave("highway") + 3)
+            shape.signs[#shape.signs + 1] = { kind = "exit", x = qx, y = qy, dx = -d[1], dy = -d[2] }
+          end
         end
       end
     end
@@ -837,6 +994,34 @@ function RoadShape.distanceTo(city, l, x, y)
     end
   end
   return best, half
+end
+
+-- How far a point is from the nearest road surface drawn anywhere, in metres:
+-- streets, slip roads and roundabouts, verges included. Negative when the
+-- point is on the road. Only looks within `reach`, and says math.huge beyond.
+function RoadShape.clearance(city, x, y, reach)
+  local shape = RoadShape.get(city)
+  local best = math.huge
+  local function line(pts, kind)
+    local pave = RoadShape.pave(kind or "road")
+    for i = 2, #pts do
+      local a, b = pts[i - 1], pts[i]
+      local pad = reach + 40
+      if x > min(a.x, b.x) - pad and x < max(a.x, b.x) + pad and y > min(a.y, b.y) - pad and y < max(a.y, b.y) + pad then
+        local dx, dy = b.x - a.x, b.y - a.y
+        local t = max(0, min(1, ((x - a.x) * dx + (y - a.y) * dy) / max(1e-9, dx * dx + dy * dy)))
+        local d = sqrt((a.x + dx * t - x) ^ 2 + (a.y + dy * t - y) ^ 2) - (a.h + (b.h - a.h) * t) - pave
+        if d < best then best = d end
+      end
+    end
+  end
+  for _, ch in ipairs(shape.chains or {}) do line(ch.pts, ch.kind) end
+  for _, rp in ipairs(shape.ramps or {}) do line(rp.pts, "offroad") end
+  for _, rd in ipairs(shape.rounds or {}) do
+    local d = sqrt((rd.x - x) ^ 2 + (rd.y - y) ^ 2) - (rd.r or ROUND) - 1.5
+    if d < best then best = d end
+  end
+  return best
 end
 
 return RoadShape

@@ -384,13 +384,12 @@ function Roads.draw(city, cam)
   -- Verges and pavements, then the carriageway, every street at once.
   -- Slip roads' verges go down with the rest; their surface goes over the
   -- highway's shoulder, so the lane joins the carriageway with no seam.
-  local ramps = {}
+  local ramps, overs = {}, {}
   for _, ramp in ipairs(shape.ramps) do
     local p = ramp.pts[1]
     if cam:sees(p.x, p.y, 400 * cam.scale + 60) then
-      ramp.nx = ramp.nx or select(1, normals(ramp.pts))
       if not ramp.ny then ramp.nx, ramp.ny = normals(ramp.pts) end
-      ramps[#ramps + 1] = ramp
+      if ramp.over then overs[#overs + 1] = ramp else ramps[#ramps + 1] = ramp end
     end
   end
   for _, ramp in ipairs(ramps) do
@@ -452,6 +451,19 @@ function Roads.draw(city, cam)
       markings(cam, sub, nx, ny, f.s0)
       parapets(cam, sub, nx, ny)
     end
+  end
+  -- A motorway junction's flyover, over the main line: two lanes, one each
+  -- way, on a deck with its shadow on the carriageways below.
+  for _, ramp in ipairs(overs) do
+    local pts = ramp.pts
+    local nx, ny = deck(cam, pts, 1.4)
+    band(cam, pts, nx, ny, function(q) return -q.h end, function(q) return q.h end, function() return SURFACE.ramp end)
+    if cam.scale > 0.3 then
+      line(cam, pts, nx, ny, "ramp", 1, -0.7, 0.45, { 0.92, 0.92, 0.88, 0.75 })
+      line(cam, pts, nx, ny, "ramp", -1, 0.7, 0.45, { 0.92, 0.92, 0.88, 0.75 })
+      line(cam, pts, nx, ny, "ramp", 0, 0, 0.45, { 0.92, 0.80, 0.30, 0.8 })
+    end
+    parapets(cam, pts, nx, ny)
   end
   if cam.scale > 0.5 then
     for _, sg in ipairs(shape.signs) do

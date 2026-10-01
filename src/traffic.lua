@@ -371,7 +371,7 @@ local function geo(city)
       local dx, dy = b.x - a.x, b.y - a.y
       local len = math.sqrt(dx * dx + dy * dy)
       if len > 0.5 then
-        local r = { key = -i, kind = "ramp", ax = a.x, ay = a.y, bx = b.x, by = b.y, len = len, ux = dx / len, uy = dy / len, half = 6, pave = 0 }
+        local r = { key = -i, kind = "ramp", ax = a.x, ay = a.y, bx = b.x, by = b.y, len = len, ux = dx / len, uy = dy / len, half = math.max(6, a.h or 0, b.h or 0), pave = 0 }
         file(r, math.min(a.x, b.x), math.min(a.y, b.y), math.max(a.x, b.x), math.max(a.y, b.y))
       end
     end

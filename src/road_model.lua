@@ -246,6 +246,18 @@ return function(City)
    if not mult then return fail('cannot cross '..string.lower(City.OBSTACLES[blocker.kind] and City.OBSTACLES[blocker.kind].name or 'that')) end
    local b=self:buildingOnLine(s.ref.x,s.ref.y,e.ref.x,e.ref.y,s.ref.node,e.ref.node)
    if b and not JRANK[b.kind] then return fail('a building is in the way') end
+   -- The carriageway is wide: no building may stand within its kerbs either.
+   local half=RS.half(variant)+RS.pave(variant)
+   for _,n in ipairs(self.g:aliveNodes()) do
+    if n.id~=s.ref.node and n.id~=e.ref.node and not JRANK[n.kind] and n.kind~='corner' then
+     local ax,ay,bx,by=s.ref.x,s.ref.y,e.ref.x,e.ref.y
+     local dx,dy=bx-ax,by-ay
+     local t=math.max(0,math.min(1,((n.x-ax)*dx+(n.y-ay)*dy)/math.max(1e-9,dx*dx+dy*dy)))
+     -- A road may end at a building's front step, so its ends are let off.
+     local d=math.sqrt((ax+dx*t-n.x)^2+(ay+dy*t-n.y)^2)
+     if t>0 and t<1 and d<City.footprint(n.kind)*0.8+half then return fail('a building is in the way') end
+    end
+   end
    local d=(e.t-s.t)*len
    local piece=d*City.PEOPLE.roadPerM*mult
    if bridge then piece=piece+self:waterAlong(s.ref.x,s.ref.y,e.ref.x,e.ref.y)*City.BRIDGE.perWaterM end
@@ -269,7 +281,120 @@ return function(City)
    end
   end
   plan.cost=math.ceil(cost)
+  local b,wet,crowd=self:planClash(plan)
+  if wet then return fail('no room for its junction: its slip roads would be in the water') end
+  if crowd then return fail('too close to the next junction for its slip roads') end
+  if b then return fail('no room for its junction: '..string.lower(Graph.KINDS[b.kind] and Graph.KINDS[b.kind].name or 'a building')..' in the way') end
   return plan
+ end
+ -- The building that the road a plan lays, with the slip roads, roundabouts
+ -- and flyovers its junctions grow, would cover; nil if none. The plan is
+ -- laid on a copy of the road network, so nothing real changes.
+ function City:planClash(plan)
+  local RS=require('road_shape')
+  local nodes=setmetatable({},{__index=self.g.nodes})
+  local links={}
+  for i,l in pairs(self.links or {}) do links[i]=l end
+  local nextId=#self.g.nodes
+  local touched,ids={},{}
+  local function fresh(x,y)
+   nextId=nextId+1
+   nodes[nextId]={id=nextId,x=x,y=y,kind='corner',alive=true}
+   return nextId
+  end
+  for i,st in ipairs(plan.stops) do
+   local r=st.ref
+   if r.node then ids[i]=r.node
+   elseif r.link then
+    local l=links[r.link]
+    local id=fresh(r.x,r.y)
+    local near={} for k,v in pairs(l) do near[k]=v end
+    local far={} for k,v in pairs(l) do far[k]=v end
+    near.b=id; far.a=id; far.id=#links+1
+    links[l.id]=near; links[far.id]=far
+    ids[i]=id
+   else ids[i]=fresh(r.x,r.y) end
+   touched[ids[i]]=true
+  end
+  for _,pc in ipairs(plan.pieces) do
+   local id=#links+1
+   links[id]={id=id,a=ids[pc.from],b=ids[pc.to],mode='road',roadType=pc.roadType,deck=pc.deck,alive=true}
+  end
+  -- Each road end becomes the junction its roads make it.
+  for id in pairs(touched) do
+   local n=nodes[id]
+   if JRANK[n.kind] then
+    local kinds={}
+    for _,l in pairs(links) do if l.alive and l.mode=='road' and (l.a==id or l.b==id) then kinds[#kinds+1]=vis(l) end end
+    local want='corner'
+    if #kinds>=3 then
+     local high,paved=false,false
+     for _,k in ipairs(kinds) do if k=='highway' then high=true elseif k~='offroad' then paved=true end end
+     want=high and 'interchange' or paved and 'roundabout' or 'intersection'
+    end
+    if JRANK[want]>JRANK[n.kind] then
+     local copy={} for k,v in pairs(n) do copy[k]=v end
+     copy.kind=want; nodes[id]=copy
+    end
+   end
+  end
+  local real=self.g
+  local g=setmetatable({nodes=nodes,aliveNodes=function() return real:aliveNodes() end},{__index=real})
+  local trial=setmetatable({g=g,links=links,revision=-1},{__index=self})
+  -- Slip roads and roundabouts stand on dry ground: only a bridge crosses water.
+  local shape=RS.get(trial)
+  for _,rp in ipairs(shape.ramps) do
+   if touched[rp.node] and not rp.over then
+    for i=1,#rp.pts,3 do
+     if self:isWater(rp.pts[i].x,rp.pts[i].y) then RS.forget(trial); return nil,true end
+    end
+   end
+  end
+  for _,rd in ipairs(shape.rounds) do
+   if touched[rd.node] and self:isWater(rd.x,rd.y) then RS.forget(trial); return nil,true end
+  end
+  -- Nor do they run into the slip roads and roundabouts of a junction already
+  -- there.
+  local before=RS.get(self)
+  local others={}
+  for _,rp in ipairs(before.ramps) do if not touched[rp.node] then others[#others+1]=rp.pts end end
+  local rings={}
+  for _,rd in ipairs(before.rounds) do if not touched[rd.node] then rings[#rings+1]=rd end end
+  for _,rp in ipairs(shape.ramps) do
+   if touched[rp.node] and not rp.over then
+    for i=1,#rp.pts-10,2 do
+     local q=rp.pts[i]
+     for _,pts in ipairs(others) do
+      for j=2,#pts do
+       local a,b=pts[j-1],pts[j]
+       if math.abs(a.x-q.x)<40 and math.abs(a.y-q.y)<40 then
+        local dx,dy=b.x-a.x,b.y-a.y
+        local t=math.max(0,math.min(1,((q.x-a.x)*dx+(q.y-a.y)*dy)/math.max(1e-9,dx*dx+dy*dy)))
+        if math.sqrt((a.x+dx*t-q.x)^2+(a.y+dy*t-q.y)^2)<q.h+a.h+2 then RS.forget(trial); return nil,nil,true end
+       end
+      end
+     end
+     for _,rd in ipairs(rings) do
+      if (rd.x-q.x)^2+(rd.y-q.y)^2<(rd.r+q.h+3)^2 then RS.forget(trial); return nil,nil,true end
+     end
+    end
+   end
+  end
+  local x0,x1=math.min(plan.ax,plan.bx)-400,math.max(plan.ax,plan.bx)+400
+  local y0,y1=math.min(plan.ay,plan.by)-400,math.max(plan.ay,plan.by)+400
+  local roadEnd={}
+  for _,l in pairs(links) do if l.alive and l.mode=='road' then roadEnd[l.a]=true; roadEnd[l.b]=true end end
+  for _,n in ipairs(real:aliveNodes()) do
+   if not JRANK[n.kind] and not roadEnd[n.id] and n.x>x0 and n.x<x1 and n.y>y0 and n.y<y1 then
+    local body=City.footprint(n.kind)*0.8
+    if RS.clearance(trial,n.x,n.y,body)<body and RS.clearance(self,n.x,n.y,body)>=body then
+     RS.forget(trial)
+     return n
+    end
+   end
+  end
+  RS.forget(trial)
+  return nil
  end
  -- A road split where another joins it: the near half keeps its id.
  function City:splitRoad(id,x,y)
