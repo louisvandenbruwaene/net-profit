@@ -243,7 +243,7 @@ local function build(city)
 
   -- How far back from a junction each arm stops, so arms that meet at a
   -- narrow angle still leave room for the kerb between them.
-  local setback = {}
+  local setback, rampBack = {}, {}
   for id, list in pairs(at) do
     if role[id] == "pad" then
       local widest = 0
@@ -259,17 +259,31 @@ local function build(city)
       setback[id] = d
     elseif role[id] == "pass" then
       -- A road meeting the highway at a slant has further to go to clear it.
-      local hw, hx, hy = 0, 0, 0
+      local hw, hx, hy, slant = 0, 0, 0, 1
       for _, r in ipairs(list) do if r.kind == "highway" then hw = max(hw, r.h); hx, hy = dirFrom(id, r) end end
       local d = hw + RoadShape.pave("highway") + 14
       for _, r in ipairs(list) do
         if r.kind ~= "highway" then
           local lx, ly = dirFrom(id, r)
           local sin = abs(lx * hy - ly * hx)
-          d = max(d, (hw + RoadShape.pave("highway") + r.h * 0.5 + 10) / max(0.35, sin))
+          slant = min(slant, max(0.35, sin))
+          -- Far enough out that the slip roads have room to curve.
+          local want = (hw + RoadShape.pave("highway") + 34) / max(0.35, sin)
+          -- A short road cannot give the slip roads more room than it has.
+          local m = nodes[other(r, id)]
+          local length = sqrt((m.x - nodes[id].x) ^ 2 + (m.y - nodes[id].y) ^ 2)
+          local least = (hw + RoadShape.pave("highway") + 12) / max(0.35, sin)
+          d = max(d, max(least, min(want, length * 0.55)))
         end
       end
-      setback[id] = d
+      -- The slip roads leave the road this far out; a road that stops here
+      -- runs on a lane's width past them, so its end and the two slip roads
+      -- close up into one T with no gap between.
+      -- On a slant the road end's near corner reaches further than its
+      -- middle, by the road's half width times the cosine.
+      local clear = (hw + RoadShape.pave("highway") + 11 + 8 * sqrt(1 - slant * slant)) / slant
+      setback[id] = max(clear, d - 13)
+      rampBack[id] = max(d, setback[id] + 13)
     end
   end
 
@@ -416,38 +430,64 @@ local function build(city)
         arms[#arms + 1] = { r = r, dx = dx, dy = dy, a = atan2(dy, dx) }
       end
       table.sort(arms, function(p, q) return p.a < q.a end)
-      local back = setback[id]
+      local back = rampBack[id]
+      local RH = 4.5
       for i, e in ipairs(arms) do
         local f = arms[i % #arms + 1]
         local high, low
         if e.r.kind == "highway" and f.r.kind ~= "highway" then high, low = e, f
         elseif f.r.kind == "highway" and e.r.kind ~= "highway" then high, low = f, e end
         if high then
-          -- The kerb of each that faces the other.
+          -- m: across the highway toward the road; n: across the road toward
+          -- the highway arm this slip road serves.
           local mx, my = -high.dy, high.dx
           if mx * low.dx + my * low.dy < 0 then mx, my = -mx, -my end
           local nx, ny = -low.dy, low.dx
           if nx * high.dx + ny * high.dy < 0 then nx, ny = -nx, -ny end
-          -- The slip road leaves the road where it clears the highway, heads
-          -- in toward it, and bends round to run alongside and merge.
-          local ex, ey = n.x + low.dx * back + nx * low.r.h * 0.55, n.y + low.dy * back + ny * low.r.h * 0.55
-          local along = back * 1.3 + 50
-          local sx, sy = n.x + high.dx * along + mx * (high.r.h + 0.5), n.y + high.dy * along + my * (high.r.h + 0.5)
-          local k = sqrt((ex - sx) ^ 2 + (ey - sy) ^ 2) * 0.5
-          local c1x, c1y = ex - low.dx * k * 0.4 + nx * k * 0.3, ey - low.dy * k * 0.4 + ny * k * 0.3
-          local c2x, c2y = sx - high.dx * k, sy - high.dy * k
+          -- Where it leaves the road: at the road's kerb, a lane's width short
+          -- of where a dead-end road stops, so the road's end and the slip
+          -- roads either side of it read as one T.
+          local d = back - RH
+          local ax, ay = n.x + low.dx * d + nx * (low.r.h - 1), n.y + low.dy * d + ny * (low.r.h - 1)
+          -- Where it comes alongside the highway, its inner kerb on the
+          -- highway's edge.
+          local function frame(u, v) return n.x + high.dx * u + mx * v, n.y + high.dy * u + my * v end
+          local ua = (ax - n.x) * high.dx + (ay - n.y) * high.dy
+          local va = (ax - n.x) * mx + (ay - n.y) * my
+          local vm = high.r.h + RH
+          local um = ua + max(60, (va - vm) * 1.8)
+          local bx, by = frame(um, vm)
+          local k = sqrt((bx - ax) ^ 2 + (by - ay) ^ 2) * 0.5
+          -- Out of the road square to it, leaning toward the highway, so a
+          -- slanting road's slip road does not climb away before turning.
+          local gx, gy = norm(bx - ax, by - ay)
+          local tx, ty = norm(nx * 0.7 + gx, ny * 0.7 + gy)
+          local c1x, c1y = ax + tx * k, ay + ty * k
+          local c2x, c2y = bx - high.dx * k, by - high.dy * k
           local pts = {}
-          for j = 0, 18 do
-            local s = j / 18
-            local a, b, c, d = (1 - s) ^ 3, 3 * (1 - s) ^ 2 * s, 3 * (1 - s) * s * s, s ^ 3
-            pts[#pts + 1] = { x = a * ex + b * c1x + c * c2x + d * sx, y = a * ey + b * c1y + c * c2y + d * sy, h = 4.5, k = "ramp" }
+          for j = 0, 20 do
+            local t = j / 20
+            local a, b, c, dd = (1 - t) ^ 3, 3 * (1 - t) ^ 2 * t, 3 * (1 - t) * t * t, t ^ 3
+            -- A bell mouth where it leaves the road.
+            local flare = j <= 3 and (1 + (3 - j) / 3 * 0.9) or 1
+            pts[#pts + 1] = { x = a * ax + b * c1x + c * c2x + dd * bx, y = a * ay + b * c1y + c * c2y + dd * by, h = RH * flare, k = "ramp" }
+          end
+          -- Then the merge: the lane runs on beside the highway and narrows
+          -- into it, its inner kerb always on the highway's edge.
+          local taper = 80
+          for j = 1, 10 do
+            local t = j / 10
+            local w = RH * (1 - t)
+            local x, y = frame(um + taper * t, high.r.h + w)
+            pts[#pts + 1] = { x = x, y = y, h = max(0.05, w), k = "ramp" }
           end
           shape.ramps[#shape.ramps + 1] = { pts = pts, node = id }
-          -- An exit sign on the verge before the slip road joins.
-          local before = along + 45
-          local off = high.r.h + RoadShape.pave("highway") + 3
-          shape.signs[#shape.signs + 1] = { kind = "exit",
-            x = n.x + high.dx * before + mx * off, y = n.y + high.dy * before + my * off, dx = -high.dx, dy = -high.dy }
+          -- An exit sign on the verge before the slip road.
+          local off = high.r.h + 2 * RH + RoadShape.pave("highway") + 3
+          local sx, sy = frame(um + taper + 50, off)
+          shape.signs[#shape.signs + 1] = { kind = "exit", x = sx, y = sy, dx = -high.dx, dy = -high.dy }
+          -- And give way where it meets the road.
+          shape.signs[#shape.signs + 1] = { kind = "giveway", x = ax - low.dx * (RH + 3) + nx * 4, y = ay - low.dy * (RH + 3) + ny * 4, dx = nx, dy = ny }
         end
       end
     end

@@ -77,8 +77,12 @@ local function outerOf(p) return p.h + RS.pave(kindOf(p)) end
 -- or dashed, only along the stretches of the kind asked for. Dashes are
 -- counted in metres from the chain's start, so they do not crawl as the
 -- camera moves.
+-- Markings fade out as the camera pulls back: a line can get no thinner
+-- than a pixel, so far out they would only stripe the road white.
+local markFade = 1
 local function line(cam, pts, nx, ny, kind, frac, add, width, colour, on, off, s0)
-  lg.setColor(colour)
+  if markFade <= 0 then return end
+  lg.setColor(colour[1], colour[2], colour[3], (colour[4] or 1) * markFade)
   lg.setLineWidth(max(1, width * cam.scale))
   local s = s0 or 0
   for i = 2, #pts do
@@ -221,6 +225,7 @@ end
 
 local function padMarkings(cam, pad)
   if cam.scale < 0.3 then return end
+  local fade = markFade
   for _, e in ipairs(pad.arms) do
     if e.kind == "road" or e.kind == "highway" then
       local nx, ny = -e.dy, e.dx
@@ -228,10 +233,10 @@ local function padMarkings(cam, pad)
       local x0, y0 = e.x + e.dx * 1.5, e.y + e.dy * 1.5
       local ax, ay = cam:toScreen(x0, y0)
       local bx, by = cam:toScreen(x0 - nx * e.h * 0.95, y0 - ny * e.h * 0.95)
-      lg.setColor(0.94, 0.94, 0.90, 0.85); lg.setLineWidth(max(1, 1.1 * cam.scale)); lg.line(ax, ay, bx, by)
+      lg.setColor(0.94, 0.94, 0.90, 0.85 * fade); lg.setLineWidth(max(1, 1.1 * cam.scale)); lg.line(ax, ay, bx, by)
       if e.kind == "road" and cam.scale > 0.5 then
         -- A zebra crossing just back from the stop line.
-        lg.setColor(0.94, 0.94, 0.90, 0.7)
+        lg.setColor(0.94, 0.94, 0.90, 0.7 * fade)
         lg.setLineWidth(max(1, 1.6 * cam.scale))
         for k = -e.h + 1.5, e.h - 1.5, 2.6 do
           local px, py = e.x + e.dx * 4 + nx * k, e.y + e.dy * 4 + ny * k
@@ -275,6 +280,7 @@ end
 
 function Roads.draw(city, cam)
   local shape = RS.get(city)
+  markFade = math.max(0, math.min(1, (cam.scale - 0.2) / 0.45))
   local visible = {}
   for _, ch in ipairs(shape.chains) do
     if #ch.pts >= 2 and seen(cam, ch.box) then
@@ -308,21 +314,21 @@ function Roads.draw(city, cam)
       end
     end
   end
-  -- Slip roads.
+  -- Verges and pavements, then the carriageway, every street at once.
+  -- Slip roads' verges go down with the rest; their surface goes over the
+  -- highway's shoulder, so the lane joins the carriageway with no seam.
+  local ramps = {}
   for _, ramp in ipairs(shape.ramps) do
-    local nx, ny = normals(ramp.pts)
-    band(cam, ramp.pts, nx, ny, function(p) return -p.h - 2 end, function(p) return p.h + 2 end, function() return VERGE.ramp end)
-  end
-  for _, ramp in ipairs(shape.ramps) do
-    local nx, ny = normals(ramp.pts)
-    band(cam, ramp.pts, nx, ny, function(p) return -p.h end, function(p) return p.h end, function() return SURFACE.ramp end)
-    if cam.scale > 0.3 then
-      for _, side in ipairs({ -1, 1 }) do
-        line(cam, ramp.pts, nx, ny, "ramp", side * 0.8, 0, 0.45, { 0.92, 0.92, 0.88, 0.7 })
-      end
+    local p = ramp.pts[1]
+    if cam:sees(p.x, p.y, 400 * cam.scale + 60) then
+      ramp.nx = ramp.nx or select(1, normals(ramp.pts))
+      if not ramp.ny then ramp.nx, ramp.ny = normals(ramp.pts) end
+      ramps[#ramps + 1] = ramp
     end
   end
-  -- Verges and pavements, then the carriageway, every street at once.
+  for _, ramp in ipairs(ramps) do
+    band(cam, ramp.pts, ramp.nx, ramp.ny, function(q) return -q.h - 2 end, function(q) return q.h + 2 end, function() return VERGE.ramp end)
+  end
   for _, pad in ipairs(pads) do drawPad(cam, pad, "kerb", VERGE[padKind(pad)] or VERGE.road) end
   for _, ch in ipairs(visible) do
     local nx, ny = nrm(ch)
@@ -337,9 +343,19 @@ function Roads.draw(city, cam)
       for _, side in ipairs({ -1, 1 }) do line(cam, ch.pts, nx, ny, "road", side, 0, 0.5, { 0.66, 0.66, 0.64, 0.8 }) end
     end
   end
+  for _, ramp in ipairs(ramps) do
+    band(cam, ramp.pts, ramp.nx, ramp.ny, function(q) return -q.h end, function(q) return q.h end, function() return SURFACE.ramp end)
+  end
   for _, ch in ipairs(visible) do
     local nx, ny = nrm(ch)
     markings(cam, ch.pts, nx, ny, 0)
+  end
+  if cam.scale > 0.3 then
+    for _, ramp in ipairs(ramps) do
+      -- Solid edge lines, the inner one broken where the lane merges.
+      line(cam, ramp.pts, ramp.nx, ramp.ny, "ramp", 1, -0.7, 0.45, { 0.92, 0.92, 0.88, 0.75 })
+      line(cam, ramp.pts, ramp.nx, ramp.ny, "ramp", -1, 0.7, 0.45, { 0.92, 0.92, 0.88, 0.75 }, 4, 4)
+    end
   end
   for _, pad in ipairs(pads) do padMarkings(cam, pad) end
   for _, ch in ipairs(visible) do
