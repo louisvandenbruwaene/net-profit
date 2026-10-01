@@ -451,7 +451,7 @@ local function action(name,...)
       for _,n in ipairs(city:clientList()) do
         if city:fullyServed(n) then R.ring(n.x,n.y,P.good) end
       end
-    elseif name=="layLink" then
+    elseif name=="layLink" or name=="drawRoad" then
       state.link=result.id; state.node=nil; state.edge=nil; A.play("link")
     elseif name=="buildShop" then
       state.node=result.id; state.edge=nil; state.tool=nil; state.shop=nil
@@ -489,6 +489,7 @@ local function action(name,...)
         hireCrew="Crew hired",dismissCrew="Crew stood down",declineCrew="No crew",buyPermit="Permit granted",
         borrow="Funds drawn",repay="Loan repaid",setGate="Gate set",
         layLink=(name=="layLink" and result.mode=="road") and (result.roadType=="bridge" and "Bridge built" or "Road laid") or "Route opened",
+        drawRoad=(name=="drawRoad" and result.roadType=="bridge") and "Road and bridge laid" or "Road laid",
         orderImport="Ordered: lands tomorrow",
         setImportYard=(name=="setImportYard" and result.importYard) and ("Orders go to yard "..result.importYard) or "Orders go to the nearest yard",
         setLinkPrice="Price set",setStationPrice="Pump price set",
@@ -526,7 +527,15 @@ local function hit(x,y)
   if nearest or state.filter then return nil,nearest,nil end
   local link,linkDist=nil,10
   for _,l in ipairs(city.links or {}) do
-    if l.alive and l.mode~="bus" then
+    if l.alive and l.mode=="road" then
+      -- A road is as wide as it is drawn, and follows its own curves.
+      local wx,wy=cam:toWorld(x,y)
+      local d,half=require("road_shape").distanceTo(city,l,wx,wy)
+      if d then
+        d=math.max(0,d-half)*cam.scale
+        if d<linkDist then link,linkDist=l.id,d end
+      end
+    elseif l.alive and l.mode~="bus" then
       local ax,ay,bx,by=Draw.linkPoints(cam,city,l)
       local d=pointDistance(x,y,ax,ay,bx,by)
       if d<linkDist then link,linkDist=l.id,d end
@@ -707,6 +716,12 @@ function love.mousepressed(x,y,button)
     return
   end
   local node,edge,link=hit(x,y)
+  -- With a road in hand, a drag from anywhere draws one: from a building, off
+  -- the middle of a road, or out of bare ground. A plain click still selects.
+  if state.people and (state.transit or "road")=="road" then
+    local wx,wy=cam:toWorld(x,y)
+    state.roadDrag={x=wx,y=wy,sx=x,sy=y}
+  end
   if node or edge or link then
     -- Clicking what is already selected puts it down. A structure waits for the
     -- release, because pressing on it is also how a main is dragged out of it.
@@ -715,7 +730,9 @@ function love.mousepressed(x,y,button)
     state.deselect=node and state.node==node and node or nil
     state.node,state.edge,state.link,state.district=node,edge,link,nil
     reveal()
-    if node then
+    if node and state.roadDrag then
+      state.rail=nil
+    elseif node then
       if state.people then state.transit=state.transit or "road"; state.rail=nil end
       state.drag=node
       if not state.rail and not state.transit then
@@ -736,6 +753,15 @@ end
 
 function love.mousemoved(x,y,dx,dy)
   state.hoverNode,state.hoverEdge,state.hoverLink=hit(x,y)
+  local rd=state.roadDrag
+  if rd then
+    if not rd.moved and (x-rd.sx)^2+(y-rd.sy)^2>64 then rd.moved=true end
+    if rd.moved then
+      local wx,wy=cam:toWorld(x,y)
+      state.roadPlan=city:roadPlan(rd.x,rd.y,wx,wy,city.buildRoadType)
+    end
+    return
+  end
   if state.pan then
     local p=state.pan
     if p.moved then cam:pan(dx,dy)
@@ -744,6 +770,14 @@ function love.mousemoved(x,y,dx,dy)
 end
 
 function love.mousereleased(x,y,button)
+  local rd=state.roadDrag
+  state.roadDrag,state.roadPlan=nil,nil
+  if rd and rd.moved and button==1 then
+    local wx,wy=cam:toWorld(x,y)
+    action("drawRoad",rd.x,rd.y,wx,wy,city.buildRoadType)
+    state.drag,state.pan,state.deselect=nil,nil,nil
+    return
+  end
   if state.drag and button==1 then
     local target=hit(x,y)
     if target and target~=state.drag and state.transit then

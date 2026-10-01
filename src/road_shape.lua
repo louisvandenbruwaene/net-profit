@@ -258,9 +258,18 @@ local function build(city)
       end
       setback[id] = d
     elseif role[id] == "pass" then
-      local hw = 0
-      for _, r in ipairs(list) do if r.kind == "highway" then hw = max(hw, r.h) end end
-      setback[id] = hw + RoadShape.pave("highway") + 14
+      -- A road meeting the highway at a slant has further to go to clear it.
+      local hw, hx, hy = 0, 0, 0
+      for _, r in ipairs(list) do if r.kind == "highway" then hw = max(hw, r.h); hx, hy = dirFrom(id, r) end end
+      local d = hw + RoadShape.pave("highway") + 14
+      for _, r in ipairs(list) do
+        if r.kind ~= "highway" then
+          local lx, ly = dirFrom(id, r)
+          local sin = abs(lx * hy - ly * hx)
+          d = max(d, (hw + RoadShape.pave("highway") + r.h * 0.5 + 10) / max(0.35, sin))
+        end
+      end
+      setback[id] = d
     end
   end
 
@@ -407,35 +416,38 @@ local function build(city)
         arms[#arms + 1] = { r = r, dx = dx, dy = dy, a = atan2(dy, dx) }
       end
       table.sort(arms, function(p, q) return p.a < q.a end)
-      local hw = setback[id] - 14
+      local back = setback[id]
       for i, e in ipairs(arms) do
         local f = arms[i % #arms + 1]
-        local high, low, side
-        if e.r.kind == "highway" and f.r.kind ~= "highway" then high, low, side = e, f, 1
-        elseif f.r.kind == "highway" and e.r.kind ~= "highway" then high, low, side = f, e, -1 end
+        local high, low
+        if e.r.kind == "highway" and f.r.kind ~= "highway" then high, low = e, f
+        elseif f.r.kind == "highway" and e.r.kind ~= "highway" then high, low = f, e end
         if high then
-          -- `side` says which kerb of each faces the other.
-          local hx, hy = -high.dy * side, high.dx * side
-          local lx, ly = low.dy * side, -low.dx * side
-          local along = hw * 2.6 + 40
-          local sx, sy = n.x + high.dx * along + hx * (high.r.h + 1), n.y + high.dy * along + hy * (high.r.h + 1)
-          local reach = hw + 16
-          local ex, ey = n.x + low.dx * reach + lx * low.r.h, n.y + low.dy * reach + ly * low.r.h
-          local k = sqrt((ex - sx) ^ 2 + (ey - sy) ^ 2) * 0.55
-          local c1x, c1y = sx - high.dx * k, sy - high.dy * k
-          local c2x, c2y = ex + lx * k, ey + ly * k
+          -- The kerb of each that faces the other.
+          local mx, my = -high.dy, high.dx
+          if mx * low.dx + my * low.dy < 0 then mx, my = -mx, -my end
+          local nx, ny = -low.dy, low.dx
+          if nx * high.dx + ny * high.dy < 0 then nx, ny = -nx, -ny end
+          -- The slip road leaves the road where it clears the highway, heads
+          -- in toward it, and bends round to run alongside and merge.
+          local ex, ey = n.x + low.dx * back + nx * low.r.h * 0.55, n.y + low.dy * back + ny * low.r.h * 0.55
+          local along = back * 1.3 + 50
+          local sx, sy = n.x + high.dx * along + mx * (high.r.h + 0.5), n.y + high.dy * along + my * (high.r.h + 0.5)
+          local k = sqrt((ex - sx) ^ 2 + (ey - sy) ^ 2) * 0.5
+          local c1x, c1y = ex - low.dx * k * 0.4 + nx * k * 0.3, ey - low.dy * k * 0.4 + ny * k * 0.3
+          local c2x, c2y = sx - high.dx * k, sy - high.dy * k
           local pts = {}
-          for j = 0, 16 do
-            local s = j / 16
+          for j = 0, 18 do
+            local s = j / 18
             local a, b, c, d = (1 - s) ^ 3, 3 * (1 - s) ^ 2 * s, 3 * (1 - s) * s * s, s ^ 3
-            pts[#pts + 1] = { x = a * sx + b * c1x + c * c2x + d * ex, y = a * sy + b * c1y + c * c2y + d * ey, h = 4.5, k = "ramp" }
+            pts[#pts + 1] = { x = a * ex + b * c1x + c * c2x + d * sx, y = a * ey + b * c1y + c * c2y + d * sy, h = 4.5, k = "ramp" }
           end
           shape.ramps[#shape.ramps + 1] = { pts = pts, node = id }
-          -- An exit sign on the verge before the slip road leaves.
-          local before = along + 55
+          -- An exit sign on the verge before the slip road joins.
+          local before = along + 45
+          local off = high.r.h + RoadShape.pave("highway") + 3
           shape.signs[#shape.signs + 1] = { kind = "exit",
-            x = n.x + high.dx * before + hx * (high.r.h + RoadShape.pave("highway") + 3),
-            y = n.y + high.dy * before + hy * (high.r.h + RoadShape.pave("highway") + 3), dx = -high.dx, dy = -high.dy }
+            x = n.x + high.dx * before + mx * off, y = n.y + high.dy * before + my * off, dx = -high.dx, dy = -high.dy }
         end
       end
     end

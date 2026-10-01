@@ -824,7 +824,7 @@ function Walk.start(app,mode)
     click("road-type-highway"); check(c.buildRoadType=="highway","highway construction can be selected")
     click("road-type-offroad"); check(c.buildRoadType=="offroad","offroad construction can be selected")
     click("road-type-road")
-    check(anywhere("tool-corner") and anywhere("tool-intersection") and anywhere("tool-roundabout") and anywhere("tool-interchange"),"each road junction has a build control")
+    check(not anywhere("tool-corner") and not anywhere("tool-roundabout"),"road bends and junctions are put down by the roads, not built by hand")
     check(not anywhere("tool-resort"),"a resort is not, before anybody rides a route")
     capture("net-profit-32-people-tools",app,1100,700)
     local function spot(d)
@@ -861,6 +861,11 @@ function Walk.start(app,mode)
     app.state.tool="stop"; app.state.filter="power"
     click("road-type-offroad")
     check(not app.state.tool and not app.state.filter,"choosing offroad clears placement tools and utility filters")
+    -- A road may not run through a building: if the random ground put one
+    -- between the two houses, move the second beside the first.
+    if c:roadPlan(houseA.x,houseA.y,houseB.x,houseB.y,"offroad").err then
+      houseB.x,houseB.y=houseA.x+140,houseA.y; c:refresh()
+    end
     drag(houseA,houseB)
     local offroad=c.links[#c.links]
     check(offroad.alive and offroad.roadType=="offroad" and offroad.a==houseA.id and offroad.b==houseB.id,

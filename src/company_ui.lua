@@ -153,7 +153,8 @@ end
 -- level 2, and one tower is built at low voltage and raised to the voltage it
 -- needs in its inspector (a transformer is an upgrade, not a building). The older kinds still
 -- exist in saved companies; they are simply no longer sold as separate things.
-local TOOLS = {"junction","pump","filtration","grid","binder","lab","gate","depot","terminal","dc","stop","station","resort","corner","intersection","roundabout","interchange"}
+-- Road bends and junctions are not built by hand: a road puts them down.
+local TOOLS = {"junction","pump","filtration","grid","binder","lab","gate","depot","terminal","dc","stop","station","resort"}
 local function toolKind(name)
   if name=="grid" then return "pole" end
   return name
