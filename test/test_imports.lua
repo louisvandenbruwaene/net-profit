@@ -84,4 +84,20 @@ do
   for _,cv in ipairs(c.convoys) do if cv==site then gone=false end end
   check(gone,"a site delivery is done by the next day")
 end
+
+print("to a chosen yard")
+do
+  local c=T.sandbox(24)
+  c.stock={}
+  local port=c.g:addNode(400,60,"terminal"); port.haven="port"
+  local near=c.g:addNode(700,300,"dc")
+  local far=c.g:addNode(1400,600,"dc")
+  c:refresh()
+  assert(c:orderImport(port.id,"steel",20,far.id))
+  c:endDay()
+  check(c.convoys[1].to==far.id,"an order goes on to the yard it was sent to, not the nearest")
+  assert(c:orderImport(port.id,"steel",20))
+  c:endDay()
+  check(c.convoys[#c.convoys].to==near.id,"and to the nearest when none was chosen")
+end
 print(T.checks.." import checks passed")

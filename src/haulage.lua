@@ -135,11 +135,13 @@ return function(City)
   -- An order landed at a haven: onward to the nearest yard, billed at the mode
   -- it goes by, in stock tomorrow. With no yard it stays on the quay, which is
   -- stock already.
-  function City:haulInland(havenId, key, units, today)
+  function City:haulInland(havenId, key, units, today, yardId)
     today = today or self.day
     local haven = self.g.nodes[havenId]
     local yard, bd
-    for _, n in ipairs(self.g:nodesOfKind("dc")) do
+    local chosen = yardId and self.g.nodes[yardId]
+    if chosen and chosen.alive and chosen.kind == "dc" then yard, bd = chosen, -1 end
+    for _, n in ipairs(bd and {} or self.g:nodesOfKind("dc")) do
       if n.alive then
         local d = haven and (n.x - haven.x) ^ 2 + (n.y - haven.y) ^ 2 or 0
         if not bd or d < bd then yard, bd = n, d end
