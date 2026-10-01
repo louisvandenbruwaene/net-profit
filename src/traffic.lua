@@ -523,37 +523,112 @@ end
 local SPEED = { car = 42, van = 38, truck = 30, bus = 28 }
 local ROAD_PACE = { offroad = 0.6, road = 1, highway = 1.7, bridge = 1 }
 
+-- Roads joined end to end through plain corners are one street to the traffic
+-- on it: a car goes round the bend instead of vanishing into it. A chain runs
+-- from a building or a junction to the next, through any corners between.
+local function chains(city, g)
+  if g.chains then return g.chains end
+  local at = {}
+  for _, r in ipairs(g.roads) do
+    for _, id in ipairs({ r.l.a, r.l.b }) do at[id] = at[id] or {}; table.insert(at[id], r) end
+  end
+  local function bend(id)
+    local n = city.g.nodes[id]
+    return n and n.kind == "corner" and #at[id] == 2
+  end
+  local seen, out = {}, {}
+  for _, r in ipairs(g.roads) do
+    if not seen[r] then
+      -- Walk back to where this street starts, then forward to where it ends.
+      local start, from = r, r.l.a
+      local guard = 0
+      while bend(from) and guard < 200 do
+        local other = at[from][1] == start and at[from][2] or at[from][1]
+        if seen[other] or other == r then break end
+        from = other.l.a == from and other.l.b or other.l.a
+        start = other
+        guard = guard + 1
+      end
+      local node = city.g.nodes[from]
+      local pts, links, cur, here = { node.x, node.y }, {}, start, from
+      guard = 0
+      while cur and not seen[cur] and guard < 400 do
+        seen[cur] = true
+        links[#links + 1] = cur
+        here = cur.l.a == here and cur.l.b or cur.l.a
+        local n = city.g.nodes[here]
+        pts[#pts + 1] = n.x; pts[#pts + 1] = n.y
+        local nxt
+        if bend(here) then nxt = at[here][1] == cur and at[here][2] or at[here][1] end
+        cur = nxt
+        guard = guard + 1
+      end
+      local len = 0
+      for i = 3, #pts, 2 do len = len + math.sqrt((pts[i] - pts[i - 2]) ^ 2 + (pts[i + 1] - pts[i - 1]) ^ 2) end
+      local x0, y0, x1, y1 = math.huge, math.huge, -math.huge, -math.huge
+      for i = 1, #pts, 2 do
+        x0, x1 = math.min(x0, pts[i]), math.max(x1, pts[i])
+        y0, y1 = math.min(y0, pts[i + 1]), math.max(y1, pts[i + 1])
+      end
+      out[#out + 1] = { pts = pts, len = len, links = links, kind = start.kind, half = start.half,
+        id = start.l.id, box = { x0, y0, x1, y1 } }
+    end
+  end
+  g.chains = out
+  return out
+end
+
+-- A point `s` metres along a street, and its heading there.
+local function along_(pts, s)
+  for i = 3, #pts, 2 do
+    local dx, dy = pts[i] - pts[i - 2], pts[i + 1] - pts[i - 1]
+    local seg = math.sqrt(dx * dx + dy * dy)
+    if s <= seg or i == #pts - 1 then
+      local f = seg > 0 and math.max(0, math.min(1, s / seg)) or 0
+      return pts[i - 2] + dx * f, pts[i - 1] + dy * f, dx / math.max(seg, 1e-6), dy / math.max(seg, 1e-6)
+    end
+    s = s - seg
+  end
+  return pts[1], pts[2], 1, 0
+end
+
 local function drawRoads(city, cam, t)
   if cam.scale < 0.2 then return end
   local g = geo(city)
   local byLink = (city.transit or {}).byLink or {}
-  for _, r in ipairs(g.roads) do
-    if cam:seesBox(math.min(r.ax, r.bx), math.min(r.ay, r.by), math.max(r.ax, r.bx), math.max(r.ay, r.by), 20) then
-      local rec = byLink[r.l.id] or {}
+  for _, ch in ipairs(chains(city, g)) do
+    local b = ch.box
+    if cam:seesBox(b[1], b[2], b[3], b[4], 20) then
+      -- A street carries as many as its busiest stretch did today.
+      local car, truck, bus = 0, 0, 0
+      for _, r in ipairs(ch.links) do
+        local rec = byLink[r.l.id] or {}
+        car, truck, bus = math.max(car, rec.car or 0), math.max(truck, rec.truck or 0), math.max(bus, rec.bus or 0)
+      end
       local fleet = {
-        { "car", math.min(10, math.ceil((rec.car or 0) / 3)) },
-        { "truck", r.kind == "offroad" and 0 or math.min(4, math.ceil((rec.truck or 0) / 2)) },
-        { "bus", r.kind == "offroad" and 0 or math.min(3, rec.bus or 0) },
+        { "car", math.min(10 + #ch.links, math.ceil(car / 3)) },
+        { "truck", ch.kind == "offroad" and 0 or math.min(4, math.ceil(truck / 2)) },
+        { "bus", ch.kind == "offroad" and 0 or math.min(3, bus) },
       }
       local i = 0
       for _, f in ipairs(fleet) do
         for j = 1, f[2] do
           i = i + 1
           local kind = f[1]
-          if kind == "car" and hash(r.l.id, i, 9) < 0.15 then kind = "van" end
+          if kind == "car" and hash(ch.id, i, 9) < 0.15 then kind = "van" end
           local dir = i % 2 == 0 and -1 or 1
-          local speed = SPEED[kind] * ROAD_PACE[r.kind] * (0.9 + 0.2 * hash(r.l.id, i, 3))
-          local s = (hash(r.l.id, i, 1) * r.len + t * speed) % (r.len + 40) - 20
-          if s > 6 and s < r.len - 6 then
-            if dir < 0 then s = r.len - s end
+          local speed = SPEED[kind] * ROAD_PACE[ch.kind] * (0.9 + 0.2 * hash(ch.id, i, 3))
+          local s = (hash(ch.id, i, 1) * ch.len + t * speed) % (ch.len + 40) - 20
+          if s > 6 and s < ch.len - 6 then
+            if dir < 0 then s = ch.len - s end
+            local x, y, ux, uy = along_(ch.pts, s)
+            ux, uy = ux * dir, uy * dir
             -- Keep right: a highway's slow lane is the outer one.
-            local lane = r.half * (r.kind == "highway" and (kind == "car" and 0.3 or 0.72) or 0.48)
-            local ux, uy = r.ux * dir, r.uy * dir
-            local x = r.ax + r.ux * s - uy * lane
-            local y = r.ay + r.uy * s + ux * lane
+            local lane = ch.half * (ch.kind == "highway" and (kind == "car" and 0.3 or 0.72) or 0.48)
+            x, y = x - uy * lane, y + ux * lane
             if cam:sees(x, y, 20) then
               local sx, sy = cam:toScreen(x, y)
-              vehicle(kind, sx, sy, ux, uy, cam.scale, CAR_COLOURS[math.floor(hash(r.l.id, i, 4) * #CAR_COLOURS) + 1])
+              vehicle(kind, sx, sy, ux, uy, cam.scale, CAR_COLOURS[math.floor(hash(ch.id, i, 4) * #CAR_COLOURS) + 1])
             end
           end
         end
@@ -1051,5 +1126,5 @@ function Traffic.air(city, cam)
   drawConvoys(city, cam, t, true)
 end
 
-Traffic._hash, Traffic._route, Traffic._standable, Traffic._geo = hash, routeOf, standable, geo
+Traffic._hash, Traffic._route, Traffic._standable, Traffic._geo, Traffic._chains = hash, routeOf, standable, geo, chains
 return Traffic

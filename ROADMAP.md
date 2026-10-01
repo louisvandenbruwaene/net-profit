@@ -787,7 +787,9 @@ Status: shipped. What a later session must know:
   part of that close's expenses. Materials spent on a building are driven to
   its site (`spendMaterials(bill, scale, x, y)`). All in `city.convoys`.
 
-Not done, and worth doing next: vehicles carry on across a bend instead of
-starting afresh on each road segment; a site that has to wait for its
+Vehicles carry on round a bend: roads joined through plain corners are one
+street to the traffic on it (`chains` in traffic.lua).
+
+Not done, and worth doing next: a site that has to wait for its
 materials (today a build is finished the moment it is paid for); orders that
 land into a chosen yard rather than the nearest.
