@@ -1073,6 +1073,26 @@ local function drawConvoys(city, cam, t, air)
       if not convoySeen[cv] then convoySeen[cv] = t + fresh * 10; fresh = fresh + 1 end
       local run = (t - convoySeen[cv]) * spec.speed
       local count = math.min(cv.mode == "train" and 1 or 6, math.max(1, math.ceil(cv.units / spec.cap)))
+      -- Until a site's materials arrive it is a building site: a fence and
+      -- a tower crane turning over it.
+      if not air and not cv.stock and run < cv.len + (count - 1) * 34 then
+        local ex, ey = cv.pts[#cv.pts - 1], cv.pts[#cv.pts]
+        if cam:sees(ex, ey, 80) then
+          local sx, sy = cam:toScreen(ex, ey)
+          local k = math.max(0.4, cam.scale)
+          lg.setColor(0.95, 0.70, 0.20, 0.85); lg.setLineWidth(math.max(1, 1.5 * k))
+          for a = 0, 11 do
+            if a % 2 == 0 then lg.arc("line", "open", sx, sy, 34 * k, a * math.pi / 6, (a + 1) * math.pi / 6) end
+          end
+          local jib = (t * 0.25 + (cv.id or 0)) % (math.pi * 2)
+          lg.setColor(0, 0, 0, 0.3); lg.setLineWidth(math.max(1, 2 * k))
+          lg.line(sx + 4 * k, sy + 6 * k, sx + 4 * k + math.cos(jib) * 40 * k, sy + 6 * k + math.sin(jib) * 40 * k)
+          lg.setColor(0.98, 0.78, 0.22); lg.setLineWidth(math.max(1, 2.4 * k))
+          lg.line(sx - math.cos(jib) * 12 * k, sy - math.sin(jib) * 12 * k, sx + math.cos(jib) * 40 * k, sy + math.sin(jib) * 40 * k)
+          lg.rectangle("fill", sx - 3 * k, sy - 3 * k, 6 * k, 6 * k)
+          lg.setColor(0.30, 0.30, 0.32); lg.rectangle("fill", sx - math.cos(jib) * 12 * k - 3 * k, sy - math.sin(jib) * 12 * k - 3 * k, 6 * k, 6 * k)
+        end
+      end
       local load = cargoColour(cv.key)
       local gap = cv.mode == "barge" and 90 or 34
       for i = 1, count do
