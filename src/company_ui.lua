@@ -716,7 +716,8 @@ local function importMenu(n,spec,y)
   local cost=city:shipmentCost(n.id,key,units) or 0
   local why=city:shipmentError(n.id,key,units)
   button("import-order","Order "..units.." "..string.lower(Graph.COMMODITIES[key].name).."  $"..cost,M,y,CW,32,
-    function() act("orderImport",n.id,key,units,yard and yard.id or nil) end,not why,why or "Lands tomorrow morning",nil,Graph.COMMODITIES[key].color)
+    function() act("orderImport",n.id,key,units,yard and (state.importYard or {})[n.id] and (state.importYard[n.id] or 1)>1 and yard.id or nil) end,
+    not why,why or "Lands tomorrow morning",nil,Graph.COMMODITIES[key].color)
   y=y+40
   local coming,landed=city:havenShipments(n.id)
   for _,k in ipairs(goods) do
