@@ -490,7 +490,8 @@ function City:linkQuote(a, b, mode)
     local mult = self:crossingCost(na.x, na.y, nb.x, nb.y, variant == 'bridge') or 1
     local cost = math.ceil(City.PEOPLE.roadTiein * 2 + self:nodeDistance(a, b) * City.PEOPLE.roadPerM * mult)
     if variant == 'bridge' then cost = cost + self:waterAlong(na.x, na.y, nb.x, nb.y) * City.BRIDGE.perWaterM end
-    return math.ceil(cost * (City.ROAD_TYPES[variant] or City.ROAD_TYPES.road).factor)
+    local grow = self:roadNodeUpgrade(na, { variant == 'bridge' and 'road' or variant }) + self:roadNodeUpgrade(nb, { variant == 'bridge' and 'road' or variant })
+    return math.ceil(cost * (City.ROAD_TYPES[variant] or City.ROAD_TYPES.road).factor) + grow
   end
   return (City.ROUTES[mode] or {}).vehicle or 0
 end
@@ -505,10 +506,8 @@ function City:linkError(a, b, mode)
       if not City.ROAD_TYPES[variant] then return 'choose a road variant' end
       for _,n in ipairs({na,nb}) do
         if n.kind=='stop' and variant~='road' then return 'bus stops attach to normal roads only' end
-        if n.kind=='intersection' and variant~='offroad' then return 'offroad intersections take offroads only' end
-        if n.kind=='stop' and variant=='bridge' then return 'bus stops attach to normal roads only' end
-        if n.kind=='roundabout' and variant=='highway' then return 'highways require a highway interchange' end
-        if variant=='highway' and n.kind~='interchange' then return 'highways join highway interchanges; use normal roads for building access' end
+        -- A road node becomes whatever junction its roads call for.
+        if variant=='highway' and not City.ROAD_JUNCTIONS[n.kind] then return 'a highway reaches buildings through a normal road' end
       end
     elseif mode=='bus' then
       if na.kind~='stop' or nb.kind~='stop' then return 'buses board only at bus stops' end
@@ -562,6 +561,7 @@ function City:layLink(a, b, mode)
     self:note("%s opened for $%d, at $%d a seat", City.ROUTES[mode].name, cost, l.fare)
   end
   self.links[l.id] = l
+  if mode == "road" then self:fitRoadNode(a); self:fitRoadNode(b) end
   self:refresh()
   return l
 end
@@ -609,6 +609,7 @@ function City:demolishLink(id)
   local refund = math.floor((l.paid or 0) * City.REFUND)
   l.alive = false
   self.money = self.money + refund
+  if l.mode == "road" then self:clearRoadEnds(l) end
   self:refresh()
   return refund
 end

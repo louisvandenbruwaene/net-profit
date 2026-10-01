@@ -2870,7 +2870,7 @@ function City:sourceError(commodity, x, y, plant)
   else
     return string.lower(commodity) .. " is not taken out of the ground: land it or make it"
   end
-  if commodity=='power' and plant=='hydro' and (self:riverEdge(x,y) or math.huge)>100 then return 'a river turbine needs a river within 100m' end
+  if commodity=='power' and plant=='hydro' and (self:riverEdge(x,y) or math.huge)>City.footprint('source')*0.6 then return 'a river turbine must stand in the river or on its bank' end
   if commodity=='water' and self:pollutionAt(x,y)>=City.INFRA.pollution.stopAt then return 'water polluted: an environment lab must clean the district' end
   if commodity=='power' and plant=='solar' then return self:materialError(City.MATERIALS.solar) end
   return nil
