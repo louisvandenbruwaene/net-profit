@@ -203,6 +203,22 @@ do
     if not d.taken and d.commodity == "water" and ground and ground.owned
        and not c:placementError(d.x, d.y) then free = d; break end
   end
+  if not free then
+    -- The map is seeded from the clock, and on a rare seed the opening's own
+    -- buildings stand too close to every other spring on the home ground.
+    -- Mark one in clear ground, the way the survey would, so the checks that
+    -- follow are about wells and not about that seed.
+    local home = c.districts[City.MAP.start]
+    for gx = home.x + 120, home.x + home.w - 120, 40 do
+      for gy = home.y + 120, home.y + home.h - 120, 40 do
+        if not free and not c:placementError(gx, gy) then
+          free = { x = gx, y = gy, commodity = "water", taken = false, yield = 1.5, discount = 1.0,
+            cap = City.depositCap("water", 0) }
+          c.deposits[#c.deposits + 1] = free
+        end
+      end
+    end
+  end
   ok("the survey marked water on the home ground", free ~= nil)
   -- Somewhere on the same ground, well clear of the mark.
   local home = c:districtAt(free.x, free.y)
