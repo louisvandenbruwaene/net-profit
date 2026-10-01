@@ -36,17 +36,27 @@ end
 local function label(value,x,y,color,font)
   labels[#labels+1]={text=tostring(value),x=x,y=y,color=color or P.text,font=font or R.fonts.small,priority=labelPriority,order=#labels+1,fade=fade}
 end
+-- Whether a line segment passes through a box (Liang-Barsky). Asked for every
+-- label against every line on screen, so it rejects on bounding boxes first
+-- and allocates nothing.
 local function crossesBox(line,x,y,w,h)
-  local t0,t1=0,1
-  local dx,dy=line.bx-line.ax,line.by-line.ay
   local pad=line.pad or 4
   x,y,w,h=x-pad,y-pad,w+pad*2,h+pad*2
-  for _,v in ipairs({{-dx,line.ax-x},{dx,x+w-line.ax},{-dy,line.ay-y},{dy,y+h-line.ay}}) do
-    local p,q=v[1],v[2]
-    if p==0 then if q<0 then return false end
-    elseif p<0 then t0=math.max(t0,q/p)
-    else t1=math.min(t1,q/p) end
-    if t0>t1 then return false end
+  local ax,ay,bx,by=line.ax,line.ay,line.bx,line.by
+  if (ax<x and bx<x) or (ax>x+w and bx>x+w) or (ay<y and by<y) or (ay>y+h and by>y+h) then return false end
+  local t0,t1=0,1
+  local dx,dy=bx-ax,by-ay
+  for side=1,4 do
+    local p,q
+    if side==1 then p,q=-dx,ax-x elseif side==2 then p,q=dx,x+w-ax
+    elseif side==3 then p,q=-dy,ay-y else p,q=dy,y+h-ay end
+    if p==0 then
+      if q<0 then return false end
+    else
+      local r=q/p
+      if p<0 then if r>t0 then t0=r end elseif r<t1 then t1=r end
+      if t0>t1 then return false end
+    end
   end
   return true
 end
@@ -60,8 +70,10 @@ local function drawLabels(cam)
     local w,h=require("symbol_font").width(item.text,f)+8,f:getHeight()+4
     local x,y=item.x-w/2,item.y-2
     local clear=x>=cam.vx+4 and x+w<=cam.vx+cam.vw-4 and y>=cam.vy and y+h<=cam.vy+cam.vh
-    for _,r in ipairs(occupied) do
-      if x<r.x+r.w and x+w>r.x and y<r.y+r.h and y+h>r.y then clear=false; break end
+    if clear then
+      for _,r in ipairs(occupied) do
+        if x<r.x+r.w and x+w>r.x and y<r.y+r.h and y+h>r.y then clear=false; break end
+      end
     end
     if clear then
       for _,line in ipairs(segments) do
@@ -1404,10 +1416,12 @@ local function drawSea(city, cam, state)
         pts[#pts + 1] = sx; pts[#pts + 1] = sy
       end
       local smooth={}
+      -- Fewer spline steps far out, where a wave is a few pixels tall.
+      local steps=cam.scale<0.4 and 3 or 8
       for k=1,#pts-2,2 do
         local a=math.max(1,k-2); local b=math.min(#pts-1,k+4)
-        for step=0,7 do
-          local t=step/8
+        for step=0,steps-1 do
+          local t=step/steps
           for axis=0,1 do
             local p0,p1,p2,p3=pts[a+axis],pts[k+axis],pts[k+2+axis],pts[b+axis]
             smooth[#smooth+1]=.5*((2*p1)+(-p0+p2)*t+(2*p0-5*p1+4*p2-p3)*t*t+(-p0+3*p1-3*p2+p3)*t*t*t)
