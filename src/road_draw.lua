@@ -303,20 +303,42 @@ local function disc(cam, x, y, r, colour)
   lg.setColor(colour)
   lg.circle("fill", sx, sy, max(1, r * cam.scale), 40)
 end
--- The middle of a roundabout: a kerbed grass island, and the broken line
--- where traffic coming in gives way to the ring.
+-- The middle of a roundabout: a kerbed grass island. At each way in, the
+-- give-way line across the lanes coming in, a double row of short dashes on
+-- the ring's edge, and a give-way triangle painted on the lane before it.
+local function giveWay(cam, rd, e)
+  local s = cam.scale
+  local cx, cy = -e.dy, e.dx
+  local function at(out, across) return cam:toScreen(rd.x + e.dx * out + cx * across, rd.y + e.dy * out + cy * across) end
+  lg.setColor(0.94, 0.94, 0.90, 0.85 * markFade)
+  local dash, gap = 1.1, 0.8
+  local w = math.max(1, 0.55 * s)
+  for _, out in ipairs({ rd.r + 0.7, rd.r + 2.0 }) do
+    local u = e.a + 0.3
+    while u < e.b - 0.3 do
+      local u1 = math.min(e.b - 0.3, u + dash)
+      local x0, y0 = at(out, u); local x1, y1 = at(out, u1)
+      lg.setLineWidth(w); lg.line(x0, y0, x1, y1)
+      u = u1 + gap
+    end
+  end
+  if s > 0.9 then
+    -- The triangle points at the ring, in the middle of the way in.
+    local mid, out = (e.a + e.b) / 2, rd.r + 6
+    local half = math.min(1.8, (e.b - e.a) * 0.3)
+    local ax, ay = at(out - 1.6, mid)
+    local bx, by = at(out + 2.8, mid - half)
+    local qx, qy = at(out + 2.8, mid + half)
+    lg.setLineWidth(math.max(0.8, 0.45 * s))
+    lg.polygon("line", ax, ay, bx, by, qx, qy)
+  end
+end
 local function island(cam, rd)
   local sx, sy = cam:toScreen(rd.x, rd.y)
   local s = cam.scale
   local ri = RS.ISLAND * s
   if markFade > 0 then
-    lg.setColor(0.92, 0.92, 0.88, 0.55 * markFade)
-    lg.setLineWidth(max(0.6, 0.45 * s))
-    local rr = (rd.r - 0.8) * s
-    for j = 0, 23 do
-      local a0, a1 = j / 24 * math.pi * 2, (j + 0.5) / 24 * math.pi * 2
-      lg.arc("line", "open", sx, sy, rr, a0, a1, 4)
-    end
+    for _, e in ipairs(rd.entries or {}) do giveWay(cam, rd, e) end
   end
   lg.setColor(VERGE.road); lg.circle("fill", sx, sy, ri + 1.2 * s, 32)
   lg.setColor(0.26, 0.40, 0.24); lg.circle("fill", sx, sy, ri, 32)
