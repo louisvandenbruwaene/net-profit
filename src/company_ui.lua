@@ -700,24 +700,25 @@ local function importMenu(n,spec,y)
     function() state.importUnits=math.max(1,units-lot) end,function() state.importUnits=units+lot end,
     units>1,units+lot<=city:storeRoom(key),"Room in the yards: "..city:storeRoom(key))
   y=y+38
-  -- Which yard it goes on to: the nearest, or any other, one click at a time.
+  -- Which yard this haven's orders go on to. The choice is the haven's and is
+  -- saved: one click moves it to the next yard out, round to "nearest" again.
   local yards={}
   for _,d in ipairs(city.g:nodesOfKind("dc")) do if d.alive then yards[#yards+1]=d end end
   table.sort(yards,function(a,b) return (a.x-n.x)^2+(a.y-n.y)^2<(b.x-n.x)^2+(b.y-n.y)^2 end)
-  local yard=nil
   if #yards>0 then
-    state.importYard=state.importYard or {}
-    local pick=state.importYard[n.id] or 1
-    if pick>#yards then pick=1 end
-    yard=yards[pick]
-    button("import-yard","To yard "..yard.id..(pick==1 and " (nearest)" or ""),M,y,CW,30,
-      function() state.importYard[n.id]=pick%#yards+1 end,#yards>1,"Click for another yard")
+    local chosen=city:importYardOf(n)
+    local at=0
+    for i,d in ipairs(yards) do if d==chosen then at=i end end
+    local nextYard=yards[at+1]
+    button("import-yard",chosen and ("To yard "..chosen.id) or "To the nearest yard",M,y,CW,30,
+      function() act("setImportYard",n.id,nextYard and nextYard.id or nil) end,true,
+      nextYard and ("Next: yard "..nextYard.id) or "Next: the nearest yard")
     y=y+36
   end
   local cost=city:shipmentCost(n.id,key,units) or 0
   local why=city:shipmentError(n.id,key,units)
   button("import-order","Order "..units.." "..string.lower(Graph.COMMODITIES[key].name).."  $"..cost,M,y,CW,32,
-    function() act("orderImport",n.id,key,units,yard and (state.importYard or {})[n.id] and (state.importYard[n.id] or 1)>1 and yard.id or nil) end,
+    function() act("orderImport",n.id,key,units) end,
     not why,why or "Lands tomorrow morning",nil,Graph.COMMODITIES[key].color)
   y=y+40
   local coming,landed=city:havenShipments(n.id)
@@ -1533,6 +1534,9 @@ local function inspectorPanel(n,e)
         for _,k in ipairs(Graph.ALL) do
           local held=city:materialStock(k)
           if held>0 and Graph.COMMODITIES[k].form=="solid" then row(string.upper(Graph.COMMODITIES[k].name),held.." "..S.get(k),tail,P.text); tail=tail+24 end
+        end
+        for _,h in ipairs(city.g:nodesOfKind("terminal")) do
+          if h.alive and h.importYard==n.id then row("Orders from haven",tostring(h.id),tail,P.energy); tail=tail+24 end
         end
         for _,cv in ipairs(city.convoys or {}) do
           if cv.stock and cv.to==n.id then

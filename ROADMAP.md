@@ -790,8 +790,9 @@ Status: shipped. What a later session must know:
 Vehicles carry on round a bend: roads joined through plain corners are one
 street to the traffic on it (`chains` in traffic.lua).
 
-An order can be sent to any yard (the haven panel's yard button), the nearest
-by default.
+Each haven keeps the yard its orders go to (`haven.importYard`, saved; the
+haven panel's yard button cycles it, round to "nearest"); an order may still
+name another. With no choice it goes to the nearest yard there is a way to.
 
 Anything built of materials goes up from what is driven to it and runs from the
 next day (`n.assembling`): works with a bill of materials and every plant built
