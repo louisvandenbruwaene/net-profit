@@ -444,11 +444,11 @@ local function residentTrips(self, T, travel)
                 if leg.state == 2 and (seats[leg.arc.l.id] or leg.arc.seats) <= 0 then full = true end
               end
               if not full then
-                local road = {}
+                local road, roadFrom = {}, nil
                 for i = #legs, 1, -1 do
                   local leg = legs[i]
                   local l = leg.arc.l
-                  if leg.state == 1 then road[#road + 1] = l
+                  if leg.state == 1 then road[#road + 1] = l; roadFrom = roadFrom or leg.from
                   else
                     seats[l.id] = (seats[l.id] or leg.arc.seats) - 1
                     local rec = book(T.byLink, l.id, "trips", 1)
@@ -458,7 +458,7 @@ local function residentTrips(self, T, travel)
                     if i == #legs or legs[i + 1].state == 1 then book(T.byNode, leg.from, "boarded", 1) end
                   end
                 end
-                if #road > 0 then travel(road, 1, "car") end
+                if #road > 0 then travel(road, 1, "car", roadFrom) end
                 if target.kind == "resort" then
                   T.resorts = T.resorts + P.resortSpend * (target.level or 1)
                   book(T.byNode, target.id, "visitors", 1)
@@ -479,11 +479,24 @@ end
 -- over the road network it actually has, paying tolls and buying fuel.
 function City:routeTrips()
   local T = { trips = 0, carried = 0, waiting = 0, tolls = 0, fares = 0, fuel = 0, resorts = 0, total = 0,
-              byLink = {}, byEdge = {}, byNode = {}, byDistrict = {} }
+              byLink = {}, byEdge = {}, byNode = {}, byDistrict = {}, journeys = {} }
+  -- Every drive as the way it went, for the map: the roads in order from
+  -- where it set out, and how many made it.
+  local journeyAt = {}
+  local function journey(path, count, vehicle, from)
+   if not from then return end
+   local ids = {}
+   for i, l in ipairs(path) do ids[i] = l.id end
+   local key = vehicle .. ":" .. from .. ":" .. table.concat(ids, ",")
+   local j = journeyAt[key]
+   if not j then j = { links = ids, from = from, vehicle = vehicle, count = 0 }; journeyAt[key] = j; T.journeys[#T.journeys + 1] = j end
+   j.count = j.count + count
+  end
   self.transit = T
   local tank={}
   for _,n in ipairs(self.g:nodesOfKind('station')) do tank[n.id]=self.served[n.id] or 0 end
-  local function travel(path,count,vehicle)
+  local function travel(path,count,vehicle,from)
+   journey(path,count,vehicle,from)
    local distance,stations,seen=0,{},{}
    for _,l in ipairs(path) do
     distance=distance+self:nodeDistance(l.a,l.b)/1000
@@ -526,16 +539,16 @@ function City:routeTrips()
     end
     local target=#choices>0 and choices[seed%#choices+1]
     local path=target and self:roadPath(n.id,target.id,vehicle)
-    if path then travel(path,1,vehicle) end
+    if path then travel(path,1,vehicle,n.id) end
    end
   end
   for _,e in ipairs(self.g.edges) do
    if e.alive and (e.bulk=='highway' or e.goodsRoad) and not e.transportBlocked then
     local trucks=0; for key in pairs(e.wagons or {[e.commodity]=e.cap}) do trucks=trucks+math.ceil(math.abs((self.edgeFlowBy[key] or {})[e.id] or 0)/City.MODES.highway.wagonCap) end
-    local path=self:roadPath(e.a,e.b,'truck'); if path and trucks>0 then travel(path,trucks,'truck') end
+    local path=self:roadPath(e.a,e.b,'truck'); if path and trucks>0 then travel(path,trucks,'truck',e.a) end
    end
   end
-  for _,l in ipairs(self.links) do if l.alive and l.mode=='bus' then local path=self:roadPath(l.a,l.b,'bus'); if path then travel(path,l.vehicles or 1,'bus') end end end
+  for _,l in ipairs(self.links) do if l.alive and l.mode=='bus' then local path=self:roadPath(l.a,l.b,'bus'); if path then travel(path,l.vehicles or 1,'bus',l.a) end end end
   T.waiting=T.trips-T.carried; T.total=T.tolls+T.fares+T.fuel+T.resorts; return T
 end
 

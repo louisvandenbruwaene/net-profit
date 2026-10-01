@@ -424,7 +424,8 @@ local function build(city)
     for i, p in ipairs(ch.pts) do
       local l = p.l or ch.links[1].l
       if l ~= cur then
-        if list and i > 1 then list[#list + 1] = p end
+        -- A link's piece runs from the last point of the one before it to its
+        -- own last point; the next link starts where it ends.
         list = {}
         shape.pieces[l.id] = shape.pieces[l.id] or {}
         table.insert(shape.pieces[l.id], list)
@@ -476,6 +477,56 @@ local function build(city)
     end
   end
 
+  local RH = 4.5
+  -- A slip road off a roundabout at interchange `id` (node `n`), joining
+  -- the highway arm `high` on the side `m` points to.
+  local function roundRamp(id, n, high, round, mx, my)
+    -- Off the roundabout: out of the ring heading for the highway and
+    -- along it, then a long gentle curve down beside it and the merge.
+    local function frame(u, v) return n.x + high.dx * u + mx * v, n.y + high.dy * u + my * v end
+    local ux, uy = norm(high.dx * 0.8 - mx * 0.6, high.dy * 0.8 - my * 0.6)
+    local ax, ay = round.x + ux * (ROUND - 1), round.y + uy * (ROUND - 1)
+    local ua = (ax - n.x) * high.dx + (ay - n.y) * high.dy
+    local va = (ax - n.x) * mx + (ay - n.y) * my
+    local vm = high.r.h + RH
+    local um = ua + max(70, (va - vm) * 2.4)
+    local bx, by = frame(um, vm)
+    local k = sqrt((bx - ax) ^ 2 + (by - ay) ^ 2) * 0.45
+    local c1x, c1y = ax + ux * k, ay + uy * k
+    local c2x, c2y = bx - high.dx * k, by - high.dy * k
+    local pts = {}
+    for j = 0, 20 do
+      local t = j / 20
+      local a, b, c, dd = (1 - t) ^ 3, 3 * (1 - t) ^ 2 * t, 3 * (1 - t) * t * t, t ^ 3
+      local flare = j <= 2 and (1 + (2 - j) / 2 * 0.6) or 1
+      pts[#pts + 1] = { x = a * ax + b * c1x + c * c2x + dd * bx, y = a * ay + b * c1y + c * c2y + dd * by, h = RH * flare, k = "ramp" }
+    end
+    local taper = 80
+    for j = 1, 10 do
+      local t = j / 10
+      local w = RH * (1 - t)
+      local x, y = frame(um + taper * t, high.r.h + w)
+      pts[#pts + 1] = { x = x, y = y, h = max(0.05, w), k = "ramp" }
+    end
+    -- Traffic keeps right, so the near carriageway runs one way past
+    -- the roundabout: off it by the slip road traffic meets first.
+    local into = -high.dy * mx + high.dx * my < 0
+    local ramp = { pts = pts, node = id, off = into, hx = high.dx, hy = high.dy, mx = mx, my = my, lane = high.r.h * 0.77 }
+    shape.ramps[#shape.ramps + 1] = ramp
+    round.ramps = round.ramps or {}
+    table.insert(round.ramps, ramp)
+    local off = high.r.h + 2 * RH + RoadShape.pave("highway") + 3
+    local sx, sy = frame(um + taper + 50, off)
+    shape.signs[#shape.signs + 1] = { kind = "exit", x = sx, y = sy, dx = -high.dx, dy = -high.dy }
+    -- Traffic keeps right, so the near carriageway runs one way past
+    -- the roundabout: the slip road it leaves by comes into the ring
+    -- and gives way there; the other one only leaves the ring.
+    if -high.dy * mx + high.dx * my < 0 then
+      round.entries = round.entries or {}
+      table.insert(round.entries, { dx = ux, dy = uy, a = -RH * 1.3, b = RH * 1.3 })
+    end
+  end
+
   -- Interchanges: the road crossing over, and a slip road in every quarter
   -- between the highway and a road that meets it. A slip road leaves the
   -- highway's outer edge heading in, and bends round to meet the road square
@@ -490,7 +541,6 @@ local function build(city)
       end
       table.sort(arms, function(p, q) return p.a < q.a end)
       local back = rampBack[id]
-      local RH = 4.5
       for i, e in ipairs(arms) do
         local f = arms[i % #arms + 1]
         local high, low
@@ -498,52 +548,9 @@ local function build(city)
         elseif f.r.kind == "highway" and e.r.kind ~= "highway" then high, low = f, e end
         local round = high and rounds[id] and rounds[id][low.r]
         if round then
-          -- Off the roundabout: out of the ring heading for the highway and
-          -- along it, then a long gentle curve down beside it and the merge.
           local mx, my = -high.dy, high.dx
           if mx * low.dx + my * low.dy < 0 then mx, my = -mx, -my end
-          local function frame(u, v) return n.x + high.dx * u + mx * v, n.y + high.dy * u + my * v end
-          local ux, uy = norm(high.dx * 0.8 - mx * 0.6, high.dy * 0.8 - my * 0.6)
-          local ax, ay = round.x + ux * (ROUND - 1), round.y + uy * (ROUND - 1)
-          local ua = (ax - n.x) * high.dx + (ay - n.y) * high.dy
-          local va = (ax - n.x) * mx + (ay - n.y) * my
-          local vm = high.r.h + RH
-          local um = ua + max(70, (va - vm) * 2.4)
-          local bx, by = frame(um, vm)
-          local k = sqrt((bx - ax) ^ 2 + (by - ay) ^ 2) * 0.45
-          local c1x, c1y = ax + ux * k, ay + uy * k
-          local c2x, c2y = bx - high.dx * k, by - high.dy * k
-          local pts = {}
-          for j = 0, 20 do
-            local t = j / 20
-            local a, b, c, dd = (1 - t) ^ 3, 3 * (1 - t) ^ 2 * t, 3 * (1 - t) * t * t, t ^ 3
-            local flare = j <= 2 and (1 + (2 - j) / 2 * 0.6) or 1
-            pts[#pts + 1] = { x = a * ax + b * c1x + c * c2x + dd * bx, y = a * ay + b * c1y + c * c2y + dd * by, h = RH * flare, k = "ramp" }
-          end
-          local taper = 80
-          for j = 1, 10 do
-            local t = j / 10
-            local w = RH * (1 - t)
-            local x, y = frame(um + taper * t, high.r.h + w)
-            pts[#pts + 1] = { x = x, y = y, h = max(0.05, w), k = "ramp" }
-          end
-          -- Traffic keeps right, so the near carriageway runs one way past
-          -- the roundabout: off it by the slip road traffic meets first.
-          local into = -high.dy * mx + high.dx * my < 0
-          local ramp = { pts = pts, node = id, off = into, hx = high.dx, hy = high.dy, mx = mx, my = my, lane = high.r.h * 0.77 }
-          shape.ramps[#shape.ramps + 1] = ramp
-          round.ramps = round.ramps or {}
-          table.insert(round.ramps, ramp)
-          local off = high.r.h + 2 * RH + RoadShape.pave("highway") + 3
-          local sx, sy = frame(um + taper + 50, off)
-          shape.signs[#shape.signs + 1] = { kind = "exit", x = sx, y = sy, dx = -high.dx, dy = -high.dy }
-          -- Traffic keeps right, so the near carriageway runs one way past
-          -- the roundabout: the slip road it leaves by comes into the ring
-          -- and gives way there; the other one only leaves the ring.
-          if -high.dy * mx + high.dx * my < 0 then
-            round.entries = round.entries or {}
-            table.insert(round.entries, { dx = ux, dy = uy, a = -RH * 1.3, b = RH * 1.3 })
-          end
+          roundRamp(id, n, high, round, mx, my)
         elseif high then
           -- m: across the highway toward the road; n: across the road toward
           -- the highway arm this slip road serves.
@@ -600,27 +607,105 @@ local function build(city)
     end
   end
 
+  -- A road that stops at the highway reaches only the near carriageway by
+  -- its own slip roads. A short road over the highway to a second roundabout
+  -- on the far side, with a pair of its own, takes it to the other.
+  for id, list in pairs(at) do
+    if role[id] == "pass" and rounds[id] then
+      local n = nodes[id]
+      local highs, lows = {}, {}
+      for _, r in ipairs(list) do
+        local dx, dy = dirFrom(id, r)
+        local arm = { r = r, dx = dx, dy = dy }
+        if r.kind == "highway" then highs[#highs + 1] = arm else lows[#lows + 1] = arm end
+      end
+      local low = lows[1]
+      local near = #highs == 2 and #lows == 1 and rounds[id][low.r]
+      if near and not near.through then
+        local hi = highs[1]
+        local mx, my = -hi.dy, hi.dx
+        if mx * low.dx + my * low.dy < 0 then mx, my = -mx, -my end
+        local cx, cy = near.x - n.x, near.y - n.y
+        local v, u = cx * mx + cy * my, cx * hi.dx + cy * hi.dy
+        -- Opposite the near one, or as close to that as there is clear
+        -- ground: off buildings and water.
+        local function clear(x, y)
+          if city:isWater(x, y) then return false end
+          for _, b in ipairs(city.g:aliveNodes()) do
+            if not City.ROAD_JUNCTIONS[b.kind] then
+              local need = City.footprint(b.kind) * 0.6 + ROUND + 4
+              if (b.x - x) ^ 2 + (b.y - y) ^ 2 < need * need then return false end
+            end
+          end
+          return true
+        end
+        local fx, fy
+        for _, dv in ipairs({ 0, 15, 30 }) do
+          for _, du in ipairs({ 0, 20, -20, 40, -40, 60, -60, 90, -90 }) do
+            local x, y = n.x + hi.dx * (u + du) - mx * (v + dv), n.y + hi.dy * (u + du) - my * (v + dv)
+            if not fx and clear(x, y) then fx, fy = x, y end
+          end
+        end
+        if fx then near.farX, near.farY = fx, fy else near = nil end
+      end
+      if near and not near.through then
+        local hi = highs[1]
+        local mx, my = -hi.dy, hi.dx
+        if mx * low.dx + my * low.dy < 0 then mx, my = -mx, -my end
+        local fx, fy = near.farX, near.farY
+        local far = { x = fx, y = fy, r = ROUND, across = near }
+        rounds[id][{ h = low.r.h, l = low.r.l, kind = "road" }] = far
+        near.over = far
+        for _, h in ipairs(highs) do roundRamp(id, n, h, far, -mx, -my) end
+        -- The road over, ring to ring; it bridges the highway like any road
+        -- crossing it.
+        local pts = {}
+        for j = 0, 8 do
+          local t = j / 8
+          pts[#pts + 1] = { x = near.x + (fx - near.x) * t, y = near.y + (fy - near.y) * t, h = low.r.h, k = "road", l = low.r.l }
+        end
+        local x0, y0 = min(near.x, fx) - low.r.h - 8, min(near.y, fy) - low.r.h - 8
+        local x1, y1 = max(near.x, fx) + low.r.h + 8, max(near.y, fy) + low.r.h + 8
+        shape.chains[#shape.chains + 1] = { pts = pts, links = { low.r }, kind = "road", h = low.r.h, id = low.r.l.id,
+          len = sqrt((fx - near.x) ^ 2 + (fy - near.y) ^ 2), box = { x0, y0, x1, y1 }, over = true }
+        near.bridge = pts
+      end
+    end
+  end
+
+  local made = {}
   for id, byRoad in pairs(rounds) do
     for r, rd in pairs(byRoad) do
       local entries = rd.entries or {}
       -- The road's own arms: the half of it coming in, its right-hand lane.
       local lx, ly = dirFrom(id, r)
       local arms = {}
-      if rd.through then arms = { { lx, ly }, { -lx, -ly } }
+      if rd.across then
+        arms = { { norm(rd.across.x - rd.x, rd.across.y - rd.y) } }
+      elseif rd.through then arms = { { lx, ly }, { -lx, -ly } }
       elseif not rd.far then
         local far = nodes[other(r, id)]
         local ex, ey = norm(far.x - rd.x, far.y - rd.y)
         arms = { { ex, ey } }
       end
-      for _, e in ipairs(arms) do
+      local ways = { (table.unpack or unpack)(arms) }
+      if rd.over then ways[#ways + 1] = { norm(rd.over.x - rd.x, rd.over.y - rd.y) } end
+      for _, e in ipairs(ways) do
         -- Heading in along -e, the right-hand side is (e.y, -e.x), which is
         -- the negative side of the across vector (-e.y, e.x).
         entries[#entries + 1] = { dx = e[1], dy = e[2], a = -r.h, b = 0 }
       end
-      shape.rounds[#shape.rounds + 1] = { x = rd.x, y = rd.y, r = rd.r, node = id, entries = entries,
-        ramps = rd.ramps or {}, link = r.l, through = rd.through, arm = arms[1],
+      local rec = { x = rd.x, y = rd.y, r = rd.r, node = id, entries = entries,
+        ramps = rd.ramps or {}, link = r.l, through = rd.through, arm = arms[1], bridge = rd.bridge,
         reach = sqrt((nodes[other(r, id)].x - rd.x) ^ 2 + (nodes[other(r, id)].y - rd.y) ^ 2) - bodyOf(nodes[other(r, id)]) }
+      shape.rounds[#shape.rounds + 1] = rec
+      made[rd] = rec
     end
+  end
+  -- Each of a pair over the highway knows the other.
+  for rd, rec in pairs(made) do
+    if rd.over then rec.over = made[rd.over] end
+    if rd.across then rec.across = made[rd.across] end
   end
 
   -- Where two streets cross with no junction, one goes over. A highway stays
