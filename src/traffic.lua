@@ -830,6 +830,76 @@ local function drawHarbours(city, cam, t)
   end
 end
 
+-- A rail terminal's freight train and a river wharf's barge: in on a day the
+-- haven lands cargo, standing while it is unloaded, then away again. An order
+-- still on its way shows as a barge holding up the river.
+local function upriver(city, n)
+  local bx, by, i = city:wharfBerth(n)
+  local p = city:riverPath()
+  if not (i and p) then return nil end
+  local pts, run = { bx, by }, 0
+  for k = i + 1, p.n do
+    run = run + math.sqrt((p.x[k] - p.x[k - 1]) ^ 2 + (p.y[k] - p.y[k - 1]) ^ 2)
+    pts[#pts + 1] = p.x[k]; pts[#pts + 1] = p.y[k]
+    if run > 1600 then break end
+  end
+  -- Reversed: from up the river down to the berth.
+  local out = {}
+  for k = #pts - 1, 1, -2 do out[#out + 1] = pts[k]; out[#out + 1] = pts[k + 1] end
+  return out, run
+end
+
+local function drawInlandHavens(city, cam, t)
+  for _, n in ipairs(city.g.nodes) do
+    if n.alive and n.kind == "terminal" and (n.haven == "railhead" or n.haven == "wharf") then
+      local landed, cargo = landedToday(city, n)
+      if n.haven == "railhead" and landed > 0 and cam:sees(n.x, n.y, 1600) then
+        local ux, uy = city:railAxis(n)
+        local wagons = math.min(10, math.max(1, math.ceil(landed / City.MODES.rail.wagonCap)))
+        local IN, STAND, OUT = 22, 24, 22
+        local cycle = IN + STAND + OUT
+        local k = (t + hash(n.id, 5) * cycle) % cycle
+        local s
+        if k < IN then s = -1500 * (1 - ease(k / IN)) elseif k < IN + STAND then s = 0
+        else local f = (k - IN - STAND) / OUT; s = 1500 * f * f end
+        local x, y = n.x - uy * 16 + ux * s, n.y + ux * 16 + uy * s
+        train(cam, x, y, ux, uy, 0, wagons, cargo, k < IN + STAND)
+      elseif n.haven == "wharf" then
+        local path, len = upriver(city, n)
+        if path and len and len > 50 then
+          if landed > 0 then
+            local IN, MOOR, OUT = 30, 26, 30
+            local cycle = IN + MOOR + OUT
+            local k = (t + hash(n.id, 6) * cycle) % cycle
+            local s, dir, speed
+            if k < IN then s, dir, speed = len * ease(k / IN), 1, 1 - k / IN * 0.8
+            elseif k < IN + MOOR then s, dir, speed = len, 1, 0
+            else local f = (k - IN - MOOR) / OUT; s, dir, speed = len * (1 - f * f), -1, 0.3 + 0.7 * f end
+            local x, y, dx, dy = along_(path, s)
+            if cam:sees(x, y, 120) then
+              local sx, sy = cam:toScreen(x, y)
+              boat("barge", sx, sy, dx * dir, dy * dir, cam.scale, t, n.id, speed, k < IN + MOOR and cargo or nil)
+            end
+          end
+          local i = 0
+          for _, o in ipairs(city.shipments or {}) do
+            if o.haven == n.id and i < 2 then
+              i = i + 1
+              sighted[o] = sighted[o] or t
+              local f = math.min(1, (t - sighted[o]) / 60)
+              local x, y, dx, dy = along_(path, len * 0.55 * ease(f) - (i - 1) * 90)
+              if cam:sees(x, y, 120) then
+                local sx, sy = cam:toScreen(x, y)
+                boat("barge", sx, sy, dx, dy, cam.scale, t, n.id + 9 * i, f >= 1 and 0 or 0.6, { o.key })
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+end
+
 -- Ferries on routes that carried passengers today, shuttling end to end.
 local function drawFerries(city, cam, t)
   local byLink = (city.transit or {}).byLink or {}
@@ -1124,6 +1194,7 @@ function Traffic.ground(city, cam, visible)
   local t = R.t or 0
   routeBudget = ROUTES_PER_FRAME
   drawHarbours(city, cam, t)
+  drawInlandHavens(city, cam, t)
   drawFerries(city, cam, t)
   drawYachts(city, cam, t)
   drawFreight(city, cam, t)

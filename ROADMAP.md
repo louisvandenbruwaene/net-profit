@@ -781,6 +781,9 @@ Status: shipped. What a later session must know:
 - **Imports** (`src/imports.lua`): an order at a haven is paid now and lands the
   next morning. It is kept in `city.shipments`; `city.orders` is the
   departments and must never be reused.
+- **Havens** are five doors (`City.GATEWAYS`): harbour, road head, air apron,
+  rail terminal (on a main line off the map, `City:railAxis`) and river wharf
+  (on a bank, `City:wharfBerth`). Each lands orders by its own vehicle.
 - **Haulage** (`src/haulage.lua`): a landed order is hauled on to the nearest
   yard by the best built way (own line, semi on roads, barge, plane, lorry
   overland, never through water) and is in stock a day later; its haulage is
