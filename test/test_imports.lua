@@ -100,4 +100,25 @@ do
   c:endDay()
   check(c.convoys[#c.convoys].to==near.id,"and to the nearest when none was chosen")
 end
+
+print("a solar array is assembled from its panels")
+do
+  local c=T.sandbox(24,true)
+  c.stock.panels=100
+  local d=c.districts[City.MAP.start]
+  local yard=c.g:addNode(d.x+200,d.y+200,"dc")
+  local array
+  for dx=0,600,60 do
+    array=c:buySource("power",d.x+400+dx,d.y+420,"solar")
+    if array then break end
+  end
+  assert(array,"somewhere to put an array")
+  c:refresh()
+  check(array.assembling and (array.effectiveOutput or 0)==0,"the day it is built it is still being put together")
+  local site
+  for _,cv in ipairs(c.convoys or {}) do if cv.key=="panels" and not cv.stock then site=cv end end
+  check(site~=nil,"while its panels are driven out to it")
+  c:endDay(); c:refresh()
+  check(not array.assembling and (array.effectiveOutput or array.output or 0)>0,"and it runs from the next day")
+end
 print(T.checks.." import checks passed")
