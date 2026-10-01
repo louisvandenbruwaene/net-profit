@@ -307,7 +307,10 @@ closing a day is final.
   highway needs none, which is how the first steel ever reaches the city.
 - **Importing.** Every haven has an import menu: pick a good and a quantity and
   pay the landed price now. The freighter (a ship at a harbour, lorries at a road
-  head, a plane at an air apron) sets out at once and lands overnight. From there
+  head, a plane at an air apron, a freight train at a rail terminal, a barge at
+  a river wharf) sets out at once and lands overnight. Freight rates: harbour
+  x1.00, river wharf x1.05 (on a river bank), rail terminal x1.10, road head
+  x1.20, air x1.55. From there
   the load is hauled on to the nearest yard by the best way you have built: your
   own freight line, a semi along your roads, a barge on the river, a plane from
   an air apron, or a lorry overland. Haulage is billed at that mode's rate and the

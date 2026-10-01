@@ -17,6 +17,7 @@
 --
 -- `city.convoys` holds them. Nothing here reads City:random().
 local Graph = require("graph")
+local Shape = require("terrain_shape")
 
 return function(City)
   -- Vehicles: how much one carries, how fast it goes on the map (metres a
@@ -32,6 +33,36 @@ return function(City)
       return n.x + 24, (City.JETTY_HEAD or -210) - 40
     end
     return n.x, n.y
+  end
+
+  -- A rail terminal sits on a main line that runs off the map both ways; its
+  -- heading is hashed from where it stands.
+  function City:railAxis(n)
+    local a = Shape.hash(n.x, n.y, 92) * math.pi
+    return math.cos(a), math.sin(a)
+  end
+
+  -- A river wharf's berth: the nearest point of the river, a little in from
+  -- the bank on the wharf's side, and that sample's index along the course.
+  local berths = setmetatable({}, { __mode = "k" })
+  function City:wharfBerth(n)
+    local p = self:riverPath()
+    if not (p and p.n and p.n > 1) then return n.x, n.y, nil end
+    local c = berths[n]
+    if c and c.p == p and c.x == n.x and c.y == n.y then return c.bx, c.by, c.i end
+    local best, bd = 1, math.huge
+    for i = 1, p.n do
+      local d = (p.x[i] - n.x) ^ 2 + (p.y[i] - n.y) ^ 2
+      if d < bd then best, bd = i, d end
+    end
+    local cx, cy = p.x[best], p.y[best]
+    local dx, dy = n.x - cx, n.y - cy
+    local len = math.max(1, math.sqrt(dx * dx + dy * dy))
+    local hw = (p.hw and p.hw[best]) or 60
+    local off = math.max(0, hw - 28)
+    local bx, by = cx + dx / len * off, cy + dy / len * off
+    berths[n] = { p = p, x = n.x, y = n.y, bx = bx, by = by, i = best }
+    return bx, by, best
   end
 
   -- Where materials are kept: the yards, or failing any, the havens' quays.

@@ -447,7 +447,13 @@ function Draw.freightVehicle(haven, x, y, dir, s)
     lg.rectangle("fill", -4 * s, -0.6 * s, 7.4 * s, 1.2 * s, 0.6 * s)
     lg.polygon("fill", -4 * s, -0.4 * s, -4.4 * s, -1.8 * s, -3.4 * s, -0.4 * s)
     lg.setColor(r, g, b, a); lg.rectangle("fill", -2.5 * s, -0.2 * s, 5 * s, 0.4 * s)
-  elseif haven == "port" then
+  elseif haven == "railhead" then
+    -- A goods wagon on its bogies, loaded in the trade colour.
+    lg.setColor(0.12, 0.12, 0.13, a)
+    for _, wx in ipairs({ -2.6, 2.6 }) do lg.rectangle("fill", (wx - 0.8) * s, -1.5 * s, 1.6 * s, 3 * s) end
+    lg.setColor(0.36, 0.36, 0.38, a); lg.rectangle("fill", -3.8 * s, -1.2 * s, 7.6 * s, 2.4 * s)
+    lg.setColor(r, g, b, a); lg.rectangle("fill", -3.3 * s, -0.8 * s, 6.6 * s, 1.6 * s)
+  elseif haven == "port" or haven == "wharf" then
     -- A hull, a row of containers and the bridge at the stern.
     lg.setColor(0.14, 0.15, 0.18, a)
     lg.polygon("fill", -3.6 * s, -1.2 * s, 2.8 * s, -1.2 * s, 3.8 * s, 0, 2.8 * s, 1.2 * s, -3.6 * s, 1.2 * s)
@@ -2107,6 +2113,50 @@ function Draw.world(city, cam, state)
       lg.setColor(0.30, 0.22, 0.15); lg.setLineWidth(1)
       local plank = math.max(3, 6 * cam.scale)
       for py = y1 + plank, y0, plank do lg.line(x0 - w / 2, py, x0 + w / 2, py) end
+    end
+  end
+  -- A rail terminal: the main line running through it and off the map both
+  -- ways, sleepers and two rails, with a loop siding beside the shed. A river
+  -- wharf: a timber quay from the bank out to its berth on the river.
+  for _, n in ipairs(city.g:aliveNodes()) do
+    if n.kind == "terminal" and n.haven == "railhead" and cam:sees(n.x, n.y, 900 * cam.scale + 20) then
+      local ux, uy = city:railAxis(n)
+      local nx, ny = -uy, ux
+      local function track(ox, oy, a, b)
+        local ax, ay = cam:toScreen(n.x + ox + ux * a, n.y + oy + uy * a)
+        local bx, by = cam:toScreen(n.x + ox + ux * b, n.y + oy + uy * b)
+        local g = math.max(1, 3 * cam.scale)
+        local px, py = nx * g, ny * g
+        lg.setColor(0, 0, 0, 0.25); lg.setLineWidth(math.max(3, 12 * cam.scale)); lg.line(ax + 1, ay + 2, bx + 1, by + 2)
+        lg.setColor(0.42, 0.36, 0.30); lg.setLineWidth(math.max(3, 11 * cam.scale)); lg.line(ax, ay, bx, by)
+        -- Sleepers across the ballast.
+        local len = math.max(1, math.sqrt((bx - ax) ^ 2 + (by - ay) ^ 2))
+        local step = math.max(4, 7 * cam.scale)
+        local hx, hy = nx * math.max(2, 5 * cam.scale), ny * math.max(2, 5 * cam.scale)
+        lg.setColor(0.28, 0.22, 0.17); lg.setLineWidth(math.max(1, 1.6 * cam.scale))
+        for d = 0, len, step do
+          local qx, qy = ax + (bx - ax) * d / len, ay + (by - ay) * d / len
+          lg.line(qx - hx, qy - hy, qx + hx, qy + hy)
+        end
+        lg.setColor(0.80, 0.82, 0.86); lg.setLineWidth(math.max(1, 1.4 * cam.scale))
+        lg.line(ax + px, ay + py, bx + px, by + py); lg.line(ax - px, ay - py, bx - px, by - py)
+      end
+      track(0, 0, -1600, 1600)
+      track(nx * 16, ny * 16, -120, 120)
+    elseif n.kind == "terminal" and n.haven == "wharf" and cam:sees(n.x, n.y, 300 * cam.scale + 20) then
+      local bx, by = city:wharfBerth(n)
+      local x0, y0 = cam:toScreen(n.x, n.y)
+      local x1, y1 = cam:toScreen(bx, by)
+      local w = math.max(3, 14 * cam.scale)
+      lg.setColor(0, 0, 0, 0.3); lg.setLineWidth(w + 2); lg.line(x0 + 2, y0 + 3, x1 + 2, y1 + 3)
+      lg.setColor(0.46, 0.35, 0.24); lg.setLineWidth(w); lg.line(x0, y0, x1, y1)
+      lg.setColor(0.30, 0.22, 0.15); lg.setLineWidth(1)
+      local len = math.max(1, math.sqrt((x1 - x0) ^ 2 + (y1 - y0) ^ 2))
+      local px, py = -(y1 - y0) / len * w / 2, (x1 - x0) / len * w / 2
+      for d = 0, len, math.max(3, 6 * cam.scale) do
+        local qx, qy = x0 + (x1 - x0) * d / len, y0 + (y1 - y0) * d / len
+        lg.line(qx - px, qy - py, qx + px, qy + py)
+      end
     end
   end
   -- Land gateways get ground of their own, drawn under everything built: a

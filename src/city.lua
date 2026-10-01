@@ -2097,7 +2097,7 @@ City.BUILDABLE = { junction = true, manifold = true, pump = true, tower = true,
 -- more than one.
 City.HAVENS = require("data.freight").HAVENS
 
-City.GATEWAYS = { "port", "highway", "airfield" }
+City.GATEWAYS = { "port", "highway", "airfield", "railhead", "wharf" }
 
 -- How close to the water a harbour has to be.
 City.havenReach = require("data.freight").havenReach
@@ -2131,6 +2131,9 @@ function City:havenSite(x, y, key)
   if not spec then return nil, "no such haven" end
   if spec.gate == "coast" and not self:onCoast(x, y) then
     return nil, "a harbour stands on the coast"
+  end
+  if spec.gate == "river" and not (self:nearRiver(x, y) and not self:riverAt(x, y)) then
+    return nil, "a wharf stands on the river bank"
   end
   if self:havenCost(key) > self.money then return nil, "not enough cash" end
   return key

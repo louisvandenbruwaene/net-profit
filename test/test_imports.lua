@@ -176,4 +176,37 @@ do
   check(not mill.assembling and next(mill.wants)~=nil,"the next day the works asks for its inputs")
   check(not reactor.assembling and (reactor.effectiveOutput or reactor.output or 0)>0,"and the reactor runs")
 end
+
+print("imports by rail and by river barge")
+do
+  local c=T.sandbox(24)
+  c.stock={}
+  -- A spot on the river bank, and one well away from it.
+  local bank, dry
+  for y=300,1600,50 do
+    for x=-1000,4000,20 do
+      if not bank and c:nearRiver(x,y) and not c:riverAt(x,y) and c:riverAt(x+40,y) then bank={x=x,y=y} end
+      if not dry and not c:nearRiver(x,y) and not c:obstacleAt(x,y) then dry={x=x,y=y} end
+    end
+  end
+  assert(bank and dry,"a river bank and dry ground")
+  check(select(2,c:havenSite(dry.x,dry.y,"wharf"))=="a wharf stands on the river bank","a wharf needs the river")
+  check(c:havenSite(bank.x,bank.y,"wharf")=="wharf","and stands on its bank")
+  local wharf=assert(c:build(bank.x,bank.y,"terminal","wharf"))
+  local rail=assert(c:build(dry.x,dry.y,"terminal","railhead"))
+  check(wharf.haven=="wharf" and rail.haven=="railhead","both are havens")
+  check(c:importPrice("steel","wharf")<c:importPrice("steel","railhead") and c:importPrice("steel","railhead")<c:importPrice("steel","highway"),
+    "a barge lands cheaper than a train, a train cheaper than lorries")
+  assert(c:orderImport(wharf.id,"steel",30))
+  assert(c:orderImport(rail.id,"panels",20))
+  c:endDay()
+  check(c:materialStock("steel")==30 and c:materialStock("panels")==20,"with no yard, what they land is on their quays the next morning")
+  local _,landedW=c:havenShipments(wharf.id)
+  local _,landedR=c:havenShipments(rail.id)
+  check(landedW.steel==30 and landedR.panels==20,"and each shows what it landed")
+  local bx,by=c:wharfBerth(wharf)
+  check(c:riverAt(bx,by),"a wharf's berth is out on the water")
+  local ux,uy=c:railAxis(rail)
+  check(math.abs(ux*ux+uy*uy-1)<1e-9,"a rail terminal lies on a main line")
+end
 print(T.checks.." import checks passed")

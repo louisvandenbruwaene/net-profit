@@ -80,6 +80,10 @@ Data.HAVENS = {
                blurb = "a trunk road interchange" },
   airfield = { name = "AIR FREIGHT",  gate = "land",  import = 1.55, price = 3400,
                blurb = "an air freight apron" },
+  railhead = { name = "RAIL TERMINAL", gate = "land", import = 1.10, price = 2600,
+               blurb = "a freight terminal on the main line, trains in from beyond the map" },
+  wharf    = { name = "RIVER WHARF",  gate = "river", import = 1.05, price = 1900,
+               blurb = "a quay on the river bank, barges in from up the river" },
 }
 
 Data.havenReach = 150

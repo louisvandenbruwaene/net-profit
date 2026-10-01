@@ -1282,17 +1282,17 @@ local function buildPanel()
   if state.tool=="terminal" then
     for i,key in ipairs(City.GATEWAYS) do
       local spec=City.HAVENS[key]
-      local bx=M+(i-1)*102
+      local bx,by=M+((i-1)%3)*102,y+math.floor((i-1)/3)*52
       local kind=state.havenKind or "port"
-      button("haven-"..key,"",bx,y,96,46,function() state.havenKind=key end,
+      button("haven-"..key,"",bx,by,96,46,function() state.havenKind=key end,
         city.money>=city:havenCost(key),
         spec.name..": "..spec.blurb..". Freight x"..string.format("%.2f",spec.import)..
-        (spec.gate=="coast" and ", coast only." or ", anywhere you hold."),
+        (spec.gate=="coast" and ", coast only." or spec.gate=="river" and ", on a river bank." or ", anywhere you hold."),
         kind==key,P.energy)
-      text(({port="Harbour",highway="Road head",airfield="Air freight"})[key],bx+8,y+6,"tiny",P.text)
-      text("$"..city:havenCost(key),bx+8,y+24,"small",P.textDim)
+      text(({port="Harbour",highway="Road head",airfield="Air freight",railhead="Rail",wharf="River wharf"})[key],bx+8,by+6,"tiny",P.text)
+      text("$"..city:havenCost(key),bx+8,by+24,"small",P.textDim)
     end
-    y=y+56
+    y=y+math.ceil(#City.GATEWAYS/3)*52+4
   end
   -- LINE: how the next connection is laid. Voltage for cables, the freight
   -- mode, and sizes and lining under Pipe options.
