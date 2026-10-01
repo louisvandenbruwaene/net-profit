@@ -2,11 +2,36 @@ local Graph=require('graph')
 return function(City)
  -- Carriageway widths in metres, and the pavement a normal road has either
  -- side. Traffic keeps to its lane and people to the pavement, off these.
- City.ROAD_WIDTH={offroad=10,road=16,highway=26}
+ City.ROAD_WIDTH={offroad=10,road=16,highway=26,bridge=16}
  City.PAVEMENT=5
  -- How far out to sea a harbour's jetty runs: a ship lies alongside it.
  City.JETTY_HEAD=-210
- City.ROAD_TYPES={offroad={name='OFFROAD',factor=.5,colour={.65,.48,.30}},road={name='NORMAL ROAD',factor=1,colour={.65,.68,.72}},highway={name='HIGHWAY',factor=2,colour={.96,.80,.35}}}
+ City.ROAD_TYPES={offroad={name='OFFROAD',factor=.5,colour={.65,.48,.30}},road={name='NORMAL ROAD',factor=1,colour={.65,.68,.72}},highway={name='HIGHWAY',factor=2,colour={.96,.80,.35}},bridge={name='BRIDGE',factor=1,colour={.70,.72,.76}}}
+ -- A bridge is the one road that may cross water, and the only way over it:
+ -- none stands until the company builds it. It is priced by the metre of
+ -- water it spans and charges a toll, like a highway.
+ City.BRIDGE={perWaterM=3.2,toll=2}
+ -- Is this spot water: the river, or the sea anywhere off an island's shore.
+ function City:isWater(x,y)
+  if self:riverAt(x,y) then return true end
+  if y>=0 then return false end
+  local d=self:districtAt(x,y)
+  if d and d.island and ((x-d.x-d.w/2)/(d.w/2))^2+((y-d.y-d.h/2)/(d.h/2))^2<=0.9 then return false end
+  return true
+ end
+ -- Metres of water along a straight line.
+ function City:waterAlong(ax,ay,bx,by)
+  local len=math.sqrt((bx-ax)^2+(by-ay)^2)
+  local steps=math.max(2,math.ceil(len/8))
+  local wet=0
+  for i=0,steps-1 do
+   local t=(i+0.5)/steps
+   if self:isWater(ax+(bx-ax)*t,ay+(by-ay)*t) then wet=wet+len/steps end
+  end
+  return math.floor(wet+0.5)
+ end
+ -- Vehicles pay on a highway and on a bridge; every other road is free.
+ function City.tolled(l) return l.mode=='road' and (l.roadType=='highway' or l.roadType=='bridge') end
  -- A corner is the cheap one: two ports, for bending a road round something
  -- rather than for meeting another road at it.
  local junctions={corner='ROAD CORNER',intersection='OFFROAD INTERSECTION',roundabout='ROUNDABOUT',interchange='HIGHWAY INTERCHANGE'}

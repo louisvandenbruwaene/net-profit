@@ -488,7 +488,8 @@ local function action(name,...)
         buildShop="Shop opened",buildBench="Bench placed",expandShop="Shop expanded",setShopPrice="Price set",
         hireCrew="Crew hired",dismissCrew="Crew stood down",declineCrew="No crew",buyPermit="Permit granted",
         borrow="Funds drawn",repay="Loan repaid",setGate="Gate set",
-        layLink=(name=="layLink" and result.mode=="road") and "Road laid" or "Route opened",
+        layLink=(name=="layLink" and result.mode=="road") and (result.roadType=="bridge" and "Bridge built" or "Road laid") or "Route opened",
+        orderImport="Ordered: lands tomorrow",
         setLinkPrice="Price set",setStationPrice="Pump price set",
         addVehicle="Vehicle added",removeVehicle="Vehicle sold",demolishLink="Line lifted",
         upgradeResort="Resort built up",upgradeTower="Tower upgraded",raiseTowerVoltage="Voltage raised",upgradeCable="Cable upgraded",upgradeLevel="Building upgraded"})[name] or "Network updated")

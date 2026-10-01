@@ -18,7 +18,9 @@ local function node(c,kind,x,y,typ)
  return n
 end
 local function road(c,a,b,kind)
- c.buildRoadType=kind or 'road'; return assert(c:layLink(a.id,b.id,'road'))
+ -- Over water only a bridge will do.
+ c.buildRoadType=c:waterAlong(a.x,a.y,b.x,b.y)>0 and 'bridge' or kind or 'road'
+ return assert(c:layLink(a.id,b.id,'road'))
 end
 -- Physical topology, exact daily vehicle tolls and deterministic refreshes.
 do
@@ -216,5 +218,28 @@ do
  local shared=road(c,home,stop)
  check(home.dailyDestination==stop.id,'the random destination draw includes bus stops')
  check(c.transit.byLink[shared.id].car==1 and not c.transit.byLink[shared.id].bus,'driving to a bus stop does not create a bus service')
+end
+
+-- Bridges: the one road over water, built by the company, with a toll.
+do
+ local c=world()
+ local wet
+ for x=200,3800,100 do if c:riverAt(x,900) then wet=x; break end end
+ if wet then
+  local a=node(c,'client',wet-300,900); local b=node(c,'client',wet+300,900)
+  c.buildRoadType='road'
+  check(select(2,c:layLink(a.id,b.id,'road'))=='water in the way: build a bridge','an ordinary road stops at the water')
+  local dryA=node(c,'client',wet-700,1500); local dryB=node(c,'client',wet-500,1500)
+  c.buildRoadType='bridge'
+  check(c:waterAlong(dryA.x,dryA.y,dryB.x,dryB.y)>0 or select(2,c:layLink(dryA.id,dryB.id,'road'))=='a bridge has to cross water','a bridge has to cross water')
+  local road_=c:linkQuote(a.id,b.id,'road')
+  c.buildRoadType='road'
+  local plain=math.ceil(City.PEOPLE.roadTiein*2+c:nodeDistance(a.id,b.id)*City.PEOPLE.roadPerM)
+  c.buildRoadType='bridge'
+  check(road_>plain,'a bridge costs more than the road it carries')
+  local l=assert(c:layLink(a.id,b.id,'road'))
+  check(l.roadType=='bridge' and l.toll==City.BRIDGE.toll and City.tolled(l),'a bridge charges a toll')
+  assert(c:setLinkPrice(l.id,5)); check(l.toll==5,'and the toll can be set')
+ end
 end
 print(count..' transport and household checks passed')

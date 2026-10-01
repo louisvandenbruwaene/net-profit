@@ -453,19 +453,19 @@ function Walk.start(app,mode)
     c:demolishNode(gate.id)
   end
 
-  -- Credit: fixed rate, capped at half of what the company owns.
+  -- Credit: fixed rate, capped by the owner's own capital.
   do
     c.money=500
     app.state.node,app.state.edge=nil,nil
     click("tab-finance")
     local cash,limit,worth=c.money,c:loanLimit(),c:valuation()
-    check(limit>0,"the company has collateral to borrow against")
-    check(limit==math.floor(c:collateral()*0.5),"credit is capped at half of company value")
+    check(limit>0,"the company has capital to borrow against")
+    check(limit==math.floor(c:valuation()*C.loanLeverage),"credit is a multiple of own capital")
     scrollTo(app,"borrow")
     click("borrow")
     check(c.loan>0 and c.money==cash+c.loan,"borrowing pays cash into the till")
     check(c:valuation()==worth,"borrowing leaves net worth unchanged")
-    check(c:loanInterest()==math.ceil(c.loan*0.10/7),"interest is a flat 10% a week, not a gamble")
+    check(c:loanInterest()==math.ceil(c.loan*0.01/7),"interest is a flat 1% a week, not a gamble")
     scrollTo(app,"repay")
     click("repay")
     check(c.loan==0,"and the balance can be paid down")
@@ -740,7 +740,11 @@ function Walk.start(app,mode)
     end
     for _,off in ipairs({{120,40},{120,-40},{-120,40},{-120,-40},{40,120},{-40,120},{40,-120},{-40,-120}}) do
       if not select(2,c:crossingCost(hub.x,hub.y,hub.x+off[1],hub.y+off[2])) then
-        n.x,n.y=hub.x+off[1],hub.y+off[2]; break
+        local ox,oy=n.x,n.y
+        n.x,n.y=hub.x+off[1],hub.y+off[2]
+        -- And somewhere the main from the hub can actually reach.
+        if c:pipeBetween(hub.id,n.id,"water") or not c:pipeError(hub.id,n.id,"water",nil,"small") then break end
+        n.x,n.y=ox,oy
       end
     end
     c:refresh()

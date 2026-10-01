@@ -384,7 +384,7 @@ function City:routeTrips()
     for _,id in ipairs({l.a,l.b}) do if tank[id] and not seen[id] then stations[#stations+1]=id; seen[id]=true end end
     local rec=T.byLink[l.id] or {trips=0,income=0}; T.byLink[l.id]=rec
     rec.trips=rec.trips+count; rec[vehicle]=(rec[vehicle] or 0)+count
-    local toll=l.roadType=='highway' and (l.toll or City.PEOPLE.tollDefault)*count or 0
+    local toll=City.tolled(l) and (l.toll or City.PEOPLE.tollDefault)*count or 0
     rec.income=rec.income+toll; T.tolls=T.tolls+toll
    end
    -- Drivers fill up at the going rate without a second thought; every dollar
@@ -486,9 +486,11 @@ end
 function City:linkQuote(a, b, mode)
   if mode == "road" then
     local na, nb = self.g.nodes[a], self.g.nodes[b]
-    local mult = self:crossingCost(na.x, na.y, nb.x, nb.y) or 1
+    local variant = self.buildRoadType or 'road'
+    local mult = self:crossingCost(na.x, na.y, nb.x, nb.y, variant == 'bridge') or 1
     local cost = math.ceil(City.PEOPLE.roadTiein * 2 + self:nodeDistance(a, b) * City.PEOPLE.roadPerM * mult)
-    return math.ceil(cost * (City.ROAD_TYPES[self.buildRoadType or 'road'] or City.ROAD_TYPES.road).factor)
+    if variant == 'bridge' then cost = cost + self:waterAlong(na.x, na.y, nb.x, nb.y) * City.BRIDGE.perWaterM end
+    return math.ceil(cost * (City.ROAD_TYPES[variant] or City.ROAD_TYPES.road).factor)
   end
   return (City.ROUTES[mode] or {}).vehicle or 0
 end
@@ -504,6 +506,7 @@ function City:linkError(a, b, mode)
       for _,n in ipairs({na,nb}) do
         if n.kind=='stop' and variant~='road' then return 'bus stops attach to normal roads only' end
         if n.kind=='intersection' and variant~='offroad' then return 'offroad intersections take offroads only' end
+        if n.kind=='stop' and variant=='bridge' then return 'bus stops attach to normal roads only' end
         if n.kind=='roundabout' and variant=='highway' then return 'highways require a highway interchange' end
         if variant=='highway' and n.kind~='interchange' then return 'highways join highway interchanges; use normal roads for building access' end
       end
@@ -518,7 +521,11 @@ function City:linkError(a, b, mode)
     if not self:unlocked("roads") then return "nobody travels yet" end
     if self:linkBetween(a, b, "road") then return "that road already exists" end
     if self:nodeDistance(a, b) > City.PEOPLE.roadRange then return "too far for one road: put a matching junction between" end
-    local mult, blocker = self:crossingCost(na.x, na.y, nb.x, nb.y)
+    local wet = self:waterAlong(na.x, na.y, nb.x, nb.y)
+    local variant = self.buildRoadType or "road"
+    if variant == "bridge" and wet <= 0 then return "a bridge has to cross water" end
+    if variant ~= "bridge" and wet > 0 then return "water in the way: build a bridge" end
+    local mult, blocker = self:crossingCost(na.x, na.y, nb.x, nb.y, variant == "bridge")
     if not mult then return "cannot cross " .. string.lower(City.OBSTACLES[blocker.kind].name) end
     return nil
   end
@@ -547,8 +554,9 @@ function City:layLink(a, b, mode)
   local l = { id = #self.links + 1, a = a, b = b, mode = mode, alive = true, paid = cost }
   if mode == "road" then
     l.roadType = self.buildRoadType or "road"
-    l.toll = l.roadType == "highway" and City.PEOPLE.tollDefault or 0
-    self:note("Road laid for $%d; highway toll $%d per vehicle", cost, l.toll)
+    l.toll = l.roadType == "highway" and City.PEOPLE.tollDefault or l.roadType == "bridge" and City.BRIDGE.toll or 0
+    if l.roadType == "bridge" then self:note("Bridge built for $%d; toll $%d per vehicle", cost, l.toll)
+    else self:note("Road laid for $%d; highway toll $%d per vehicle", cost, l.toll) end
   else
     l.fare, l.vehicles = City.ROUTES[mode].fare, 1
     self:note("%s opened for $%d, at $%d a seat", City.ROUTES[mode].name, cost, l.fare)
@@ -560,7 +568,7 @@ end
 
 function City:setLinkPrice(id, value)
   local l = (self.links or {})[id]
-  if l and l.mode=='road' and l.roadType~='highway' then return nil,'only highways charge tolls' end
+  if l and l.mode=='road' and not City.tolled(l) then return nil,'only highways and bridges charge tolls' end
   if not (l and l.alive) then return nil, "no such road or route" end
   if type(value) ~= "number" or value ~= value then return nil, "invalid price" end
   local max = l.mode == "road" and City.PEOPLE.tollMax or City.ROUTES[l.mode].max

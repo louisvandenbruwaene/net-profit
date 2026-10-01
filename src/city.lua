@@ -1255,7 +1255,8 @@ end
 -- differently from the same cell surveyed on day 3, and not at obstacles in
 -- other cells, because that would make a cell depend on which of its neighbours
 -- happened to be surveyed first. Everything an obstacle is checked against is
--- placed by this same call, and everything placed stays inside the cell.
+-- placed by this same call. An obstacle's centre stays inside the cell, but it
+-- may spill over the line into the next: a plot is a survey line, not a fence.
 City.TERRAIN = require("data.terrain")
 
 function City:scatterObstacles(n, district)
@@ -1283,10 +1284,14 @@ function City:scatterObstacles(n, district)
     local chosen=varied and self:rand((giant and cfg.massive or size).min,(giant and cfg.massive or size).max)
     for _ = 1, 40 do
       local r = chosen or self:rand(70, 140)
-      local margin=giant and cfg.border or r+cfg.border
+      -- Ground runs on from one plot into the next, so a wood or a range may
+      -- spill over the line: only its centre has to stand in this cell.
+      local margin=giant and cfg.border or math.max(cfg.border, r*cfg.spill)
       local x = self:rand(b.x + margin, b.x + b.w - margin)
       local y = self:rand(b.y + margin, b.y + b.h - margin)
       local clear = true
+      -- Never out over the beach: the coast is the sea's.
+      if b.y == 0 and y - r < 60 then clear = false end
       if giant then
         local nearX=math.max(0,math.min(City.MAP.w*3,x))
         local nearY=math.max(0,math.min(City.MAP.h*3,y))
@@ -1394,7 +1399,9 @@ function City:groundCross(kind, obstacle)
 end
 
 -- Returns a cost multiplier, or nil if the route is impossible.
-function City:crossingCost(ax, ay, bx, by)
+-- `bridge`: the line is a bridge, which spans the river rather than working
+-- through it, so the river needs no charter and adds nothing here.
+function City:crossingCost(ax, ay, bx, by, bridge)
   local mult = 1
   for _, o in ipairs(self.obstacles) do
     if Shape.crosses(o, ax, ay, bx, by) then
@@ -1403,7 +1410,7 @@ function City:crossingCost(ax, ay, bx, by)
       mult = math.max(mult, cross)
     end
   end
-  if self:segRiver(ax, ay, bx, by) then
+  if not bridge and self:segRiver(ax, ay, bx, by) then
     local cross = self:groundCross("river")
     if not cross then return nil, { kind = "river" } end
     mult = math.max(mult, cross)
@@ -3262,7 +3269,7 @@ function City:refresh()
   for _,l in ipairs(self.links) do
     if l.goodsEdge and not self.g.edges[l.goodsEdge].alive then l.alive=false end
   end
-  for _,l in ipairs(self.links) do if l.mode=='road'  then l.roadType=l.roadType or 'road'; if l.roadType~='highway' then l.toll=0 end end end
+  for _,l in ipairs(self.links) do if l.mode=='road'  then l.roadType=l.roadType or 'road'; if not City.tolled(l) then l.toll=0 end end end
   self:forgetRoads()
   for _,n in ipairs(self.g:aliveNodes()) do
     if n.kind=='client' and City.HOUSEHOLD[n.clientType] then
@@ -4062,6 +4069,8 @@ function City:endDay()
 
   report.interestPaid = self:loanInterest()
   self.day = self.day + 1
+  -- Freight ordered yesterday comes in overnight and is in the yards by morning.
+  report.imported = self:landShipments()
   if self.money < 0 and self:investedTotal() == 0 then
     self.bankrupt = true
     self:note("The company is insolvent.")
@@ -4697,13 +4706,14 @@ end
 -- Credit
 --------------------------------------------------------------------------------
 
--- The bank lends against what the company owns, never against what is in the
--- till, so borrowing cannot bootstrap its own ceiling. Ten percent a week, flat
--- and knowable: unlike the investment fund, a loan has no variance at all. It
--- is the instrument for buying a district today and paying for it out of the
--- customers that district brings.
+-- The bank lends the way a bank does: against the owner's own stake. A new
+-- company's capital is the money its founder put in; after that it is what
+-- the company is worth net of what it owes. The bank will lend up to
+-- `loanLeverage` times that, at one percent a week, flat. Borrowing moves cash
+-- and debt by the same amount, so net worth (and with it the limit) does not
+-- move: a loan cannot raise its own ceiling.
 City.loanRate = require("data.economy").loanRate
-City.loanRatio = require("data.economy").loanRatio
+City.loanLeverage = require("data.economy").loanLeverage
 
 -- Plant and ground: everything the company owns except its cash. Money set
 -- aside in the fund is cash too, or a loan invested would raise its own limit.
@@ -4720,7 +4730,8 @@ function City:collateral()
   return math.floor(v)
 end
 
-function City:loanLimit() return math.floor(self:collateral() * City.loanRatio) end
+function City:ownCapital() return math.max(0, self:valuation()) end
+function City:loanLimit() return math.floor(self:ownCapital() * City.loanLeverage) end
 function City:loanAvailable() return math.max(0, self:loanLimit() - (self.loan or 0)) end
 function City:loanInterest() return math.ceil((self.loan or 0) * City.loanRate / 7) end
 
@@ -4729,12 +4740,12 @@ function City:borrow(amount)
   amount = math.floor(amount)
   if amount <= 0 then return nil, "nothing to borrow" end
   local room = self:loanAvailable()
-  if room <= 0 then return nil, "no credit against current assets" end
+  if room <= 0 then return nil, "no more credit against your own capital" end
   if amount > room then return nil, "only $" .. room .. " of credit available" end
   self.loan = (self.loan or 0) + amount
   self.money = self.money + amount
-  self:note("Borrowed $%d at %d%% a week: $%d outstanding",
-    amount, math.floor(City.loanRate * 100), self.loan)
+  self:note("Borrowed $%d at %g%% a week: $%d outstanding",
+    amount, City.loanRate * 100, self.loan)
   return true
 end
 
@@ -5296,5 +5307,6 @@ require("terrain_life")(City)
 require("projects")(City)
 require("usage")(City)
 require("shops")(City)
+require("imports")(City)
 
 return City
