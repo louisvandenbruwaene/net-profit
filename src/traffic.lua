@@ -1130,62 +1130,81 @@ local function onPath(pts, s)
   return pts[1], pts[2], 1, 0
 end
 
+-- One leg of a convoy: its vehicles `run` metres along `pts`. On the last leg
+-- they stand at the end once there; an earlier leg's vehicles hand over at
+-- its end and are gone.
+local function drawLeg(cam, t, cv, mode, pts, len, run, last)
+  local spec = City.HAUL[mode]
+  local count = math.min(mode == "train" and 1 or 6, math.max(1, math.ceil(cv.units / spec.cap)))
+  local load = cargoColour(cv.key)
+  local gap = mode == "barge" and 90 or 34
+  for i = 1, count do
+    local behind = run - (i - 1) * gap
+    local s = math.min(len - 8 - (i - 1) * gap, behind)
+    if s >= 0 and (last or behind < len) then
+      local x, y, dx, dy = onPath(pts, s)
+      if mode == "plane" then
+        local f = math.min(1, s / math.max(1, len))
+        if f < 1 then flight(cam, pts[1], pts[2], pts[#pts - 1], pts[#pts], f, load) end
+      elseif cam:sees(x, y, 60) then
+        local sx, sy = cam:toScreen(x, y)
+        local moving = behind < len - 8 - (i - 1) * gap
+        if mode == "barge" or mode == "ship" then
+          boat(mode, sx, sy, dx, dy, cam.scale, t, i, moving and 0.7 or 0, { cv.key })
+        elseif mode == "train" then
+          train(cam, x, y, dx, dy, 0, math.min(10, math.ceil(cv.units / spec.cap)), { cv.key }, true)
+        else
+          -- Keep right on a road; overland, just the track it makes.
+          local lane = mode == "semi" and 4 or 0
+          sx, sy = cam:toScreen(x - dy * lane, y + dx * lane)
+          vehicle(mode == "semi" and "semi" or "truck", sx, sy, dx, dy, cam.scale, { 0.86, 0.50, 0.22 }, load)
+        end
+      end
+    end
+  end
+end
+
+-- The building site a delivery is on its way to: a fence and a tower crane.
+local function buildingSite(cam, t, cv)
+  local ex, ey = cv.pts[#cv.pts - 1], cv.pts[#cv.pts]
+  if not cam:sees(ex, ey, 80) then return end
+  local sx, sy = cam:toScreen(ex, ey)
+  local k = math.max(0.4, cam.scale)
+  lg.setColor(0.95, 0.70, 0.20, 0.85); lg.setLineWidth(math.max(1, 1.5 * k))
+  for a = 0, 11 do
+    if a % 2 == 0 then lg.arc("line", "open", sx, sy, 34 * k, a * math.pi / 6, (a + 1) * math.pi / 6) end
+  end
+  local jib = (t * 0.25 + (cv.id or 0)) % (math.pi * 2)
+  lg.setColor(0, 0, 0, 0.3); lg.setLineWidth(math.max(1, 2 * k))
+  lg.line(sx + 4 * k, sy + 6 * k, sx + 4 * k + math.cos(jib) * 40 * k, sy + 6 * k + math.sin(jib) * 40 * k)
+  lg.setColor(0.98, 0.78, 0.22); lg.setLineWidth(math.max(1, 2.4 * k))
+  lg.line(sx - math.cos(jib) * 12 * k, sy - math.sin(jib) * 12 * k, sx + math.cos(jib) * 40 * k, sy + math.sin(jib) * 40 * k)
+  lg.rectangle("fill", sx - 3 * k, sy - 3 * k, 6 * k, 6 * k)
+  lg.setColor(0.30, 0.30, 0.32); lg.rectangle("fill", sx - math.cos(jib) * 12 * k - 3 * k, sy - math.sin(jib) * 12 * k - 3 * k, 6 * k, 6 * k)
+end
+
 local function drawConvoys(city, cam, t, air)
   local fresh = 0
   for _, cv in ipairs(city.convoys or {}) do
-    local spec = City.HAUL and City.HAUL[cv.mode]
     -- A later day's trainload is not on the line yet.
-    if spec and (cv.day or 0) <= (city.day or 0) and (cv.mode == "plane") == air and cv.pts and #cv.pts >= 4 then
+    if City.HAUL and City.HAUL[cv.mode] and (cv.day or 0) <= (city.day or 0) and cv.pts and #cv.pts >= 4 then
       -- Loads that set off together leave one after another, not on top.
       if not convoySeen[cv] then convoySeen[cv] = t + fresh * 10; fresh = fresh + 1 end
-      local run = (t - convoySeen[cv]) * spec.speed
-      local count = math.min(cv.mode == "train" and 1 or 6, math.max(1, math.ceil(cv.units / spec.cap)))
-      -- Until a site's materials arrive it is a building site: a fence and
-      -- a tower crane turning over it.
-      if not air and not cv.stock and run < cv.len + (count - 1) * 34 then
-        local ex, ey = cv.pts[#cv.pts - 1], cv.pts[#cv.pts]
-        if cam:sees(ex, ey, 80) then
-          local sx, sy = cam:toScreen(ex, ey)
-          local k = math.max(0.4, cam.scale)
-          lg.setColor(0.95, 0.70, 0.20, 0.85); lg.setLineWidth(math.max(1, 1.5 * k))
-          for a = 0, 11 do
-            if a % 2 == 0 then lg.arc("line", "open", sx, sy, 34 * k, a * math.pi / 6, (a + 1) * math.pi / 6) end
-          end
-          local jib = (t * 0.25 + (cv.id or 0)) % (math.pi * 2)
-          lg.setColor(0, 0, 0, 0.3); lg.setLineWidth(math.max(1, 2 * k))
-          lg.line(sx + 4 * k, sy + 6 * k, sx + 4 * k + math.cos(jib) * 40 * k, sy + 6 * k + math.sin(jib) * 40 * k)
-          lg.setColor(0.98, 0.78, 0.22); lg.setLineWidth(math.max(1, 2.4 * k))
-          lg.line(sx - math.cos(jib) * 12 * k, sy - math.sin(jib) * 12 * k, sx + math.cos(jib) * 40 * k, sy + math.sin(jib) * 40 * k)
-          lg.rectangle("fill", sx - 3 * k, sy - 3 * k, 6 * k, 6 * k)
-          lg.setColor(0.30, 0.30, 0.32); lg.rectangle("fill", sx - math.cos(jib) * 12 * k - 3 * k, sy - math.sin(jib) * 12 * k - 3 * k, 6 * k, 6 * k)
+      local elapsed = t - convoySeen[cv]
+      local legs = cv.legs or { { mode = cv.mode, pts = cv.pts, len = cv.len } }
+      local start = 0
+      for k, leg in ipairs(legs) do
+        local spec = City.HAUL[leg.mode]
+        local run = (elapsed - start) * spec.speed
+        if spec and (leg.mode == "plane") == air and run >= 0 and #leg.pts >= 4 then
+          drawLeg(cam, t, cv, leg.mode, leg.pts, leg.len, run, k == #legs)
         end
+        -- The next leg sets off once this one is in and unloaded.
+        start = start + leg.len / spec.speed + 8
       end
-      local load = cargoColour(cv.key)
-      local gap = cv.mode == "barge" and 90 or 34
-      for i = 1, count do
-        local s = math.min(cv.len - 8 - (i - 1) * gap, run - (i - 1) * gap)
-        if s >= 0 then
-          local x, y, dx, dy = onPath(cv.pts, s)
-          if cv.mode == "plane" then
-            local f = math.min(1, s / math.max(1, cv.len))
-            if f < 1 then flight(cam, cv.pts[1], cv.pts[2], cv.pts[#cv.pts - 1], cv.pts[#cv.pts], f, load) end
-          elseif cam:sees(x, y, 60) then
-            local sx, sy = cam:toScreen(x, y)
-            local moving = run - (i - 1) * gap < cv.len - 8 - (i - 1) * gap
-            if cv.mode == "barge" or cv.mode == "ship" then
-              boat(cv.mode, sx, sy, dx, dy, cam.scale, t, i, moving and 0.7 or 0, { cv.key })
-            elseif cv.mode == "train" then
-              train(cam, x, y, dx, dy, 0, math.min(10, math.ceil(cv.units / spec.cap)), { cv.key }, true)
-            else
-              -- Keep right on a road; overland, just the track it makes.
-              local lane = cv.mode == "semi" and 4 or 0
-              sx, sy = cam:toScreen(x - dy * lane, y + dx * lane)
-              vehicle(cv.mode == "semi" and "semi" or "truck", sx, sy, dx, dy, cam.scale,
-                { 0.86, 0.50, 0.22 }, load)
-            end
-          end
-        end
-      end
+      -- Until a site's materials arrive it is a building site.
+      local spec = City.HAUL[cv.mode]
+      if not air and not cv.stock and not cv.legs and elapsed * spec.speed < cv.len + 5 * 34 then buildingSite(cam, t, cv) end
     end
   end
 end

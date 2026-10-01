@@ -788,6 +788,10 @@ Status: shipped. What a later session must know:
   lines (through other yards or havens, `City:railPath`) goes by train, as much a
   day as the tightest line has spare after its regular freight (`railSpare`); a
   bigger order goes up a trainload a day.
+- **Barge inland:** from a river wharf, an order goes by barge (`City:bargeRoute`):
+  berth to berth to a yard by the river, or to the company's wharf nearest an
+  inland yard and on by land from there (a two-leg convoy, `cv.legs`, each leg
+  billed at its own rate and drawn after the one before).
 - **Haulage** (`src/haulage.lua`): a landed order is hauled on to the nearest
   yard by the best built way (own line, semi on roads, barge, plane, lorry
   overland, never through water) and is in stock a day later; its haulage is

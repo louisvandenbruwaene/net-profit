@@ -24,6 +24,7 @@ return function(City)
   -- second of play), and which freight rate it is billed at.
   City.HAUL = require("data.freight").HAUL
   local BULK = { rail = "train", highway = "semi", sea = "ship", air = "plane" }
+  local landRoute
 
   -- Where a boat calls at a place: a harbour or anything else on the coast is
   -- reached at the head of its jetty, out at sea; anything already on the
@@ -150,29 +151,10 @@ return function(City)
     return stops, cap
   end
 
-  function City:haulRoute(from, tx, ty, to)
-    -- The company's own railway, where it reaches.
-    if to then
-      local stops, cap = self:railPath(from, to)
-      if stops and #stops > 1 and cap > 0 then
-        local pts = {}
-        for _, n in ipairs(stops) do pts[#pts + 1] = n.x; pts[#pts + 1] = n.y end
-        return { mode = "train", pts = pts, cap = cap }
-      end
-    end
-    if to then
-      for _, e in ipairs(self.g:edgesAt(from.id)) do
-        if e.alive and e.rail and (e.a == to.id or e.b == to.id) and BULK[e.bulk or "rail"] then
-          local mode = BULK[e.bulk or "rail"]
-          if mode == "ship" then
-            local ax, ay = self:quayPoint(from)
-            local bx, by = self:quayPoint(to)
-            return { mode = mode, pts = { ax, ay, bx, by } }
-          end
-          return { mode = mode, pts = { from.x, from.y, to.x, to.y } }
-        end
-      end
-    end
+  -- The way over land (and, failing that, the river or the air) from a
+  -- building to a point: the company's roads, a barge where both ends stand
+  -- by the river, a freighter from an air apron, else a lorry overland.
+  landRoute = function(self, from, tx, ty, to)
     -- Roads: to the building itself, or to the road-side place nearest the site.
     local target = to
     if not target then
@@ -207,9 +189,84 @@ return function(City)
     return { mode = "lorry", pts = { from.x, from.y, tx, ty } }
   end
 
+
+  -- The river between two places, as a barge sails it: from the berth by the
+  -- first, along the course, to the berth by the second.
+  local function riverLeg(self, from, tx, ty, to)
+    local p = self:riverPath()
+    if not (p and p.n and p.n > 2) then return nil end
+    local ax, ay, ai = self:wharfBerth(from)
+    local target = to or { x = tx, y = ty }
+    local bx, by, bi = self:wharfBerth(target)
+    if not (ai and bi) then return nil end
+    -- Berth to berth: a barge never leaves the water.
+    local pts = { ax, ay }
+    local step = ai <= bi and 1 or -1
+    for k = ai + step, bi - step, step do pts[#pts + 1] = p.x[k]; pts[#pts + 1] = p.y[k] end
+    pts[#pts + 1] = bx; pts[#pts + 1] = by
+    if #pts < 4 then pts[#pts + 1] = bx + 1; pts[#pts + 1] = by end
+    return pts
+  end
+
+  function City:bargeRoute(from, tx, ty, to)
+    if self:nearRiver(tx, ty) then
+      local pts = riverLeg(self, from, tx, ty, to)
+      if pts then return { mode = "barge", pts = pts } end
+    end
+    -- By barge to the company's wharf nearest the yard, then on by land.
+    local best, bd
+    for _, w in ipairs(self.g:nodesOfKind("terminal")) do
+      if w.alive and w.haven == "wharf" and w ~= from then
+        local d = (w.x - tx) ^ 2 + (w.y - ty) ^ 2
+        if not bd or d < bd then best, bd = w, d end
+      end
+    end
+    if not best then return nil end
+    local leg1 = riverLeg(self, from, best.x, best.y, best)
+    local leg2 = leg1 and landRoute(self, best, tx, ty, to)
+    if not (leg1 and leg2) or leg2.mode == "barge" then return nil end
+    return { mode = "barge", pts = leg1, legs = { { mode = "barge", pts = leg1 }, { mode = leg2.mode, pts = leg2.pts } } }
+  end
+
+  function City:haulRoute(from, tx, ty, to)
+    -- The company's own railway, where it reaches.
+    if to then
+      local stops, cap = self:railPath(from, to)
+      if stops and #stops > 1 and cap > 0 then
+        local pts = {}
+        for _, n in ipairs(stops) do pts[#pts + 1] = n.x; pts[#pts + 1] = n.y end
+        return { mode = "train", pts = pts, cap = cap }
+      end
+    end
+    if to then
+      for _, e in ipairs(self.g:edgesAt(from.id)) do
+        if e.alive and e.rail and (e.a == to.id or e.b == to.id) and BULK[e.bulk or "rail"] then
+          local mode = BULK[e.bulk or "rail"]
+          if mode == "ship" then
+            local ax, ay = self:quayPoint(from)
+            local bx, by = self:quayPoint(to)
+            return { mode = mode, pts = { ax, ay, bx, by } }
+          end
+          return { mode = mode, pts = { from.x, from.y, to.x, to.y } }
+        end
+      end
+    end
+    -- From a river wharf, the river: a barge to the bank by the yard, or to
+    -- the company's wharf nearest it and on by land from there.
+    if from.haven == "wharf" then
+      local barge = self:bargeRoute(from, tx, ty, to)
+      if barge then return barge end
+    end
+    return landRoute(self, from, tx, ty, to)
+  end
+
   function City:haulCost(route, units)
-    local rate = City.MODES[City.HAUL[route.mode].rate] or City.MODES.highway
-    return math.ceil(units * (rate.haulPerUnit + polyLength(route.pts) * rate.haulPerM))
+    local total = 0
+    for _, leg in ipairs(route.legs or { route }) do
+      local rate = City.MODES[City.HAUL[leg.mode].rate] or City.MODES.highway
+      total = total + units * (rate.haulPerUnit + polyLength(leg.pts) * rate.haulPerM)
+    end
+    return math.ceil(total)
   end
 
   local function convoy(self, key, units, from, tx, ty, to, stock, day, route)
@@ -217,6 +274,10 @@ return function(City)
     if not route then return nil end
     local c = { key = key, units = units, from = from.id, to = to and to.id or nil, mode = route.mode,
       pts = route.pts, len = polyLength(route.pts), day = day or self.day, stock = stock or nil }
+    if route.legs then
+      c.legs = {}
+      for i, leg in ipairs(route.legs) do c.legs[i] = { mode = leg.mode, pts = leg.pts, len = polyLength(leg.pts) } end
+    end
     self.convoys = self.convoys or {}
     self.convoys[#self.convoys + 1] = c
     return c, route

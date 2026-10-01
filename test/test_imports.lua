@@ -249,4 +249,46 @@ do
   c:endDay(); c:endDay()
   check(c:materialStock("glass")==before+units,"and the last two days later")
 end
+
+print("river barges carry imports inland from the wharf")
+do
+  local c=T.sandbox(24)
+  c.stock={}
+  -- Bank spots along the river, far apart.
+  local banks={}
+  for y=200,2400,40 do
+    for x=-1000,5000,20 do
+      if c:nearRiver(x,y) and not c:riverAt(x,y) and c:riverAt(x+40,y) and not c:placementError(x,y,"terminal") then
+        if #banks==0 or (banks[#banks].y+900<y) then banks[#banks+1]={x=x,y=y} end
+        break
+      end
+    end
+  end
+  assert(#banks>=2,"two stretches of river bank")
+  local up,down=banks[1],banks[2]
+  local wharf=assert(c:build(up.x,up.y,"terminal","wharf"))
+  -- A yard on the bank downriver: the barge takes it all the way.
+  local bankYard=c.g:addNode(down.x-60,down.y,"dc")
+  c:refresh()
+  assert(c:orderImport(wharf.id,"steel",40,bankYard.id))
+  c:endDay()
+  local cv=c.convoys[#c.convoys]
+  check(cv.mode=="barge" and not cv.legs and cv.to==bankYard.id,"to a yard by the river it goes all the way by barge")
+  check(c:riverAt(cv.pts[1],cv.pts[2]) and c:riverAt(cv.pts[#cv.pts-1],cv.pts[#cv.pts]),"and the barge stays on the water, berth to berth")
+  c:endDay()
+  check(c:materialStock("steel")==40,"in the yard the next morning")
+
+  -- A yard away from the river: by barge to the wharf nearest it, then by land.
+  local wharf2=assert(c:build(down.x,down.y+120,"terminal","wharf"))
+  local inland=c.g:addNode(down.x-400,down.y+120,"dc")
+  c:refresh()
+  local route=c:haulRoute(wharf,inland.x,inland.y,inland)
+  check(route.mode=="barge" and route.legs and #route.legs==2 and route.legs[2].mode~="barge","a yard inland: barge to the next wharf, then on by land")
+  local barge=c:haulCost({mode="barge",pts=route.legs[1].pts},100)
+  local land=c:haulCost({mode=route.legs[2].mode,pts=route.legs[2].pts},100)
+  check(c:haulCost(route,100)<=barge+land+1 and c:haulCost(route,100)>=barge+land-1,"each leg billed at its own rate")
+  assert(c:orderImport(wharf.id,"glass",30,inland.id))
+  c:endDay(); c:endDay()
+  check(c:materialStock("glass")==30,"and it reaches the inland yard the morning after")
+end
 print(T.checks.." import checks passed")
