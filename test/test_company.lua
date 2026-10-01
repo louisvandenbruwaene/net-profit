@@ -37,6 +37,13 @@ local function openCompany(c)
   return c
 end
 
+-- Works and plants built of materials go up overnight; a check about the
+-- running building says it was built yesterday.
+local function commission(c, ...)
+  for _, n in ipairs({ ... }) do n.assembling = nil end
+  c:refresh()
+end
+
 local function fresh(seed)
   local c = openCompany(City.new({seed=seed or 12, obstacles=0}))
   -- The yards start stocked. These are checks about pipes, valves, money and
@@ -628,6 +635,7 @@ do
   local mill=assert(c:build(bx+240,by,"works","maltings"))
   local plant=assert(c:buySource("power",bx+360,by+200,"nuclear"))
   local brew=assert(c:build(bx+480,by,"works","brewery"))
+  commission(c,mill,plant,brew)
   check(brew.makes=="beer","a brewery makes beer")
   -- It asks for everything its rated output would eat, and it needs all of it.
   local recipe=City.RECIPES.brewery

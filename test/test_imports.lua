@@ -143,4 +143,23 @@ do
     check(l and l.roadType=="bridge" and c:waterAlong(a.x,a.y,b.x,b.y)>0,"a bridge does, over the open water")
   end
 end
+
+print("works and reactors go up from their delivered materials")
+do
+  local c=T.sandbox(24,true)
+  c.stock.steel, c.stock.concrete=2000, 2000
+  local d=c.districts[City.MAP.start]
+  c.g:addNode(d.x+150,d.y+150,"dc")
+  local mill
+  for dx=0,600,60 do mill=c:build(d.x+300+dx,d.y+300,"works","maltings"); if mill then break end end
+  assert(mill,"somewhere for a maltings")
+  check(mill.assembling==c.day and next(mill.wants)==nil and mill.ready==0,"a works built today takes nothing in and makes nothing")
+  local reactor
+  for dx=0,600,60 do reactor=c:buySource("power",d.x+300+dx,d.y+520,"nuclear"); if reactor then break end end
+  assert(reactor,"somewhere for a reactor")
+  check(reactor.assembling and (reactor.effectiveOutput or 0)==0,"a reactor built today is not yet generating")
+  c:endDay(); c:refresh()
+  check(not mill.assembling and next(mill.wants)~=nil,"the next day the works asks for its inputs")
+  check(not reactor.assembling and (reactor.effectiveOutput or reactor.output or 0)>0,"and the reactor runs")
+end
 print(T.checks.." import checks passed")

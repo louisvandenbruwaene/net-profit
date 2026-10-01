@@ -2191,6 +2191,12 @@ local function buildPlain(self, x, y, kind, commodity)
   if kind == "works" then
     n.throughput = 999
     n.recipe = commodity
+    -- A works built of steel and concrete goes up from what is delivered to
+    -- it today and starts making from tomorrow. The three cash-only works
+    -- that open a trade have nothing to wait for.
+    -- (Test suites about something else set City.INSTANT_BUILD, the way they
+    -- set FLAT_USAGE: their buildings are up the moment they are paid for.)
+    if next(bill or {}) and not City.INSTANT_BUILD then n.assembling = self.day end
     n.makes = recipe.makes
     n.wants = self:worksWants(n)
     self:note("%s built: %d %s a day when it is fed", recipe.name, recipe.rate, recipe.makes)
@@ -2889,9 +2895,10 @@ local function buySourcePlain(self, commodity, px, py, plant)
     self:spendMaterials(bill, 1, px, py)
     local s = self.g:addNode(px, py, "source")
     s.commodity, s.paid, s.level = commodity, cost, 1
-    -- Panels and turbines are assembled on site from the parts driven out to
-    -- it today: the array or the wind park runs from tomorrow.
-    if plant == "solar" or plant == "wind" then s.assembling = self.day end
+    -- A plant built of parts (panels, turbines, a reactor's steel and
+    -- concrete) is assembled on site from what is driven out to it today: it
+    -- runs from tomorrow.
+    if plant and next(bill) and not City.INSTANT_BUILD then s.assembling = self.day end
     -- Four ports: enough for a well, a rig or a plant to feed a couple of
     -- routes, never enough to turn a producing building into a distribution
     -- point in its own right. That job belongs to a hub.
@@ -3372,7 +3379,9 @@ function City:refresh()
   for _, w in ipairs(works) do
     local recipe = City.RECIPES[w.recipe or ""]
     w.makes = recipe and recipe.makes or nil
-    w.wants = self:worksWants(w)
+    -- Still going up: it takes nothing in and makes nothing yet.
+    if w.assembling and w.assembling < self.day then w.assembling = nil end
+    w.wants = w.assembling and {} or self:worksWants(w)
     w.ready = 0
     self.detail.works[w.id] = {}
   end
@@ -3422,8 +3431,8 @@ function City:refresh()
     -- output, and the player needs to see it to know the chain works.
     for _, w in ipairs(works) do
       local recipe=City.RECIPES[w.recipe]
-      if w.makes == name then w.ready = self:worksOutput(w) end
-      if recipe and recipe.coproduct==name then w.coproduct=name; w.coproductReady=self:worksOutput(w) end
+      if w.makes == name then w.ready = w.assembling and 0 or self:worksOutput(w) end
+      if recipe and recipe.coproduct==name then w.coproduct=name; w.coproductReady=w.assembling and 0 or self:worksOutput(w) end
     end
 
     if feeds[name] and wants[name] then

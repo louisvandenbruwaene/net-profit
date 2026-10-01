@@ -50,4 +50,12 @@ function T.node(c, kind, x, y, commodity, output)
   return n
 end
 
+-- Works and plants built of materials go up overnight and run from the next
+-- day. A fixture that is about the running building, not the wait, says they
+-- were built yesterday.
+function T.commission(c, ...)
+  for _, n in ipairs({ ... }) do n.assembling = nil end
+  c:refresh()
+end
+
 return T

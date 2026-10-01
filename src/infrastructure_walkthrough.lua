@@ -17,6 +17,8 @@ return function(app,capture,click,scrollTo,check)
   app.action('buySource','power',1200,900,'nuclear')
   local source=c.g.nodes[app.state.node]
   check(source and source.plant=='nuclear','reactor is commissioned through an application action')
+  check(source.assembling==c.day,'a new reactor goes up overnight before it generates')
+  source.assembling=nil -- the rest of this fixture is about the network, not the wait
   app.action('build',1450,920,'hvtower'); local hv=c.g.nodes[app.state.node]
   app.action('build',1530,950,'pylon'); local tower=c.g.nodes[app.state.node]
   local customer=assert(c:addClient('workshop',true)); customer.x,customer.y=1610,950; customer.demand=5
