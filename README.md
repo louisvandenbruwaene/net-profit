@@ -313,7 +313,9 @@ closing a day is final.
   x1.20, air x1.55. From there
   the load is hauled on to the nearest yard by the best way you have built: your
   own rail lines first (a train a day, as much as the line has room for, through
-  other yards if need be), your own freight line, a semi along your roads, a barge on the river, a plane from
+  other yards if need be); from a river wharf, a barge down or up the river,
+  on to another of your wharves and by land from there if the yard is inland;
+  your own freight line, a semi along your roads, a barge on the river, a plane from
   an air apron, or a lorry overland. Haulage is billed at that mode's rate and the
   goods are in stock the morning after. Whatever a building is made of is driven
   out to its site, and a works or a power plant built of materials goes up from
