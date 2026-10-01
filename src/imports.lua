@@ -65,14 +65,17 @@ return function(City)
     return nil
   end
 
-  function City:orderImport(havenId, key, units)
+  -- `yardId`: the yard it is hauled on to; the nearest when left out.
+  function City:orderImport(havenId, key, units, yardId)
     units = math.floor(units or 0)
     local why = self:shipmentError(havenId, key, units)
     if why then return nil, why end
     local cost = self:shipmentCost(havenId, key, units)
     self:spend(cost)
     self.shipments = self.shipments or {}
-    local o = { haven = havenId, key = key, units = units, cost = cost, day = self.day, arrive = self.day + City.IMPORT.leadDays }
+    local yard = yardId and self.g.nodes[yardId]
+    local o = { haven = havenId, key = key, units = units, cost = cost, day = self.day, arrive = self.day + City.IMPORT.leadDays,
+      yard = yard and yard.alive and yard.kind == "dc" and yard.id or nil }
     self.shipments[#self.shipments + 1] = o
     self:note("Ordered %d %s for $%d: lands tomorrow", units, string.lower(Graph.COMMODITIES[key].name), cost)
     return o
@@ -92,7 +95,7 @@ return function(City)
         self.landings[#self.landings + 1] = { haven = o.haven, key = o.key, units = o.units, day = today }
         self:note("Landed %d %s", o.units, string.lower(Graph.COMMODITIES[o.key].name))
         -- On to the yards; with none, the quay is the store.
-        local cv = self:haulInland(o.haven, o.key, o.units, today)
+        local cv = self:haulInland(o.haven, o.key, o.units, today, o.yard)
         haulage = haulage + (cv and cv.cost or 0)
       else
         keep[#keep + 1] = o

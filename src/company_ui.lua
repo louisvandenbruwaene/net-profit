@@ -698,10 +698,24 @@ local function importMenu(n,spec,y)
     function() state.importUnits=math.max(1,units-lot) end,function() state.importUnits=units+lot end,
     units>1,units+lot<=city:storeRoom(key),"Room in the yards: "..city:storeRoom(key))
   y=y+38
+  -- Which yard it goes on to: the nearest, or any other, one click at a time.
+  local yards={}
+  for _,d in ipairs(city.g:nodesOfKind("dc")) do if d.alive then yards[#yards+1]=d end end
+  table.sort(yards,function(a,b) return (a.x-n.x)^2+(a.y-n.y)^2<(b.x-n.x)^2+(b.y-n.y)^2 end)
+  local yard=nil
+  if #yards>0 then
+    state.importYard=state.importYard or {}
+    local pick=state.importYard[n.id] or 1
+    if pick>#yards then pick=1 end
+    yard=yards[pick]
+    button("import-yard","To yard "..yard.id..(pick==1 and " (nearest)" or ""),M,y,CW,30,
+      function() state.importYard[n.id]=pick%#yards+1 end,#yards>1,"Click for another yard")
+    y=y+36
+  end
   local cost=city:shipmentCost(n.id,key,units) or 0
   local why=city:shipmentError(n.id,key,units)
   button("import-order","Order "..units.." "..string.lower(Graph.COMMODITIES[key].name).."  $"..cost,M,y,CW,32,
-    function() act("orderImport",n.id,key,units) end,not why,why or "Lands tomorrow morning",nil,Graph.COMMODITIES[key].color)
+    function() act("orderImport",n.id,key,units,yard and yard.id or nil) end,not why,why or "Lands tomorrow morning",nil,Graph.COMMODITIES[key].color)
   y=y+40
   local coming,landed=city:havenShipments(n.id)
   for _,k in ipairs(goods) do
