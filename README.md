@@ -302,9 +302,27 @@ closing a day is final.
   main to every house from about nine customers on, and beats it on upkeep from
   about seven. Below that, connecting directly is still the right answer.
 - **Materials.** A hub is twenty steel, a works is forty steel and twenty
-  concrete, a railway is twelve steel a kilometre. Materials are imported or made,
-  taken in at the yards, and spent from there. A highway needs none, which is
-  how the first steel ever reaches the city.
+  concrete, a railway is twelve steel a kilometre, a solar array twelve panels.
+  Materials are imported or made, taken in at the yards, and spent from there. A
+  highway needs none, which is how the first steel ever reaches the city.
+- **Importing.** Every haven has an import menu: pick a good and a quantity and
+  pay the landed price now. The freighter (a ship at a harbour, lorries at a road
+  head, a plane at an air apron) sets out at once and lands overnight. From there
+  the load is hauled on to the nearest yard by the best way you have built: your
+  own freight line, a semi along your roads, a barge on the river, a plane from
+  an air apron, or a lorry overland. Haulage is billed at that mode's rate and the
+  goods are in stock the morning after. Whatever a building is made of is driven
+  out to its site.
+- **Land and roads.** Land is one continuous field; plots are survey lines, and
+  woods and ranges may lie across them. There are no streets until you lay them:
+  every road on the map is yours, and only a **bridge** crosses water. A bridge
+  costs the road plus $3.20 a metre of water spanned and charges a toll you set.
+- **Traffic is the company's own.** Cars, buses and lorries drive your roads as
+  many as made trips on them today; trains, semis, ships and planes carry your
+  freight; ships call only when cargo lands, ferries and airliners run only on
+  routes that carried passengers. People live in the buildings on the map and
+  walk the pavements of your roads, or their own gardens; there are more of them
+  as a district grows.
 - **Staff.** Surveyors report on ground you have not bought, scouts reveal the
   regions further out, analysts improve investment returns. They inform; none of
   them acts for you.
@@ -473,10 +491,11 @@ licence they could not yet use.
   next customer is nearly free. It needs no deposit, only ground you hold.
 - **Beer:** nobody brews. A beer licence buys the right to lay beer mains, and
   the beer itself comes off a ship.
-- **Credit:** the bank lends up to half of what the company owns, excluding cash,
-  at a flat 10% a week charged daily. No variance at all, unlike the deposit
-  fund. It is the instrument for buying a district today and paying for it out of
-  the customers that district brings.
+- **Credit:** the bank lends against the owner's own capital: up to twice the
+  company's net worth (a new company's is its $750 founding stake), at a flat 1%
+  a week charged daily. Borrowing moves cash and debt together, so it cannot raise
+  its own limit. It is the instrument for buying a district today and paying for
+  it out of the customers that district brings.
 - **Investments:** deposits are locked for exactly seven closes. Return is
   normally distributed with mean 10% and standard deviation 5%; losses are possible.
 - **Markets:** a heatwave, a beer festival or an excise rise moves what one trade

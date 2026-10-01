@@ -21,14 +21,7 @@ local Graph = require("graph")
 return function(City)
   -- Vehicles: how much one carries, how fast it goes on the map (metres a
   -- second of play), and which freight rate it is billed at.
-  City.HAUL = {
-    semi  = { cap = 24, speed = 34, rate = "highway", name = "semi" },
-    lorry = { cap = 12, speed = 22, rate = "highway", name = "lorry" },
-    train = { cap = 40, speed = 40, rate = "rail",    name = "train" },
-    ship  = { cap = 90, speed = 18, rate = "sea",     name = "ship" },
-    barge = { cap = 60, speed = 14, rate = "sea",     name = "barge" },
-    plane = { cap = 10, speed = 160, rate = "air",    name = "plane" },
-  }
+  City.HAUL = require("data.freight").HAUL
   local BULK = { rail = "train", highway = "semi", sea = "ship", air = "plane" }
 
   -- Where materials are kept: the yards, or failing any, the havens' quays.

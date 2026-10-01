@@ -90,4 +90,24 @@ Data.depotCapacity = 100
 
 Data.depotFillRate = 100
 
+-- Ordering from abroad at a haven: the step the quantity moves in, the days
+-- until it lands, and what a company with no yard may keep on the quay.
+Data.IMPORT = { leadDays = 1, lot = 10, quayStock = 400 }
+
+-- The vehicles that carry a load inland or to a site: what one holds, how
+-- fast it moves on the map (metres a second), and which mode's haulage rate
+-- it is billed at.
+Data.HAUL = {
+  semi  = { cap = 24, speed = 34, rate = "highway", name = "semi" },
+  lorry = { cap = 12, speed = 22, rate = "highway", name = "lorry" },
+  train = { cap = 40, speed = 40, rate = "rail",    name = "train" },
+  ship  = { cap = 90, speed = 18, rate = "sea",     name = "ship" },
+  barge = { cap = 60, speed = 14, rate = "sea",     name = "barge" },
+  plane = { cap = 10, speed = 160, rate = "air",    name = "plane" },
+}
+
+-- A bridge: dollars a metre of water it spans, on top of the road, and the
+-- toll it starts at.
+Data.BRIDGE = { perWaterM = 3.2, toll = 2 }
+
 return Data

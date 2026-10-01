@@ -14,7 +14,7 @@
 local Graph = require("graph")
 
 return function(City)
-  City.IMPORT = { leadDays = 1, lot = 10, quayStock = 400 }
+  City.IMPORT = require("data.freight").IMPORT
 
   -- What can be ordered: solid goods with a world price. Liquids come down a
   -- main and power is never imported.
