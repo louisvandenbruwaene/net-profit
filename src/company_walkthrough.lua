@@ -733,10 +733,16 @@ function Walk.start(app,mode)
     -- same manifold off it rather than each finding their own way to n. This
     -- company was started from the clock a few steps back, so whatever the day
     -- scattered near the well decides where there is room for it.
+    -- A hub the well's main can actually reach: nothing standing in between.
+    local function reachable(h)
+      return h and (c:pipeBetween(well.id,h.id,"water") or not c:pipeError(well.id,h.id,"water",nil,"large"))
+    end
     local hub=distributionPoint(c,well)
-    for _,off in ipairs({{100,40},{-100,40},{100,-60},{-100,-60},{0,110},{0,-110}}) do
+    if not reachable(hub) then hub=nil end
+    for _,off in ipairs({{100,40},{-100,40},{100,-60},{-100,-60},{0,110},{0,-110},{150,0},{-150,0},{0,160},{0,-160}}) do
       if hub then break end
-      hub=c:build(well.x+off[1],well.y+off[2],"manifold")
+      local h=c:build(well.x+off[1],well.y+off[2],"manifold")
+      if reachable(h) then hub=h end
     end
     for _,off in ipairs({{120,40},{120,-40},{-120,40},{-120,-40},{40,120},{-40,120},{40,-120},{-40,-120}}) do
       if not select(2,c:crossingCost(hub.x,hub.y,hub.x+off[1],hub.y+off[2])) then
@@ -813,7 +819,8 @@ function Walk.start(app,mode)
     check(app.state.people and app.state.transit=="road","People selects passenger construction")
     check(not anywhere("line-options") and not anywhere("tool-junction"),"People hides pipes and fittings")
     check(anywhere("tool-stop"),"a bus stop is offered once people live here")
-    check(anywhere("road-type-offroad") and anywhere("road-type-road") and anywhere("road-type-highway"),"all three road variants have controls")
+    check(anywhere("road-type-offroad") and anywhere("road-type-road") and anywhere("road-type-highway") and anywhere("road-type-bridge"),"all four road variants have controls, bridge included")
+    click("road-type-bridge"); check(c.buildRoadType=="bridge","bridge construction can be selected")
     click("road-type-highway"); check(c.buildRoadType=="highway","highway construction can be selected")
     click("road-type-offroad"); check(c.buildRoadType=="offroad","offroad construction can be selected")
     click("road-type-road")
