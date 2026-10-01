@@ -101,8 +101,10 @@ return function(City)
       if pts then return { mode = "barge", pts = pts } end
     end
     if from.haven == "airfield" then return { mode = "plane", pts = { from.x, from.y, tx, ty } } end
-    -- Overland only where a lorry can drive: not through water.
+    -- Overland only where a lorry can drive: not through water, and not over
+    -- ground that nothing may cross (a range without a blasting licence).
     if self:waterAlong(from.x, from.y, tx, ty) > 0 then return nil end
+    if not self:crossingCost(from.x, from.y, tx, ty) then return nil end
     return { mode = "lorry", pts = { from.x, from.y, tx, ty } }
   end
 
