@@ -119,42 +119,89 @@ local function drawPerson(x, y, dx, dy, scale, coat, t, phase, still)
 end
 
 -- A hull from above: square stern, parallel sides, a fine bow.
--- People are queued and drawn together, so two who would land on the same
--- spot step aside for each other: the later one moves across the way it is
--- walking, as far as it takes to clear, instead of the two merging.
+-- People are queued and drawn together, so two about to walk into each
+-- other can see it coming: the one heading into the other turns round and
+-- walks back the way it came. Each walker keeps its own clock, which runs
+-- backwards after a turn, so turning back is retracing its outing rather
+-- than a jump. Nobody is ever moved sideways.
 local crowd = {}
-local function person(x, y, dx, dy, scale, coat, t, phase, still)
-  crowd[#crowd + 1] = { x, y, dx, dy, scale, coat, t, phase, still }
+local clocks, clockFrame = {}, 0
+local TURN_COOL = 3
+-- A walker's own time: R.t as it was, plus every stretch since run forwards
+-- or backwards. A jump in R.t (a reload, a pinned shot) starts it afresh.
+local function clock(id, t)
+  if not id then return t, 1 end
+  local c = clocks[id]
+  if not c or math.abs(t - c.last) > 1 then
+    c = { c = t, dir = 1, last = t, cool = 0 }
+    clocks[id] = c
+  else
+    c.c = c.c + c.dir * (t - c.last)
+    c.cool = c.cool - math.abs(t - c.last)
+    c.last = t
+  end
+  c.seen = clockFrame
+  return c.c, c.dir
+end
+local function person(x, y, dx, dy, scale, coat, t, phase, still, id)
+  crowd[#crowd + 1] = { x, y, dx, dy, scale, coat, t, phase, still, id }
 end
 local function flushPeople()
-  local placed = {}
+  clockFrame = clockFrame + 1
+  local grid = {}
+  local cell = 8
   for _, p in ipairs(crowd) do
     local r = px(4.2, p[5], 1.1)
-    local cell = math.max(4, r * 2)
-    local function clash(x, y)
-      local cx, cy = math.floor(x / cell), math.floor(y / cell)
+    cell = math.max(cell, r * 2.6)
+  end
+  for i, p in ipairs(crowd) do
+    local k = math.floor(p[1] / cell) * 65536 + math.floor(p[2] / cell)
+    grid[k] = grid[k] or {}
+    table.insert(grid[k], i)
+  end
+  -- Heading into someone close ahead: turn back, unless just turned. Of two
+  -- walking into each other only one turns, so they part.
+  local function heading(p, q)
+    local l = math.sqrt(p[3] * p[3] + p[4] * p[4])
+    if l < 1e-6 or p[9] then return false end
+    local ox, oy = q[1] - p[1], q[2] - p[2]
+    local d = math.sqrt(ox * ox + oy * oy)
+    return (ox * p[3] + oy * p[4]) / l > d * 0.5
+  end
+  for i, p in ipairs(crowd) do
+    local c = p[10] and clocks[p[10]]
+    if c and c.cool <= 0 and not p[9] then
+      local r = px(4.2, p[5], 1.1)
+      local reach = r * 2.4
+      local cx, cy = math.floor(p[1] / cell), math.floor(p[2] / cell)
+      local turn = false
       for ix = cx - 1, cx + 1 do
         for iy = cy - 1, cy + 1 do
-          for _, q in ipairs(placed[ix * 65536 + iy] or {}) do
-            if (q[1] - x) ^ 2 + (q[2] - y) ^ 2 < (r * 1.5) ^ 2 then return true end
+          for _, j in ipairs(grid[ix * 65536 + iy] or {}) do
+            local q = crowd[j]
+            if j ~= i and (q[1] - p[1]) ^ 2 + (q[2] - p[2]) ^ 2 < reach * reach and heading(p, q) then
+              local qc = q[10] and clocks[q[10]]
+              -- Head on, the one whose turn is free and comes second turns.
+              if not (heading(q, p) and qc and qc.cool <= 0 and j > i) then turn = true end
+            end
           end
         end
       end
-      return false
+      if turn then
+        -- Caught between two, it does not pace back and forth: the second
+        -- turn in a short while holds its way for longer.
+        c.dir = -c.dir
+        c.cool = (c.turned and p[7] - c.turned < 8) and 3 * TURN_COOL or TURN_COOL
+        c.turned = p[7]
+      end
     end
-    local l = math.max(1e-6, math.sqrt(p[3] * p[3] + p[4] * p[4]))
-    local nx, ny = -p[4] / l, p[3] / l
-    local x, y = p[1], p[2]
-    for _, step in ipairs({ 0, 1, -1, 2, -2 }) do
-      local tx, ty = p[1] + nx * step * r * 1.5, p[2] + ny * step * r * 1.5
-      if not clash(tx, ty) then x, y = tx, ty; break end
-    end
-    local k = math.floor(x / cell) * 65536 + math.floor(y / cell)
-    placed[k] = placed[k] or {}
-    table.insert(placed[k], { x, y })
-    drawPerson(x, y, p[3], p[4], p[5], p[6], p[7], p[8], p[9])
   end
+  for _, p in ipairs(crowd) do drawPerson(p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9]) end
   crowd = {}
+  -- Forget walkers not drawn for a while.
+  if clockFrame % 300 == 0 then
+    for id, c in pairs(clocks) do if clockFrame - c.seen > 300 then clocks[id] = nil end end
+  end
 end
 
 local function hull(L, W, ox, oy)
@@ -327,6 +374,10 @@ local function geo(city)
       end
     end
   end
+  for _, rd in ipairs(shape.rounds or {}) do
+    local r = { key = -1, kind = "pad", ax = rd.x, ay = rd.y, bx = rd.x, by = rd.y, len = 0, ux = 1, uy = 0, half = rd.r + 2, pave = 0 }
+    file(r, rd.x - rd.r, rd.y - rd.r, rd.x + rd.r, rd.y + rd.r)
+  end
   for _, pad in ipairs(shape.pads) do
     -- A pad as a point with the junction's reach for its half width.
     local r = { key = -1, kind = "pad", ax = pad.x, ay = pad.y, bx = pad.x, by = pad.y, len = 0, ux = 1, uy = 0, half = pad.r, pave = 0 }
@@ -480,7 +531,7 @@ end
 
 -- One outing: out of the door, along the pavement and back, or out into the
 -- garden and back; then a long spell indoors.
-local function outing(cam, rt, t, seed, coat, phase, opts)
+local function outing(cam, rt, t, seed, coat, phase, opts, id)
   local v = 6 + 3 * hash(seed, 1)
   local out = rt.len / v
   local stretch, s0 = 0, rt.s
@@ -492,7 +543,8 @@ local function outing(cam, rt, t, seed, coat, phase, opts)
   local pause = (opts and opts.pause) or (2 + 6 * hash(seed, 3))
   local indoors = (opts and opts.indoors) or (6 + 26 * hash(seed, 4))
   local cycle = 2 * (out + walk) + pause + indoors
-  local k = (t + hash(seed, 5) * cycle) % cycle
+  local ct, dir = clock(id, t)
+  local k = (ct + hash(seed, 5) * cycle) % cycle
   local x, y, dx, dy, still
   local px0, py0, px1, py1 = rt.ox, rt.oy, rt.kx, rt.ky
   local function door(f, outward)
@@ -515,7 +567,9 @@ local function outing(cam, rt, t, seed, coat, phase, opts)
   else return end
   if not cam:sees(x, y, 10) then return end
   local sx, sy = cam:toScreen(x, y)
-  person(sx, sy, dx, dy, cam.scale, coat, t, phase, still)
+  -- Turned back: walking its outing backwards, facing the way it goes.
+  if dir < 0 then dx, dy = -dx, -dy end
+  person(sx, sy, dx, dy, cam.scale, coat, t, phase, still, id)
 end
 
 -- How many of a building's people are out at once: its residents, scaled by
@@ -543,7 +597,7 @@ local function drawPeople(city, cam, t)
         local d = city:districtAt(n.x, n.y)
         local count = City.isShop and City.isShop(n) and 1 or math.max(1, math.floor(outNow(city, n, d, weather) * share + 0.5))
         for i = 1, count do
-          outing(cam, rt, t, hash(n.id, i, 40), COATS[math.floor(hash(n.id, i, 41) * #COATS) + 1], n.id + i)
+          outing(cam, rt, t, hash(n.id, i, 40), COATS[math.floor(hash(n.id, i, 41) * #COATS) + 1], n.id + i, nil, n.id * 100 + i)
         end
       end
     end
@@ -561,18 +615,20 @@ local function drawShoppers(city, cam, t)
         local served = city:shopServed(n) or 0
         for i = 1, math.min(10, math.ceil(served / 5)) do
           outing(cam, rt, t, hash(n.id, i, 42), COATS[math.floor(hash(n.id, i, 44) * #COATS) + 1], n.id + i,
-            { noStroll = true, pause = 4 + 4 * hash(n.id, i, 45), indoors = 4 + 6 * hash(n.id, i, 46) })
+            { noStroll = true, pause = 4 + 4 * hash(n.id, i, 45), indoors = 4 + 6 * hash(n.id, i, 46) }, n.id * 100 + 50 + i)
         end
         local span = rt.run[2] - rt.run[1]
         for i = 1, math.min(16, math.ceil((n.passing or 0) / 10)) do
-          local v = (t * (6 + 4 * hash(n.id, i, 32)) + hash(n.id, i, 31) * 2 * span) / span
+          local id = n.id * 100 + 70 + i
+          local ct, dir = clock(id, t)
+          local v = (ct * (6 + 4 * hash(n.id, i, 32)) + hash(n.id, i, 31) * 2 * span) / span
           local f = v % 2; f = f < 1 and f or 2 - f
           local x, y = pavePoint(rt.road, rt.run[1] + f * span, rt.side)
           if cam:sees(x, y, 10) then
-            local back = (v % 2) >= 1
+            local back = ((v % 2) >= 1) ~= (dir < 0)
             local sx, sy = cam:toScreen(x, y)
             person(sx, sy, back and -rt.road.ux or rt.road.ux, back and -rt.road.uy or rt.road.uy, cam.scale,
-              COATS[math.floor(hash(n.id, i, 34) * #COATS) + 1], t, n.id + i)
+              COATS[math.floor(hash(n.id, i, 34) * #COATS) + 1], t, n.id + i, nil, id)
           end
         end
       end

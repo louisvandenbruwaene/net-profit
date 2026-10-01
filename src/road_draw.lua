@@ -298,6 +298,31 @@ local function cap(cam, p, r, colour)
   lg.circle("fill", sx, sy, r * scaleFor(cam, p.h))
 end
 
+local function disc(cam, x, y, r, colour)
+  local sx, sy = cam:toScreen(x, y)
+  lg.setColor(colour)
+  lg.circle("fill", sx, sy, max(1, r * cam.scale), 40)
+end
+-- The middle of a roundabout: a kerbed grass island, and the broken line
+-- where traffic coming in gives way to the ring.
+local function island(cam, rd)
+  local sx, sy = cam:toScreen(rd.x, rd.y)
+  local s = cam.scale
+  local ri = RS.ISLAND * s
+  if markFade > 0 then
+    lg.setColor(0.92, 0.92, 0.88, 0.55 * markFade)
+    lg.setLineWidth(max(0.6, 0.45 * s))
+    local rr = (rd.r - 0.8) * s
+    for j = 0, 23 do
+      local a0, a1 = j / 24 * math.pi * 2, (j + 0.5) / 24 * math.pi * 2
+      lg.arc("line", "open", sx, sy, rr, a0, a1, 4)
+    end
+  end
+  lg.setColor(VERGE.road); lg.circle("fill", sx, sy, ri + 1.2 * s, 32)
+  lg.setColor(0.26, 0.40, 0.24); lg.circle("fill", sx, sy, ri, 32)
+  lg.setColor(0.32, 0.50, 0.28); lg.circle("fill", sx - ri * 0.2, sy - ri * 0.2, ri * 0.45, 16)
+end
+
 function Roads.draw(city, cam)
   local shape = RS.get(city)
   markFade = math.max(0, math.min(1, (cam.scale - 0.2) / 0.45))
@@ -349,7 +374,12 @@ function Roads.draw(city, cam)
   for _, ramp in ipairs(ramps) do
     band(cam, ramp.pts, ramp.nx, ramp.ny, function(q) return -q.h - 2 end, function(q) return q.h + 2 end, function() return VERGE.ramp end)
   end
+  local rounds = {}
+  for _, rd in ipairs(shape.rounds) do
+    if cam:sees(rd.x, rd.y, (rd.r + 20) * cam.scale) then rounds[#rounds + 1] = rd end
+  end
   for _, pad in ipairs(pads) do drawPad(cam, pad, "kerb", VERGE[padKind(pad)] or VERGE.road) end
+  for _, rd in ipairs(rounds) do disc(cam, rd.x, rd.y, rd.r + RS.pave("road"), VERGE.road) end
   for _, ch in ipairs(visible) do
     local nx, ny = nrm(ch)
     band(cam, ch.pts, nx, ny, function(p) return -outerOf(p) end, outerOf, vergeOf)
@@ -368,10 +398,13 @@ function Roads.draw(city, cam)
   for _, ramp in ipairs(ramps) do
     band(cam, ramp.pts, ramp.nx, ramp.ny, function(q) return -q.h end, function(q) return q.h end, function() return SURFACE.ramp end)
   end
+  -- A roundabout's ring over the mouths of the slip roads and the road.
+  for _, rd in ipairs(rounds) do disc(cam, rd.x, rd.y, rd.r, SURFACE.road) end
   for _, ch in ipairs(visible) do
     local nx, ny = nrm(ch)
     markings(cam, ch.pts, nx, ny, 0)
   end
+  for _, rd in ipairs(rounds) do island(cam, rd) end
   if cam.scale > 0.3 then
     for _, ramp in ipairs(ramps) do
       -- Solid edge lines, the inner one broken where the lane merges.

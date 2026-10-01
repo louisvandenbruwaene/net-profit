@@ -15,6 +15,7 @@
 --            width, kind and link, so a highway narrowing into a road tapers
 --   pads     at-grade junctions: the kerb outline, and each arm's stop line
 --   ramps    an interchange's slip roads, as curves
+--   rounds   the roundabout a road ends in where it stops at a highway
 --   flyovers a crossing with no junction: which street goes over, and where
 --   signs    give-way, speed limit and exit signs, never on a building
 --   pieces   link id -> the polylines that are that link, for hit tests
@@ -37,6 +38,9 @@ function RoadShape.pave(kind)
   return 1.5
 end
 local RANK = { offroad = 1, road = 2, highway = 3 }
+-- A roundabout's carriageway radius, and its middle island's.
+local ROUND, ISLAND = 15, 6.5
+RoadShape.ROUND, RoadShape.ISLAND = ROUND, ISLAND
 
 local sqrt, atan2, abs, min, max, floor = math.sqrt, math.atan2, math.abs, math.min, math.max, math.floor
 local function norm(x, y)
@@ -182,7 +186,7 @@ RoadShape.crossing = crossing
 --------------------------------------------------------------------------------
 
 local function build(city)
-  local shape = { chains = {}, pads = {}, ramps = {}, flyovers = {}, signs = {}, pieces = {}, ends = {} }
+  local shape = { chains = {}, pads = {}, ramps = {}, rounds = {}, flyovers = {}, signs = {}, pieces = {}, ends = {} }
   local nodes = city.g.nodes
   local roads, at = {}, {}
   for _, l in ipairs(city.links or {}) do
@@ -243,7 +247,7 @@ local function build(city)
 
   -- How far back from a junction each arm stops, so arms that meet at a
   -- narrow angle still leave room for the kerb between them.
-  local setback, rampBack = {}, {}
+  local setback, rampBack, rounds = {}, {}, {}
   for id, list in pairs(at) do
     if role[id] == "pad" then
       local widest = 0
@@ -284,6 +288,25 @@ local function build(city)
       local clear = (hw + RoadShape.pave("highway") + 11 + 8 * sqrt(1 - slant * slant)) / slant
       setback[id] = max(clear, d - 13)
       rampBack[id] = max(d, setback[id] + 13)
+      -- A road that stops at the highway ends in a roundabout set out from
+      -- it, and the two slip roads leave the roundabout. Whatever the angle
+      -- the road comes in at and however short it is, the slip roads get a
+      -- long straight run at the highway instead of a hairpin off its kerb.
+      for _, r in ipairs(list) do
+        if r.kind ~= "highway" and not (pairs_[id] and pairs_[id][r]) then
+          local lx, ly = dirFrom(id, r)
+          local mx, my = -hy, hx
+          if mx * lx + my * ly < 0 then mx, my = -mx, -my end
+          local base = hw + RoadShape.pave("highway")
+          local far = nodes[other(r, id)]
+          local fx, fy = far.x - nodes[id].x, far.y - nodes[id].y
+          local fPerp, fAlong = fx * mx + fy * my, fx * hx + fy * hy
+          local perp = max(base + 12 + ROUND, min(base + 34 + ROUND, fPerp - 6))
+          local along = fAlong * min(1, perp / max(1, fPerp)) * 0.35
+          rounds[id] = rounds[id] or {}
+          rounds[id][r] = { x = nodes[id].x + mx * perp + hx * along, y = nodes[id].y + my * perp + hy * along, r = ROUND }
+        end
+      end
     end
   end
 
@@ -326,10 +349,15 @@ local function build(city)
         raw[i].h, raw[i].hin, raw[i].hout = links[i - 1].h, links[i - 1].h, (links[i] or links[i - 1]).h
         raw[i].k, raw[i].l = links[i - 1].kind, links[i - 1].l
       end
-      local pts = smooth(raw)
       local first, last = raw[1].node or from, raw[#raw].node
-      local trimA = setback[first] or (role[first] == "end" and bodyOf(nodes[first])) or 0
-      local trimB = setback[last] or (role[last] == "end" and bodyOf(nodes[last])) or 0
+      -- A road ending at a roundabout runs to its middle, under the ring.
+      local roundA = rounds[first] and rounds[first][links[1]]
+      local roundB = rounds[last] and rounds[last][links[#links]]
+      if roundA then raw[1].x, raw[1].y = roundA.x, roundA.y end
+      if roundB then raw[#raw].x, raw[#raw].y = roundB.x, roundB.y end
+      local pts = smooth(raw)
+      local trimA = (roundA and ROUND - 2) or setback[first] or (role[first] == "end" and bodyOf(nodes[first])) or 0
+      local trimB = (roundB and ROUND - 2) or setback[last] or (role[last] == "end" and bodyOf(nodes[last])) or 0
       local total = lengthOf(pts)
       if trimA + trimB > total - 2 then
         local k = max(0, total - 2) / max(1e-6, trimA + trimB)
@@ -437,7 +465,42 @@ local function build(city)
         local high, low
         if e.r.kind == "highway" and f.r.kind ~= "highway" then high, low = e, f
         elseif f.r.kind == "highway" and e.r.kind ~= "highway" then high, low = f, e end
-        if high then
+        local round = high and rounds[id] and rounds[id][low.r]
+        if round then
+          -- Off the roundabout: out of the ring heading for the highway and
+          -- along it, then a long gentle curve down beside it and the merge.
+          local mx, my = -high.dy, high.dx
+          if mx * low.dx + my * low.dy < 0 then mx, my = -mx, -my end
+          local function frame(u, v) return n.x + high.dx * u + mx * v, n.y + high.dy * u + my * v end
+          local ux, uy = norm(high.dx * 0.8 - mx * 0.6, high.dy * 0.8 - my * 0.6)
+          local ax, ay = round.x + ux * (ROUND - 1), round.y + uy * (ROUND - 1)
+          local ua = (ax - n.x) * high.dx + (ay - n.y) * high.dy
+          local va = (ax - n.x) * mx + (ay - n.y) * my
+          local vm = high.r.h + RH
+          local um = ua + max(70, (va - vm) * 2.4)
+          local bx, by = frame(um, vm)
+          local k = sqrt((bx - ax) ^ 2 + (by - ay) ^ 2) * 0.45
+          local c1x, c1y = ax + ux * k, ay + uy * k
+          local c2x, c2y = bx - high.dx * k, by - high.dy * k
+          local pts = {}
+          for j = 0, 20 do
+            local t = j / 20
+            local a, b, c, dd = (1 - t) ^ 3, 3 * (1 - t) ^ 2 * t, 3 * (1 - t) * t * t, t ^ 3
+            local flare = j <= 2 and (1 + (2 - j) / 2 * 0.6) or 1
+            pts[#pts + 1] = { x = a * ax + b * c1x + c * c2x + dd * bx, y = a * ay + b * c1y + c * c2y + dd * by, h = RH * flare, k = "ramp" }
+          end
+          local taper = 80
+          for j = 1, 10 do
+            local t = j / 10
+            local w = RH * (1 - t)
+            local x, y = frame(um + taper * t, high.r.h + w)
+            pts[#pts + 1] = { x = x, y = y, h = max(0.05, w), k = "ramp" }
+          end
+          shape.ramps[#shape.ramps + 1] = { pts = pts, node = id }
+          local off = high.r.h + 2 * RH + RoadShape.pave("highway") + 3
+          local sx, sy = frame(um + taper + 50, off)
+          shape.signs[#shape.signs + 1] = { kind = "exit", x = sx, y = sy, dx = -high.dx, dy = -high.dy }
+        elseif high then
           -- m: across the highway toward the road; n: across the road toward
           -- the highway arm this slip road serves.
           local mx, my = -high.dy, high.dx
@@ -491,6 +554,10 @@ local function build(city)
         end
       end
     end
+  end
+
+  for id, byRoad in pairs(rounds) do
+    for _, rd in pairs(byRoad) do shape.rounds[#shape.rounds + 1] = { x = rd.x, y = rd.y, r = rd.r, node = id } end
   end
 
   -- Where two streets cross with no junction, one goes over. A highway stays
