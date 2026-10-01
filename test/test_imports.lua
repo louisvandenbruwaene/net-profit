@@ -57,6 +57,11 @@ do
   check(cv and cv.stock and cv.from==port.id and cv.to==yard.id and cv.mode=="lorry","with no road or line it goes overland by lorry")
   check(c:storeRoom("panels")==c:storeRoom("steel")-30,"what is on the road still counts against the yard's room")
   check(#c.shipments==0 and cv.cost>0,"and the haulage is paid")
+  local copy=assert(Save.unpack(Save.pack(c)))
+  local back=copy.convoys and copy.convoys[1]
+  check(back and back.units==cv.units and back.to==cv.to and #back.pts==#cv.pts and back.arrive==cv.arrive,"a load on the road survives a save")
+  copy:endDay()
+  check(copy:materialStock("panels")==30,"and still reaches the yard after loading")
   c:endDay()
   check(c:materialStock("panels")==30,"the next morning it is in the yard")
   check(#c.convoys==0,"and the convoy is done")
