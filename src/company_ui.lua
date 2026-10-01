@@ -693,7 +693,8 @@ local function importMenu(n,spec,y)
   local key=state.importKey
   local lot=City.IMPORT.lot
   local units=math.max(1,math.min(state.importUnits or lot,math.max(1,city:storeRoom(key))))
-  stepper("import-units","Units",tostring(units),y,
+  local nm=Graph.COMMODITIES[key].name
+  stepper("import-units",nm:sub(1,1)..nm:sub(2):lower(),tostring(units),y,
     function() state.importUnits=math.max(1,units-lot) end,function() state.importUnits=units+lot end,
     units>1,units+lot<=city:storeRoom(key),"Room in the yards: "..city:storeRoom(key))
   y=y+38
@@ -1751,10 +1752,12 @@ local function company()
     -- The amount is clamped to what the bank will actually lend, so the
     -- button never sits dead just because the dial is above the limit.
     local want=math.min(state.borrow or 500,avail)
-    button("borrow-minus","-",M,y,34,34,function() state.borrow=math.max(100,(state.borrow or 500)-100) end,true,"Less")
+    -- Steps that fit the line: $100 on a small one, $1000 on a big one.
+    local step=math.max(100,10^math.floor(math.log10(math.max(1,limit)/10)))
+    button("borrow-minus","-",M,y,34,34,function() state.borrow=math.max(step,(state.borrow or 500)-step) end,true,"Less")
     button("borrow","Borrow $"..want,M+41,y,218,34,function() act("borrow",want) end,
       avail>0,(City.loanRate*100).."% a week, paid daily. $"..avail.." more available.")
-    button("borrow-plus","+",M+266,y,34,34,function() state.borrow=(state.borrow or 500)+100 end,true,"More")
+    button("borrow-plus","+",M+266,y,34,34,function() state.borrow=math.min(math.max(avail,step),(state.borrow or 500)+step) end,true,"More")
     if (city.loan or 0)>0 then
       button("repay","Repay $"..math.min(city.loan,city.money),
         M,y+40,CW,32,function() act("repay",math.min(city.loan,city.money)) end,
