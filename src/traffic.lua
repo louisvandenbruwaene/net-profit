@@ -645,12 +645,7 @@ end
 -- Where a boat calls at a place: a harbour or a coastal stop on land is
 -- reached at the head of its jetty, out at sea; anything already on the
 -- water (an island, the river) is reached where it stands.
-local function quay(city, n)
-  if n.y >= 0 and n.y <= City.havenReach + 60 and not city:riverAt(n.x, n.y) then
-    return n.x + 24, City.JETTY_HEAD - 40
-  end
-  return n.x, n.y
-end
+local function quay(city, n) return city:quayPoint(n) end
 
 -- What a freight line carries today: the units, the way they go (+1 a to b),
 -- and the trades in the load.
