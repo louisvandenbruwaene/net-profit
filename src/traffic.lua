@@ -96,8 +96,9 @@ end
 local HAIR = { { 0.20, 0.14, 0.10 }, { 0.42, 0.28, 0.16 }, { 0.78, 0.64, 0.38 }, { 0.10, 0.10, 0.11 }, { 0.62, 0.62, 0.60 } }
 local function person(x, y, dx, dy, scale, coat, t, phase, still)
   local r = px(4.2, scale, 1.1)
-  if r < 1.8 then
-    lg.setColor(coat[1], coat[2], coat[3], 0.9); lg.circle("fill", x, y, 1.2)
+  -- Until a figure is big enough to read, a person is a dot in their coat.
+  if r < 3.2 then
+    lg.setColor(coat[1], coat[2], coat[3], 0.95); lg.circle("fill", x, y, math.max(1.2, r * 0.5), 6)
     return
   end
   lg.push(); lg.translate(x, y); lg.rotate(math.atan2(dy, dx))
@@ -352,10 +353,17 @@ end
 -- the walk from the door straight to the pavement on this side of it, and
 -- the clear stretch of pavement that lands on. Without one, a stroll out
 -- into its own ground and back. False if nothing is clear at all.
+-- Working a way out is a few dozen ground samples. After a change every
+-- building wants one again, so only so many are worked out a frame: the rest
+-- step out a moment later rather than the frame stalling.
+local ROUTES_PER_FRAME = 24
+local routeBudget = ROUTES_PER_FRAME
 local function routeOf(city, n)
   local g = geo(city)
   local cached = g.routes[n.id]
   if cached ~= nil then return cached or nil end
+  if routeBudget <= 0 then return nil end
+  routeBudget = routeBudget - 1
   local body = bodyOf(n)
   local best
   for cx = math.floor(n.x / CELL) - 2, math.floor(n.x / CELL) + 2 do
@@ -457,6 +465,9 @@ end
 
 local function drawPeople(city, cam, t)
   if cam.scale < 0.45 then return end
+  -- Pulled back, fewer of each building's people are drawn: the crowd
+  -- thins to what can be seen, and the frame stays in budget.
+  local share = math.min(1, (cam.scale - 0.3) / 0.7)
   local w = city.weatherOn and city:weatherOn(city.day or 1)
   local weather = (w and ShopData.WEATHER[w.key]) or 1
   for _, n in ipairs(city.g.nodes) do
@@ -465,7 +476,7 @@ local function drawPeople(city, cam, t)
       local rt = routeOf(city, n)
       if rt then
         local d = city:districtAt(n.x, n.y)
-        local count = City.isShop and City.isShop(n) and 1 or outNow(city, n, d, weather)
+        local count = City.isShop and City.isShop(n) and 1 or math.max(1, math.floor(outNow(city, n, d, weather) * share + 0.5))
         for i = 1, count do
           outing(cam, rt, t, hash(n.id, i, 40), COATS[math.floor(hash(n.id, i, 41) * #COATS) + 1], n.id + i)
         end
@@ -1019,6 +1030,7 @@ end
 -- Under the buildings: what is on the ground and on the water.
 function Traffic.ground(city, cam, visible)
   local t = R.t or 0
+  routeBudget = ROUTES_PER_FRAME
   drawHarbours(city, cam, t)
   drawFerries(city, cam, t)
   drawYachts(city, cam, t)

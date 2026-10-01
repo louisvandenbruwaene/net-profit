@@ -1510,6 +1510,19 @@ local function inspectorPanel(n,e)
       if n.kind=="pump" then row("Reach",math.floor(City.INFRA.pumpRange*(1+city:reachBonus(n))).." m",ey,P.flow); ey=ey+26 end
       if n.capped then single("Capped well",M,ey,"small",P.textDim,CW); ey=ey+26 end
       tail=ey+8
+      if n.kind=="dc" then
+        -- A yard: what the company holds, and what is on the road to it.
+        for _,k in ipairs(Graph.ALL) do
+          local held=city:materialStock(k)
+          if held>0 and Graph.COMMODITIES[k].form=="solid" then row(string.upper(Graph.COMMODITIES[k].name),held.." "..S.get(k),tail,P.text); tail=tail+24 end
+        end
+        for _,cv in ipairs(city.convoys or {}) do
+          if cv.stock and cv.to==n.id then
+            row("Tomorrow by "..City.HAUL[cv.mode].name,cv.units.." "..S.get(cv.key),tail,P.energy); tail=tail+24
+          end
+        end
+        tail=tail+8
+      end
       if city:isDistribution(n) then tail=inspectDistribution(n,tail) end
       if city:levelFamily(n) then tail=levelBlock(n,tail)+8 end
       tail=replaceStrip(n,tail)

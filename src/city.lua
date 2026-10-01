@@ -105,8 +105,15 @@ function City:materialError(bill, scale)
     if amount then
       local want = math.ceil(amount * scale)
       if self:materialStock(material) < want then
-        return "needs " .. want .. " " .. require("symbols").get(material) .. ", and the yards hold "
-          .. self:materialStock(material)
+        local glyph = require("symbols").get(material)
+        local coming = (self.shippedUnits and self:shippedUnits(material) or 0) + (self.inlandUnits and self:inlandUnits(material) or 0)
+        local have = self:materialStock(material)
+        local why = "needs " .. want .. " " .. glyph .. ", and the yards hold " .. have
+        if coming > 0 then return why .. " (" .. coming .. " on the way)" end
+        if #self.g:nodesOfKind("terminal") > 0 and City.trade[material] and City.trade[material].importCost then
+          return why .. ": import at a haven"
+        end
+        return why
       end
     end
   end
