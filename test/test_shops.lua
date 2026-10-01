@@ -7,8 +7,7 @@ local function check(v,m) T.check(v,m); print("  ok  "..m) end
 
 local c=T.sandbox(24,true)
 local d=c.districts[City.MAP.start]
--- A street: the top edge of the home plot. Shops stand just inside it.
-local sy=d.y+30
+local sy
 local well=T.node(c,"source",d.x+150,d.y+330,"water",400)
 local hub=assert(c:build(d.x+200,d.y+140,"manifold"))
 assert(c:layPipe(well.id,hub.id,"water","large"))
@@ -18,10 +17,18 @@ for i=1,24 do
 end
 c:refresh()
 
-print("a shop must stand by a street")
-check(c:shopError("cafe",d.x+d.w/2+250,d.y+d.h/2+150)=="build by a street","not in the middle of a plot")
+print("a shop must stand by a road the company laid")
+check(c:shopLocked("cafe")=="lay a road first","no road, no shop")
+check(not c:streetAt(d.x+200,d.y+10),"the edge of a plot is no street")
+-- A road across the top of the plot, laid by the company.
+d.population=500
+local ra=c.g:addNode(d.x+40,d.y+50,"corner")
+local rb=c.g:addNode(d.x+d.w-40,d.y+50,"corner")
+assert(c:layLink(ra.id,rb.id,"road"))
+sy=d.y+50+40
+check(c:shopError("cafe",d.x+d.w/2+250,d.y+d.h/2+150)=="build beside a road","not in the middle of a plot")
 local st=c:streetAt(d.x+200,sy)
-check(st and st.key:sub(1,1)=="h","the top edge of a plot is a street")
+check(st and st.key:sub(1,5)=="road:","a road is a street")
 local money=c.money
 local cafe=assert(c:buildShop("cafe",d.x+200,sy))
 check(c.money==money-City.SHOP_BY.cafe.cost,"a shop costs its price")
@@ -51,7 +58,7 @@ local base=c:shopChance(cafe)
 assert(c:setShopPrice(cafe.id,cafe.price*2))
 check(c:shopChance(cafe)<base,"a dearer shop draws fewer")
 assert(c:setShopPrice(cafe.id,City.SHOP_BY.cafe.price))
-assert(c:buildBench(cafe.x+30,sy))
+assert(c:buildBench(cafe.x+30,d.y+50+20))
 check(c:shopChance(cafe)>base,"a bench nearby draws more")
 local alone=cafe.visitors
 c:refresh(); alone=cafe.visitors

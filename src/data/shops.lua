@@ -1,6 +1,6 @@
 -- Edit these values, then restart the game with make run. See EDITING.md.
 --
--- Shops the company owns, on the streets between plots. Every day people walk
+-- Shops the company owns, beside the roads it laid. Every day people walk
 -- each street; each one passing an open shop may go in, until the shop is full
 -- for the day. A customer pays the shop's price and uses a little of what the
 -- shop is supplied with, so a shop stands on the company's own networks.
@@ -29,8 +29,8 @@ Data.RESIDENTS = {
 }
 Data.OUTINGS = 0.8     -- walks a day per resident, on each street within reach
 Data.REACH = 320       -- how far from home a resident walks to a street
-Data.STREET = 80       -- a shop must be put down this close to a street
-Data.SETBACK = 32      -- and then stands this far back from it, facing it
+Data.STREET = 80       -- a shop must be put down this close to a road
+Data.SETBACK = 18      -- and then stands this far back from its pavement, facing it
 Data.SENSITIVITY = 0.6 -- each 100% over the base price takes this share off the chance to go in
 Data.SPREAD = 0.15     -- a street's day-to-day wobble, either way
 Data.WEEK = { 0.90, 0.90, 0.92, 0.95, 1.10, 1.35, 1.25 }
