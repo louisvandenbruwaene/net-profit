@@ -1134,7 +1134,8 @@ local function drawConvoys(city, cam, t, air)
   local fresh = 0
   for _, cv in ipairs(city.convoys or {}) do
     local spec = City.HAUL and City.HAUL[cv.mode]
-    if spec and (cv.mode == "plane") == air and cv.pts and #cv.pts >= 4 then
+    -- A later day's trainload is not on the line yet.
+    if spec and (cv.day or 0) <= (city.day or 0) and (cv.mode == "plane") == air and cv.pts and #cv.pts >= 4 then
       -- Loads that set off together leave one after another, not on top.
       if not convoySeen[cv] then convoySeen[cv] = t + fresh * 10; fresh = fresh + 1 end
       local run = (t - convoySeen[cv]) * spec.speed
