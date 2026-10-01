@@ -236,145 +236,251 @@ function City:tripDemands()
   return list
 end
 
--- Routes today's trips over the passenger routes, best-paying first. Each
--- group takes the cheapest way there that is still worth the trip. Every route
--- has a daily capacity, and what does not fit waits, the way an unsupplied
--- customer does. Driving is routed over the roads by road_model (routeTrips).
-local function demandTrips(self)
+-- Today's travel. Every resident of a home picks another building to go to,
+-- the same pick all day and after a save (it is hashed from the day, never
+-- drawn from the RNG), and goes the cheapest way there they have: driving if
+-- they have a car and the roads join up, or walking to a stop, a quay or an
+-- airfield and riding a bus, a ferry or a plane, or driving to one, parking
+-- and riding on. On the way they pay what the company charges: highway and
+-- bridge tolls per car, a fare per seat, petrol at the stations they pass. A
+-- trip that would cost more than it is worth to them, or that nothing joins
+-- up, they do not make.
+local HOUSEHOLD = { house = true, home = true, estate = true, subscriber = true }
+local function pick(seed)
+  seed = (seed * 48271) % 2147483647
+  return seed, (seed - 1) / 2147483646
+end
+
+-- The network people travel on, keyed so it is rebuilt only when a road,
+-- route, toll, fare or fleet changes.
+local netCache = setmetatable({}, { __mode = "k" })
+local function travelNetwork(self)
+  local sig = { #self.g.nodes }
+  for _, l in ipairs(self.links or {}) do
+    sig[#sig + 1] = l.alive and (l.id .. (l.toll or 0) .. "/" .. (l.fare or 0) .. "/" .. (l.vehicles or 1)) or "x"
+  end
+  sig = table.concat(sig, ",")
+  local c = netCache[self]
+  if c and c.sig == sig then return c end
   local P = City.PEOPLE
+  local net = { sig = sig, car = {}, ride = {}, boards = {}, nodes = {}, trees = {}, near = {} }
+  local function add(list, a, b, arc)
+    list[a] = list[a] or {}; list[b] = list[b] or {}
+    table.insert(list[a], arc); table.insert(list[b], arc)
+    net.nodes[a] = true; net.nodes[b] = true
+  end
+  for _, l in ipairs(self.links or {}) do
+    local na, nb = self.g.nodes[l.a], self.g.nodes[l.b]
+    if l.alive and na and nb and na.alive and nb.alive then
+      local km_ = self:nodeDistance(l.a, l.b) / 1000
+      if l.mode == "road" then
+        local toll = City.tolled(l) and (l.toll or P.tollDefault) or 0
+        local fuel = km_ * P.fuelPerKm * P.pumpPrice
+        add(net.car, l.a, l.b, { l = l, km = km_, money = toll, cost = toll + fuel + km_ * P.timeCost.car })
+      elseif City.ROUTES[l.mode] and (l.mode ~= "bus" or self:roadConnected(l.a, l.b)) then
+        local fare = l.fare or City.ROUTES[l.mode].fare
+        add(net.ride, l.a, l.b, { l = l, km = km_, money = fare, cost = fare + km_ * (P.timeCost[l.mode] or 0.5),
+          seats = (l.vehicles or 1) * City.ROUTES[l.mode].seats })
+        net.boards[l.a] = true; net.boards[l.b] = true
+      end
+    end
+  end
+  -- Where the network can be reached on foot, by 500 m cell.
+  net.cells = {}
+  for id in pairs(net.nodes) do
+    local n = self.g.nodes[id]
+    local k = math.floor(n.x / 500) * 65536 + math.floor(n.y / 500)
+    net.cells[k] = net.cells[k] or {}
+    table.insert(net.cells[k], id)
+  end
+  netCache[self] = net
+  return net
+end
+
+-- The network places within walking distance of a building, and the walk.
+local function walkable(self, net, n)
+  local cached = net.near[n.id]
+  if cached then return cached end
+  local P = City.PEOPLE
+  local out = {}
+  local cx, cy = math.floor(n.x / 500), math.floor(n.y / 500)
+  for ix = cx - 1, cx + 1 do
+    for iy = cy - 1, cy + 1 do
+      for _, id in ipairs(net.cells[ix * 65536 + iy] or {}) do
+        local m = self.g.nodes[id]
+        local d = math.sqrt((m.x - n.x) ^ 2 + (m.y - n.y) ^ 2)
+        if d <= P.walkReach then out[#out + 1] = { id = id, cost = d / 1000 * P.timeCost.walk } end
+      end
+    end
+  end
+  net.near[n.id] = out
+  return out
+end
+
+-- Cheapest ways from one home, with and without its car, to every place on
+-- the network. State 1 is at the wheel (roads only), state 2 on foot or in a
+-- seat (routes only); a driver may park anywhere and carry on as a passenger.
+local function tree(self, net, home, withCar)
+  local key = home.id * 2 + (withCar and 1 or 0)
+  if net.trees[key] then return net.trees[key] end
+  local dist, prev = { {}, {} }, { {}, {} }
+  local heap = Graph.heap()
+  local function push(state, id, cost, from)
+    if dist[state][id] == nil or cost < dist[state][id] then
+      dist[state][id] = cost; prev[state][id] = from
+      heap.push(cost, state * 1e7 + id)
+    end
+  end
+  if withCar and net.car[home.id] then push(1, home.id, 0, false) end
+  for _, w in ipairs(walkable(self, net, home)) do
+    if net.boards[w.id] then push(2, w.id, w.cost, false) end
+  end
+  local done = {}
+  while true do
+    local cost, key2 = heap.pop()
+    if not cost then break end
+    local state, u = math.floor(key2 / 1e7), key2 % 1e7
+    if not done[key2] and cost == dist[state][u] then
+      done[key2] = true
+      if state == 1 then
+        for _, a in ipairs(net.car[u] or {}) do
+          local v = a.l.a == u and a.l.b or a.l.a
+          push(1, v, cost + a.cost, { state = 1, node = u, arc = a })
+        end
+        if net.boards[u] then push(2, u, cost, { state = 1, node = u }) end
+      else
+        for _, a in ipairs(net.ride[u] or {}) do
+          local v = a.l.a == u and a.l.b or a.l.a
+          push(2, v, cost + a.cost, { state = 2, node = u, arc = a })
+        end
+      end
+    end
+  end
+  local t = { dist = dist, prev = prev }
+  net.trees[key] = t
+  return t
+end
+
+-- The places worth going to, each with how strongly it draws people.
+local function destinations(self)
+  local P = City.PEOPLE
+  local list, total = {}, 0
+  for _, n in ipairs(self.g:aliveNodes()) do
+    if not n.prospect and (n.kind == "client" or n.kind == "works" or n.kind == "resort") then
+      local w = n.kind == "resort" and P.pull.resort * (n.level or 1) or n.kind == "works" and P.pull.works
+        or n.shop and P.pull.shop or (City.PROJECT_BY and City.PROJECT_BY[n.clientType or ""]) and P.pull.project or P.pull.other
+      total = total + w
+      list[#list + 1] = { n = n, upto = total }
+    end
+  end
+  return list, total
+end
+local function choose(list, total, u)
+  local lo, hi, want = 1, #list, u * total
+  while lo < hi do
+    local mid = math.floor((lo + hi) / 2)
+    if list[mid].upto < want then lo = mid + 1 else hi = mid end
+  end
+  return list[lo] and list[lo].n
+end
+
+local function residentTrips(self, T, travel)
+  local P = City.PEOPLE
+  local residents = require("data.shops").RESIDENTS
+  local net = travelNetwork(self)
+  if not next(net.nodes) then return end
+  local list, total = destinations(self)
+  if #list < 2 then return end
+  local seats = {}
+  local function book(tbl, id, field, amount)
+    local rec = tbl[id] or {}
+    rec[field] = (rec[field] or 0) + amount
+    tbl[id] = rec
+    return rec
+  end
+  for _, home in ipairs(self:clientList()) do
+    if HOUSEHOLD[home.clientType] and not home.prospect then
+      local near = walkable(self, net, home)
+      if net.car[home.id] or #near > 0 then
+        local d = self:districtAt(home.x, home.y)
+        local share = math.max(P.carFloor, d and d.carShare or 0)
+        local seed = (((self.seed or 1) + home.id * 104729 + (self.day or 1) * 13007) % 2147483646) + 1
+        local count = residents[home.clientType] or 3
+        for r = 1, count do
+          local u, hasCar
+          seed, u = pick(seed)
+          local target = choose(list, total, u)
+          if target == home then target = choose(list, total, (u + 0.5) % 1) end
+          seed, hasCar = pick(seed)
+          hasCar = hasCar < share
+          if target and target ~= home then
+            T.trips = T.trips + 1
+            if r == 1 then book(T.byNode, home.id, "destination", 0).destination = target.id end
+            local t = tree(self, net, home, hasCar)
+            -- Arrive at the door by car, or anywhere within a walk of it.
+            local best, bestState, bestNode, walk = nil, nil, nil, 0
+            local c = t.dist[1][target.id]
+            if c then best, bestState, bestNode = c, 1, target.id end
+            for _, w in ipairs(walkable(self, net, target)) do
+              for state = 1, 2 do
+                local c2 = t.dist[state][w.id]
+                if c2 and (not best or c2 + w.cost < best) then best, bestState, bestNode, walk = c2 + w.cost, state, w.id, w.cost end
+              end
+            end
+            local km_ = math.sqrt((target.x - home.x) ^ 2 + (target.y - home.y) ^ 2) / 1000
+            local worth = P.tripBase + P.tripPerKm * km_
+            if best and best <= worth then
+              -- Back along the tree: the legs, newest first.
+              local legs, state, at = {}, bestState, bestNode
+              while true do
+                local p = t.prev[state][at]
+                if not p then break end
+                if p.arc then legs[#legs + 1] = { state = p.state, arc = p.arc, from = p.node } end
+                state, at = p.state, p.node
+              end
+              -- Walking the whole way is no trip on anything the company runs.
+              local full = #legs == 0
+              for _, leg in ipairs(legs) do
+                if leg.state == 2 and (seats[leg.arc.l.id] or leg.arc.seats) <= 0 then full = true end
+              end
+              if not full then
+                local road = {}
+                for i = #legs, 1, -1 do
+                  local leg = legs[i]
+                  local l = leg.arc.l
+                  if leg.state == 1 then road[#road + 1] = l
+                  else
+                    seats[l.id] = (seats[l.id] or leg.arc.seats) - 1
+                    local rec = book(T.byLink, l.id, "trips", 1)
+                    rec.income = (rec.income or 0) + leg.arc.money
+                    T.fares = T.fares + leg.arc.money
+                    -- Boarded where the ride began: the first seat after a walk or a drive.
+                    if i == #legs or legs[i + 1].state == 1 then book(T.byNode, leg.from, "boarded", 1) end
+                  end
+                end
+                if #road > 0 then travel(road, 1, "car") end
+                if target.kind == "resort" then
+                  T.resorts = T.resorts + P.resortSpend * (target.level or 1)
+                  book(T.byNode, target.id, "visitors", 1)
+                end
+                T.carried = T.carried + 1
+                if d then local rec = book(T.byDistrict, d.id, "carried", 1) end
+              end
+            end
+            if d then book(T.byDistrict, d.id, "trips", 1) end
+          end
+        end
+      end
+    end
+  end
+end
+
+-- The day's travel: every resident's trip, then every truck and bus driven
+-- over the road network it actually has, paying tolls and buying fuel.
+function City:routeTrips()
   local T = { trips = 0, carried = 0, waiting = 0, tolls = 0, fares = 0, fuel = 0, resorts = 0, total = 0,
               byLink = {}, byEdge = {}, byNode = {}, byDistrict = {} }
   self.transit = T
-  local demands = self:tripDemands()
-  for _, t in ipairs(demands) do T.trips = T.trips + t.count end
-  T.waiting = T.trips
-  if #demands == 0 then return T end
-
-  local adj, any = {}, false
-  local function arc(a, b, kind, ref, price, cap)
-    local na, nb = self.g.nodes[a], self.g.nodes[b]
-    if not (na and na.alive and nb and nb.alive) then return end
-    local x = { a = a, b = b, kind = kind, ref = ref, price = price, left = cap }
-    adj[a] = adj[a] or {}
-    adj[b] = adj[b] or {}
-    table.insert(adj[a], x)
-    table.insert(adj[b], x)
-    any = true
-  end
-  for _, l in ipairs(self.links or {}) do
-    if l.alive and City.ROUTES[l.mode] and (l.mode ~= "bus" or self:roadConnected(l.a,l.b)) then
-      arc(l.a, l.b, "link", l, l.fare or 0, (l.vehicles or 1) * City.ROUTES[l.mode].seats)
-    end
-  end
-  if not any then return T end
-
-  local access = {}
-  for _, n in ipairs(self.g:aliveNodes()) do
-    if City.TRANSIT_NODES[n.kind] and adj[n.id] then
-      local d = self:districtAt(n.x, n.y)
-      if d then
-        access[d.id] = access[d.id] or {}
-        table.insert(access[d.id], n.id)
-      end
-    end
-  end
-
-  -- The cheapest fares from any of the sources to any goal, over routes with
-  -- seats left: the cost, the arcs taken (goal end first) and where it began.
-  local function cheapest(sources, goal)
-    local dist, prev, done = {}, {}, {}
-    local heap = Graph.heap()
-    for _, s in ipairs(sources) do dist[s] = 0; heap.push(0, s) end
-    while true do
-      local best, u = heap.pop()
-      if not best then return nil end
-      if not done[u] and best == dist[u] then
-        if goal[u] then
-          local path, x = {}, u
-          while prev[x] do
-            path[#path + 1] = prev[x].arc
-            x = prev[x].from
-          end
-          return best, path, x
-        end
-        done[u] = true
-        for _, a in ipairs(adj[u]) do
-          if a.left > 0 then
-            local v = a.a == u and a.b or a.a
-            local c = best + a.price
-            if not done[v] and (dist[v] == nil or c < dist[v]) then
-              dist[v] = c
-              prev[v] = { from = u, arc = a }
-              heap.push(c, v)
-            end
-          end
-        end
-      end
-    end
-  end
-
-  local function book(list, id, field, amount)
-    local rec = list[id] or {}
-    rec[field] = (rec[field] or 0) + amount
-    list[id] = rec
-    return rec
-  end
-
-  for _, t in ipairs(demands) do
-    local sources = access[t.from]
-    local goal = {}
-    if t.resort then
-      if adj[t.resort] then goal[t.resort] = true end
-    else
-      for _, id in ipairs(access[t.to] or {}) do goal[id] = true end
-    end
-    local carried = 0
-    if sources and next(goal) then
-      -- Drivers and the rest travel as two parties, each with its own tries.
-      local drivers = math.floor(t.count * self:carShareOf(t.from) + 0.5)
-      for _, party in ipairs({ { left = drivers }, { left = t.count - drivers } }) do
-        for _ = 1, 12 do
-          if party.left <= 0 then break end
-          local cost, path, start = cheapest(sources, goal)
-          if not cost or cost > t.willingness then break end
-          local amount = party.left
-          for _, a in ipairs(path) do amount = math.min(amount, a.left) end
-          if amount <= 0 then break end
-
-          for _, a in ipairs(path) do
-            a.left = a.left - amount
-            local rec = book(T.byLink, a.ref.id, "trips", amount)
-            rec.income = (rec.income or 0) + a.price * amount
-            T.fares = T.fares + a.price * amount
-          end
-
-          if t.resort then
-            T.resorts = T.resorts + amount * P.resortSpend * (self.g.nodes[t.resort].level or 1)
-            book(T.byNode, t.resort, "visitors", amount)
-          end
-          book(T.byNode, start, "boarded", amount)
-          party.left = party.left - amount
-          carried = carried + amount
-        end
-      end
-    end
-    T.carried = T.carried + carried
-    local rec = book(T.byDistrict, t.from, "trips", t.count)
-    rec.carried = (rec.carried or 0) + carried
-  end
-
-  T.waiting = T.trips - T.carried
-  T.total = T.tolls + T.fares + T.fuel + T.resorts
-  return T
-end
-
--- The day's travel: the demand model above, then every car, truck and bus
--- driven over the road network it actually has, paying tolls and buying fuel.
-function City:routeTrips()
-  local T=demandTrips(self)
-  local places={}; local attached={}
-  for _,l in ipairs(self.links or {}) do if l.alive and l.mode=='road' then attached[l.a]=true; attached[l.b]=true end end
-  for _,n in ipairs(self.g:aliveNodes()) do if attached[n.id] and City.TRANSIT_NODES[n.kind] and not City.ROAD_JUNCTIONS[n.kind] and not n.prospect then places[#places+1]=n end end
   local tank={}
   for _,n in ipairs(self.g:nodesOfKind('station')) do tank[n.id]=self.served[n.id] or 0 end
   local function travel(path,count,vehicle)
@@ -383,9 +489,9 @@ function City:routeTrips()
     distance=distance+self:nodeDistance(l.a,l.b)/1000
     for _,id in ipairs({l.a,l.b}) do if tank[id] and not seen[id] then stations[#stations+1]=id; seen[id]=true end end
     local rec=T.byLink[l.id] or {trips=0,income=0}; T.byLink[l.id]=rec
-    rec.trips=rec.trips+count; rec[vehicle]=(rec[vehicle] or 0)+count
+    rec.trips=(rec.trips or 0)+count; rec[vehicle]=(rec[vehicle] or 0)+count
     local toll=City.tolled(l) and (l.toll or City.PEOPLE.tollDefault)*count or 0
-    rec.income=rec.income+toll; T.tolls=T.tolls+toll
+    rec.income=(rec.income or 0)+toll; T.tolls=T.tolls+toll
    end
    -- Drivers fill up at the going rate without a second thought; every dollar
    -- over it turns a share of them away, to try the next station on the way.
@@ -404,25 +510,23 @@ function City:routeTrips()
     end
    end
   end
+  residentTrips(self, T, travel)
+  -- Works, depots and shops on the roads send a van out to somewhere they
+  -- trade with, the way they always have.
+  local places={}; local attached={}
+  for _,l in ipairs(self.links or {}) do if l.alive and l.mode=='road' then attached[l.a]=true; attached[l.b]=true end end
+  for _,n in ipairs(self.g:aliveNodes()) do if attached[n.id] and City.TRANSIT_NODES[n.kind] and not City.ROAD_JUNCTIONS[n.kind] and not n.prospect then places[#places+1]=n end end
   for _,n in ipairs(places) do
-   local vehicle=n.kind=='client' and City.HOUSEHOLD[n.clientType] and 'car' or (n.kind=='works' or n.kind=='depot' or n.kind=='dc' or n.kind=='client' and (n.clientType=='factory' or n.clientType=='market')) and 'truck'
+   local vehicle=(n.kind=='works' or n.kind=='depot' or n.kind=='dc' or n.kind=='client' and (n.clientType=='factory' or n.clientType=='market')) and 'truck'
    if vehicle and #places>1 then
-    -- Stable for a day and save/load; refresh never advances the world's RNG.
     local seed=(((self.seed or 1)+n.id*104729+(self.day or 1)*13007)*48271)%2147483647
     local choices={}
     for _,d in ipairs(places) do
      if d.id~=n.id and self:dailyDestinationAllowed(d,vehicle) then choices[#choices+1]=d end
     end
-    -- Retire saved choices that were made under the old utility-inclusive rule.
-    if not self:dailyDestinationAllowed(self.g.nodes[n.dailyDestination],vehicle) then n.dailyDestination=nil end
-    if #choices>0 and (n.destinationDay~=self.day or not n.dailyDestination) then
-     n.dailyDestination=choices[seed%#choices+1].id; n.destinationDay=self.day
-    end
-    local target=self.g.nodes[n.dailyDestination]
-    local path=target and target.alive and self:roadPath(n.id,target.id,vehicle)
-    if n.dailyDestination then T.trips=T.trips+1 end
-    if path then travel(path,1,vehicle); T.carried=T.carried+1 end
-    T.byNode[n.id]=T.byNode[n.id] or {}; T.byNode[n.id].destination=n.dailyDestination
+    local target=#choices>0 and choices[seed%#choices+1]
+    local path=target and self:roadPath(n.id,target.id,vehicle)
+    if path then travel(path,1,vehicle) end
    end
   end
   for _,e in ipairs(self.g.edges) do

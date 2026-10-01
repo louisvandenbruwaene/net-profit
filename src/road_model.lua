@@ -315,7 +315,7 @@ return function(City)
  function City:clearRoadEnds(l)
   for _,id in ipairs({l.a,l.b}) do
    local n=self.g.nodes[id]
-   if n and n.alive and n.autoRoad and #self:roadsAt(id)==0 then
+   if n and n.alive and (n.autoRoad or JRANK[n.kind]) and #self:roadsAt(id)==0 then
     self.money=self.money+math.floor((n.paid or 0)*City.REFUND)
     self.g:killNode(id)
    end
