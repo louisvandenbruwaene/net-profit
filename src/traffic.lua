@@ -56,17 +56,23 @@ end
 -- Drawing: road vehicles, people, boats, aircraft
 --------------------------------------------------------------------------------
 
--- A car, van, truck or bus seen from above, pointing along (dx, dy).
-local function vehicle(kind, x, y, dx, dy, scale, colour)
-  local len = kind == "truck" and 17 or kind == "bus" and 19 or kind == "van" and 11 or 9
-  local wid = kind == "truck" and 5.4 or kind == "bus" and 5.6 or 4.6
+-- A car, van, truck, semi or bus seen from above, pointing along (dx, dy).
+-- `load` colours a truck's or semi's trailer with what it carries.
+local function vehicle(kind, x, y, dx, dy, scale, colour, load)
+  local len = kind == "semi" and 24 or kind == "truck" and 17 or kind == "bus" and 19 or kind == "van" and 11 or 9
+  local wid = (kind == "truck" or kind == "semi") and 5.4 or kind == "bus" and 5.6 or 4.6
   local L, W = px(len * 1.5, scale, 2.5), px(wid * 1.5, scale, 1.4)
   lg.push(); lg.translate(x, y); lg.rotate(math.atan2(dy, dx))
   lg.setColor(0, 0, 0, 0.28); lg.rectangle("fill", -L / 2 + 1, -W / 2 + 1.2, L, W, W * 0.3)
-  if kind == "truck" then
-    -- Trailer, then the cab ahead of it.
-    lg.setColor(0.64, 0.62, 0.56); lg.rectangle("fill", -L / 2, -W / 2, L * 0.72, W, W * 0.12)
-    lg.setColor(colour); lg.rectangle("fill", L * 0.26, -W / 2, L * 0.24, W, W * 0.25)
+  if kind == "truck" or kind == "semi" then
+    -- Trailer, then the cab ahead of it; a semi's trailer is longer, with a gap.
+    local trailer = kind == "semi" and 0.74 or 0.72
+    lg.setColor(0.64, 0.62, 0.56); lg.rectangle("fill", -L / 2, -W / 2, L * trailer, W, W * 0.12)
+    if load then
+      lg.setColor(load); lg.rectangle("fill", -L / 2 + L * 0.04, -W * 0.36, L * (trailer - 0.08), W * 0.72, W * 0.08)
+    end
+    lg.setColor(colour); lg.rectangle("fill", L * 0.28, -W / 2, L * 0.22, W, W * 0.25)
+    lg.setColor(0.14, 0.20, 0.26, 0.9); lg.rectangle("fill", L * 0.42, -W * 0.38, L * 0.05, W * 0.76)
   elseif kind == "bus" then
     lg.setColor(0.95, 0.76, 0.30); lg.rectangle("fill", -L / 2, -W / 2, L, W, W * 0.2)
     if L > 10 then
@@ -142,7 +148,7 @@ end
 
 -- Boats: a container ship, a passenger ferry, a sailing yacht. Lengths are
 -- world metres; `speed` 0 is moored (no wake), 1 is full ahead.
-local BOAT = { ship = { 120, 20 }, ferry = { 54, 15 }, sail = { 16, 5.5 } }
+local BOAT = { ship = { 120, 20 }, ferry = { 54, 15 }, sail = { 16, 5.5 }, barge = { 64, 12 } }
 local function boat(kind, x, y, dx, dy, scale, t, phase, speed, cargo)
   local spec = BOAT[kind]
   local L = math.max(kind == "sail" and 5 or 9, spec[1] * scale)
@@ -169,6 +175,12 @@ local function boat(kind, x, y, dx, dy, scale, t, phase, speed, cargo)
     lg.setColor(0.94, 0.94, 0.92); lg.rectangle("fill", -L * 0.43, -W * 0.38, L * 0.13, W * 0.76, W * 0.08)
     lg.setColor(0.16, 0.18, 0.22); lg.rectangle("fill", -L * 0.41, -W * 0.30, L * 0.02, W * 0.6)
     lg.setColor(0.20, 0.20, 0.22); lg.circle("fill", -L * 0.465, 0, W * 0.14)
+  elseif kind == "barge" then
+    -- A river barge: a long open hold full of the load, a wheelhouse aft.
+    lg.setColor(0.22, 0.24, 0.27); lg.polygon("fill", hull(L, W))
+    local c = cargo and cargo[1] and cargoColour(cargo[1]) or { 0.40, 0.36, 0.30 }
+    lg.setColor(c); lg.rectangle("fill", -L * 0.30, -W * 0.34, L * 0.62, W * 0.68, W * 0.1)
+    lg.setColor(0.92, 0.92, 0.90); lg.rectangle("fill", -L * 0.46, -W * 0.30, L * 0.12, W * 0.6)
   elseif kind == "ferry" then
     lg.setColor(0.94, 0.94, 0.92); lg.polygon("fill", hull(L, W))
     lg.setColor(0.24, 0.42, 0.66); lg.polygon("fill", hull(L * 0.78, W * 0.7, -L * 0.04))
@@ -942,6 +954,68 @@ local function drawAir(city, cam, t)
   end
 end
 
+--------------------------------------------------------------------------------
+-- Convoys: loads on their way inland from a haven, and materials going out
+-- to a building site (haulage.lua). Each sets off the moment it is first seen
+-- and runs its route once; an inland load then waits at the yard gate, a site
+-- delivery stands by the site, until the day closes.
+--------------------------------------------------------------------------------
+
+local convoySeen = setmetatable({}, { __mode = "k" })
+
+-- A point `s` metres along a polyline, and the way it faces there.
+local function onPath(pts, s)
+  for i = 3, #pts, 2 do
+    local dx, dy = pts[i] - pts[i - 2], pts[i + 1] - pts[i - 1]
+    local seg = math.sqrt(dx * dx + dy * dy)
+    if s <= seg or i == #pts - 1 then
+      local f = seg > 0 and math.max(0, math.min(1, s / seg)) or 0
+      return pts[i - 2] + dx * f, pts[i - 1] + dy * f, dx / math.max(seg, 1e-6), dy / math.max(seg, 1e-6)
+    end
+    s = s - seg
+  end
+  return pts[1], pts[2], 1, 0
+end
+
+local function drawConvoys(city, cam, t, air)
+  local fresh = 0
+  for _, cv in ipairs(city.convoys or {}) do
+    local spec = City.HAUL and City.HAUL[cv.mode]
+    if spec and (cv.mode == "plane") == air and cv.pts and #cv.pts >= 4 then
+      -- Loads that set off together leave one after another, not on top.
+      if not convoySeen[cv] then convoySeen[cv] = t + fresh * 10; fresh = fresh + 1 end
+      local run = (t - convoySeen[cv]) * spec.speed
+      local count = math.min(cv.mode == "train" and 1 or 6, math.max(1, math.ceil(cv.units / spec.cap)))
+      local load = cargoColour(cv.key)
+      local gap = cv.mode == "barge" and 90 or 34
+      for i = 1, count do
+        local s = math.min(cv.len - 8 - (i - 1) * gap, run - (i - 1) * gap)
+        if s >= 0 then
+          local x, y, dx, dy = onPath(cv.pts, s)
+          if cv.mode == "plane" then
+            local f = math.min(1, s / math.max(1, cv.len))
+            if f < 1 then flight(cam, cv.pts[1], cv.pts[2], cv.pts[#cv.pts - 1], cv.pts[#cv.pts], f, load) end
+          elseif cam:sees(x, y, 60) then
+            local sx, sy = cam:toScreen(x, y)
+            local moving = run - (i - 1) * gap < cv.len - 8 - (i - 1) * gap
+            if cv.mode == "barge" or cv.mode == "ship" then
+              boat(cv.mode, sx, sy, dx, dy, cam.scale, t, i, moving and 0.7 or 0, { cv.key })
+            elseif cv.mode == "train" then
+              train(cam, x, y, dx, dy, 0, math.min(10, math.ceil(cv.units / spec.cap)), { cv.key }, true)
+            else
+              -- Keep right on a road; overland, just the track it makes.
+              local lane = cv.mode == "semi" and 4 or 0
+              sx, sy = cam:toScreen(x - dy * lane, y + dx * lane)
+              vehicle(cv.mode == "semi" and "semi" or "truck", sx, sy, dx, dy, cam.scale,
+                { 0.86, 0.50, 0.22 }, load)
+            end
+          end
+        end
+      end
+    end
+  end
+end
+
 -- Under the buildings: what is on the ground and on the water.
 function Traffic.ground(city, cam, visible)
   local t = R.t or 0
@@ -949,6 +1023,7 @@ function Traffic.ground(city, cam, visible)
   drawFerries(city, cam, t)
   drawYachts(city, cam, t)
   drawFreight(city, cam, t)
+  drawConvoys(city, cam, t, false)
   drawRoads(city, cam, t)
   drawPeople(city, cam, t)
   drawShoppers(city, cam, t)
@@ -960,6 +1035,7 @@ function Traffic.air(city, cam)
   local t = R.t or 0
   drawBirds(city, cam, t)
   drawAir(city, cam, t)
+  drawConvoys(city, cam, t, true)
 end
 
 Traffic._hash, Traffic._route, Traffic._standable, Traffic._geo = hash, routeOf, standable, geo

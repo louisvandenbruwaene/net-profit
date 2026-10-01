@@ -42,4 +42,46 @@ check(c.orders.surveyors==1,"departments are untouched by freight")
 c:endDay()
 _,landed=c:havenShipments(port.id)
 check(not landed.panels,"yesterday's landing is no longer today's")
+
+print("hauled inland")
+do
+  local c=T.sandbox(24)
+  c.stock={}
+  local port=c.g:addNode(400,60,"terminal"); port.haven="port"
+  local yard=c.g:addNode(1400,600,"dc")
+  c:refresh()
+  assert(c:orderImport(port.id,"panels",30))
+  c:endDay()
+  check(c:materialStock("panels")==0,"landed at the harbour is not yet in the yard")
+  local cv=c.convoys[1]
+  check(cv and cv.stock and cv.from==port.id and cv.to==yard.id and cv.mode=="lorry","with no road or line it goes overland by lorry")
+  check(c:storeRoom("panels")==c:storeRoom("steel")-30,"what is on the road still counts against the yard's room")
+  check(#c.shipments==0 and cv.cost>0,"and the haulage is paid")
+  c:endDay()
+  check(c:materialStock("panels")==30,"the next morning it is in the yard")
+  check(#c.convoys==0,"and the convoy is done")
+
+  -- With a road all the way, a semi takes it along the road.
+  c.buildRoadType="road"
+  local function link(a,b) c.buildRoadType=c:waterAlong(a.x,a.y,b.x,b.y)>0 and "bridge" or "road"; return assert(c:layLink(a.id,b.id,"road")) end
+  for _,d in ipairs(c.districts) do d.population=500 end
+  local mid=c.g:addNode(900,300,"corner")
+  link(port,mid); link(mid,yard)
+  assert(c:orderImport(port.id,"steel",10)); c:endDay()
+  local road=c.convoys[#c.convoys]
+  check(road.mode=="semi" and #road.pts==6,"along the company's roads it goes by semi, by the roads")
+
+  -- A site delivery: building with materials sends them out to the site.
+  local before=#c.convoys
+  c.stock.panels=40
+  local bill={panels=12}
+  c:spendMaterials(bill,1,1800,900)
+  local site=c.convoys[#c.convoys]
+  check(#c.convoys==before+1 and site.key=="panels" and site.units==12 and not site.stock,"materials are driven out to the site")
+  check(site.pts[#site.pts-1]==1800 and site.pts[#site.pts]==900,"all the way to where they are used")
+  c:endDay()
+  local gone=true
+  for _,cv in ipairs(c.convoys) do if cv==site then gone=false end end
+  check(gone,"a site delivery is done by the next day")
+end
 print(T.checks.." import checks passed")
