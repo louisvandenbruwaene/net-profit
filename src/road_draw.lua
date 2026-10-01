@@ -398,13 +398,10 @@ function Roads.draw(city, cam)
   for _, ramp in ipairs(ramps) do
     band(cam, ramp.pts, ramp.nx, ramp.ny, function(q) return -q.h end, function(q) return q.h end, function() return SURFACE.ramp end)
   end
-  -- A roundabout's ring over the mouths of the slip roads and the road.
-  for _, rd in ipairs(rounds) do disc(cam, rd.x, rd.y, rd.r, SURFACE.road) end
   for _, ch in ipairs(visible) do
     local nx, ny = nrm(ch)
     markings(cam, ch.pts, nx, ny, 0)
   end
-  for _, rd in ipairs(rounds) do island(cam, rd) end
   if cam.scale > 0.3 then
     for _, ramp in ipairs(ramps) do
       -- Solid edge lines, the inner one broken where the lane merges.
@@ -412,6 +409,9 @@ function Roads.draw(city, cam)
       line(cam, ramp.pts, ramp.nx, ramp.ny, "ramp", -1, 0.7, 0.45, { 0.92, 0.92, 0.88, 0.75 }, 4, 4)
     end
   end
+  -- A roundabout's ring over the mouths of the slip roads and over the
+  -- markings of a road that runs through it.
+  for _, rd in ipairs(rounds) do disc(cam, rd.x, rd.y, rd.r, SURFACE.road); island(cam, rd) end
   for _, pad in ipairs(pads) do padMarkings(cam, pad) end
   for _, ch in ipairs(visible) do
     for _, run in ipairs(wetRuns(city, ch)) do
