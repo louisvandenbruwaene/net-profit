@@ -258,4 +258,28 @@ do
   assert(c:setLinkPrice(l.id,5)); check(l.toll==5,'and the toll can be set')
  end
 end
+-- The map's cars drive the ways the trips went: every drive is booked with
+-- its roads in order, and the path a car follows has no gap to jump.
+do
+ local Journeys=require('journeys')
+ local c=world()
+ local w=node(c,'interchange',400,900); local x=node(c,'interchange',900,900); local z=node(c,'interchange',1400,900)
+ local a=node(c,'client',900,1250); local b=node(c,'client',400,1250)
+ road(c,w,x,'highway'); road(c,x,z,'highway'); road(c,a,x); road(c,b,w)
+ check(#c.transit.journeys>0,'each drive is booked with the way it went')
+ local j=c.transit.journeys[1]
+ check(j.from and #j.links>0,'from where it set out, by which roads')
+ local drives=Journeys.plan(c)
+ check(#drives>0,'and becomes a drive on the map')
+ local worst,ramps=0,false
+ for _,d in ipairs(drives) do
+  for i=2,#d.r.x do worst=math.max(worst,math.sqrt((d.r.x[i]-d.r.x[i-1])^2+(d.r.y[i]-d.r.y[i-1])^2)) end
+  for i=1,#d.r.kind do if d.r.kind[i]=='ramp' then ramps=true end end
+ end
+ check(worst<12,'a car never jumps along its way (longest step '..string.format('%.1f',worst)..' m)')
+ check(ramps,'onto and off the highway by the slip roads')
+ local through=false
+ for _,d in ipairs(drives) do if #d.r.rings>0 then through=true end end
+ check(through,'round the roundabout at the interchange')
+end
 print(count..' transport and household checks passed')
