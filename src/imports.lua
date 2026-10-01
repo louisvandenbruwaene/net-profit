@@ -80,22 +80,26 @@ return function(City)
 
   -- Orders due today land in the stock. A haven demolished in the meantime
   -- still lands its cargo: it was paid for and is already at sea.
-  function City:landShipments()
-    local landed, keep = {}, {}
+  -- `today`: the morning they land (the close passes tomorrow's date). Returns
+  -- what landed and what hauling it inland cost.
+  function City:landShipments(today)
+    today = today or self.day
+    local landed, keep, haulage = {}, {}, 0
     self.landings = {}
     for _, o in ipairs(self.shipments or {}) do
-      if o.arrive <= self.day then
+      if o.arrive <= today then
         landed[o.key] = (landed[o.key] or 0) + o.units
-        self.landings[#self.landings + 1] = { haven = o.haven, key = o.key, units = o.units, day = self.day }
+        self.landings[#self.landings + 1] = { haven = o.haven, key = o.key, units = o.units, day = today }
         self:note("Landed %d %s", o.units, string.lower(Graph.COMMODITIES[o.key].name))
         -- On to the yards; with none, the quay is the store.
-        self:haulInland(o.haven, o.key, o.units)
+        local cv = self:haulInland(o.haven, o.key, o.units, today)
+        haulage = haulage + (cv and cv.cost or 0)
       else
         keep[#keep + 1] = o
       end
     end
     self.shipments = keep
-    return landed
+    return landed, haulage
   end
 
   -- What one haven has on the way, and what it landed this morning, by good.

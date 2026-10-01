@@ -118,11 +118,11 @@ return function(City)
     return math.ceil(units * (rate.haulPerUnit + polyLength(route.pts) * rate.haulPerM))
   end
 
-  local function convoy(self, key, units, from, tx, ty, to, stock)
+  local function convoy(self, key, units, from, tx, ty, to, stock, day)
     local route = self:haulRoute(from, tx, ty, to)
     if not route then return nil end
     local c = { key = key, units = units, from = from.id, to = to and to.id or nil, mode = route.mode,
-      pts = route.pts, len = polyLength(route.pts), day = self.day, stock = stock or nil }
+      pts = route.pts, len = polyLength(route.pts), day = day or self.day, stock = stock or nil }
     self.convoys = self.convoys or {}
     self.convoys[#self.convoys + 1] = c
     return c, route
@@ -142,7 +142,8 @@ return function(City)
   -- An order landed at a haven: onward to the nearest yard, billed at the mode
   -- it goes by, in stock tomorrow. With no yard it stays on the quay, which is
   -- stock already.
-  function City:haulInland(havenId, key, units)
+  function City:haulInland(havenId, key, units, today)
+    today = today or self.day
     local haven = self.g.nodes[havenId]
     local yard, bd
     for _, n in ipairs(self.g:nodesOfKind("dc")) do
@@ -156,7 +157,7 @@ return function(City)
       self.stock[key] = (self.stock[key] or 0) + units
       return nil
     end
-    local c, route = convoy(self, key, units, haven, yard.x, yard.y, yard, true)
+    local c, route = convoy(self, key, units, haven, yard.x, yard.y, yard, true, today)
     if not c then
       -- No way inland the company has built: the quay keeps it.
       self.stock = self.stock or {}
@@ -164,9 +165,10 @@ return function(City)
       self:note("%d %s kept on the quay: no way inland", units, string.lower(Graph.COMMODITIES[key].name))
       return nil
     end
-    c.arrive = self.day + 1
+    c.arrive = today + 1
+    -- Haulage is a bill like any other day's cost: it is paid even short.
     local cost = self:haulCost(route, units)
-    self:spend(cost)
+    self.money = self.money - cost
     c.cost = cost
     self:note("%d %s on to the yard by %s for $%d", units, string.lower(Graph.COMMODITIES[key].name),
       City.HAUL[route.mode].name, cost)
@@ -175,14 +177,15 @@ return function(City)
 
   -- At the close: inland loads due today reach the yards; yesterday's site
   -- deliveries are done.
-  function City:settleConvoys()
+  function City:settleConvoys(today)
+    today = today or self.day
     local keep, landed = {}, {}
     for _, c in ipairs(self.convoys or {}) do
-      if c.stock and (c.arrive or 0) <= self.day then
+      if c.stock and (c.arrive or 0) <= today then
         self.stock = self.stock or {}
         self.stock[c.key] = (self.stock[c.key] or 0) + c.units
         landed[c.key] = (landed[c.key] or 0) + c.units
-      elseif c.stock or c.day >= self.day then
+      elseif c.stock or c.day >= today then
         keep[#keep + 1] = c
       end
     end
