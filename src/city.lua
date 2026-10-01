@@ -4074,6 +4074,11 @@ function City:endDay()
     self.reputation = math.min(100, self.reputation + City.rules.repGain)
   end
 
+  -- Overnight: loads hauled inland yesterday reach the yards, and freight
+  -- ordered yesterday lands and sets off inland. Its haulage is today's cost.
+  report.hauled = self:settleConvoys(self.day + 1)
+  report.imported, report.haulage = self:landShipments(self.day + 1)
+  report.expenses = report.expenses + report.haulage
   self.history[#self.history + 1] = {
     day = self.day, money = self.money, clients = #self:clientList(),
     revenue = report.revenue, expenses = report.expenses,
@@ -4081,10 +4086,6 @@ function City:endDay()
 
   report.interestPaid = self:loanInterest()
   self.day = self.day + 1
-  -- Loads hauled inland yesterday reach the yards; freight ordered yesterday
-  -- comes in overnight and sets off inland.
-  report.hauled = self:settleConvoys()
-  report.imported = self:landShipments()
   if self.money < 0 and self:investedTotal() == 0 then
     self.bankrupt = true
     self:note("The company is insolvent.")
