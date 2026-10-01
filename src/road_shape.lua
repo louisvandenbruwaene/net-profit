@@ -293,7 +293,23 @@ local function build(city)
       -- the road comes in at and however short it is, the slip roads get a
       -- long straight run at the highway instead of a hairpin off its kerb.
       for _, r in ipairs(list) do
-        if r.kind ~= "highway" and not (pairs_[id] and pairs_[id][r]) then
+        local through = pairs_[id] and pairs_[id][r]
+        if r.kind ~= "highway" and through then
+          -- A road over the highway gets a roundabout on each side of the
+          -- bridge, on the road itself, as far out as the slip roads need
+          -- and the road allows.
+          local lx, ly = dirFrom(id, r)
+          local sin = abs(lx * hy - ly * hx)
+          local base = hw + RoadShape.pave("highway")
+          local far = nodes[other(r, id)]
+          local length = sqrt((far.x - nodes[id].x) ^ 2 + (far.y - nodes[id].y) ^ 2)
+          local least = (base + 10 + ROUND) / max(0.2, sin)
+          local d = min((base + 30 + ROUND) / max(0.2, sin), length - ROUND - 12 - bodyOf(far))
+          if sin > 0.3 and d >= least then
+            rounds[id] = rounds[id] or {}
+            rounds[id][r] = { x = nodes[id].x + lx * d, y = nodes[id].y + ly * d, r = ROUND, through = true }
+          end
+        elseif r.kind ~= "highway" then
           local lx, ly = dirFrom(id, r)
           local mx, my = -hy, hx
           if mx * lx + my * ly < 0 then mx, my = -mx, -my end
@@ -353,6 +369,8 @@ local function build(city)
       -- A road ending at a roundabout runs to its middle, under the ring.
       local roundA = rounds[first] and rounds[first][links[1]]
       local roundB = rounds[last] and rounds[last][links[#links]]
+      if roundA and roundA.through then roundA = nil end
+      if roundB and roundB.through then roundB = nil end
       if roundA then raw[1].x, raw[1].y = roundA.x, roundA.y end
       if roundB then raw[#raw].x, raw[#raw].y = roundB.x, roundB.y end
       local pts = smooth(raw)
