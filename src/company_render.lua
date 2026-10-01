@@ -5,6 +5,8 @@ local R = require("render")
 local E = require("experience")
 local Scenery = require("scenery")
 local Traffic = require("traffic")
+local Roads = require("road_draw")
+local RoadShape = require("road_shape")
 local Shape = require("terrain_shape")
 local Draw = {}
 local lg = love.graphics
@@ -1809,91 +1811,6 @@ local function dashes(ax, ay, bx, by, on, off)
   end
 end
 
--- Where a road crosses water (river, pond or sea) it needs a bridge: the wet stretches of a road,
--- as fractions along it, found once per road and kept while the river lasts.
-local roadWet = setmetatable({}, { __mode = "k" })
-local function wetSpans(city, l, na, nb)
-  local c = roadWet[l]
-  if c and c.river == city.river and c.ax == na.x and c.ay == na.y and c.bx == nb.x and c.by == nb.y then return c.spans end
-  local spans, open = {}, nil
-  local len = math.max(1, math.sqrt((nb.x - na.x) ^ 2 + (nb.y - na.y) ^ 2))
-  local steps = math.max(2, math.ceil(len / 8))
-  for i = 0, steps do
-    local t = i / steps
-    local x, y = na.x + (nb.x - na.x) * t, na.y + (nb.y - na.y) * t
-    local wet = city:isWater(x, y)
-    if wet and not open then open = t end
-    if not wet and open then spans[#spans + 1] = { math.max(0, open - 12 / len), math.min(1, t + 12 / len) }; open = nil end
-  end
-  if open then spans[#spans + 1] = { math.max(0, open - 12 / len), 1 } end
-  roadWet[l] = { river = city.river, ax = na.x, ay = na.y, bx = nb.x, by = nb.y, spans = spans }
-  return spans
-end
-
--- A road at its real width (City.ROAD_WIDTH, metres), drawn in layers: a
--- bridge deck over water, the pavements of a normal road, the carriageway,
--- then its markings. Joins at a bend are round.
-function Draw.road(city, cam, l, ax, ay, bx, by, roundA, roundB)
-  local kind = l.roadType or "road"
-  local k = cam.scale
-  local half = math.max(1.5, City.ROAD_WIDTH[kind] / 2 * k)
-  local pave = (kind == "road" or kind == "bridge") and math.max(1, City.PAVEMENT * k) or 0
-  local dx, dy = bx - ax, by - ay
-  local len = math.max(1, math.sqrt(dx * dx + dy * dy))
-  local nx, ny = -dy / len, dx / len
-  local function band(width, ends)
-    lg.setLineWidth(width); lg.line(ax, ay, bx, by)
-    if ends and roundA then lg.circle("fill", ax, ay, width / 2) end
-    if ends and roundB then lg.circle("fill", bx, by, width / 2) end
-  end
-  local na, nb = city.g.nodes[l.a], city.g.nodes[l.b]
-  for _, span in ipairs(wetSpans(city, l, na, nb)) do
-    local x0, y0 = ax + dx * span[1], ay + dy * span[1]
-    local x1, y1 = ax + dx * span[2], ay + dy * span[2]
-    local deck = half + pave + math.max(1.5, 3 * k)
-    lg.setColor(0, 0, 0, 0.35); lg.setLineWidth(deck * 2 + 4); lg.line(x0 + 2, y0 + 4, x1 + 2, y1 + 4)
-    lg.setColor(0.44, 0.44, 0.45); lg.setLineWidth(deck * 2); lg.line(x0, y0, x1, y1)
-    -- Piers down into the water, every so often under the deck.
-    local span = math.sqrt((x1 - x0) ^ 2 + (y1 - y0) ^ 2)
-    local step = math.max(14, 60 * k)
-    lg.setColor(0, 0, 0, 0.35)
-    for d = step / 2, span - step / 4, step do
-      local px, py = x0 + (x1 - x0) * d / span, y0 + (y1 - y0) * d / span
-      lg.rectangle("fill", px - nx * deck - 1 + 3, py - ny * deck + 5, 3, 3)
-      lg.rectangle("fill", px + nx * deck - 1 + 3, py + ny * deck + 5, 3, 3)
-    end
-    lg.setColor(0.70, 0.70, 0.68); lg.setLineWidth(math.max(1, 1.6 * k))
-    lg.line(x0 + nx * deck, y0 + ny * deck, x1 + nx * deck, y1 + ny * deck)
-    lg.line(x0 - nx * deck, y0 - ny * deck, x1 - nx * deck, y1 - ny * deck)
-  end
-  if pave > 0 then lg.setColor(0.50, 0.50, 0.48); band((half + pave) * 2, true) end
-  if kind == "offroad" then
-    lg.setColor(0.45, 0.36, 0.25); band(half * 2, true)
-    if half > 3 then
-      -- Two wheel ruts worn into the track.
-      lg.setColor(0.36, 0.28, 0.19); lg.setLineWidth(math.max(1, half * 0.18))
-      for _, o in ipairs({ -0.45, 0.45 }) do lg.line(ax + nx * half * o, ay + ny * half * o, bx + nx * half * o, by + ny * half * o) end
-    end
-    return
-  end
-  lg.setColor(kind == "highway" and { 0.20, 0.21, 0.23 } or { 0.25, 0.26, 0.28 }); band(half * 2, true)
-  if half < 3 then return end
-  if kind == "highway" then
-    -- A double yellow line down the middle, broken white between lanes.
-    lg.setColor(0.86, 0.72, 0.30, 0.9); lg.setLineWidth(math.max(1, 0.8 * k))
-    local g = math.max(0.8, 0.9 * k)
-    lg.line(ax + nx * g, ay + ny * g, bx + nx * g, by + ny * g)
-    lg.line(ax - nx * g, ay - ny * g, bx - nx * g, by - ny * g)
-    lg.setColor(0.92, 0.92, 0.88, 0.7)
-    for _, o in ipairs({ -0.5, 0.5 }) do
-      dashes(ax + nx * half * o, ay + ny * half * o, bx + nx * half * o, by + ny * half * o, math.max(3, 6 * k), math.max(3, 9 * k))
-    end
-  else
-    lg.setColor(0.92, 0.92, 0.88, 0.75); lg.setLineWidth(math.max(1, 0.8 * k))
-    dashes(ax, ay, bx, by, math.max(3, 5 * k), math.max(3, 7 * k))
-  end
-end
-
 -- A bus service highlights its existing road path; it never draws another road.
 function Draw.linkSegments(cam,city,l)
   local parts={}
@@ -1920,15 +1837,23 @@ local function drawLinks(city, cam, state)
       local trips = (byLink[l.id] or {}).trips or 0
       local w = math.max(2, 5 * cam.scale)
       if l.mode~="air" and l.mode~="bus" then segments[#segments+1]={ax=ax,ay=ay,bx=bx,by=by,pad=w+3} end
-      if hot then
+      if hot and l.mode ~= "road" then
         lg.setColor(P.with(P.text, 0.6)); lg.setLineWidth(w + 6)
         lg.line(ax, ay, bx, by)
       end
       if l.mode == "road" then
-        -- A road at its real width: pavement either side of a normal road,
-        -- the carriageway, a broken centre line, a deck and parapets where it
-        -- crosses water. Its traffic is drawn by traffic.lua, on top.
-        Draw.road(city, cam, l, ax, ay, bx, by, na.kind == "corner", nb.kind == "corner")
+        -- The road itself is drawn with the ground (road_draw.lua); a
+        -- selected one is outlined along its own curves.
+        if hot then
+          local half = City.ROAD_WIDTH[City.roadVisual(l)] / 2
+          for _, piece in ipairs(RoadShape.get(city).pieces[l.id] or {}) do
+            local line = {}
+            for _, p in ipairs(piece) do local sx, sy = cam:toScreen(p.x, p.y); line[#line + 1] = sx; line[#line + 1] = sy end
+            if #line >= 4 then
+              lg.setColor(P.with(P.text, 0.35)); lg.setLineWidth(math.max(3, half * 2 * cam.scale + 6)); lg.line(line)
+            end
+          end
+        end
       else
         local spec = City.ROUTES[l.mode]
         lg.setColor(P.with(spec.colour, 0.9)); lg.setLineWidth(math.max(1.4, 2.2 * cam.scale))
@@ -2401,9 +2326,24 @@ function Draw.world(city, cam, state)
 
   local chokes,chokedNodes=city:chokes()
   local grid=Draw.focusGrid(state)
+  -- Two passes: everything on or under the ground, then the roads and what
+  -- drives and walks on them, then the overhead power lines above it all.
+  for pass = 1, 2 do
+  if pass == 2 then
+    fading(false)
+    Roads.draw(city, cam)
+    if state.roadPlan then Roads.ghost(city, cam, state.roadPlan, not state.roadPlan.err) end
+    Traffic.ground(city, cam, districtVisible)
+    for _, b in ipairs(city.benches or {}) do
+      if cam:sees(b.x, b.y, 30) then
+        local bx, by = cam:toScreen(b.x, b.y)
+        Draw.bench(bx, by, math.max(0.5, R.sym(1.4, cam.scale)))
+      end
+    end
+  end
   for _, e in ipairs(city.g.edges) do
     local ea, eb = city.g.nodes[e.a], city.g.nodes[e.b]
-    if e.alive and (not state.filter or e.commodity==state.filter)
+    if e.alive and ((e.commodity == "power" and not e.rail) == (pass == 2)) and (not state.filter or e.commodity==state.filter)
        and cam:seesBox(math.min(ea.x,eb.x), math.min(ea.y,eb.y),
                        math.max(ea.x,eb.x), math.max(ea.y,eb.y)) then
       fading(state.edge ~= e.id and state.hoverEdge ~= e.id and not edgeInGrid(e,grid))
@@ -2581,19 +2521,16 @@ function Draw.world(city, cam, state)
       fading(false)
     end
   end
+  end
 
   drawLinks(city, cam, state)
   fading(false)
-  Traffic.ground(city, cam, districtVisible)
-  for _, b in ipairs(city.benches or {}) do
-    if cam:sees(b.x, b.y, 30) then
-      local bx, by = cam:toScreen(b.x, b.y)
-      Draw.bench(bx, by, math.max(0.5, R.sym(1.4, cam.scale)))
-    end
-  end
 
   for _, n in ipairs(city.g:aliveNodes()) do
-    if (not state.filter or not n.commodity or n.commodity==state.filter or (n.demands and n.demands[state.filter]))
+    -- A road node with roads at it is drawn by the roads: a bend, a junction.
+    local roadNode = City.ROAD_JUNCTIONS[n.kind] and RoadShape.get(city).at[n.id]
+      and state.node ~= n.id and state.hoverNode ~= n.id
+    if not roadNode and (not state.filter or not n.commodity or n.commodity==state.filter or (n.demands and n.demands[state.filter]))
        and cam:sees(n.x, n.y, 90) then
     fading(state.node ~= n.id and state.hoverNode ~= n.id and not nodeInGrid(city,n,grid))
     local x,y = cam:toScreen(n.x,n.y)

@@ -94,7 +94,7 @@ end
 -- way they walk, a head of hair. Muted colours, so a crowd reads as people
 -- and not confetti. Far out they are a single soft dot.
 local HAIR = { { 0.20, 0.14, 0.10 }, { 0.42, 0.28, 0.16 }, { 0.78, 0.64, 0.38 }, { 0.10, 0.10, 0.11 }, { 0.62, 0.62, 0.60 } }
-local function person(x, y, dx, dy, scale, coat, t, phase, still)
+local function drawPerson(x, y, dx, dy, scale, coat, t, phase, still)
   local r = px(4.2, scale, 1.1)
   -- Until a figure is big enough to read, a person is a dot in their coat.
   if r < 3.2 then
@@ -119,6 +119,44 @@ local function person(x, y, dx, dy, scale, coat, t, phase, still)
 end
 
 -- A hull from above: square stern, parallel sides, a fine bow.
+-- People are queued and drawn together, so two who would land on the same
+-- spot step aside for each other: the later one moves across the way it is
+-- walking, as far as it takes to clear, instead of the two merging.
+local crowd = {}
+local function person(x, y, dx, dy, scale, coat, t, phase, still)
+  crowd[#crowd + 1] = { x, y, dx, dy, scale, coat, t, phase, still }
+end
+local function flushPeople()
+  local placed = {}
+  for _, p in ipairs(crowd) do
+    local r = px(4.2, p[5], 1.1)
+    local cell = math.max(4, r * 2)
+    local function clash(x, y)
+      local cx, cy = math.floor(x / cell), math.floor(y / cell)
+      for ix = cx - 1, cx + 1 do
+        for iy = cy - 1, cy + 1 do
+          for _, q in ipairs(placed[ix * 65536 + iy] or {}) do
+            if (q[1] - x) ^ 2 + (q[2] - y) ^ 2 < (r * 1.5) ^ 2 then return true end
+          end
+        end
+      end
+      return false
+    end
+    local l = math.max(1e-6, math.sqrt(p[3] * p[3] + p[4] * p[4]))
+    local nx, ny = -p[4] / l, p[3] / l
+    local x, y = p[1], p[2]
+    for _, step in ipairs({ 0, 1, -1, 2, -2 }) do
+      local tx, ty = p[1] + nx * step * r * 1.5, p[2] + ny * step * r * 1.5
+      if not clash(tx, ty) then x, y = tx, ty; break end
+    end
+    local k = math.floor(x / cell) * 65536 + math.floor(y / cell)
+    placed[k] = placed[k] or {}
+    table.insert(placed[k], { x, y })
+    drawPerson(x, y, p[3], p[4], p[5], p[6], p[7], p[8], p[9])
+  end
+  crowd = {}
+end
+
 local function hull(L, W, ox, oy)
   ox, oy = ox or 0, oy or 0
   return { ox - L / 2, oy - W * 0.42, ox - L * 0.47, oy - W / 2, ox + L * 0.18, oy - W / 2,
@@ -239,35 +277,60 @@ local geoCache = setmetatable({}, { __mode = "k" })
 
 local function bodyOf(n)
   if n.kind == "client" then return City.PROJECT_BY and City.PROJECT_BY[n.clientType or ""] and 34 or 22 end
-  if n.kind == "corner" then return 0 end
+  if City.ROAD_JUNCTIONS and City.ROAD_JUNCTIONS[n.kind] then return 0 end
   return 16
 end
 
+local RoadShape = require("road_shape")
+
+-- The streets as road_shape.lua lays them, cut into straight pieces: people
+-- walk the pavements of the curves the map draws, and a junction's pad is
+-- carriageway nobody stands on.
 local function geo(city)
   local rev, links = city.revision or 0, #(city.links or {})
   local g = geoCache[city]
   if g and g.rev == rev and g.links == links and g.nodes == #city.g.nodes then return g end
-  g = { rev = rev, links = links, nodes = #city.g.nodes, roads = {}, roadGrid = {}, grid = {}, routes = {}, runs = {} }
-  for _, l in ipairs(city.links or {}) do
-    local na, nb = city.g.nodes[l.a], city.g.nodes[l.b]
-    if l.alive and l.mode == "road" and na and nb and na.alive and nb.alive then
-      local dx, dy = nb.x - na.x, nb.y - na.y
-      local len = math.sqrt(dx * dx + dy * dy)
-      if len > 1 then
-        local kind = l.roadType or "road"
-        local r = { l = l, kind = kind, ax = na.x, ay = na.y, bx = nb.x, by = nb.y, len = len,
-          ux = dx / len, uy = dy / len, half = City.ROAD_WIDTH[kind] / 2,
-          pave = (kind == "road" or kind == "bridge") and City.PAVEMENT or kind == "offroad" and 4 or 0 }
-        g.roads[#g.roads + 1] = r
-        for cx = math.floor((math.min(na.x, nb.x) - 30) / CELL), math.floor((math.max(na.x, nb.x) + 30) / CELL) do
-          for cy = math.floor((math.min(na.y, nb.y) - 30) / CELL), math.floor((math.max(na.y, nb.y) + 30) / CELL) do
-            local k = cx * 65536 + cy
-            g.roadGrid[k] = g.roadGrid[k] or {}
-            table.insert(g.roadGrid[k], r)
-          end
-        end
+  g = { rev = rev, links = links, nodes = #city.g.nodes, roads = {}, roadGrid = {}, grid = {}, routes = {}, runs = {}, pads = {} }
+  local shape = RoadShape.get(city)
+  local function file(r, x0, y0, x1, y1)
+    for cx = math.floor((x0 - 30) / CELL), math.floor((x1 + 30) / CELL) do
+      for cy = math.floor((y0 - 30) / CELL), math.floor((y1 + 30) / CELL) do
+        local k = cx * 65536 + cy
+        g.roadGrid[k] = g.roadGrid[k] or {}
+        table.insert(g.roadGrid[k], r)
       end
     end
+  end
+  for _, ch in ipairs(shape.chains) do
+    for i = 2, #ch.pts do
+      local a, b = ch.pts[i - 1], ch.pts[i]
+      local dx, dy = b.x - a.x, b.y - a.y
+      local len = math.sqrt(dx * dx + dy * dy)
+      if len > 1 then
+        local kind = b.k or ch.kind
+        local r = { l = b.l or ch.links[1].l, key = #g.roads + 1, kind = kind, ax = a.x, ay = a.y, bx = b.x, by = b.y, len = len,
+          ux = dx / len, uy = dy / len, half = math.max(a.h, b.h),
+          pave = kind == "road" and City.PAVEMENT or kind == "offroad" and 4 or 0 }
+        g.roads[#g.roads + 1] = r
+        file(r, math.min(a.x, b.x), math.min(a.y, b.y), math.max(a.x, b.x), math.max(a.y, b.y))
+      end
+    end
+  end
+  for _, ramp in ipairs(shape.ramps) do
+    for i = 2, #ramp.pts do
+      local a, b = ramp.pts[i - 1], ramp.pts[i]
+      local dx, dy = b.x - a.x, b.y - a.y
+      local len = math.sqrt(dx * dx + dy * dy)
+      if len > 0.5 then
+        local r = { key = -i, kind = "ramp", ax = a.x, ay = a.y, bx = b.x, by = b.y, len = len, ux = dx / len, uy = dy / len, half = 6, pave = 0 }
+        file(r, math.min(a.x, b.x), math.min(a.y, b.y), math.max(a.x, b.x), math.max(a.y, b.y))
+      end
+    end
+  end
+  for _, pad in ipairs(shape.pads) do
+    -- A pad as a point with the junction's reach for its half width.
+    local r = { key = -1, kind = "pad", ax = pad.x, ay = pad.y, bx = pad.x, by = pad.y, len = 0, ux = 1, uy = 0, half = pad.r, pave = 0 }
+    file(r, pad.x - pad.r, pad.y - pad.r, pad.x + pad.r, pad.y + pad.r)
   end
   for _, n in ipairs(city.g.nodes) do
     if n.alive and bodyOf(n) > 0 then
@@ -333,7 +396,7 @@ end
 -- Cut wherever something stands on it, including another road's carriageway:
 -- people do not walk across junctions.
 local function paveRuns(city, g, r, side)
-  local key = r.l.id * 2 + (side > 0 and 1 or 0)
+  local key = r.key * 2 + (side > 0 and 1 or 0)
   if g.runs[key] then return g.runs[key] end
   local runs, open = {}, nil
   for s = 0, r.len, 5 do
@@ -529,50 +592,12 @@ local ROAD_PACE = { offroad = 0.6, road = 1, highway = 1.7, bridge = 1 }
 -- from a building or a junction to the next, through any corners between.
 local function chains(city, g)
   if g.chains then return g.chains end
-  local at = {}
-  for _, r in ipairs(g.roads) do
-    for _, id in ipairs({ r.l.a, r.l.b }) do at[id] = at[id] or {}; table.insert(at[id], r) end
-  end
-  local function bend(id)
-    local n = city.g.nodes[id]
-    return n and n.kind == "corner" and #at[id] == 2
-  end
-  local seen, out = {}, {}
-  for _, r in ipairs(g.roads) do
-    if not seen[r] then
-      -- Walk back to where this street starts, then forward to where it ends.
-      local start, from = r, r.l.a
-      local guard = 0
-      while bend(from) and guard < 200 do
-        local other = at[from][1] == start and at[from][2] or at[from][1]
-        if seen[other] or other == r then break end
-        from = other.l.a == from and other.l.b or other.l.a
-        start = other
-        guard = guard + 1
-      end
-      local node = city.g.nodes[from]
-      local pts, links, cur, here = { node.x, node.y }, {}, start, from
-      guard = 0
-      while cur and not seen[cur] and guard < 400 do
-        seen[cur] = true
-        links[#links + 1] = cur
-        here = cur.l.a == here and cur.l.b or cur.l.a
-        local n = city.g.nodes[here]
-        pts[#pts + 1] = n.x; pts[#pts + 1] = n.y
-        local nxt
-        if bend(here) then nxt = at[here][1] == cur and at[here][2] or at[here][1] end
-        cur = nxt
-        guard = guard + 1
-      end
-      local len = 0
-      for i = 3, #pts, 2 do len = len + math.sqrt((pts[i] - pts[i - 2]) ^ 2 + (pts[i + 1] - pts[i - 1]) ^ 2) end
-      local x0, y0, x1, y1 = math.huge, math.huge, -math.huge, -math.huge
-      for i = 1, #pts, 2 do
-        x0, x1 = math.min(x0, pts[i]), math.max(x1, pts[i])
-        y0, y1 = math.min(y0, pts[i + 1]), math.max(y1, pts[i + 1])
-      end
-      out[#out + 1] = { pts = pts, len = len, links = links, kind = start.kind, half = start.half,
-        id = start.l.id, box = { x0, y0, x1, y1 } }
+  local out = {}
+  for _, ch in ipairs(RoadShape.get(city).chains) do
+    if ch.len > 4 then
+      local pts = {}
+      for _, p in ipairs(ch.pts) do pts[#pts + 1] = p.x; pts[#pts + 1] = p.y end
+      out[#out + 1] = { pts = pts, len = ch.len, links = ch.links, kind = ch.kind, half = ch.h, id = ch.id, box = ch.box }
     end
   end
   g.chains = out
@@ -611,6 +636,11 @@ local function drawRoads(city, cam, t)
         { "truck", ch.kind == "offroad" and 0 or math.min(4, math.ceil(truck / 2)) },
         { "bus", ch.kind == "offroad" and 0 or math.min(3, bus) },
       }
+      -- Every vehicle's place along the street, then a pass per lane so no
+      -- one drives through the one ahead: a car that has caught up queues
+      -- behind it. A highway has two lanes each way, cars in both and the
+      -- heavy vehicles in the slow outer one.
+      local lanes = {}
       local i = 0
       for _, f in ipairs(fleet) do
         for j = 1, f[2] do
@@ -620,16 +650,32 @@ local function drawRoads(city, cam, t)
           local dir = i % 2 == 0 and -1 or 1
           local speed = SPEED[kind] * ROAD_PACE[ch.kind] * (0.9 + 0.2 * hash(ch.id, i, 3))
           local s = (hash(ch.id, i, 1) * ch.len + t * speed) % (ch.len + 40) - 20
+          local lane
+          if ch.kind == "highway" then lane = (kind == "car" and hash(ch.id, i, 6) < 0.5) and 0.34 or 0.77
+          else lane = 0.48 end
+          local key = dir * 10 + lane
+          lanes[key] = lanes[key] or {}
+          table.insert(lanes[key], { s = s, kind = kind, dir = dir, lane = lane, i = i, long = (kind == "truck" and 17 or kind == "bus" and 19 or kind == "van" and 11 or 9) * 1.5 })
+        end
+      end
+      for _, list in pairs(lanes) do
+        table.sort(list, function(p, q) return p.s > q.s end)
+        for k = 2, #list do
+          local ahead, v = list[k - 1], list[k]
+          local gap = (ahead.long + v.long) / 2 + 4
+          if ahead.s - v.s < gap then v.s = ahead.s - gap end
+        end
+        for _, v in ipairs(list) do
+          local s = v.s
           if s > 6 and s < ch.len - 6 then
-            if dir < 0 then s = ch.len - s end
+            if v.dir < 0 then s = ch.len - s end
             local x, y, ux, uy = along_(ch.pts, s)
-            ux, uy = ux * dir, uy * dir
-            -- Keep right: a highway's slow lane is the outer one.
-            local lane = ch.half * (ch.kind == "highway" and (kind == "car" and 0.3 or 0.72) or 0.48)
+            ux, uy = ux * v.dir, uy * v.dir
+            local lane = ch.half * v.lane
             x, y = x - uy * lane, y + ux * lane
             if cam:sees(x, y, 20) then
               local sx, sy = cam:toScreen(x, y)
-              vehicle(kind, sx, sy, ux, uy, cam.scale, CAR_COLOURS[math.floor(hash(ch.id, i, 4) * #CAR_COLOURS) + 1])
+              vehicle(v.kind, sx, sy, ux, uy, cam.scale, CAR_COLOURS[math.floor(hash(ch.id, v.i, 4) * #CAR_COLOURS) + 1])
             end
           end
         end
@@ -1223,6 +1269,7 @@ function Traffic.ground(city, cam, visible)
   drawPeople(city, cam, t)
   drawShoppers(city, cam, t)
   drawCrews(city, cam, t)
+  flushPeople()
 end
 
 -- Over everything on the ground: birds, then aircraft.
