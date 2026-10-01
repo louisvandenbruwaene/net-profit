@@ -126,4 +126,21 @@ do
   c:endDay(); c:refresh()
   check(not array.assembling and (array.effectiveOutput or array.output or 0)>0,"and it runs from the next day")
 end
+
+print("a bridge reaches an island")
+do
+  local c=T.sandbox(1)
+  for _,d in ipairs(c.districts) do d.population=500 end
+  local island
+  for _,d in ipairs(c.districts) do if d.island then island=d; break end end
+  if island then
+    local ix,iy=island.x+island.w/2,island.y+island.h/2
+    local a=c.g:addNode(ix,150,"corner"); local b=c.g:addNode(ix,iy,"corner")
+    c.buildRoadType="road"
+    check(select(2,c:layLink(a.id,b.id,"road"))=="water in the way: build a bridge","no road runs out to sea")
+    c.buildRoadType="bridge"
+    local l=c:layLink(a.id,b.id,"road")
+    check(l and l.roadType=="bridge" and c:waterAlong(a.x,a.y,b.x,b.y)>0,"a bridge does, over the open water")
+  end
+end
 print(T.checks.." import checks passed")
