@@ -2265,13 +2265,24 @@ local function report()
     return {{"Revenue",r.revenue},{"Costs",-r.expenses},{"Repairs",-(r.crewCost or 0)-(r.preventCost or 0)},
       {"Investments",r.interest or 0},{"Grants",reward},{"Refunds",-(r.credits or 0)},{"Travel",r.transitIncome or 0}}
   end
+  -- Freight overnight: what landed at the havens and what reached the yards.
+  local function arrivals(r)
+    local function list(t)
+      local parts={}
+      for _,k in ipairs(Graph.ALL) do if (t or {})[k] then parts[#parts+1]=t[k].." "..S.get(k) end end
+      return table.concat(parts,"  ")
+    end
+    local landed,yards=list(r.imported),list(r.hauled)
+    if landed=="" and yards=="" then return nil end
+    return (landed~="" and ("Landed "..landed) or "")..(landed~="" and yards~="" and "   " or "")..(yards~="" and ("In the yards "..yards) or "")
+  end
   local leak,enquiry
   if r and state.modal=="report" then
     for _,e in ipairs(city.g.edges) do if e.alive and e.leaking then leak=e; break end end
     for _,n in ipairs(city:clientList(true)) do
       if r.arrived and n.x==r.arrived.x and n.y==r.arrived.y then enquiry=n; break end
     end
-    local lines=((r.unhappy>0 or #r.left>0) and 1 or 0)+((r.bonus or 0)>0 and 1 or 0)+(r.event and 1 or 0)+(r.shock and 1 or 0)
+    local lines=((r.unhappy>0 or #r.left>0) and 1 or 0)+((r.bonus or 0)>0 and 1 or 0)+(r.event and 1 or 0)+(r.shock and 1 or 0)+(arrivals(r) and 1 or 0)
     local rows=0
     for _,v in ipairs(reportEntries(r)) do if (v[2] or 0)~=0 then rows=rows+1 end end
     h=136+lines*28+6+rows*24+16+((leak or enquiry) and 44 or 0)+66
@@ -2325,6 +2336,8 @@ local function report()
   if reward>0 then line("Bonus +$"..reward,P.good) end
   if r.event then line(r.event,P.energy) end
   if r.shock then line(r.shock,P.bad) end
+  local came=arrivals(r)
+  if came then line(came,P.energy) end
   -- The accounts, only the lines that moved.
   ly=ly+6
   for _,v in ipairs(reportEntries(r)) do
