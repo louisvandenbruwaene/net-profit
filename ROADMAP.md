@@ -793,5 +793,7 @@ street to the traffic on it (`chains` in traffic.lua).
 An order can be sent to any yard (the haven panel's yard button), the nearest
 by default.
 
-Not done, and worth doing next: a site that has to wait for its materials
-(today a build is finished the moment it is paid for).
+A solar array or wind park is assembled from the parts driven to it and runs
+from the next day (`n.assembling`). Every other build still works the moment it
+is paid for: extending the wait to works and reactors changes chains that
+existing companies and tests rely on, so it would need its own pass.

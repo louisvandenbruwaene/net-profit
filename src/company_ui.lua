@@ -484,6 +484,7 @@ local function inspectSource(n,y)
   local maxed=drawn>=capacity and capacity>0
   local ceiling=n.cap or capacity
   -- Problems first, one line each.
+  if n.assembling then single("Assembling: runs tomorrow",M,y,"small",P.energy,CW); y=y+26 end
   if range and city:rockLeft(range)<=0 then
     single("Range worked out",M,y,"small",P.bad,CW); y=y+26
   elseif n.effectiveOutput==0 then

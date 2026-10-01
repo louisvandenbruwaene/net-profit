@@ -2889,6 +2889,9 @@ local function buySourcePlain(self, commodity, px, py, plant)
     self:spendMaterials(bill, 1, px, py)
     local s = self.g:addNode(px, py, "source")
     s.commodity, s.paid, s.level = commodity, cost, 1
+    -- Panels and turbines are assembled on site from the parts driven out to
+    -- it today: the array or the wind park runs from tomorrow.
+    if plant == "solar" or plant == "wind" then s.assembling = self.day end
     -- Four ports: enough for a well, a rig or a plant to feed a couple of
     -- routes, never enough to turn a producing building into a distribution
     -- point in its own right. That job belongs to a hub.
@@ -3317,6 +3320,9 @@ function City:refresh()
   for _,n in ipairs(self.g:aliveNodes()) do
     n.effectiveOutput=self:shockOutput(n)
     if n.kind=='source' and (n.commodity=='water' or n.commodity=='wheat') and self:pollutionAt(n.x,n.y)>=D.pollution.stopAt then n.effectiveOutput=0 end
+    if n.kind=='source' and n.assembling then
+      if n.assembling < self.day then n.assembling=nil else n.effectiveOutput=0 end
+    end
   end
   local runs={}
   for _,key in ipairs(D.voltageOrder) do runs[key]=self:boostRuns(key) end
