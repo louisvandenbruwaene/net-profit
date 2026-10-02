@@ -2751,7 +2751,7 @@ local function settingsMenu()
     local keys={{"Enter","End day"},{"B","Build"},{"Tab","Menu"},{"Esc","Close"},
       {"Z","Undo"},{"Y / N","Sign / decline"},{"F","Show all"},{"R","Repair"},{"L","Worst leak"},
       {"U / E","Upgrade"},{"Delete","Demolish"},{"T","Freight"},
-      {"H","Hide others"},{"O","Minimap"},{"M","Sound"},{"1-9","Building"},{"WASD","Pan"},{"+ / -","Zoom"}}
+      {"H","Hide others"},{"O","Minimap"},{"M","Sound"},{"1-9","Building"},{"WASD","Pan"},{"+ / -","Zoom"},{"Pinch","Zoom"},{"Two fingers","Pan"},{"Double click","Fly to"}}
     local kw,kh=240,20+#keys*22
     local kx,ky=px-kw-10,py
     lg.setColor(P.bg); lg.rectangle("fill",kx-1,ky-1,kw+2,kh+2,8)

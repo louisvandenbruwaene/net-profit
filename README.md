@@ -107,7 +107,7 @@ remembered in `settings.lua` beside the saves, apart from any company.
 - **Clients:** accept or decline requests. Check supply problems.
 - **Stats:** day, clients, value, reputation, costs, goals and history.
 
-Click land on the map to view it or buy it. Use the wheel to zoom and drag to pan.
+Click land on the map to view it or buy it. Pinch (or Cmd + wheel) to zoom and drag to pan.
 **Show all** centres the view and zooms to show your buildings.
 
 Declining a request costs 1 reputation. Letting it expire costs 2.
@@ -134,8 +134,10 @@ Requests expire after five days.
 | Fit a wagon to a bulk line | Select the line, then the commodity under "Fit another wagon" |
 | Set a distribution hub's minimum price | Select the hub, then minus / plus |
 | Hire surveyors, scouts or analysts | Company tab, under the maintenance crews |
-| Pan | Drag empty ground, or right / middle drag |
-| Zoom / scroll sidebar | Mouse wheel |
+| Pan | Drag the map, two fingers on a trackpad, or WASD |
+| Zoom | Pinch on a trackpad, Cmd + wheel, or + / - |
+| Fly to a building | Double click it |
+| Scroll the sidebar | Wheel or two fingers over it |
 | Show all buildings | F, or Show all |
 | See the whole city | Scroll out on the map |
 | Widen a selected main | U |
