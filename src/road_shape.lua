@@ -1007,6 +1007,64 @@ local function build(city)
       end
     end
   end
+  -- Where a slip road leaves or joins the highway: which of its edges faces
+  -- the carriageway, and the gore, the painted nose between the two from
+  -- where they part to where grass opens up between them.
+  local function nearestOn(pts, x, y)
+    local bx, by, bh, bd = nil, nil, nil, math.huge
+    for i = 2, #pts do
+      local a, b = pts[i - 1], pts[i]
+      local dx, dy = b.x - a.x, b.y - a.y
+      local t = max(0, min(1, ((x - a.x) * dx + (y - a.y) * dy) / max(1e-9, dx * dx + dy * dy)))
+      local px, py = a.x + dx * t, a.y + dy * t
+      local d = (px - x) ^ 2 + (py - y) ^ 2
+      if d < bd then bx, by, bh, bd = px, py, a.h + (b.h - a.h) * t, d end
+    end
+    return bx, by, bh
+  end
+  for _, ramp in ipairs(shape.ramps) do
+    local pts = ramp.pts
+    if not ramp.over and #pts >= 31 then
+      local tip = pts[22]
+      local best, bd
+      for _, ch in ipairs(shape.chains) do
+        if ch.kind == "highway" then
+          local b = ch.box
+          if tip.x > b[1] - 20 and tip.x < b[3] + 20 and tip.y > b[2] - 20 and tip.y < b[4] + 20 then
+            local cx, cy = nearestOn(ch.pts, tip.x, tip.y)
+            local d = (cx - tip.x) ^ 2 + (cy - tip.y) ^ 2
+            if not bd or d < bd then best, bd = ch, d end
+          end
+        end
+      end
+      if best then
+        local function normalAt(i)
+          local a, b = pts[max(1, i - 1)], pts[min(#pts, i + 1)]
+          local ux, uy = norm(b.x - a.x, b.y - a.y)
+          return -uy, ux
+        end
+        local nx, ny = normalAt(22)
+        local cx, cy = nearestOn(best.pts, tip.x, tip.y)
+        ramp.inner = (nx * (cx - tip.x) + ny * (cy - tip.y) > 0) and 1 or -1
+        ramp.curveEnd = 21
+        local edge, hard = {}, {}
+        for i = 21, 1, -1 do
+          local p = pts[i]
+          local mx, my = normalAt(i)
+          local ex, ey = p.x + mx * p.h * ramp.inner, p.y + my * p.h * ramp.inner
+          local qx, qy, qh = nearestOn(best.pts, ex, ey)
+          local ux, uy, d = norm(ex - qx, ey - qy)
+          local gap = d - qh
+          -- Out to where the two verges meet and grass opens between them.
+          if gap > 4.5 or gap < -1 then break end
+          edge[#edge + 1] = { x = ex, y = ey }
+          hard[#hard + 1] = { x = qx + ux * qh, y = qy + uy * qh }
+        end
+        if #edge >= 2 then ramp.gore = { edge = edge, hard = hard } end
+      end
+    end
+  end
+
   local kept = {}
   for _, sg in ipairs(shape.signs) do
     local ok = not city:isWater(sg.x, sg.y)

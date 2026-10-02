@@ -523,10 +523,57 @@ function Roads.draw(city, cam)
     for _, e in ipairs(deadEnds(city, shape, ch)) do barrier(cam, e) end
   end
   if cam.scale > 0.3 then
+    local white = { 0.92, 0.92, 0.88, 0.8 }
     for _, ramp in ipairs(ramps) do
-      -- Solid edge lines, the inner one broken where the lane merges.
-      line(cam, ramp.pts, ramp.nx, ramp.ny, "ramp", 1, -0.7, 0.45, { 0.92, 0.92, 0.88, 0.75 })
-      line(cam, ramp.pts, ramp.nx, ramp.ny, "ramp", -1, 0.7, 0.45, { 0.92, 0.92, 0.88, 0.75 }, 4, 4)
+      -- The gore: where the slip road and the carriageway part, the nose
+      -- between them is paved and hatched with chevrons, edged in white.
+      local g = ramp.gore
+      if g then
+        local verts = {}
+        local c = SURFACE.highway
+        for i = 1, #g.edge do
+          local ax, ay = cam:toScreen(g.edge[i].x, g.edge[i].y)
+          local bx, by = cam:toScreen(g.hard[i].x, g.hard[i].y)
+          verts[#verts + 1] = { ax, ay, c[1], c[2], c[3], 1 }
+          verts[#verts + 1] = { bx, by, c[1], c[2], c[3], 1 }
+        end
+        strip(verts)
+        lg.setColor(white[1], white[2], white[3], white[4] * markFade)
+        lg.setLineWidth(max(1, 0.5 * cam.scale))
+        for i = 2, #g.edge do
+          local ax, ay = cam:toScreen(g.hard[i].x, g.hard[i].y)
+          local bx, by = cam:toScreen(g.edge[i - 1].x, g.edge[i - 1].y)
+          lg.line(ax, ay, bx, by)
+        end
+        for _, side in ipairs({ g.edge, g.hard }) do
+          local poly = {}
+          for _, q in ipairs(side) do local x, y = cam:toScreen(q.x, q.y); poly[#poly + 1] = x; poly[#poly + 1] = y end
+          lg.line(poly)
+        end
+      end
+      -- Solid edge lines; the one by the carriageway turns to a broken line
+      -- along the taper, where the lane merges.
+      local s, k = ramp.inner or -1, ramp.curveEnd
+      line(cam, ramp.pts, ramp.nx, ramp.ny, "ramp", -s, s * 0.7, 0.45, white)
+      if k then
+        if not ramp.split then
+          local function part(a, b)
+            local p, nx, ny = {}, {}, {}
+            for i = a, b do p[#p + 1] = ramp.pts[i]; nx[#nx + 1] = ramp.nx[i]; ny[#ny + 1] = ramp.ny[i] end
+            return { p, nx, ny }
+          end
+          ramp.split = { part(1, k), part(k, #ramp.pts) }
+        end
+        local a, b = ramp.split[1], ramp.split[2]
+        -- Along the taper the carriageway's own edge line gives way to the
+        -- broken one: paint over it with the highway's surface.
+        band(cam, b[1], b[2], b[3], function(q) return s * (q.h + 1.4) end, function(q) return s * (q.h - 0.3) end,
+          function() return SURFACE.highway end)
+        line(cam, a[1], a[2], a[3], "ramp", s, -s * 0.7, 0.45, white)
+        line(cam, b[1], b[2], b[3], "ramp", s, -s * 0.7, 0.45, white, 4, 4)
+      else
+        line(cam, ramp.pts, ramp.nx, ramp.ny, "ramp", s, -s * 0.7, 0.45, white, 4, 4)
+      end
     end
   end
   -- A roundabout's ring over the mouths of the slip roads and over the
