@@ -41,6 +41,10 @@ local RANK = { offroad = 1, road = 2, highway = 3 }
 -- A roundabout's carriageway radius, and its middle island's.
 local ROUND, ISLAND = 15, 6.5
 RoadShape.ROUND, RoadShape.ISLAND = ROUND, ISLAND
+-- A roundabout on the level in town: a ring wide enough for a lane round an
+-- island with room to see across, well wider than the streets that meet it.
+local LEVEL, LEVEL_ISLAND = 24, 11
+RoadShape.LEVEL, RoadShape.LEVEL_ISLAND = LEVEL, LEVEL_ISLAND
 
 local sqrt, atan2, abs, min, max, floor = math.sqrt, math.atan2, math.abs, math.min, math.max, math.floor
 local function norm(x, y)
@@ -220,8 +224,13 @@ local function build(city)
   for id, list in pairs(at) do
     local n = nodes[id]
     local junction = City.ROAD_JUNCTIONS[n.kind]
+    local highway = false
+    for _, r in ipairs(list) do if r.kind == "highway" then highway = true end end
     if not junction or #list == 1 then
       role[id] = "end"
+    elseif n.kind == "roundabout" and not highway then
+      -- A roundabout on the level: every road stops at its ring.
+      role[id] = "ring"
     elseif #list == 2 then
       role[id] = "bend"
       pairs_[id] = { [list[1]] = list[2], [list[2]] = list[1] }
@@ -282,6 +291,9 @@ local function build(city)
         if gap > 0.05 then d = max(d, widest / math.tan(min(gap, math.pi * 0.9) / 2) + 4) end
       end
       setback[id] = d
+    elseif role[id] == "ring" then
+      -- Each road runs on under the ring, which is drawn over its end.
+      setback[id] = LEVEL - 2
     elseif role[id] == "pass" then
       -- A road meeting the highway at a slant has further to go to clear it.
       local hw, hx, hy, slant = 0, 0, 0, 1
@@ -502,7 +514,8 @@ local function build(city)
             local t = ((q1x - p2x) * (-f.dy) - (q1y - p2y) * (-f.dx)) / den
             if t > 0 and t < 400 then cx, cy = p2x - e.dx * t, p2y - e.dy * t end
           end
-          cx, cy = cx or n.x, cy or n.y
+          -- Two arms in line: the kerb runs straight from the one to the other.
+          cx, cy = cx or (p2x + q1x) / 2, cy or (p2y + q1y) / 2
           for j = 1, 7 do
             local s = j / 8
             local a, b, c = (1 - s) ^ 2, 2 * (1 - s) * s, s * s
@@ -511,7 +524,28 @@ local function build(city)
         end
         return poly
       end
-      shape.pads[#shape.pads + 1] = { id = id, x = n.x, y = n.y, arms = list, road = outline(false), kerb = outline(true), r = setback[id] or 20 }
+      -- Who has priority. The straightest pair of the busiest roads is the
+      -- main road and runs on through; every other arm gives way to it. A
+      -- crossroads of equal roads chosen as a crossing has traffic lights
+      -- instead, every arm stopping at a line in turn.
+      local major, best = nil, -0.55
+      for i = 1, #list do for j = i + 1, #list do
+        local a, b = list[i], list[j]
+        local rank = (RANK[a.kind] or 2) + (RANK[b.kind] or 2)
+        local score = -(a.dx * b.dx + a.dy * b.dy) + rank
+        if a.dx * b.dx + a.dy * b.dy < -0.55 and (not major or score > best) then major, best = { a, b }, score end
+      end end
+      local signals = false
+      if #list >= 4 then
+        local top = 0
+        for _, e in ipairs(list) do top = max(top, RANK[e.kind] or 2) end
+        local equal = 0
+        for _, e in ipairs(list) do if (RANK[e.kind] or 2) == top then equal = equal + 1 end end
+        signals = equal >= 4 and top >= 2
+      end
+      for _, e in ipairs(list) do e.major = (not signals and major and (e == major[1] or e == major[2])) or nil end
+      shape.pads[#shape.pads + 1] = { id = id, x = n.x, y = n.y, arms = list, road = outline(false), kerb = outline(true), r = setback[id] or 20,
+        signals = signals, major = (not signals) and major or nil }
     end
   end
 
@@ -862,6 +896,20 @@ local function build(city)
       made[rd] = rec
     end
   end
+  -- Roundabouts on the level: the ring round the node, and a give-way line
+  -- across the near half of every road coming into it.
+  for id, list in pairs(at) do
+    if role[id] == "ring" then
+      local n = nodes[id]
+      local entries = {}
+      for _, r in ipairs(list) do
+        local lx, ly = dirFrom(id, r)
+        entries[#entries + 1] = { dx = lx, dy = ly, a = -r.h, b = 0 }
+      end
+      shape.rounds[#shape.rounds + 1] = { x = n.x, y = n.y, r = LEVEL, island = LEVEL_ISLAND, node = id, entries = entries, ramps = {},
+        link = list[1].l, through = true, level = true, reach = 0 }
+    end
+  end
   -- Each of a pair over the highway knows the other.
   for rd, rec in pairs(made) do
     if rd.over then rec.over = made[rd.over] end
@@ -911,11 +959,23 @@ local function build(city)
   -- Signs: give way at each arm of a junction, a speed limit now and then
   -- along a normal road, a motorway sign where a highway starts. None stands
   -- on a building, a carriageway or water.
+  -- Traffic keeps right, so a sign for the traffic coming in stands on the
+  -- kerb to its right: the arm's -normal side.
   for _, pad in ipairs(shape.pads) do
     for _, e in ipairs(pad.arms) do
-      if e.kind ~= "highway" then
+      if e.kind ~= "highway" and e.kind ~= "offroad" and not e.major then
         local off = e.h + RoadShape.pave(e.kind) + 2.5
-        shape.signs[#shape.signs + 1] = { kind = "giveway", x = e.x + e.dx * 4 - e.dy * off, y = e.y + e.dy * 4 + e.dx * off,
+        shape.signs[#shape.signs + 1] = { kind = pad.signals and "lights" or "giveway", x = e.x + e.dx * 2 + e.dy * off, y = e.y + e.dy * 2 - e.dx * off,
+          dx = -e.dx, dy = -e.dy }
+      end
+    end
+  end
+  for _, rd in ipairs(shape.rounds) do
+    if rd.level then
+      for _, e in ipairs(rd.entries) do
+        local off = -e.a + RoadShape.pave("road") + 2.5
+        local d = rd.r + 4
+        shape.signs[#shape.signs + 1] = { kind = "giveway", x = rd.x + e.dx * d + e.dy * off, y = rd.y + e.dy * d - e.dx * off,
           dx = -e.dx, dy = -e.dy }
       end
     end

@@ -236,28 +236,79 @@ local function padKind(pad)
   return kind
 end
 
+-- What a junction says to each road coming in. The main road of a priority
+-- junction runs on through: its centre line carries on broken across the
+-- mouth of the side road, and nothing stops it. A side road gives way: a
+-- double row of short dashes across its lane at the mouth, a triangle painted
+-- before it, and a zebra crossing back from the corner where people cross
+-- it. At traffic lights every way in has a solid stop line and a zebra.
+local function giveWayLine(cam, e, fade)
+  local nx, ny = -e.dy, e.dx
+  lg.setColor(0.94, 0.94, 0.90, 0.85 * fade)
+  lg.setLineWidth(max(1, 0.55 * cam.scale))
+  for _, out in ipairs({ 0.8, 2.1 }) do
+    local u = 0.4
+    while u < e.h * 0.95 do
+      local u1 = min(e.h * 0.95, u + 1.1)
+      local x0, y0 = cam:toScreen(e.x + e.dx * out - nx * u, e.y + e.dy * out - ny * u)
+      local x1, y1 = cam:toScreen(e.x + e.dx * out - nx * u1, e.y + e.dy * out - ny * u1)
+      lg.line(x0, y0, x1, y1)
+      u = u1 + 0.8
+    end
+  end
+  if cam.scale > 0.9 then
+    local mid, out, half = e.h * 0.48, 6.5, min(1.8, e.h * 0.25)
+    local ax, ay = cam:toScreen(e.x + e.dx * (out - 1.6) - nx * mid, e.y + e.dy * (out - 1.6) - ny * mid)
+    local bx, by = cam:toScreen(e.x + e.dx * (out + 2.8) - nx * (mid - half), e.y + e.dy * (out + 2.8) - ny * (mid - half))
+    local qx, qy = cam:toScreen(e.x + e.dx * (out + 2.8) - nx * (mid + half), e.y + e.dy * (out + 2.8) - ny * (mid + half))
+    lg.setLineWidth(max(0.8, 0.45 * cam.scale))
+    lg.polygon("line", ax, ay, bx, by, qx, qy)
+  end
+end
+local function zebra(cam, e, from, to, fade)
+  local nx, ny = -e.dy, e.dx
+  lg.setColor(0.94, 0.94, 0.90, 0.7 * fade)
+  lg.setLineWidth(max(1, 1.6 * cam.scale))
+  for k = -e.h + 1.5, e.h - 1.5, 2.6 do
+    local sx, sy = cam:toScreen(e.x + e.dx * from + nx * k, e.y + e.dy * from + ny * k)
+    local tx, ty = cam:toScreen(e.x + e.dx * to + nx * k, e.y + e.dy * to + ny * k)
+    lg.line(sx, sy, tx, ty)
+  end
+end
 local function padMarkings(cam, pad)
   if cam.scale < 0.3 then return end
   local fade = markFade
+  local m = pad.major
+  if m and m[1].kind ~= "offroad" and m[2].kind ~= "offroad" then
+    -- The main road's centre line, on across the junction.
+    local a, b = m[1], m[2]
+    local len = sqrt((a.x - b.x) ^ 2 + (a.y - b.y) ^ 2)
+    if a.kind == "road" and b.kind == "road" and len > 1 then
+      lg.setColor(0.92, 0.92, 0.88, 0.75 * fade); lg.setLineWidth(max(1, 0.7 * cam.scale))
+      local ux, uy = (b.x - a.x) / len, (b.y - a.y) / len
+      local d = 0
+      while d < len do
+        local e = min(len, d + 2)
+        local x0, y0 = cam:toScreen(a.x + ux * d, a.y + uy * d)
+        local x1, y1 = cam:toScreen(a.x + ux * e, a.y + uy * e)
+        lg.line(x0, y0, x1, y1)
+        d = e + 3
+      end
+    end
+  end
   for _, e in ipairs(pad.arms) do
     if e.kind == "road" or e.kind == "highway" then
-      local nx, ny = -e.dy, e.dx
-      -- Traffic keeps right, so the lane coming in is on the -normal side.
-      local x0, y0 = e.x + e.dx * 1.5, e.y + e.dy * 1.5
-      local ax, ay = cam:toScreen(x0, y0)
-      local bx, by = cam:toScreen(x0 - nx * e.h * 0.95, y0 - ny * e.h * 0.95)
-      lg.setColor(0.94, 0.94, 0.90, 0.85 * fade); lg.setLineWidth(max(1, 1.1 * cam.scale)); lg.line(ax, ay, bx, by)
-      if e.kind == "road" and cam.scale > 0.5 then
-        -- A zebra crossing just back from the stop line.
-        lg.setColor(0.94, 0.94, 0.90, 0.7 * fade)
-        lg.setLineWidth(max(1, 1.6 * cam.scale))
-        for k = -e.h + 1.5, e.h - 1.5, 2.6 do
-          local px, py = e.x + e.dx * 4 + nx * k, e.y + e.dy * 4 + ny * k
-          local qx, qy = e.x + e.dx * 8.5 + nx * k, e.y + e.dy * 8.5 + ny * k
-          local sx, sy = cam:toScreen(px, py)
-          local tx, ty = cam:toScreen(qx, qy)
-          lg.line(sx, sy, tx, ty)
-        end
+      if pad.signals then
+        local nx, ny = -e.dy, e.dx
+        -- The stop line, and the crossing between it and the junction.
+        local x0, y0 = e.x + e.dx * 7, e.y + e.dy * 7
+        local ax, ay = cam:toScreen(x0, y0)
+        local bx, by = cam:toScreen(x0 - nx * e.h * 0.95, y0 - ny * e.h * 0.95)
+        lg.setColor(0.94, 0.94, 0.90, 0.85 * fade); lg.setLineWidth(max(1, 1.1 * cam.scale)); lg.line(ax, ay, bx, by)
+        if e.kind == "road" and cam.scale > 0.5 then zebra(cam, e, 1, 5.5, fade) end
+      elseif not e.major then
+        giveWayLine(cam, e, fade)
+        if e.kind == "road" and cam.scale > 0.5 then zebra(cam, e, 10, 14.5, fade) end
       end
     end
   end
@@ -277,6 +328,15 @@ local function sign(cam, sg)
     lg.setColor(0.86, 0.18, 0.16); lg.circle("fill", sx, cy, 1.7 * u)
     lg.setColor(0.96, 0.96, 0.94); lg.circle("fill", sx, cy, 1.15 * u)
     lg.setColor(0.12, 0.12, 0.12); lg.rectangle("fill", sx - 0.55 * u, cy - 0.5 * u, 0.35 * u, 1 * u); lg.rectangle("fill", sx + 0.15 * u, cy - 0.5 * u, 0.35 * u, 1 * u)
+  elseif sg.kind == "lights" then
+    -- A signal head: dark housing, red over amber over green.
+    lg.setColor(0.10, 0.10, 0.11); lg.rectangle("fill", sx - 1.1 * u, cy - 2.6 * u, 2.2 * u, 4.6 * u, 0.4 * u)
+    local lit = { { 0.92, 0.22, 0.18 }, { 0.95, 0.70, 0.20 }, { 0.30, 0.85, 0.40 } }
+    for k = 1, 3 do
+      local c = lit[k]
+      lg.setColor(c[1], c[2], c[3], 0.9)
+      lg.circle("fill", sx, cy - 2.6 * u + (k - 0.45) * 1.45 * u, 0.5 * u)
+    end
   elseif sg.kind == "motorway" then
     lg.setColor(0.16, 0.34, 0.70); lg.rectangle("fill", sx - 2 * u, cy - 1.8 * u, 4 * u, 3.4 * u, 0.4 * u)
     lg.setColor(0.96, 0.96, 0.94); lg.setLineWidth(max(1, 0.35 * u))
@@ -374,7 +434,7 @@ end
 local function island(cam, rd)
   local sx, sy = cam:toScreen(rd.x, rd.y)
   local s = cam.scale
-  local ri = RS.ISLAND * s
+  local ri = (rd.island or RS.ISLAND) * s
   if markFade > 0 then
     for _, e in ipairs(rd.entries or {}) do giveWay(cam, rd, e) end
   end

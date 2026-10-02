@@ -824,7 +824,8 @@ function Walk.start(app,mode)
     click("road-type-highway"); check(c.buildRoadType=="highway","highway construction can be selected")
     click("road-type-offroad"); check(c.buildRoadType=="offroad","offroad construction can be selected")
     click("road-type-road")
-    check(not anywhere("tool-corner") and not anywhere("tool-roundabout"),"road bends and junctions are put down by the roads, not built by hand")
+    check(anywhere("tool-corner") and anywhere("tool-intersection") and anywhere("tool-roundabout") and anywhere("tool-interchange"),
+      "a bend, a junction, a roundabout and an interchange can be put down by hand")
     check(not anywhere("tool-resort"),"a resort is not, before anybody rides a route")
     capture("net-profit-32-people-tools",app,1100,700)
     local function spot(d)
@@ -889,6 +890,17 @@ function Walk.start(app,mode)
       local before,cx,cy=#c.links,cam.x,cam.y
       drag(stops[1],stops[2],1)
       check(#c.links==before and (cam.x~=cx or cam.y~=cy),"with a road in hand, a left drag moves the map and lays nothing")
+      -- A roundabout put down on the middle of the road cuts it there.
+      local na,nb=c.g.nodes[road.a],c.g.nodes[road.b]
+      local mx,my=(na.x+nb.x)/2,(na.y+nb.y)/2
+      cam:centerOn(mx,my)
+      app.state.node,app.state.edge,app.state.link=nil,nil,nil
+      click("tool-roundabout")
+      local sx,sy=cam:toScreen(mx,my)
+      love.mousepressed(sx,sy,1); love.mousereleased(sx,sy,1)
+      local made=app.state.node and c.g.nodes[app.state.node]
+      check(made and made.kind=="roundabout" and made.chosen and #c:roadsAt(made.id)==2,"a roundabout put down on a road splits it and stays a roundabout")
+      app.state.node,app.state.tool=nil,nil
     end
     click("tab-network")
     click("transit-bus")

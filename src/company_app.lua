@@ -461,7 +461,7 @@ local function action(name,...)
     elseif name=="buildProject" then
       state.node=result.id; state.edge=nil; state.tool=nil; state.project=nil
       R.ring(result.x,result.y,P.good); R.burst(result.x,result.y,P.energy,30); A.play("unlock",0.8)
-    elseif name=="build" or name=="buySource" then
+    elseif name=="build" or name=="buySource" or name=="placeJunction" then
       state.node=result.id; state.edge=nil; state.tool=nil; R.ring(result.x,result.y,P.good); A.play("place")
     elseif name=="buyDistrict" then
       state.district=nil; R.ring(result.x+result.w/2,result.y+result.h/2,P.good); A.play("place")
@@ -717,6 +717,7 @@ function love.mousepressed(x,y,button)
     elseif state.tool=="project" then action("buildProject",state.project,wx,wy)
     elseif state.tool=="shop" then action("buildShop",state.shop,wx,wy)
     elseif state.tool=="bench" then action("buildBench",wx,wy)
+    elseif City.ROAD_JRANK[state.tool] then action("placeJunction",state.tool,wx,wy)
     else
       local kind=state.tool=="grid" and "pole" or state.tool
       action("build",wx,wy,kind,state.commodity)
