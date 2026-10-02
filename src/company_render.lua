@@ -2440,7 +2440,18 @@ function Draw.world(city, cam, state)
         lg.setLineJoin("miter")
       end
       if state.edge == e.id or state.hoverEdge == e.id then
-        lg.setColor(P.with(P.text,0.7)); lg.setLineWidth(width+5); lg.setLineJoin("bevel"); lg.line(Draw.edgePath(cam,city,e)); lg.setLineJoin("miter")
+        local path=Draw.edgePath(cam,city,e)
+        lg.setLineJoin("bevel")
+        -- The selected main stands out at a glance: a soft breathing halo
+        -- round a bright edge. A hovered one only gets the edge.
+        if state.edge == e.id then
+          local pulse=0.5+0.5*math.sin(R.t*3)
+          lg.setColor(P.with(P.text,0.24+0.12*pulse)); lg.setLineWidth(width+18+6*pulse); lg.line(path)
+          lg.setColor(P.with(P.text,0.95)); lg.setLineWidth(width+6); lg.line(path)
+        else
+          lg.setColor(P.with(P.text,0.7)); lg.setLineWidth(width+5); lg.line(path)
+        end
+        lg.setLineJoin("miter")
       end
       -- Track reads as track: two steel rails on sleepers, tinted by what it
       -- happens to be hauling.
