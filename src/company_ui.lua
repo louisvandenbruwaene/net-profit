@@ -1422,7 +1422,7 @@ local function buildPanel()
           state.rail=nil; state.tool=nil; state.drag=nil; state.filter=nil
         end,true,
         key=="road" and ("Road: $"..City.PEOPLE.roadTiein*2 .." plus $"..string.format("%.2f",City.PEOPLE.roadPerM)..
-          " a metre. Drag directly between houses or businesses, or via road junctions. Bus stops are only for boarding buses. Highways and bridges charge tolls.")
+          " a metre. Right-drag to draw one, directly between houses or businesses, or via road junctions; left-drag moves the map. Bus stops are only for boarding buses. Highways and bridges charge tolls.")
           or (spec.name..": $"..spec.vehicle.." a vehicle, "..spec.seats.." seats a day. "..spec.blurb),
         state.transit==key,key=="road" and P.energy or spec.colour)
     end
