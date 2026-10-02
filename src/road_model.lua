@@ -67,16 +67,19 @@ return function(City)
   for _,k in ipairs(extra or {}) do kinds[#kinds+1]=k end
   -- Three roads meet at a junction where the main road has priority; four or
   -- more of them at a roundabout; anything with a highway at an interchange.
+  -- A highway that ends where roads meet it ends at a roundabout; two
+  -- highways and a road need an interchange.
   local want='corner'
-  local high=false
+  local highs=0
   if #kinds>=3 then
    local paved=false
-   for _,k in ipairs(kinds) do if k=='highway' then high=true elseif k~='offroad' then paved=true end end
-   want=high and 'interchange' or (paved and #kinds>=4) and 'roundabout' or 'intersection'
+   for _,k in ipairs(kinds) do if k=='highway' then highs=highs+1 elseif k~='offroad' then paved=true end end
+   want=highs>=2 and 'interchange' or highs==1 and 'roundabout' or (paved and #kinds>=4) and 'roundabout' or 'intersection'
   end
-  -- One the player put down by hand stays what it is, unless a highway
-  -- now needs an interchange or a bend now has to join three roads.
-  if n.chosen and not (high and n.kind~='interchange') and not (n.kind=='corner' and #kinds>=3) then return n.kind end
+  -- One the player put down by hand stays what it is, unless the highways
+  -- there now need an interchange or a bend now has to join three roads.
+  if n.chosen and not (highs>=2 and n.kind~='interchange') and not (highs==1 and JRANK[n.kind]<JRANK.roundabout)
+     and not (n.kind=='corner' and #kinds>=3) then return n.kind end
   return JRANK[want]>JRANK[n.kind] and want or n.kind
  end
  function City:roadNodeUpgrade(n,extra)
@@ -453,7 +456,10 @@ return function(City)
    local roads=#self:roadsAt(n.id)
    if kind=='corner' and roads>2 then return nil,'a corner only bends one road' end
    if kind=='interchange' and not highwayAt(n.id) then return nil,'an interchange is where a road meets a highway' end
-   if kind~='interchange' and highwayAt(n.id) and roads>2 then return nil,'roads meet a highway at an interchange' end
+   local highs=0
+   for _,l in ipairs(self:roadsAt(n.id)) do if vis(l)=='highway' then highs=highs+1 end end
+   if kind~='interchange' and highs>=2 and roads>2 then return nil,'a road meets a highway it crosses at an interchange' end
+   if (kind=='corner' or kind=='intersection') and highs==1 and roads>2 then return nil,'a highway ends at a roundabout' end
    local cost=math.max(0,price-(City.price[n.kind] or 0))
    if cost>self.money then return nil,'not enough cash' end
    self:spend(cost); n.paid=(n.paid or 0)+cost
