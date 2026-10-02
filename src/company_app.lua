@@ -693,6 +693,14 @@ function love.mousepressed(x,y,button)
   if button==1 and UI.click(x,y) then return end
   if state.modal then return end
   if UI.covers(x,y) then return end
+  -- With a road in hand, a right-drag draws one: from a building, off the
+  -- middle of a road, or out of bare ground. The left button still pans.
+  local roadMode=state.people and (state.transit or "road")=="road"
+  if button==2 and roadMode and not state.tool then
+    local wx,wy=cam:toWorld(x,y)
+    state.roadDrag={x=wx,y=wy,sx=x,sy=y}
+    return
+  end
   -- Right-click puts down whatever is in hand. With nothing in hand, a right
   -- click that does not turn into a pan clears the selection on release.
   if button==2 or button==3 then
@@ -716,12 +724,6 @@ function love.mousepressed(x,y,button)
     return
   end
   local node,edge,link=hit(x,y)
-  -- With a road in hand, a drag from anywhere draws one: from a building, off
-  -- the middle of a road, or out of bare ground. A plain click still selects.
-  if state.people and (state.transit or "road")=="road" then
-    local wx,wy=cam:toWorld(x,y)
-    state.roadDrag={x=wx,y=wy,sx=x,sy=y}
-  end
   if node or edge or link then
     -- Clicking what is already selected puts it down. A structure waits for the
     -- release, because pressing on it is also how a main is dragged out of it.
@@ -730,8 +732,11 @@ function love.mousepressed(x,y,button)
     state.deselect=node and state.node==node and node or nil
     state.node,state.edge,state.link,state.district=node,edge,link,nil
     reveal()
-    if node and state.roadDrag then
+    -- In road mode a press on a building or a road selects it, and a drag
+    -- from it pans the camera like a drag anywhere else.
+    if roadMode and (node or link) then
       state.rail=nil
+      state.pan={x=x,y=y,moved=false}
     elseif node then
       if state.people then state.transit=state.transit or "road"; state.rail=nil end
       state.drag=node
@@ -772,9 +777,14 @@ end
 function love.mousereleased(x,y,button)
   local rd=state.roadDrag
   state.roadDrag,state.roadPlan=nil,nil
-  if rd and rd.moved and button==1 then
-    local wx,wy=cam:toWorld(x,y)
-    action("drawRoad",rd.x,rd.y,wx,wy,city.buildRoadType)
+  if rd and button==2 then
+    if rd.moved then
+      local wx,wy=cam:toWorld(x,y)
+      action("drawRoad",rd.x,rd.y,wx,wy,city.buildRoadType)
+    else
+      -- A right click that drew nothing clears the selection, as anywhere.
+      state.node,state.edge,state.link,state.district=nil,nil,nil,nil
+    end
     state.drag,state.pan,state.deselect=nil,nil,nil
     return
   end

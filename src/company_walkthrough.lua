@@ -846,12 +846,15 @@ function Walk.start(app,mode)
     app.state.node=nil
     click("transit-road")
     check(app.state.transit=="road","the Road button picks up a road")
-    local function drag(from,to)
+    -- Roads are drawn with the right button (the left one pans); a bus
+    -- route is still dragged out with the left.
+    local function drag(from,to,button)
+      button=button or 2
       local sx,sy=cam:toScreen(from.x,from.y)
       local tx,ty=cam:toScreen(to.x,to.y)
-      love.mousepressed(sx,sy,1)
+      love.mousepressed(sx,sy,button)
       love.mousemoved(tx,ty,tx-sx,ty-sy)
-      love.mousereleased(tx,ty,1)
+      love.mousereleased(tx,ty,button)
     end
     local houseA=assert(c:addClient("house",false,home))
     local houseB=assert(c:addClient("house",false,west))
@@ -869,7 +872,7 @@ function Walk.start(app,mode)
     drag(houseA,houseB)
     local offroad=c.links[#c.links]
     check(offroad.alive and offroad.roadType=="offroad" and offroad.a==houseA.id and offroad.b==houseB.id,
-      "real mouse dragging connects two houses directly with an offroad")
+      "right-dragging connects two houses directly with an offroad")
     check(c:roadPath(houseA.id,houseB.id,"car") and not c:roadPath(houseA.id,houseB.id,"truck"),
       "the house-to-house offroad carries cars")
     capture("net-profit-house-offroad",app,1100,700)
@@ -879,12 +882,17 @@ function Walk.start(app,mode)
     cam:centerOn((ax+bx)/2,(ay+by)/2)
     drag(stops[1],stops[2])
     local road=c.links[#c.links]
-    check(road and road.mode=="road" and road.alive,"dragging between the stops lays a road")
+    check(road and road.mode=="road" and road.alive,"right-dragging between the stops lays a road")
     check(app.state.link==road.id,"and opens the road's own panel")
     check(road.toll==0,"normal roads are free to use")
+    do
+      local before,cx,cy=#c.links,cam.x,cam.y
+      drag(stops[1],stops[2],1)
+      check(#c.links==before and (cam.x~=cx or cam.y~=cy),"with a road in hand, a left drag moves the map and lays nothing")
+    end
     click("tab-network")
     click("transit-bus")
-    drag(stops[1],stops[2])
+    drag(stops[1],stops[2],1)
     local bus=c.links[#c.links]
     check(bus.mode=="bus" and bus.alive,"with Bus picked up, the same drag opens a bus route")
     click("vehicle-up")
