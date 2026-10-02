@@ -45,6 +45,8 @@ RoadShape.ROUND, RoadShape.ISLAND = ROUND, ISLAND
 -- island with room to see across, well wider than the streets that meet it.
 local LEVEL, LEVEL_ISLAND = 24, 11
 RoadShape.LEVEL, RoadShape.LEVEL_ISLAND = LEVEL, LEVEL_ISLAND
+-- Where a highway ends at one: two lanes round, the ring sized for them.
+local TERMINAL, TERMINAL_ISLAND = 36, 18
 
 local sqrt, atan2, abs, min, max, floor = math.sqrt, math.atan2, math.abs, math.min, math.max, math.floor
 local function norm(x, y)
@@ -224,12 +226,13 @@ local function build(city)
   for id, list in pairs(at) do
     local n = nodes[id]
     local junction = City.ROAD_JUNCTIONS[n.kind]
-    local highway = false
-    for _, r in ipairs(list) do if r.kind == "highway" then highway = true end end
+    local highways = 0
+    for _, r in ipairs(list) do if r.kind == "highway" then highways = highways + 1 end end
     if not junction or #list == 1 then
       role[id] = "end"
-    elseif n.kind == "roundabout" and not highway then
-      -- A roundabout on the level: every road stops at its ring.
+    elseif n.kind == "roundabout" and highways <= 1 then
+      -- A roundabout on the level: every road stops at its ring, a highway
+      -- that ends here included.
       role[id] = "ring"
     elseif #list == 2 then
       role[id] = "bend"
@@ -293,7 +296,9 @@ local function build(city)
       setback[id] = d
     elseif role[id] == "ring" then
       -- Each road runs on under the ring, which is drawn over its end.
-      setback[id] = LEVEL - 2
+      local high = false
+      for _, r in ipairs(list) do if r.kind == "highway" then high = true end end
+      setback[id] = (high and TERMINAL or LEVEL) - 2
     elseif role[id] == "pass" then
       -- A road meeting the highway at a slant has further to go to clear it.
       local hw, hx, hy, slant = 0, 0, 0, 1
@@ -902,11 +907,14 @@ local function build(city)
     if role[id] == "ring" then
       local n = nodes[id]
       local entries = {}
+      local high = false
       for _, r in ipairs(list) do
         local lx, ly = dirFrom(id, r)
         entries[#entries + 1] = { dx = lx, dy = ly, a = -r.h, b = 0 }
+        if r.kind == "highway" then high = true end
       end
-      shape.rounds[#shape.rounds + 1] = { x = n.x, y = n.y, r = LEVEL, island = LEVEL_ISLAND, node = id, entries = entries, ramps = {},
+      shape.rounds[#shape.rounds + 1] = { x = n.x, y = n.y, r = high and TERMINAL or LEVEL, island = high and TERMINAL_ISLAND or LEVEL_ISLAND,
+        node = id, entries = entries, ramps = {},
         link = list[1].l, through = true, level = true, reach = 0 }
     end
   end

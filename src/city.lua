@@ -4772,13 +4772,20 @@ function City:migrate()
   end
   -- Three roads used to meet at a roundabout too; now that a roundabout is a
   -- real ring, a T made automatically becomes a priority junction instead.
-  if not self.junctionRules then
+  -- And a highway that ends where roads meet it ends at a roundabout, not at
+  -- an interchange drawn as a flat crossing.
+  if (self.junctionRules or 0)<2 and self.roadsAt then
+    local function set(n,kind) n.kind=kind; n.ports=Graph.KINDS[kind].ports; n.throughput=Graph.KINDS[kind].throughput end
     for _,n in ipairs(self.g.nodes) do
-      if n.alive and n.kind=='roundabout' and not n.chosen and self.roadsAt and #self:roadsAt(n.id)==3 then
-        n.kind='intersection'; n.ports=Graph.KINDS.intersection.ports; n.throughput=Graph.KINDS.intersection.throughput
+      if n.alive and not n.chosen and (n.kind=='roundabout' or n.kind=='interchange') then
+        local roads=self:roadsAt(n.id)
+        local highs=0
+        for _,l in ipairs(roads) do if l.roadType=='highway' or l.deck=='highway' then highs=highs+1 end end
+        if n.kind=='roundabout' and #roads==3 and highs==0 and not self.junctionRules then set(n,'intersection')
+        elseif n.kind=='interchange' and #roads>=3 and highs==1 then set(n,'roundabout') end
       end
     end
-    self.junctionRules=1
+    self.junctionRules=2
   end
   self:survey()
   return self
