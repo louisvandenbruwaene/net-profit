@@ -626,12 +626,21 @@ local Magnify=require("magnify")
 
 function love.update(dt)
   R.update(dt); layout(); cam:update(dt)
-  -- A trackpad pinch since the last frame, about the pointer.
+  -- A trackpad pinch since the last frame, about the pointer, and two
+  -- fingers' exact movement: the map follows them point for point, the
+  -- sidebar scrolls, and with Cmd held they zoom.
   do
     local m=Magnify.take()
-    if m~=0 and not state.modal then
+    local sx,sy=Magnify.scroll()
+    if not state.modal then
       local mx,my=love.mouse.getPosition()
-      if not UI.covers(mx,my) then cam:zoomAt(mx,my,m/0.16) end
+      if m~=0 and not UI.covers(mx,my) then cam:zoomAt(mx,my,m/0.16) end
+      if sx~=0 or sy~=0 then
+        if UI.overDrawer(mx,my) then state.scroll=math.max(0,math.min(UI.maxScroll or 0,state.scroll-sy))
+        elseif UI.covers(mx,my) then
+        elseif love.keyboard.isDown("lgui","rgui","lctrl","rctrl") then cam:zoomAt(mx,my,sy*0.02)
+        else cam:pan(sx,sy) end
+      end
     end
   end
   -- The map pans under WASD or the arrow keys, faster with shift held.
@@ -859,6 +868,8 @@ end
 -- Ctrl held the wheel zooms too, for a mouse.
 function love.wheelmoved(dx,dy)
   if state.modal then return end
+  -- A trackpad's scrolling is taken smoothly in love.update instead.
+  if Magnify.trackpad() then return end
   local x,y=pointer()
   if UI.overDrawer(x,y) then state.scroll=math.max(0,math.min(UI.maxScroll or 0,state.scroll-dy*42))
   elseif UI.covers(x,y) then return
