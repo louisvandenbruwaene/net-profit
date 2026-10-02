@@ -689,10 +689,22 @@ function love.draw()
   Audit.finish()
 end
 
-function love.mousepressed(x,y,button)
+function love.mousepressed(x,y,button,_,presses)
   if button==1 and UI.click(x,y) then return end
   if state.modal then return end
   if UI.covers(x,y) then return end
+  -- A double click flies there: to a building, closer in and centred on it;
+  -- on open ground, a step closer in on that spot.
+  if button==1 and (presses or 1)>=2 and not state.tool then
+    local node=hit(x,y)
+    local n=node and city.g.nodes[node]
+    local wx,wy=cam:toWorld(x,y)
+    if n then wx,wy=n.x,n.y end
+    cam.targetScale=math.min(2.2,math.max(cam.targetScale*1.6,n and 1.4 or 0))
+    centerOn(wx,wy)
+    state.pan=nil
+    return
+  end
   -- With a road in hand, a right-drag draws one: from a building, off the
   -- middle of a road, or out of bare ground. The left button still pans.
   local roadMode=state.people and (state.transit or "road")=="road"

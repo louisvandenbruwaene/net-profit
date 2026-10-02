@@ -387,10 +387,19 @@ local function inspectClient(n,y)
       or "Needs more supply first"
     single(note,M,y+214,"small",(p.cost and (p.net or 0)>=0) and P.good or P.warn,CW)
     else
-    button("supply-valve",n.supplyClosed and "[ ]  Supply on" or "[x]  Supply on",
+    button("supply-valve",n.supplyClosed and "Supply off" or "Supply on",
       M,y+168,CW,36,function() act("toggleSupply",n.id) end,true,
       "They may leave if it stays off",
-      not n.supplyClosed,P.good)
+      not n.supplyClosed,n.supplyClosed and P.warn or P.good)
+    -- A switch, on to the right, off to the left.
+    do
+      local on=not n.supplyClosed
+      local sx,sy=M+14,y+177
+      lg.setColor(on and P.with(P.good,0.85) or P.with(P.textFaint,0.6))
+      lg.rectangle("fill",sx,sy,34,18,9)
+      lg.setColor(P.text)
+      lg.circle("fill",on and sx+25 or sx+9,sy+9,7)
+    end
 
     -- A customer showing 1/4 is a question. Answer it here, and offer the fix,
     -- rather than making the player trace the network by eye.
@@ -2272,8 +2281,11 @@ local function report()
   -- The results box is as tall as what it has to say.
   local function reportEntries(r)
     local reward=r.bonus or 0
-    return {{"Revenue",r.revenue},{"Costs",-r.expenses},{"Repairs",-(r.crewCost or 0)-(r.preventCost or 0)},
-      {"Investments",r.interest or 0},{"Grants",reward},{"Refunds",-(r.credits or 0)},{"Travel",r.transitIncome or 0}}
+    -- Revenue already counts the travel takings and costs already count the
+    -- refunds, so each is shown once: the rows add up to the day's profit.
+    return {{"Revenue",r.revenue-(r.transitIncome or 0)},{"Travel",r.transitIncome or 0},{"Costs",-(r.expenses-(r.credits or 0))},
+      {"Refunds",-(r.credits or 0)},{"Repairs",-(r.crewCost or 0)-(r.preventCost or 0)},
+      {"Investments",r.interest or 0},{"Grants",reward}}
   end
   -- Freight overnight: what landed at the havens and what reached the yards.
   local function arrivals(r)
@@ -2340,6 +2352,8 @@ local function report()
   text(city.bankrupt and "Insolvent" or "Day "..r.day,x+32,y+24,"big")
   single(City.signed(profit),x+32,y+80,"big",profit>=0 and P.good or P.bad,246)
   single("$"..(r.money or city.money),x+310,y+80,"big",P.energy,w-342)
+  single("profit",x+32,y+66,"tiny",P.textFaint,120)
+  single("cash",x+310,y+66,"tiny",P.textFaint,120)
   local ly=y+136
   local function line(s,color) single(s,x+32,ly,"body",color,w-64); ly=ly+28 end
   if r.unhappy>0 or #r.left>0 then line(r.unhappy.." short   "..#r.left.." lost",P.warn) end
