@@ -909,6 +909,20 @@ function Walk.start(app,mode)
         love.mousepressed(px,py,1,false,1); love.mousereleased(px,py,1)
         love.mousepressed(px,py,1,false,2); love.mousereleased(px,py,1)
         check(cam.targetScale>=1.4,"a double click on a junction zooms in to it")
+        -- Two fingers move the map and leave the zoom; a pinch zooms.
+        local z,cx0=cam.targetScale,cam.x
+        local k=UI.scale or 1
+        app.state.fakeMouse={px/k,py/k}
+        love.wheelmoved(3,0)
+        check(cam.targetScale==z and cam.x~=cx0,"a two-finger scroll pans the map")
+        love.touchpressed(1,100,100); love.touchpressed(2,200,100)
+        love.touchmoved(2,260,100)
+        check(cam.targetScale>z,"spreading two fingers zooms in")
+        z=cam.targetScale
+        love.touchmoved(1,103,100); love.touchmoved(2,263,100)
+        check(math.abs(cam.targetScale-z)<1e-9,"two fingers moving together do not zoom")
+        love.touchreleased(1); love.touchreleased(2)
+        app.state.fakeMouse=nil
         cam.targetScale=keepScale; cam.scale=keepScale; cam:centerOn(kx,ky)
         app.state.node,app.state.link=nil,nil
       end

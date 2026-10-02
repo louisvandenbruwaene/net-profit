@@ -839,12 +839,46 @@ function love.mousereleased(x,y,button)
   state.drag,state.pan,state.deselect=nil,nil,nil
 end
 
-function love.wheelmoved(_,dy)
+-- Where the pointer is: the real one, or the one a test run stands in.
+local function pointer()
+  if state.fakeMouse then local k=UI.scale or 1; return state.fakeMouse[1]*k,state.fakeMouse[2]*k end
+  return love.mouse.getPosition()
+end
+
+-- On a trackpad two fingers move the map and a pinch zooms it; with Cmd or
+-- Ctrl held the wheel zooms too, for a mouse.
+function love.wheelmoved(dx,dy)
   if state.modal then return end
-  local x,y=love.mouse.getPosition()
+  local x,y=pointer()
   if UI.overDrawer(x,y) then state.scroll=math.max(0,math.min(UI.maxScroll or 0,state.scroll-dy*42))
   elseif UI.covers(x,y) then return
-  else cam:zoomAt(x,y,dy) end
+  elseif love.keyboard.isDown("lgui","rgui","lctrl","rctrl") then cam:zoomAt(x,y,dy)
+  else cam:pan(-dx*14,dy*14) end
+end
+
+-- A pinch: two fingers on the trackpad drawing apart or together zoom about
+-- the pointer. Two fingers moving side by side are a scroll and leave the
+-- zoom alone, since the gap between them hardly changes.
+local fingers,pinchGap={},nil
+local function gap()
+  local a,b
+  for _,f in pairs(fingers) do if not a then a=f elseif not b then b=f end end
+  if not (a and b) then return nil end
+  return math.sqrt((a.x-b.x)^2+(a.y-b.y)^2)
+end
+function love.touchpressed(id,x,y) fingers[id]={x=x,y=y}; pinchGap=gap() end
+function love.touchreleased(id) fingers[id]=nil; pinchGap=gap() end
+function love.touchmoved(id,x,y)
+  if not fingers[id] then return end
+  fingers[id].x,fingers[id].y=x,y
+  local g=gap()
+  if not (g and pinchGap and pinchGap>1) then pinchGap=g; return end
+  local mx,my=pointer()
+  if not state.modal and not UI.covers(mx,my) then
+    local ratio=g/pinchGap
+    if math.abs(ratio-1)>0.004 then cam:zoomAt(mx,my,(ratio-1)/0.16) end
+  end
+  pinchGap=g
 end
 
 function love.keypressed(key)
