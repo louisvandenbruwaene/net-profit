@@ -622,8 +622,18 @@ function love.load(args)
   end
 end
 
+local Magnify=require("magnify")
+
 function love.update(dt)
   R.update(dt); layout(); cam:update(dt)
+  -- A trackpad pinch since the last frame, about the pointer.
+  do
+    local m=Magnify.take()
+    if m~=0 and not state.modal then
+      local mx,my=love.mouse.getPosition()
+      if not UI.covers(mx,my) then cam:zoomAt(mx,my,m/0.16) end
+    end
+  end
   -- The map pans under WASD or the arrow keys, faster with shift held.
   if not state.rename and not state.modal and love.keyboard then
     local kd=love.keyboard.isDown
