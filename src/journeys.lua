@@ -55,7 +55,8 @@ Journeys.RING = RING
 
 -- The way from a point outside a ring, round it, to another point outside:
 -- straight in, round, straight out, as a function of the distance gone.
-function Journeys.ringWay(cx, cy, ax, ay, bx, by)
+function Journeys.ringWay(cx, cy, ax, ay, bx, by, RING)
+  RING = RING or Journeys.RING
   local ta, tb = atan2(ay - cy, ax - cx), atan2(by - cy, bx - cx)
   local delta = (ta - tb) % TAU
   if delta < 0.3 then delta = delta + TAU end
@@ -174,7 +175,8 @@ end
 -- Round a roundabout from the end of `path` to `to`'s first point.
 local function roundTo(path, rd, to)
   local a, b = path[#path], to[1]
-  local pos, total, ta, l1, l2 = ringWay(rd.x, rd.y, a.x, a.y, b.x, b.y)
+  local lane = rd.island and (rd.island + 1.2 + rd.r) / 2 or RING
+  local pos, total, ta, l1, l2 = ringWay(rd.x, rd.y, a.x, a.y, b.x, b.y, lane)
   a.mark = { ring = { rd = rd, total = total, l1 = l1, l2 = l2, te = ta } }
   local n = max(6, math.ceil(total / 2))
   for j = 1, n - 1 do
@@ -443,11 +445,27 @@ local function build(city, shape, links, from, fast, info)
       end
       local lane = laneSide(resample(c), laneOf)
       lane = aroundRings(lane, shape.rounds)
-      if k > 1 and role == "pad" and #path > 0 then
+      local ring
+      if k > 1 and role == "ring" and #path > 0 then
+        for _, rd in ipairs(shape.rounds) do if rd.level and rd.node == at then ring = rd; break end end
+      end
+      if ring then
+        -- A roundabout: up to the ring, give way, round it, and off.
+        local before = cutBefore(path, ring.x, ring.y, ring.r + 4)
+        local after = cutAfter(lane, ring.x, ring.y, ring.r + 4)
+        if before and after then
+          roundTo(before, ring, after)
+          path, lane = before, nil
+        end
+      elseif k > 1 and role == "pad" and #path > 0 then
         -- A junction: stop at the line, then across the pad to the next road.
         local pad
         for _, p in ipairs(shape.pads) do if p.id == at then pad = p; break end end
-        path[#path].mark = { gate = { x = nodes[at].x, y = nodes[at].y, r = pad and pad.r or 20 } }
+        -- On along the main road of a priority junction there is nothing to
+        -- stop for; out of a side road, or at lights, wait for a clear way.
+        local main = pad and pad.major and ((pad.major[1].l == prevLink and pad.major[2].l == l)
+          or (pad.major[2].l == prevLink and pad.major[1].l == l))
+        if not main then path[#path].mark = { gate = { x = nodes[at].x, y = nodes[at].y, r = pad and pad.r or 20 } } end
         local a, b = path[#path], lane[1]
         local a0 = path[max(1, #path - 1)]
         local ux, uy = norm(a.x - a0.x, a.y - a0.y)
@@ -462,7 +480,7 @@ local function build(city, shape, links, from, fast, info)
             y = p0 * a.y + p1 * (a.y + uy * kk) + p2 * (b.y - vy * kk) + p3 * b.y, kind = "turn" }
         end
       end
-      append(path, lane)
+      if lane then append(path, lane) end
     end
     prevKind, prevLink, at = kind, l, nextNode
   end

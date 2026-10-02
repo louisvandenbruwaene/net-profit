@@ -65,12 +65,18 @@ return function(City)
   local kinds={}
   for _,l in ipairs(self:roadsAt(n.id)) do if l~=skip then kinds[#kinds+1]=vis(l) end end
   for _,k in ipairs(extra or {}) do kinds[#kinds+1]=k end
+  -- Three roads meet at a junction where the main road has priority; four or
+  -- more of them at a roundabout; anything with a highway at an interchange.
   local want='corner'
+  local high=false
   if #kinds>=3 then
-   local high,paved=false,false
+   local paved=false
    for _,k in ipairs(kinds) do if k=='highway' then high=true elseif k~='offroad' then paved=true end end
-   want=high and 'interchange' or paved and 'roundabout' or 'intersection'
+   want=high and 'interchange' or (paved and #kinds>=4) and 'roundabout' or 'intersection'
   end
+  -- One the player put down by hand stays what it is, unless a highway
+  -- now needs an interchange or a bend now has to join three roads.
+  if n.chosen and not (high and n.kind~='interchange') and not (n.kind=='corner' and #kinds>=3) then return n.kind end
   return JRANK[want]>JRANK[n.kind] and want or n.kind
  end
  function City:roadNodeUpgrade(n,extra)
@@ -204,6 +210,21 @@ return function(City)
      else
       stops[#stops+1]={t=t,ref={link=l.id,x=x,y=y,cross=true}}
      end
+    end
+   end
+  end
+  -- A road drawn straight over the bend or end of another one joins it there.
+  -- (The crossing test above only sees roads crossed between their ends.)
+  for _,n in ipairs(self.g:aliveNodes()) do
+   if JRANK[n.kind] and n.id~=A.node and n.id~=B.node then
+    local dx,dy=B.x-A.x,B.y-A.y
+    local t=((n.x-A.x)*dx+(n.y-A.y)*dy)/math.max(1e-9,dx*dx+dy*dy)
+    if t>0.001 and t<0.999 and math.sqrt((A.x+dx*t-n.x)^2+(A.y+dy*t-n.y)^2)<6 then
+     local roads=self:roadsAt(n.id)
+     local high=variant=='highway' or wetAt(t)
+     for _,l in ipairs(roads) do if vis(l)=='highway' or l.roadType=='bridge' then high=true end end
+     if #roads>0 and high then plan.flyovers=plan.flyovers+1
+     elseif #roads>0 then stops[#stops+1]={t=t,ref={node=n.id,x=n.x,y=n.y,cross=true}} end
     end
    end
   end
@@ -410,6 +431,59 @@ return function(City)
   self.links[copy.id]=copy
   return n.id
  end
+ -- A junction put down by hand from the build panel. On a road it cuts the
+ -- road there; on a junction already there it changes what kind it is; on
+ -- bare ground it waits for roads to be drawn to it. Kept as chosen.
+ function City:placeJunction(kind,x,y)
+  if not JRANK[kind] then return nil,'not a road junction' end
+  local price=City.price[kind] or 0
+  local hit=self:roadEndAt(x,y)
+  local function highwayAt(id)
+   for _,l in ipairs(self:roadsAt(id)) do if vis(l)=='highway' then return true end end
+   return false
+  end
+  local function fit(n)
+   n.kind=kind; n.ports=Graph.KINDS[kind].ports; n.throughput=Graph.KINDS[kind].throughput
+   n.chosen=true; n.autoRoad=nil
+  end
+  if hit.node then
+   local n=self.g.nodes[hit.node]
+   if not JRANK[n.kind] then return nil,'a building stands there' end
+   if n.kind==kind then return nil,'it is one already' end
+   local roads=#self:roadsAt(n.id)
+   if kind=='corner' and roads>2 then return nil,'a corner only bends one road' end
+   if kind=='interchange' and not highwayAt(n.id) then return nil,'an interchange is where a road meets a highway' end
+   if kind~='interchange' and highwayAt(n.id) and roads>2 then return nil,'roads meet a highway at an interchange' end
+   local cost=math.max(0,price-(City.price[n.kind] or 0))
+   if cost>self.money then return nil,'not enough cash' end
+   self:spend(cost); n.paid=(n.paid or 0)+cost
+   fit(n)
+   self:note('%s built for $%d',City.ROAD_JUNCTIONS[kind]:sub(1,1)..City.ROAD_JUNCTIONS[kind]:sub(2):lower(),cost)
+   self:refresh()
+   return n
+  end
+  if hit.link then
+   local l=self.links[hit.link]
+   if kind=='interchange' and vis(l)~='highway' then return nil,'an interchange is where a road meets a highway' end
+   if kind~='interchange' and vis(l)=='highway' then return nil,'roads meet a highway at an interchange' end
+   if l.roadType=='bridge' or l.deck then return nil,'not on a bridge' end
+   if price>self.money then return nil,'not enough cash' end
+   self:spend(price)
+   local id=self:splitRoad(hit.link,hit.x,hit.y)
+   local n=self.g.nodes[id]
+   n.paid=price; fit(n)
+   self:note('%s built for $%d',City.ROAD_JUNCTIONS[kind]:sub(1,1)..City.ROAD_JUNCTIONS[kind]:sub(2):lower(),price)
+   self:refresh()
+   return n
+  end
+  local err=self:roadPointError(x,y)
+  if err then return nil,err end
+  if price>self.money then return nil,'not enough cash' end
+  self:spend(price)
+  local n=self.g:addNode(x,y,kind); n.paid=price; fit(n)
+  self:refresh()
+  return n
+ end
  function City:drawRoad(ax,ay,bx,by,variant)
   local plan=self:roadPlan(ax,ay,bx,by,variant)
   if plan.err then return nil,plan.err end
@@ -449,7 +523,7 @@ return function(City)
  function City.tolled(l) return l.mode=='road' and (l.roadType=='highway' or l.roadType=='bridge') end
  -- A corner is the cheap one: two ports, for bending a road round something
  -- rather than for meeting another road at it.
- local junctions={corner='ROAD BEND',intersection='TRACK JUNCTION',roundabout='ROAD JUNCTION',interchange='HIGHWAY INTERCHANGE'}
+ local junctions={corner='ROAD BEND',intersection='JUNCTION',roundabout='ROAD JUNCTION',interchange='HIGHWAY INTERCHANGE'}
  City.ROAD_JUNCTIONS=junctions
  local ports={corner=2}
  local costs={corner=30,interchange=400}

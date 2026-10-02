@@ -4770,6 +4770,16 @@ function City:migrate()
     end
     self.powerFlux=1
   end
+  -- Three roads used to meet at a roundabout too; now that a roundabout is a
+  -- real ring, a T made automatically becomes a priority junction instead.
+  if not self.junctionRules then
+    for _,n in ipairs(self.g.nodes) do
+      if n.alive and n.kind=='roundabout' and not n.chosen and self.roadsAt and #self:roadsAt(n.id)==3 then
+        n.kind='intersection'; n.ports=Graph.KINDS.intersection.ports; n.throughput=Graph.KINDS.intersection.throughput
+      end
+    end
+    self.junctionRules=1
+  end
   self:survey()
   return self
 end

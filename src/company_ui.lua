@@ -154,7 +154,7 @@ end
 -- needs in its inspector (a transformer is an upgrade, not a building). The older kinds still
 -- exist in saved companies; they are simply no longer sold as separate things.
 -- Road bends and junctions are not built by hand: a road puts them down.
-local TOOLS = {"junction","pump","filtration","grid","binder","lab","gate","depot","terminal","dc","stop","station","resort"}
+local TOOLS = {"junction","pump","filtration","grid","binder","lab","gate","depot","terminal","dc","stop","station","resort","corner","intersection","roundabout","interchange"}
 local function toolKind(name)
   if name=="grid" then return "pole" end
   return name
@@ -1153,11 +1153,11 @@ local function buildPanel()
       and city:toolOpen(name) then
       local kind=toolKind(name)
       local label=({junction="T split",grid="Tower",pump="Pump",filtration="Filter",binder="Binder",lab="Env. lab",gate="Valve",depot="Tank",terminal="Haven",dc="Yard",
-             stop="Bus stop",station="Station",resort="Resort",corner="Corner",intersection="Crossing",roundabout="Roundabout",interchange="Interchange"})[name]
+             stop="Bus stop",station="Station",resort="Resort",corner="Bend",intersection="Junction",roundabout="Roundabout",interchange="Interchange"})[name]
       local short=({junction="3 connections, upgrades to a hub",grid="Carries cables",pump="Pushes a main further",filtration="Cleans water",
              binder="Parallel mains",lab="Cuts pollution",gate="Limits flow",depot="Stores supply",terminal="Imports goods",
-             dc="Freight yard",stop="Buses stop here",station="Sells fuel",resort="Visitors pay",corner="Bends a road",intersection="Joins roads",
-             roundabout="Joins roads",interchange="Joins highways"})[name]
+             dc="Freight yard",stop="Buses stop here",station="Sells fuel",resort="Visitors pay",corner="Bends a road",intersection="Main road has priority",
+             roundabout="Traffic goes round",interchange="A road onto a highway"})[name]
       UI.toolKeys[#UI.toolKeys+1]=name
       -- The price the click will charge: a haven's depends on its door and on
       -- how many of that kind already stand.
@@ -1434,7 +1434,7 @@ local function buildPanel()
           city.buildRoadType=key; state.transit="road"
           state.rail=nil; state.tool=nil; state.drag=nil; state.filter=nil
         end,true,
-        key=="offroad" and "Cars only. Uses offroad intersections." or key=="road" and "Cars, trucks and buses. Free to use. Uses roundabouts."
+        key=="offroad" and "Cars only. Tracks meet at plain junctions." or key=="road" and "Cars, trucks and buses. Free to use. Three roads meet at a junction, four at a roundabout."
           or key=="bridge" and ("The only road over water. $"..City.BRIDGE.perWaterM.." a metre of water, toll $"..City.BRIDGE.toll.." a vehicle.")
           or "All vehicles pay per highway segment. Dedicated interchanges; no bus stops.",
         (city.buildRoadType or "road")==key,City.ROAD_TYPES[key].colour)
