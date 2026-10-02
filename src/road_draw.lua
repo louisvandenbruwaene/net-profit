@@ -165,12 +165,24 @@ local function wetRuns(city, ch)
 end
 
 -- A deck under a stretch of road: shadow on what is below, the deck, piers.
+-- The deck's ends rest on the ground, so its shadow stops short of them;
+-- run to the end, the offset shadow would lie on the road beyond as a dark
+-- seam across it.
+local function polyLength(pts)
+  local s = 0
+  for i = 2, #pts do s = s + sqrt((pts[i].x - pts[i - 1].x) ^ 2 + (pts[i].y - pts[i - 1].y) ^ 2) end
+  return s
+end
 local function deck(cam, pts, raise)
   local nx, ny = normals(pts)
   local grey = function() return DECK end
   local shadow = function() return { 0, 0, 0, 0.35 } end
   local w = function(p) return outerOf(p) + 2.5 end
-  band(cam, pts, nx, ny, function(p) return -w(p) end, w, shadow, 1, 3 * raise, 6 * raise)
+  local len = polyLength(pts)
+  local inset = min(10, len * 0.2)
+  local sub = RS.slice(pts, inset, len - inset)
+  local sx, sy = normals(sub)
+  band(cam, sub, sx, sy, function(p) return -w(p) end, w, shadow, 1, 3 * raise, 6 * raise)
   band(cam, pts, nx, ny, function(p) return -w(p) end, w, grey)
   return nx, ny
 end
@@ -286,16 +298,42 @@ local function deadEnds(city, shape, ch)
   for _, which in ipairs({ "a", "b" }) do
     local id = ch[which]
     local n = city.g.nodes[id]
-    if n and City.ROAD_JUNCTIONS[n.kind] and shape.role[id] == "end" then
-      out[#out + 1] = which == "a" and ch.pts[1] or ch.pts[#ch.pts]
+    if n and City.ROAD_JUNCTIONS[n.kind] and shape.role[id] == "end" and #ch.pts >= 2 then
+      local p = which == "a" and ch.pts[1] or ch.pts[#ch.pts]
+      local q = which == "a" and ch.pts[2] or ch.pts[#ch.pts - 1]
+      out[#out + 1] = { p = p, q = q }
     end
   end
   return out
 end
-local function cap(cam, p, r, colour)
+-- A highway is never rounded off like a cul-de-sac: it stops square at a
+-- crash barrier, red and white, across both carriageways and the shoulders.
+local function cap(cam, e, r, colour)
+  local p = e.p
+  if kindOf(p) == "highway" then return end
   local sx, sy = cam:toScreen(p.x, p.y)
   lg.setColor(colour)
   lg.circle("fill", sx, sy, r * scaleFor(cam, p.h))
+end
+
+local function barrier(cam, e)
+  local p, q = e.p, e.q
+  if kindOf(p) ~= "highway" then return end
+  local dx, dy = p.x - q.x, p.y - q.y
+  local l = sqrt(dx * dx + dy * dy)
+  if l < 1e-6 then return end
+  dx, dy = dx / l, dy / l
+  local w = outerOf(p)
+  local bx, by = p.x - dx * 1.5, p.y - dy * 1.5
+  local n, s = 8, cam.scale
+  lg.setLineWidth(max(1.5, 1.6 * s))
+  for i = 0, n - 1 do
+    local a, b = -w + 2 * w * i / n, -w + 2 * w * (i + 1) / n
+    local x0, y0 = cam:toScreen(bx - dy * a, by + dx * a)
+    local x1, y1 = cam:toScreen(bx - dy * b, by + dx * b)
+    if i % 2 == 0 then lg.setColor(0.86, 0.22, 0.20) else lg.setColor(0.95, 0.95, 0.92) end
+    lg.line(x0, y0, x1, y1)
+  end
 end
 
 local function disc(cam, x, y, r, colour)
@@ -404,13 +442,13 @@ function Roads.draw(city, cam)
   for _, ch in ipairs(visible) do
     local nx, ny = nrm(ch)
     band(cam, ch.pts, nx, ny, function(p) return -outerOf(p) end, outerOf, vergeOf)
-    for _, p in ipairs(deadEnds(city, shape, ch)) do cap(cam, p, outerOf(p), vergeOf(p)) end
+    for _, e in ipairs(deadEnds(city, shape, ch)) do cap(cam, e, outerOf(e.p), vergeOf(e.p)) end
   end
   for _, pad in ipairs(pads) do drawPad(cam, pad, "road", SURFACE[padKind(pad)] or SURFACE.road) end
   for _, ch in ipairs(visible) do
     local nx, ny = nrm(ch)
     band(cam, ch.pts, nx, ny, function(p) return -p.h end, function(p) return p.h end, surfaceOf)
-    for _, p in ipairs(deadEnds(city, shape, ch)) do cap(cam, p, p.h, surfaceOf(p)) end
+    for _, e in ipairs(deadEnds(city, shape, ch)) do cap(cam, e, e.p.h, surfaceOf(e.p)) end
     -- A kerb line where a pavement meets the road.
     if cam.scale > 0.45 then
       for _, side in ipairs({ -1, 1 }) do line(cam, ch.pts, nx, ny, "road", side, 0, 0.5, { 0.66, 0.66, 0.64, 0.8 }) end
@@ -422,6 +460,7 @@ function Roads.draw(city, cam)
   for _, ch in ipairs(visible) do
     local nx, ny = nrm(ch)
     markings(cam, ch.pts, nx, ny, 0)
+    for _, e in ipairs(deadEnds(city, shape, ch)) do barrier(cam, e) end
   end
   if cam.scale > 0.3 then
     for _, ramp in ipairs(ramps) do

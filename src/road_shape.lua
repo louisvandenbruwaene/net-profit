@@ -146,7 +146,10 @@ local function smooth(raw)
     local hin, hout = v.hin or p.h, v.hout or q.h
     local hmax = max(hin, hout)
     -- A gentle bend for a wide road, never more than the straights allow.
+    -- A highway on through a bend sweeps round at motorway radius: anything
+    -- tighter reads as a kink at its width.
     local radius = max(hmax * 4, 45)
+    if v.k == "highway" and q.k == "highway" then radius = 260 end
     local t = turn > 0.02 and radius * math.tan(turn / 2) or 0
     if hin ~= hout then t = max(t, 30) end
     t = min(t, l1 * 0.48, l2 * 0.48)
