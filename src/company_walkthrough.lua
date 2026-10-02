@@ -901,6 +901,19 @@ function Walk.start(app,mode)
       local made=app.state.node and c.g.nodes[app.state.node]
       check(made and made.kind=="roundabout" and made.chosen and #c:roadsAt(made.id)==2,"a roundabout put down on a road splits it and stays a roundabout")
       app.state.node,app.state.tool=nil,nil
+      -- A highway laid from it puts the road type back to normal afterwards.
+      click("road-type-highway")
+      local to
+      for k=0,15 do
+        local a=k*math.pi/8
+        local x,y=made.x+math.cos(a)*160,made.y+math.sin(a)*160
+        if not to and not c:roadPlan(made.x,made.y,x,y,"highway").err then to={x=x,y=y} end
+      end
+      check(to,"there is ground for a highway beside the roundabout")
+      local links=#c.links
+      drag(made,to)
+      check(#c.links>links and c.links[#c.links].roadType=="highway","a highway is laid")
+      check(c.buildRoadType=="road","and the next road drawn is a normal one")
     end
     click("tab-network")
     click("transit-bus")
