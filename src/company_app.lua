@@ -781,7 +781,12 @@ function love.mousereleased(x,y,button)
   if rd and button==2 then
     if rd.moved then
       local wx,wy=cam:toWorld(x,y)
-      action("drawRoad",rd.x,rd.y,wx,wy,city.buildRoadType)
+      -- A highway is laid one stretch at a time; the next road drawn is a
+      -- normal one unless Highway is picked again, so a side road across it
+      -- never becomes a highway by accident.
+      if action("drawRoad",rd.x,rd.y,wx,wy,city.buildRoadType) and city.buildRoadType=="highway" then
+        city.buildRoadType="road"
+      end
     else
       -- A right click that drew nothing clears the selection, as anywhere.
       state.node,state.edge,state.link,state.district=nil,nil,nil,nil
