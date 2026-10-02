@@ -901,6 +901,17 @@ function Walk.start(app,mode)
       local made=app.state.node and c.g.nodes[app.state.node]
       check(made and made.kind=="roundabout" and made.chosen and #c:roadsAt(made.id)==2,"a roundabout put down on a road splits it and stays a roundabout")
       app.state.node,app.state.tool=nil,nil
+      -- A double click on it flies the camera in to it.
+      do
+        local keepScale,kx,ky=cam.targetScale,cam.x,cam.y
+        cam.targetScale=0.6; cam.scale=0.6; cam:centerOn(made.x+80,made.y)
+        local px,py=cam:toScreen(made.x,made.y)
+        love.mousepressed(px,py,1,false,1); love.mousereleased(px,py,1)
+        love.mousepressed(px,py,1,false,2); love.mousereleased(px,py,1)
+        check(cam.targetScale>=1.4,"a double click on a junction zooms in to it")
+        cam.targetScale=keepScale; cam.scale=keepScale; cam:centerOn(kx,ky)
+        app.state.node,app.state.link=nil,nil
+      end
       -- A highway laid from it puts the road type back to normal afterwards.
       click("road-type-highway")
       local to
