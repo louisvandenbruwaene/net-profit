@@ -975,19 +975,88 @@ local function quayCrane(k, phase, col)
   if col then container(0, ty + 2.6 * k, 3 * k, 6 * k, col, k) end
 end
 
-function Draw.havenYard(city, n, cam)
-  local x, y = cam:toScreen(n.x, n.y)
-  -- Drawn a third over true size, so a terminal reads as one at a glance.
-  local k = cam.scale * 1.35
-  local haven = n.haven or "port"
-  local seed = Shape.hash(n.x, n.y, 93)
-  local busy = Traffic.landedToday(city, n) > 0
-  local t = R.t
+-- Drawn a third over true size, so a terminal reads as one at a glance.
+local YARD_K = 1.35
+
+-- A yard's sheds and outline, in yard units below its haven.
+local function yardShape(n)
   local sheds = {}
   for _, key in ipairs(Graph.ALL) do
     local level = (n.store or {})[key] or 0
     if level > 0 then sheds[#sheds + 1] = { key = key, level = level } end
   end
+  local per = 4
+  local rows = math.max(1, math.ceil(#sheds / per))
+  local cols = math.min(#sheds, per)
+  local haven = n.haven or "port"
+  local top = (haven == "highway" or haven == "airfield") and 76 or 52
+  local stackW, shedW = 58, #sheds > 0 and cols * 32 + 4 or 0
+  local width = stackW + (shedW > 0 and shedW + 6 or 0)
+  local height = math.max(rows * 30 + 12, 50) + 18
+  return { sheds = sheds, per = per, rows = rows, top = top, stackW = stackW, width = width, height = height }
+end
+
+-- Where each yard's apron starts left of its haven. Havens may stand close
+-- together, so yards are placed in build order and each slides sideways, its
+-- drive still entering from the top, until it is clear of every yard and
+-- drive placed before it; failing that it drops below them. Recomputed once a
+-- frame: a new shed widens a yard and may move its neighbour.
+local yardCache = { t = nil }
+local function yardPlacement(city, n)
+  if yardCache.t ~= R.t or yardCache.city ~= city then
+    yardCache = { t = R.t, city = city, at = {} }
+    local havens = {}
+    for _, h in ipairs(city.g:nodesOfKind("terminal")) do havens[#havens + 1] = h end
+    table.sort(havens, function(a, b) return a.id < b.id end)
+    local taken, gap = {}, 6 * YARD_K
+    local function clear(r)
+      for _, o in ipairs(taken) do
+        if r.x0 < o.x1 + gap and o.x0 < r.x1 + gap and r.y0 < o.y1 + gap and o.y0 < r.y1 + gap then return false, o end
+      end
+      return true
+    end
+    for _, h in ipairs(havens) do
+      local shape = yardShape(h)
+      local function rects(left, drop)
+        local ay = shape.top - 8 + drop
+        local apron = { x0 = h.x + left * YARD_K, x1 = h.x + (left + shape.width) * YARD_K,
+                        y0 = h.y + ay * YARD_K, y1 = h.y + (ay + shape.height) * YARD_K }
+        local drive = { x0 = h.x - 6 * YARD_K, x1 = h.x + 6 * YARD_K, y0 = h.y + 8 * YARD_K, y1 = apron.y0 }
+        return apron, drive
+      end
+      local best
+      for drop = 0, 600, 20 do
+        -- Centred first, then outward a step at a time either way, as long as
+        -- the drive still meets the apron.
+        local centre, lo, hi = -shape.width / 2, -shape.width + 14, -14
+        for step = 0, shape.width, 4 do
+          for _, left in ipairs(step == 0 and { centre } or { centre - step, centre + step }) do
+            if left >= lo and left <= hi then
+              local apron, drive = rects(left, drop)
+              if clear(apron) and clear(drive) then best = { left = left, drop = drop, apron = apron, drive = drive }; break end
+            end
+          end
+          if best then break end
+        end
+        if best then break end
+      end
+      best = best or { left = -shape.width / 2, drop = 0 }
+      if best.apron then taken[#taken + 1] = best.apron; taken[#taken + 1] = best.drive end
+      yardCache.at[h.id] = best
+    end
+  end
+  return yardCache.at[n.id] or { left = -yardShape(n).width / 2, drop = 0 }
+end
+
+function Draw.havenYard(city, n, cam)
+  local x, y = cam:toScreen(n.x, n.y)
+  local k = cam.scale * YARD_K
+  local haven = n.haven or "port"
+  local seed = Shape.hash(n.x, n.y, 93)
+  local busy = Traffic.landedToday(city, n) > 0
+  local t = R.t
+  local shape, place = yardShape(n), yardPlacement(city, n)
+  local sheds = shape.sheds
   -- How full the company's stores are, which is how high the boxes stand.
   local held, room = 0, 0
   for _, key in ipairs(Graph.ALL) do
@@ -995,14 +1064,9 @@ function Draw.havenYard(city, n, cam)
   end
   local fill = room > 0 and math.min(1, held / room) or 0
 
-  local per = 4
-  local rows = math.max(1, math.ceil(#sheds / per))
-  local cols = math.min(#sheds, per)
-  local top = (haven == "highway" or haven == "airfield") and 76 or 52
-  local stackW, shedW = 58, #sheds > 0 and cols * 32 + 4 or 0
-  local width = stackW + (shedW > 0 and shedW + 6 or 0)
-  local height = math.max(rows * 30 + 12, 50) + 18
-  local left = -width / 2
+  local per, stackW, width, height = shape.per, shape.stackW, shape.width, shape.height
+  local top = shape.top + place.drop
+  local left = place.left
   local ay = top - 8
   local slate = { 0.30, 0.31, 0.32 }
 
