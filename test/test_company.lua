@@ -46,9 +46,9 @@ end
 
 local function fresh(seed)
   local c = openCompany(City.new({seed=seed or 12, obstacles=0}))
-  -- The yards start stocked. These are checks about pipes, valves, money and
+  -- The stores start stocked. These are checks about pipes, valves, money and
   -- customers, not about where the steel came from: the supply chain that fills
-  -- a yard has its own tests.
+  -- a store has its own tests.
   c.stock = { steel = 1000, concrete = 1000, planks = 500, glass = 500 }
   return c
 end
@@ -241,15 +241,19 @@ do
   local haven=assert(c:build(edge.x+120,edge.y+90,"terminal","port"))
   check(haven.haven=="port","the north edge is the coast")
   check(haven.commodity==nil and haven.output==nil,"a haven carries every trade, without a ceiling")
-  local yard=assert(c:build(edge.x+740,edge.y+90,"dc"))
-  check(select(2,c:layPipe(haven.id,yard.id,"beer",6))=="a haven ships by bulk line only",
-    "nothing is piped straight out of a haven")
+  local yard=assert(c:build(edge.x+740,edge.y+90,"terminal","highway"))
+  local near=assert(c:addClient("pub"))
+  near.x,near.y=haven.x,haven.y+220
+  near.demand=4
+  assert(c:layPipe(haven.id,near.id,"beer",near.demand))
+  check((c.served[near.id] or 0)==0,"what a haven lands never leaves it by a main")
+  assert(c:demolishPipe(c:pipeBetween(haven.id,near.id,"beer")))
   assert(c:layPipe(haven.id,yard.id,"beer",6,true))
   local pub=assert(c:addClient("pub"))
   pub.x,pub.y=yard.x,yard.y+220
   pub.demand=4
   assert(c:layPipe(yard.id,pub.id,"beer",pub.demand))
-  check(c.served[pub.id]==pub.demand,"landed beer reaches the pub over the track")
+  check(c.served[pub.id]==pub.demand,"landed beer reaches the pub over the track and on from the next haven")
 
   local bill=c:expenseBreakdown()
   check(math.abs(bill.imports-pub.demand*City.trade.beer.importCost*City.HAVENS.port.import)<0.01,
@@ -495,8 +499,7 @@ do
   local t=assert(c:build(hd.x+130,hd.y+100,"terminal","port"))
   check(t.haven=="port","a harbour on the coast opens")
   check(c:havenCost("port")>City.HAVENS.port.price,"and the next harbour costs more")
-  local j=assert(c:build(hd.x+hd.w-130,hd.y+hd.h/2,"dc"))
-  check(c:pipeError(t.id,j.id,"water")=="a haven ships by bulk line only","no main comes off a haven")
+  local j=assert(c:build(hd.x+hd.w-130,hd.y+hd.h/2,"terminal","highway"))
   local rail=assert(c:layPipe(t.id,j.id,"water",1,true))
   check(rail.rail and c:leakChance(rail)==0,"track carries it, and never corrodes")
   check(c:replaceQuote(rail.id)==nil,"a freight line is fitted with wagons, not replaced")
@@ -510,7 +513,7 @@ do
     "electricity is not freight")
   local spur=c:build(hd.x+hd.w-130,hd.y+hd.h/2-260,"junction")
   check(select(2,c:layPipe(j.id,spur.id,"water",4,true))
-    =="bulk runs between havens and distribution centres",
+    =="bulk runs between havens",
     "bulk has to run between freight terminals")
   c:refresh()
   check(c:expenseBreakdown().imports==0,"a haven idle at its berths costs nothing per unit")

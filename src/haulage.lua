@@ -1,9 +1,9 @@
 -- haulage.lua -- the last leg: from where goods land to where they are used.
 --
--- A ship or a plane brings an order to a haven; it is not in the yards until
--- something carries it inland. And a building that takes materials takes
--- them on site, so they are driven out to it. Both are convoys: a load, a
--- start and an end, the way it goes, and the vehicles it needs.
+-- An order lands straight into a haven's store. A building that takes
+-- materials takes them on site, so they are driven out to it from the
+-- nearest haven: a convoy, with a load, a start and an end, the way it goes,
+-- and the vehicles it needs.
 --
 -- The way a load goes is the best the company has built between the two:
 --   1. its own freight line between them (train, semi, ship or plane),
@@ -11,9 +11,8 @@
 --   3. the river, when both ends stand by it (a barge),
 --   4. the air, from an air freight apron (a freighter),
 --   5. otherwise a lorry overland.
--- Inland legs of an order are billed at that mode's haulage rate and land in
--- stock the next morning; deliveries to a site are part of what the building
--- cost, and are only shown.
+-- Deliveries to a site are part of what the building cost, and are only
+-- shown.
 --
 -- `city.convoys` holds them. Nothing here reads City:random().
 local Graph = require("graph")
@@ -66,10 +65,10 @@ return function(City)
     return bx, by, best
   end
 
-  -- Where materials are kept: the yards, or failing any, the havens' quays.
+  -- Where materials are kept: the havens' stores.
   function City:nearestStore(x, y)
     local best, bd
-    for _, kind in ipairs({ "dc", "terminal" }) do
+    for _, kind in ipairs({ "terminal" }) do
       for _, n in ipairs(self.g:nodesOfKind(kind)) do
         if n.alive then
           local d = (n.x - x) ^ 2 + (n.y - y) ^ 2
@@ -286,12 +285,10 @@ return function(City)
   -- Materials spent on a building at (x, y): driven there from the nearest store.
   function City:deliverToSite(bill, scale, x, y)
     if not x then return end
-    -- The nearest store with a way to the site: yards first, then havens.
+    -- The nearest haven with a way to the site.
     local stores = {}
-    for _, kind in ipairs({ "dc", "terminal" }) do
-      for _, n in ipairs(self.g:nodesOfKind(kind)) do
-        if n.alive then stores[#stores + 1] = { n = n, d = (n.x - x) ^ 2 + (n.y - y) ^ 2 + (kind == "dc" and 0 or 1e12) } end
-      end
+    for _, n in ipairs(self.g:nodesOfKind("terminal")) do
+      if n.alive then stores[#stores + 1] = { n = n, d = (n.x - x) ^ 2 + (n.y - y) ^ 2 } end
     end
     table.sort(stores, function(a, b) return a.d < b.d end)
     local from
@@ -305,70 +302,8 @@ return function(City)
     end
   end
 
-  -- An order landed at a haven: onward to the nearest yard, billed at the mode
-  -- it goes by, in stock tomorrow. With no yard it stays on the quay, which is
-  -- stock already.
-  function City:haulInland(havenId, key, units, today, yardId)
-    today = today or self.day
-    local haven = self.g.nodes[havenId]
-    -- The yard it was sent to, or else the nearest one there is a way to.
-    local yard
-    local chosen = yardId and self.g.nodes[yardId]
-    if chosen and chosen.alive and chosen.kind == "dc" then
-      yard = chosen
-    elseif haven and haven.alive then
-      local yards = {}
-      for _, n in ipairs(self.g:nodesOfKind("dc")) do
-        if n.alive then yards[#yards + 1] = { n = n, d = (n.x - haven.x) ^ 2 + (n.y - haven.y) ^ 2 } end
-      end
-      table.sort(yards, function(a, b) return a.d < b.d end)
-      for _, y in ipairs(yards) do
-        if self:haulRoute(haven, y.n.x, y.n.y, y.n) then yard = y.n; break end
-      end
-      yard = yard or (yards[1] and yards[1].n)
-    end
-    if not (haven and haven.alive and yard) then
-      self.stock = self.stock or {}
-      self.stock[key] = (self.stock[key] or 0) + units
-      return nil
-    end
-    local route = self:haulRoute(haven, yard.x, yard.y, yard)
-    -- A railway carries what its spare wagons hold in a day; a bigger order
-    -- goes up the line a trainload a day until it is all in.
-    local loads = { units }
-    if route and route.cap and units > route.cap then
-      loads = {}
-      local left = units
-      while left > 0 do loads[#loads + 1] = math.min(route.cap, left); left = left - loads[#loads] end
-    end
-    local c
-    for k, load in ipairs(loads) do
-      local cv = convoy(self, key, load, haven, yard.x, yard.y, yard, true, today + k - 1, route)
-      if cv then cv.arrive = today + k; c = c or cv end
-    end
-    if not c then
-      -- No way inland the company has built: the quay keeps it.
-      self.stock = self.stock or {}
-      self.stock[key] = (self.stock[key] or 0) + units
-      self:note("%d %s kept on the quay: no way inland", units, string.lower(Graph.COMMODITIES[key].name))
-      return nil
-    end
-    -- Haulage is a bill like any other day's cost: it is paid even short.
-    local cost = self:haulCost(route, units)
-    self.money = self.money - cost
-    c.cost = cost
-    if #loads > 1 then
-      self:note("%d %s on to the yard by %s for $%d, %d trainloads over %d days", units,
-        string.lower(Graph.COMMODITIES[key].name), City.HAUL[route.mode].name, cost, #loads, #loads)
-    else
-      self:note("%d %s on to the yard by %s for $%d", units, string.lower(Graph.COMMODITIES[key].name),
-        City.HAUL[route.mode].name, cost)
-    end
-    return c
-  end
-
-  -- At the close: inland loads due today reach the yards; yesterday's site
-  -- deliveries are done.
+  -- At the close: inland loads due today (from saves made before havens kept
+  -- their own stores) go into store; yesterday's site deliveries are done.
   function City:settleConvoys(today)
     today = today or self.day
     local keep, landed = {}, {}

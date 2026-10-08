@@ -92,14 +92,14 @@ function N.chain(c, from, target, commodity, last, mid)
   return c:layPipe(from.id, target.id, commodity, last or "small", nil, c.lining) ~= nil
 end
 
--- The nearest existing fitting (or freight yard, for anything but water) that
+-- The nearest existing fitting (or haven, for anything but water) that
 -- already reaches this commodity's network with room to spare, chained on to
 -- the target. This is what makes the result efficient without any real
 -- pathfinding: later targets naturally reuse whatever earlier ones built.
 function N.connectPipe(c, target, want, commodity, last, mid)
   local best
   for _, n in ipairs(c.g:aliveNodes()) do
-    if (N.FITTING[n.kind] or n.kind == "dc" and commodity ~= "water") and n.id ~= target.id
+    if (N.FITTING[n.kind] or (n.kind == "dc" or n.kind == "terminal") and commodity ~= "water") and n.id ~= target.id
       and not c:pipeBetween(n.id, target.id, commodity)
       and N.dist(n, target) < 1400 and (not best or N.dist(n, target) < N.dist(best, target))
       and (N.freePort(c, n) or n.kind == "junction" and N.dist(n, target) < 500)

@@ -29,7 +29,7 @@ Data.RECIPES = {
                  blurb = "Parkland becomes timber becomes planks." },
   steelworks = { name = "STEELWORKS",     makes = "steel",  rate = 4,  cost = 3600, upkeep = 38,
                  inputs = { ore = 2, coke = 1, power = 3 }, materials = { steel = 60, concrete = 40 },
-                 blurb = "Ore from the frontier and coke off a ship. Everything the company builds is made of this." },
+                 blurb = "Ore from the frontier and coke off a ship: coal baked into near-pure carbon, which burns hot enough to melt the ore and pulls the oxygen out of it. Everything the company builds is made of this." },
   glassworks = { name = "GLASSWORKS",     makes = "glass",  rate = 4,  cost = 2200, upkeep = 20,
                  inputs = { sand = 2, power = 2 }, materials = { steel = 30, concrete = 20 },
                  blurb = "Coastal sand, and a furnace." },
@@ -56,13 +56,13 @@ Data.RECIPES = {
   carworks   = { name = "CAR WORKS",      makes = "cars",   rate = 3,  cost = 5200, upkeep = 40,
                  inputs = { steel = 2, glass = 1, rubber = 1, power = 3 }, materials = { steel = 60, concrete = 40 },
                  unlock = "fuel",
-                 blurb = "Steel, glass, imported rubber and power. Cars reaching a yard are sold to the districts, and more drivers pay more tolls and buy more petrol." },
+                 blurb = "Steel, glass, imported rubber and power. Cars reaching a haven are sold to the districts, and more drivers pay more tolls and buy more petrol." },
   datacentre = { name = "DATA CENTRE",    makes = "internet", rate = 20, cost = 9000, upkeep = 70,
                  inputs = { water = 2, power = 3 }, materials = { steel = 80, concrete = 60 }, unlock = "internet",
                  blurb = "Drinks water and power by the tanker-load and puts out the internet, cabled to subscribers like power to a workshop." },
 }
 
-Data.RECIPES.jeweler={name="JEWELER",makes="jewelry",rate=2,cost=8000,upkeep=35,inputs={gems=1,power=1},materials={steel=30},blurb="Rare gems become valuable jewelry. Deliver to a depot yard for sale."}
+Data.RECIPES.jeweler={name="JEWELER",makes="jewelry",rate=2,cost=8000,upkeep=35,inputs={gems=1,power=1},materials={steel=30},blurb="Rare gems become valuable jewelry. Deliver to a haven for sale."}
 Data.EXTRACTORS = {
   well     = { out = "water",  name = "WELL",       on = "deposit",
                tip = "Only on a marked water deposit." },

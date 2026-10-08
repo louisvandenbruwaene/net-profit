@@ -154,7 +154,7 @@ end
 -- needs in its inspector (a transformer is an upgrade, not a building). The older kinds still
 -- exist in saved companies; they are simply no longer sold as separate things.
 -- Road bends and junctions are not built by hand: a road puts them down.
-local TOOLS = {"junction","pump","filtration","grid","binder","lab","gate","depot","terminal","dc","stop","station","resort","corner","intersection","roundabout","interchange"}
+local TOOLS = {"junction","pump","filtration","grid","binder","lab","gate","depot","terminal","stop","station","resort","corner","intersection","roundabout","interchange"}
 local function toolKind(name)
   if name=="grid" then return "pole" end
   return name
@@ -714,23 +714,8 @@ local function importMenu(n,spec,y)
   local nm=Graph.COMMODITIES[key].name
   stepper("import-units",nm:sub(1,1)..nm:sub(2):lower(),tostring(units),y,
     function() state.importUnits=math.max(1,units-lot) end,function() state.importUnits=units+lot end,
-    units>1,units+lot<=city:storeRoom(key),"Room in the yards: "..city:storeRoom(key))
+    units>1,units+lot<=city:storeRoom(key),"Room in store: "..city:storeRoom(key))
   y=y+38
-  -- Which yard this haven's orders go on to. The choice is the haven's and is
-  -- saved: one click moves it to the next yard out, round to "nearest" again.
-  local yards={}
-  for _,d in ipairs(city.g:nodesOfKind("dc")) do if d.alive then yards[#yards+1]=d end end
-  table.sort(yards,function(a,b) return (a.x-n.x)^2+(a.y-n.y)^2<(b.x-n.x)^2+(b.y-n.y)^2 end)
-  if #yards>0 then
-    local chosen=city:importYardOf(n)
-    local at=0
-    for i,d in ipairs(yards) do if d==chosen then at=i end end
-    local nextYard=yards[at+1]
-    button("import-yard",chosen and ("To yard "..chosen.id) or "To the nearest yard",M,y,CW,30,
-      function() act("setImportYard",n.id,nextYard and nextYard.id or nil) end,true,
-      nextYard and ("Next: yard "..nextYard.id) or "Next: the nearest yard")
-    y=y+36
-  end
   local cost=city:shipmentCost(n.id,key,units) or 0
   local why=city:shipmentError(n.id,key,units)
   button("import-order","Order "..units.." "..string.lower(Graph.COMMODITIES[key].name).."  $"..cost,M,y,CW,32,
@@ -742,12 +727,40 @@ local function importMenu(n,spec,y)
     if coming[k] then row("On the way",coming[k].." "..S.get(k),y,P.energy); y=y+24 end
     if landed[k] then row("Landed today",landed[k].." "..S.get(k),y,P.good); y=y+24 end
   end
-  for _,cv in ipairs(city.convoys or {}) do
-    if cv.stock and cv.from==n.id then
-      row("Inland by "..City.HAUL[cv.mode].name,cv.units.." "..S.get(cv.key),y,P.energy,"In the yard tomorrow morning"); y=y+24
+  return y
+end
+
+-- A haven's stores: one per good, each raised on its own. Building materials
+-- and vehicles are always listed; anything else once it is held or stored.
+local function storesMenu(n,y)
+  heading("STORES",y); y=y+22
+  local order={}
+  for _,key in ipairs(Graph.ALL) do
+    local role=Graph.COMMODITIES[key].role
+    if role=="material" or role=="vehicle" then order[#order+1]=key end
+  end
+  for _,key in ipairs(Graph.ALL) do
+    local role=Graph.COMMODITIES[key].role
+    if role~="material" and role~="vehicle" then order[#order+1]=key end
+  end
+  for _,key in ipairs(order) do
+    local role=Graph.COMMODITIES[key].role
+    local level=city:storeLevel(n,key)
+    if City.storable(key) and (role=="material" or role=="vehicle" or level>0 or city:materialStock(key)>0) then
+      local cost=city:storeUpgradeCost(n,key)
+      local held,cap=city:materialStock(key),city:storeCap(key)
+      local bw=124
+      single(string.upper(Graph.COMMODITIES[key].name),M,y+7,"small",P.textDim,110)
+      single(held.."/"..cap,M+116,y+7,"small",held>=cap and P.warn or Graph.COMMODITIES[key].color,CW-bw-120)
+      button("store-"..key,cost and ("Lv "..level.."  $"..cost) or ("Lv "..level.."  max"),M+CW-bw,y,bw,30,
+        function() act("upgradeStore",n.id,key) end,cost and city.money>=cost,
+        "All havens hold "..cap..", this one "..city:havenCap(n,key).." taking in "..City.STORE.intake[level].." a day. "..
+          (cost and ("Next level: "..City.STORE.cap[level+1].." here, "..City.STORE.intake[level+1].." a day.") or "As big as a store goes."),
+        false,Graph.COMMODITIES[key].color)
+      y=y+34
     end
   end
-  return y
+  return y+6
 end
 
 local function inspectTerminal(n,y)
@@ -775,6 +788,7 @@ local function inspectTerminal(n,y)
   row("Freight bill today","-$"..math.floor((bill[n.id] or 0)+0.5),ly,P.bad)
   row("Berth upkeep","-$"..City.terminalUpkeep.." / day",ly+26,P.warn)
   ly=importMenu(n,spec,ly+62)
+  ly=storesMenu(n,ly+6)
   return demolishBlock(n,ly+10,"Demolish the haven",
     "Closes the haven and frees its gateway. Every link tied into it is cut.")
 end
@@ -873,7 +887,7 @@ local function inspectEdge(e,y)
     row("Flow / capacity",math.abs(city.detail.edge[e.id] or 0).." / "..e.cap,y+26)
     row("Length",math.floor(city:pipeLength(e)).."m",y+52)
     row("Haulage today",string.format("-$%.2f",haul[e.id] or 0),y+78,P.warn,
-      "$"..spec.haulPerUnit.." a unit at the yard plus $"..
+      "$"..spec.haulPerUnit.." a unit at the haven plus $"..
       string.format("%.5f",spec.haulPerM).." a unit a metre. This is what distance costs.")
     row("Standing upkeep",string.format("-$%.2f",city:pipeUpkeep(e)),y+104,P.warn)
     row("Leak risk","None",y+130,P.good,"Freight lines do not corrode: there is nothing in the ground to leak.")
@@ -1067,7 +1081,7 @@ local function buildPanel()
   -- Which tools exist yet. The first three are always there; the rest arrive
   -- when the company is the size where they are the obvious next move.
   local gate={tower="everyday",gate="everyday",depot="everyday",
-              terminal="haven",dc="yard",
+              terminal="haven",
               stop=City.BUILD_UNLOCK.stop,station=City.BUILD_UNLOCK.station,resort=City.BUILD_UNLOCK.resort}
   local shown=0
   -- The source comes first in the grid, as a tile like every other building:
@@ -1167,11 +1181,11 @@ local function buildPanel()
       and (not gate[name] or City.TOOL_AT[name] or city:unlocked(gate[name]))
       and city:toolOpen(name) then
       local kind=toolKind(name)
-      local label=({junction="T split",grid="Tower",pump="Pump",filtration="Filter",binder="Binder",lab="Env. lab",gate="Valve",depot="Tank",terminal="Haven",dc="Yard",
+      local label=({junction="T split",grid="Tower",pump="Pump",filtration="Filter",binder="Binder",lab="Env. lab",gate="Valve",depot="Tank",terminal="Haven",
              stop="Bus stop",station="Station",resort="Resort",corner="Bend",intersection="Junction",roundabout="Roundabout",interchange="Interchange"})[name]
       local short=({junction="3 connections, upgrades to a hub",grid="Carries cables",pump="Pushes a main further",filtration="Cleans water",
-             binder="Parallel mains",lab="Cuts pollution",gate="Limits flow",depot="Stores supply",terminal="Imports goods",
-             dc="Freight yard",stop="Buses stop here",station="Sells fuel",resort="Visitors pay",corner="Bends a road",intersection="Main road has priority",
+             binder="Parallel mains",lab="Cuts pollution",gate="Limits flow",depot="Stores supply",terminal="Imports and stores goods",
+             stop="Buses stop here",station="Sells fuel",resort="Visitors pay",corner="Bends a road",intersection="Main road has priority",
              roundabout="Traffic goes round",interchange="A road onto a highway"})[name]
       UI.toolKeys[#UI.toolKeys+1]=name
       -- The price the click will charge: a haven's depends on its door and on
@@ -1412,7 +1426,7 @@ local function buildPanel()
       button("mode-"..key,({rail="RAIL",highway="TRUCK",sea="SEA",air="AIR"})[key],
         M+62+(i-1)*61,y,57,28,function() state.rail=key; state.transit=nil end,true,
         spec.name..": "..spec.blurb.."  Each wagon carries "..spec.wagonCap..
-        ", and it runs between havens and depot yards only.",bulk==key,spec.colour)
+        ", and it runs between havens only.",bulk==key,spec.colour)
     end
     y=y+40
   else
@@ -1545,23 +1559,6 @@ local function inspectorPanel(n,e)
       if n.kind=="pump" then row("Reach",math.floor(City.INFRA.pumpRange*(1+city:reachBonus(n))).." m",ey,P.flow); ey=ey+26 end
       if n.capped then single("Capped well",M,ey,"small",P.textDim,CW); ey=ey+26 end
       tail=ey+8
-      if n.kind=="dc" then
-        -- A yard: what the company holds, and what is on the road to it.
-        for _,k in ipairs(Graph.ALL) do
-          local held=city:materialStock(k)
-          if held>0 and Graph.COMMODITIES[k].form=="solid" then row(string.upper(Graph.COMMODITIES[k].name),held.." "..S.get(k),tail,P.text); tail=tail+24 end
-        end
-        for _,h in ipairs(city.g:nodesOfKind("terminal")) do
-          if h.alive and h.importYard==n.id then row("Orders from haven",tostring(h.id),tail,P.energy); tail=tail+24 end
-        end
-        for _,cv in ipairs(city.convoys or {}) do
-          if cv.stock and cv.to==n.id then
-            local days=(cv.arrive or city.day+1)-city.day
-            row((days<=1 and "Tomorrow" or ("In "..days.." days")).." by "..City.HAUL[cv.mode].name,cv.units.." "..S.get(cv.key),tail,P.energy); tail=tail+24
-          end
-        end
-        tail=tail+8
-      end
       if city:isDistribution(n) then tail=inspectDistribution(n,tail) end
       if city:levelFamily(n) then tail=levelBlock(n,tail)+8 end
       tail=replaceStrip(n,tail)
@@ -1825,7 +1822,7 @@ local function company()
     y=y+6
   end
 
-  -- What the yards hold, once there are yards. Materials are the second
+  -- What the havens hold, once there is a haven. Materials are the second
   -- currency and the player needs to see the balance.
   local rows,any={},false
   for _,name in ipairs(Graph.ALL) do
@@ -1836,15 +1833,15 @@ local function company()
       if units>0 then any=true end
     end
   end
-  if #city.g:nodesOfKind("dc")>0 or any then
-    y,open=fold("yards","Yards",y,"")
+  if #city.g:nodesOfKind("terminal")>0 or any then
+    y,open=fold("yards","Stores",y,"")
     if open then
       for _,pair in ipairs(rows) do
         local taken=((city.detail or {}).yard or {})[pair[1]] or 0
-        row(string.upper(pair[1]),pair[2]..(taken>0 and ("   +"..taken.." today") or ""),y,
+        local cap=City.storable(pair[1]) and ("/"..city:storeCap(pair[1])) or ""
+        row(string.upper(pair[1]),pair[2]..cap..(taken>0 and ("   +"..taken.." today") or ""),y,
           pair[2]>0 and Graph.COMMODITIES[pair[1]].color or P.textFaint,
-          "Materials are taken in at the depot yards and spent on building. "..
-          "Each yard holds "..City.yardStock.." and takes "..City.yardIntakeRate.." a day.")
+          "Held in the havens' stores and spent on building. Raise a store at a haven for more room.")
         y=y+24
       end
       y=y+10
@@ -2302,7 +2299,7 @@ local function report()
     end
     local landed,yards=list(r.imported),list(r.hauled)
     if landed=="" and yards=="" then return nil end
-    return (landed~="" and ("Landed "..landed) or "")..(landed~="" and yards~="" and "   " or "")..(yards~="" and ("In the yards "..yards) or "")
+    return (landed~="" and ("Landed "..landed) or "")..(landed~="" and yards~="" and "   " or "")..(yards~="" and ("Into store "..yards) or "")
   end
   local leak,enquiry
   if r and state.modal=="report" then

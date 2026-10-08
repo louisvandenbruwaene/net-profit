@@ -33,7 +33,7 @@ Graph.KINDS = {
   -- and owns no ground worth speaking of, but everything the city does not make
   -- for itself arrives through it without limit, at a price charged on every
   -- unit that moves and a haulage bill for every metre it travels.
-  terminal = { name = "HAVEN",    ports = 6,  throughput = 999, cost = 2200, color = {0.86, 0.74, 0.52} },
+  terminal = { name = "HAVEN",    ports = 10,  throughput = 999, cost = 2200, color = {0.86, 0.74, 0.52} },
   -- The company's presence in a neighbourhood, rather than a pipe to one
   -- building. Everything inside its radius that pays enough is served from it
   -- without a main being drawn, which is what lets a company run a thousand
@@ -462,7 +462,20 @@ function Graph:buildNetwork(uncapped, commodity)
   if commodity=='oil' then
     for _,e in ipairs(self.edges) do if e.alive and (e.spillWanted or 0)>0 then spillCount=spillCount+1 end end
   end
-  n=n+spillCount
+  -- A haven lands imports on its quay, a vertex of its own that only bulk lines
+  -- leave from: a main out of a haven carries what was brought to it, never
+  -- what came off a ship, so the haulage bill cannot be dodged and the haven
+  -- does not buy abroad to fill its own store.
+  local quays, quayCount = {}, 0
+  if commodity then
+    for _, node in ipairs(self.nodes) do
+      if node.alive and node.kind == "terminal" then
+        quayCount = quayCount + 1
+        quays[node.id] = 2 * (#self.nodes + spillCount + quayCount)
+      end
+    end
+  end
+  n=n+spillCount+quayCount
   local net = netNew(2 * n + 2)
   local SS, TT = 2 * n + 1, 2 * n + 2
   net.adj[SS] = {}; net.adj[TT] = {}
@@ -494,8 +507,10 @@ function Graph:buildNetwork(uncapped, commodity)
         -- supply is the price per unit and the track it has to leave by.
         -- (A haven saved before havens carried every trade keeps its single
         -- commodity until it is migrated.)
-        net:arc(SS, vin, node.output or INF)
+        local quay = quays[node.id] or vin
+        net:arc(SS, quay, node.output or INF)
         node._feedArc = net.m - 1
+        if quay ~= vin then net:arc(vout, quay, INF) end
       elseif node.kind == "works" and (node.makes == commodity or node.coproduct == commodity) and (node.ready or 0) > 0 then
         -- Everything this works managed to make out of what turned up.
         net:arc(SS, vin, node.coproduct==commodity and node.coproductReady or node.ready)
@@ -522,8 +537,8 @@ function Graph:buildNetwork(uncapped, commodity)
         -- satisfied. The second solve reuses their flow in the residual graph.
         net.depotDemands=net.depotDemands or {}
         net.depotDemands[#net.depotDemands+1]={node=node,vertex=vout,amount=node.intakeRequest}
-      elseif node.kind == "dc" and commodity and (node.intake or {})[commodity] then
-        -- A yard takes materials in and holds them for the builders.
+      elseif (node.kind == "terminal" or node.kind == "dc") and commodity and (node.intake or {})[commodity] then
+        -- A haven takes materials in and holds them for the builders.
         net:arc(vout, TT, uncapped and INF or node.intake[commodity])
         node._drainArc = net.m - 1
       elseif node.kind == "station" and commodity == "gasoline" then
@@ -553,15 +568,16 @@ function Graph:buildNetwork(uncapped, commodity)
     elseif not commodity or e.commodity == commodity then cap = e.effectiveCap or e.cap end
     if e.transportBlocked then cap=0 end
     if e.alive and cap and self.nodes[e.a].alive and self.nodes[e.b].alive then
-      net:arc(2 * e.a, 2 * e.b - 1, cap, { kind = "edge", id = e.id })
+      local bulk = e.bulk or e.wagons
+      net:arc(bulk and quays[e.a] or 2 * e.a, 2 * e.b - 1, cap, { kind = "edge", id = e.id })
       e._arcAB = net.m - 1
-      net:arc(2 * e.b, 2 * e.a - 1, cap, { kind = "edge", id = e.id })
+      net:arc(bulk and quays[e.b] or 2 * e.b, 2 * e.a - 1, cap, { kind = "edge", id = e.id })
       e._arcBA = net.m - 1
       if commodity=='oil' and (e.spillWanted or 0)>0 then
         spillIndex=spillIndex+1
         local spillVertex=2*spillIndex
-        net:arc(2*e.a,spillVertex,INF)
-        net:arc(2*e.b,spillVertex,INF)
+        net:arc(bulk and quays[e.a] or 2*e.a,spillVertex,INF)
+        net:arc(bulk and quays[e.b] or 2*e.b,spillVertex,INF)
         net:arc(spillVertex,TT,e.spillWanted)
         e._spillArc=net.m-1
       end
@@ -587,7 +603,7 @@ function Graph:maxflow(uncapped, commodity)
   local served, produced = {}, {}
   for _, node in ipairs(self.nodes) do
     if node.alive and node._drainArc and (node.kind == "client" or node.kind == "sink"
-       or node.kind == "depot" or node.kind == "works" or node.kind == "dc" or node.kind == "station") then
+       or node.kind == "depot" or node.kind == "works" or node.kind == "dc" or node.kind == "terminal" or node.kind == "station") then
       served[node.id] = net.cap0[node._drainArc] - net.cap[node._drainArc]
     end
     if node.alive and node._feedArc then

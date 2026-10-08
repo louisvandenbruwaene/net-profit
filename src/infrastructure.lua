@@ -32,7 +32,7 @@ return function(City)
   -- cable can be run to them first and the request accepted when it is live.
   local function electrical(n)
     return n.kind=='transformer' or D.towers[n.kind] or (n.commodity=='power' or (n.demands and n.demands.power))
-      or n.powerRequest or n.kind=='works' or n.kind=='dc'
+      or n.powerRequest or n.kind=='works' or n.kind=='dc' or n.kind=='terminal'
   end
   City.isElectrical = electrical
   function City:pollutionAt(x,y)
@@ -75,7 +75,7 @@ return function(City)
   -- tower with a transformer that carries their own voltage.
   function City:customerVoltage(n)
     if n.kind=='client' then return (n.commodity=='power' or (n.demands and n.demands.power) or n.powerRequest) and (D.customerVoltage[n.clientType] or 'medium') or nil end
-    if n.kind=='works' or n.kind=='dc' then return 'medium' end
+    if n.kind=='works' or n.kind=='dc' or n.kind=='terminal' then return 'medium' end
   end
   function City:voltagesAt(n)
     if n.kind=='transformer' then return {low=true,medium=true,high=true} end

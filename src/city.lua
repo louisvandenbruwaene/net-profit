@@ -65,21 +65,82 @@ City.FORMS = require("data.pipes").FORMS
 --------------------------------------------------------------------------------
 City.MATERIALS = require("data.freight").MATERIALS
 
--- How much room a yard has for materials, and how fast it takes delivery.
-City.yardStock = require("data.freight").yardStock
-City.yardIntakeRate = require("data.freight").yardIntakeRate
+-- A haven's stores: one per good, each raised on its own (data/freight.lua).
+City.STORE = require("data.freight").STORE
+City.STORE_MAX = #City.STORE.cost
 
 function City:materialStock(key)
   return math.floor((self.stock or {})[key] or 0)
 end
 
--- What a yard is still willing to take in today: what it has room for, capped
--- by what it can handle in a day.
-function City:yardIntake(material)
-  local yards = #self.g:nodesOfKind("dc")
-  if yards == 0 then return 0 end
-  local room = math.max(0, yards * City.yardStock - self:materialStock(material))
-  return math.min(yards * City.yardIntakeRate, room)
+-- The goods a haven keeps: building materials and vehicles, and anything else
+-- solid that can be ordered from abroad.
+function City.storable(key)
+  local spec = Graph.COMMODITIES[key]
+  if not spec or spec.form ~= "solid" or key == "jewelry" then return false end
+  if spec.role == "material" or spec.role == "vehicle" then return true end
+  local trade = City.trade[key]
+  return trade and trade.importCost and spec.landed ~= false and true or false
+end
+
+function City:storeLevel(n, key)
+  return ((n and n.store) or {})[key] or 0
+end
+
+-- How much of a good every haven together holds, and what one holds.
+function City:havenCap(n, key)
+  return City.STORE.cap[self:storeLevel(n, key)] or 0
+end
+
+function City:storeCap(key)
+  local total = 0
+  for _, n in ipairs(self.g:nodesOfKind("terminal")) do
+    if n.alive then total = total + self:havenCap(n, key) end
+  end
+  return total
+end
+
+function City:storeUpgradeCost(n, key)
+  return City.STORE.cost[self:storeLevel(n, key) + 1]
+end
+
+function City:upgradeStore(id, key)
+  local n = self.g.nodes[id]
+  if not (n and n.alive and n.kind == "terminal") then return nil, "choose a haven" end
+  if not City.storable(key) then return nil, "nothing to store" end
+  local cost = self:storeUpgradeCost(n, key)
+  if not cost then return nil, "the store is as big as it goes" end
+  if cost > self.money then return nil, "not enough cash" end
+  self:spend(cost)
+  n.store = n.store or {}
+  n.store[key] = self:storeLevel(n, key) + 1
+  n.paid = (n.paid or 0) + cost
+  self:note("%s store raised to level %d: holds %d", string.lower(Graph.COMMODITIES[key].name),
+    n.store[key], self:havenCap(n, key))
+  self:refresh()
+  return n
+end
+
+-- What each haven takes in today off the network: what its store can handle in
+-- a day, while the company has room for it. Jewelry is sold as it arrives, so
+-- it never needs room.
+function City:shareIntake()
+  local havens = {}
+  for _, n in ipairs(self.g:nodesOfKind("terminal")) do
+    if n.alive then n.intake = {}; havens[#havens + 1] = n end
+  end
+  for _, name in ipairs(Graph.ALL) do
+    local role = Graph.COMMODITIES[name].role
+    if role == "material" or role == "vehicle" then
+      local room = name == "jewelry" and math.huge
+        or math.max(0, self:storeCap(name) - self:materialStock(name))
+      for _, h in ipairs(havens) do
+        local rate = name == "jewelry" and 999 or City.STORE.intake[self:storeLevel(h, name)] or 0
+        local take = math.min(rate, room)
+        if take > 0 then h.intake[name] = take; room = room - take end
+      end
+    end
+  end
 end
 
 -- The bill of materials for a thing, and whether it can be paid.
@@ -108,7 +169,7 @@ function City:materialError(bill, scale)
         local glyph = require("symbols").get(material)
         local coming = (self.shippedUnits and self:shippedUnits(material) or 0) + (self.inlandUnits and self:inlandUnits(material) or 0)
         local have = self:materialStock(material)
-        local why = "needs " .. want .. " " .. glyph .. ", and the yards hold " .. have
+        local why = "needs " .. want .. " " .. glyph .. ", and the stores hold " .. have
         if coming > 0 then return why .. " (" .. coming .. " on the way)" end
         if #self.g:nodesOfKind("terminal") > 0 and City.trade[material] and City.trade[material].importCost then
           return why .. ": import at a haven"
@@ -149,7 +210,8 @@ end
 City.MODES = require("data.freight").MODES
 City.MODE_ORDER = { "rail", "highway", "sea", "air" }
 
--- Where freight can be handled at all: a haven, or a distribution centre.
+-- Where freight can be handled at all: a haven (and, in saves not yet
+-- migrated, the depot yard it replaced).
 City.BULK_NODES = { terminal = true, dc = true }
 
 function City:isBulkNode(n)
@@ -169,7 +231,7 @@ function City:bulkError(a, b, mode)
   if not spec then return "no such mode" end
   local na, nb = self.g.nodes[a], self.g.nodes[b]
   if not (self:isBulkNode(na) and self:isBulkNode(nb)) then
-    return "bulk runs between havens and distribution centres"
+    return "bulk runs between havens"
   end
   if spec.needs == "coast" then
     if not (self:afloat(na) and self:afloat(nb)) then return "a ship calls at the coast or the river, not inland" end
@@ -1651,8 +1713,9 @@ function City:pipeError(a, b, commodity, rail, size)
   local D = City.INFRA
   if not na or not nb or not na.alive or not nb.alive or a==b then return 'choose two different live buildings' end
   if not self:licensed(commodity) then return 'no licence for that' end
-  -- A haven ships by bulk line: a main out of it would dodge the haulage bill.
-  if na.kind=='terminal' or nb.kind=='terminal' then return 'a haven ships by bulk line only' end
+  -- A main may tie into a haven: it takes goods into store and passes on what
+  -- came in by line. What the haven lands from abroad never leaves by a main
+  -- (graph.lua keeps it on the quay), so the haulage bill cannot be dodged.
   local voltage
   if commodity=='power' then
     if not City.isElectrical(na) or not City.isElectrical(nb) then return 'electricity needs power towers, not water fittings' end
@@ -2100,7 +2163,7 @@ end
 
 City.BUILDABLE = { junction = true, manifold = true, pump = true, tower = true,
                    gate = true, depot = true, terminal = true,
-                   works = true, dc = true, stop = true, station = true, resort = true }
+                   works = true, stop = true, station = true, resort = true }
 
 -- Hubs: see src/distribution.lua. A fitting levelled to the top of its ladder
 -- runs its own neighbourhood; there is no separate hub building any more.
@@ -2136,7 +2199,7 @@ function City:havenCost(key)
   local spec = City.HAVENS[key] or City.HAVENS.port
   local held = 0
   for _, n in ipairs(self.g:nodesOfKind("terminal")) do
-    if n.haven == key then held = held + 1 end
+    if n.haven == key and not n.fromYard then held = held + 1 end
   end
   return math.ceil(spec.price * (1.6 ^ held))
 end
@@ -3408,18 +3471,8 @@ function City:refresh()
   self.wellSpare = {}
   self.capacityBy = {}
 
-  -- What the yards will take in today, shared out between them.
-  local yards = self.g:nodesOfKind("dc")
-  for _, yard in ipairs(yards) do
-    yard.intake = {}
-    for _, name in ipairs(Graph.ALL) do
-      local role = Graph.COMMODITIES[name].role
-      if role == "material" or role == "vehicle" then
-        local share = math.floor(self:yardIntake(name) / #yards)
-        if share > 0 then yard.intake[name] = share end
-      end
-    end
-  end
+  -- What the havens will take into store today.
+  self:shareIntake()
 
   -- What every works is asking for, before anything is solved.
   local works = self.g:nodesOfKind("works")
@@ -3458,7 +3511,6 @@ function City:refresh()
       for _, key in ipairs(Graph.ALL) do
         if Graph.COMMODITIES[key].landed ~= false then feeds[key] = true end
       end
-    elseif n.kind == "dc" then
       for key in pairs(n.intake or {}) do wants[key] = true end
     elseif n.kind == "client" and not n.prospect then
       wants[n.commodity] = true
@@ -3494,7 +3546,7 @@ function City:refresh()
         self.detail.depot[id]=v
       elseif n and n.kind == "works" then
         self.detail.works[id][name] = v
-      elseif n and n.kind == "dc" then
+      elseif n and n.kind == "terminal" then
         self.detail.yard = self.detail.yard or {}
         self.detail.yard[name] = (self.detail.yard[name] or 0) + v
       else
@@ -4752,6 +4804,27 @@ function City:migrate()
   end
   self.infrastructureVersion=3
 
+  -- A depot yard is now part of a haven: every yard becomes a road head whose
+  -- stores already hold what the yard held, and every haven gets its stores.
+  -- Its mains and lines stay tied in where they are.
+  for _,n in ipairs(self.g.nodes) do
+    if n.kind=='dc' then
+      n.kind, n.haven, n.fromYard = 'terminal', 'highway', true
+      n.store = n.store or {}
+      for _,key in ipairs(Graph.ALL) do
+        if City.storable(key) and (Graph.COMMODITIES[key].role=='material' or Graph.COMMODITIES[key].role=='vehicle') then
+          n.store[key] = math.max(n.store[key] or 0, 2)
+        end
+      end
+      n.intake, n.importYard = nil, nil
+    elseif n.kind=='terminal' then
+      n.store = n.store or {}
+      n.importYard = nil
+      n.ports = math.max(n.ports or 0, Graph.KINDS.terminal.ports)
+    end
+  end
+  for _,o in ipairs(self.shipments or {}) do o.yard = nil end
+
   self.analystHired=self.analystHired or {}
   if not self.ideasVersion then
     -- Treatment towers became filters, and wells were re-levelled.
@@ -5166,7 +5239,7 @@ City.LESSONS = {
   },
   {
     key = "yard", title = "Freight",
-    body = "Yards take trains and trucks",
+    body = "Havens take trains and trucks",
     when = function(c) return c:unlocked("yard") end,
   },
   {

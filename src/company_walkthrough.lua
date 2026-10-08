@@ -583,11 +583,9 @@ function Walk.start(app,mode)
     check(c:havenCost(gateway)>before,"and the next harbour on the same coast costs more")
     app.action("focusNode",t.id)
     check(findButton("demolish-node")~=nil,"the haven has an inspector")
-    local j=assert(c:build(jx,jy,"dc"))
-    local straight=c:pipeError(t.id,j.id,"water")
-    check(straight=="a haven ships by bulk line only","freight leaves a haven on rails, not in a main")
-    -- Rail is steel by the kilometre, and the yards are empty on day three.
-    check(select(2,c:layPipe(t.id,j.id,"water",2,true)):find("yards hold")~=nil,
+    local j=assert(c:build(jx,jy,"terminal","highway"))
+    -- Rail is steel by the kilometre, and the stores are empty on day three.
+    check(select(2,c:layPipe(t.id,j.id,"water",2,true)):find("stores hold")~=nil,
       "a railway cannot be built out of nothing")
     assert(c:layLink(t.id,j.id,"road"))
     local road=assert(c:layPipe(t.id,j.id,"water",1,"highway"))
@@ -1197,7 +1195,8 @@ function Walk.update(app,mode,frame)
       else error("construction preview fixture needs a reachable offer") end
     elseif frame==33 then
       -- The supply chain the city runs on: a haven on the estuary, track
-      -- hauling what it lands inland, and a main from the yard to a customer.
+      -- hauling what it lands to a road head inland, and a main from there to
+      -- a customer.
       local c=app.city()
       c.money=99999
       c.obstacles={}
@@ -1206,7 +1205,7 @@ function Walk.update(app,mode,frame)
       local d=c:cellAt(2,1)
       d.owned=true
       local haven=assert(c:build(d.x+120,d.y+90,"terminal","port"))
-      local yard=assert(c:build(d.x+760,d.y+120,"dc"))
+      local yard=assert(c:build(d.x+760,d.y+120,"terminal","highway"))
       assert(c:layPipe(haven.id,yard.id,"beer",1,"rail"))
       local pub=assert(c:addClient("pub"))
       pub.x,pub.y=yard.x+40,yard.y+250

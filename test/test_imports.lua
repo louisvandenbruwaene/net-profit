@@ -1,4 +1,4 @@
--- Imports: ordering goods at a haven, paid now, landed in the yards tomorrow.
+-- Imports: ordering goods at a haven, paid now, landed in its store tomorrow.
 package.path='test/?.lua;src/?.lua;'..package.path
 local T=require('support')
 local City=require('city')
@@ -24,10 +24,10 @@ local money=c.money
 local cost=c:shipmentCost(port.id,"panels",12)
 local o=assert(c:orderImport(port.id,"panels",12))
 check(c.money==money-cost and cost==math.ceil(City.trade.panels.importCost*12),"paid up front at the landed price")
-check(c:materialStock("panels")==0,"nothing is in the yards until it lands")
+check(c:materialStock("panels")==0,"nothing is in store until it lands")
 local coming=c:havenShipments(port.id)
 check(coming.panels==12,"the haven shows it on the way")
-check(c:shipmentError(port.id,"panels",c:storeRoom("panels")+1)=="no room in the yards","the yards' room counts what is already coming")
+check(c:shipmentError(port.id,"panels",c:storeRoom("panels")+1)=="no room in store: raise the solar panels store","the store's room counts what is already coming")
 check(c:shipmentError(port.id,"power",1)=="not for sale abroad","electricity is never imported")
 
 print("landing")
@@ -43,46 +43,38 @@ c:endDay()
 _,landed=c:havenShipments(port.id)
 check(not landed.panels,"yesterday's landing is no longer today's")
 
-print("hauled inland")
+print("stores")
 do
   local c=T.sandbox(24)
   c.stock={}
+  c.money=100000
   local port=c.g:addNode(400,60,"terminal"); port.haven="port"
-  local yard=c.g:addNode(1400,600,"dc")
+  local road=c.g:addNode(1400,600,"terminal"); road.haven="highway"
   c:refresh()
-  assert(c:orderImport(port.id,"panels",30))
-  c:endDay()
-  check(c:materialStock("panels")==0,"landed at the harbour is not yet in the yard")
-  local cv=c.convoys[1]
-  check(cv and cv.stock and cv.from==port.id and cv.to==yard.id and cv.mode=="lorry","with no road or line it goes overland by lorry")
-  check(c:storeRoom("panels")==c:storeRoom("steel")-30,"what is on the road still counts against the yard's room")
-  check(#c.shipments==0 and cv.cost>0,"and the haulage is paid")
+  local quay=City.STORE.cap[0]
+  check(c:storeCap("steel")==2*quay,"every haven has room on its quay for every good")
+  check(c:storeRoom("steel")==2*quay and c:storeRoom("glass")==2*quay,"and each good has room of its own")
+  local money=c.money
+  assert(c:upgradeStore(port.id,"steel"))
+  check(c.money==money-City.STORE.cost[1] and c:storeLevel(port,"steel")==1,"a store is raised for one good")
+  check(c:storeCap("steel")==quay+City.STORE.cap[1] and c:storeCap("glass")==2*quay,"and only that good gets the room")
+  for _=2,City.STORE_MAX do assert(c:upgradeStore(port.id,"steel")) end
+  check(select(2,c:upgradeStore(port.id,"steel"))=="the store is as big as it goes","up to its last level")
+  check(select(2,c:upgradeStore(port.id,"water"))=="nothing to store","water is not kept in a store")
   local copy=assert(Save.unpack(Save.pack(c)))
-  local back=copy.convoys and copy.convoys[1]
-  check(back and back.units==cv.units and back.to==cv.to and #back.pts==#cv.pts and back.arrive==cv.arrive,"a load on the road survives a save")
-  copy:endDay()
-  check(copy:materialStock("panels")==30,"and still reaches the yard after loading")
-  c:endDay()
-  check(c:materialStock("panels")==30,"the next morning it is in the yard")
-  check(#c.convoys==0,"and the convoy is done")
+  check(copy:storeLevel(copy.g.nodes[port.id],"steel")==City.STORE_MAX,"a store's level survives a save")
 
-  -- With a road all the way, a semi takes it along the road.
-  c.buildRoadType="road"
-  local function link(a,b) c.buildRoadType=c:waterAlong(a.x,a.y,b.x,b.y)>0 and "bridge" or "road"; return assert(c:layLink(a.id,b.id,"road")) end
-  for _,d in ipairs(c.districts) do d.population=500 end
-  local mid=c.g:addNode(900,300,"corner")
-  link(port,mid); link(mid,yard)
-  assert(c:orderImport(port.id,"steel",10)); c:endDay()
-  local road=c.convoys[#c.convoys]
-  check(road.mode=="semi" and #road.pts==6,"along the company's roads it goes by semi, by the roads")
+  -- An order goes straight into store: no haulage, no convoy.
+  assert(c:orderImport(road.id,"panels",30))
+  c:endDay()
+  check(c:materialStock("panels")==30 and #(c.convoys or {})==0,"the next morning it is in store, with nothing on the road")
+  check(select(2,c:orderImport(road.id,"panels",c:storeRoom("panels")+1))~=nil,"and no more than there is room for")
 
   -- A site delivery: building with materials sends them out to the site.
-  local before=#c.convoys
   c.stock.panels=40
-  local bill={panels=12}
-  c:spendMaterials(bill,1,1800,900)
+  c:spendMaterials({panels=12},1,1800,900)
   local site=c.convoys[#c.convoys]
-  check(#c.convoys==before+1 and site.key=="panels" and site.units==12 and not site.stock,"materials are driven out to the site")
+  check(site and site.key=="panels" and site.units==12 and not site.stock,"materials are driven out to the site from a haven")
   check(site.pts[#site.pts-1]==1800 and site.pts[#site.pts]==900,"all the way to where they are used")
   c:endDay()
   local gone=true
@@ -90,34 +82,23 @@ do
   check(gone,"a site delivery is done by the next day")
 end
 
-print("to a chosen yard")
+print("a haven takes made goods into store, never its own imports")
 do
-  local c=T.sandbox(24)
-  c.stock={}
-  local port=c.g:addNode(400,60,"terminal"); port.haven="port"
-  local near=c.g:addNode(700,300,"dc")
-  local far=c.g:addNode(1400,600,"dc")
-  c:refresh()
-  assert(c:orderImport(port.id,"steel",20,far.id))
-  c:endDay()
-  check(c.convoys[1].to==far.id,"an order goes on to the yard it was sent to, not the nearest")
-  assert(c:orderImport(port.id,"steel",20))
-  c:endDay()
-  check(c.convoys[#c.convoys].to==near.id,"and to the nearest when none was chosen")
-
-  -- A haven's own choice: every order goes there unless it says otherwise.
-  assert(c:setImportYard(port.id,far.id))
-  check(c:importYardOf(port)==far,"a haven keeps the yard its orders go to")
-  local copy=assert(Save.unpack(Save.pack(c)))
-  check(copy:importYardOf(copy.g.nodes[port.id]).id==far.id,"and keeps it across a save")
-  assert(c:orderImport(port.id,"steel",20)); c:endDay()
-  check(c.convoys[#c.convoys].to==far.id,"orders then go there by default")
-  assert(c:orderImport(port.id,"steel",20,near.id)); c:endDay()
-  check(c.convoys[#c.convoys].to==near.id,"an order can still name another yard")
-  assert(c:setImportYard(port.id,nil))
-  assert(c:orderImport(port.id,"steel",20)); c:endDay()
-  check(c.convoys[#c.convoys].to==near.id,"and clearing the choice goes back to the nearest")
-  check(select(2,c:setImportYard(port.id,port.id))=="choose a yard","only a yard can be chosen")
+  local Graph=require("graph")
+  local g=Graph.new()
+  local haven=g:addNode(0,0,"terminal")
+  haven.intake={steel=25}
+  local check0=function(v,m) check(v,m) end
+  local flow,_,served=g:maxflow(false,"steel")
+  check0((served[haven.id] or 0)==0,"a haven alone does not buy abroad to fill its store")
+  local works=g:addNode(200,0,"source"); works.commodity="steel"; works.output=10
+  local road=g:addEdge(works.id,haven.id,50); road.commodity="steel"
+  flow,_,served=g:maxflow(false,"steel")
+  check0(served[haven.id]==10,"what a works sends it by road goes into store")
+  local client=g:addNode(-200,0,"client"); client.commodity="beer"; client.demand=5
+  local main=g:addEdge(haven.id,client.id,50); main.commodity="beer"
+  local _,_,servedBeer=g:maxflow(false,"beer")
+  check0((servedBeer[client.id] or 0)==0,"what it lands never leaves by a main")
 end
 
 print("a solar array is assembled from its panels")
@@ -125,7 +106,7 @@ do
   local c=T.sandbox(24,true)
   c.stock.panels=100
   local d=c.districts[City.MAP.start]
-  local yard=c.g:addNode(d.x+200,d.y+200,"dc")
+  c.g:addNode(d.x+200,d.y+200,"terminal").haven="highway"
   local array
   for dx=0,600,60 do
     array=c:buySource("power",d.x+400+dx,d.y+420,"solar")
@@ -163,7 +144,7 @@ do
   local c=T.sandbox(24,true)
   c.stock.steel, c.stock.concrete=2000, 2000
   local d=c.districts[City.MAP.start]
-  c.g:addNode(d.x+150,d.y+150,"dc")
+  c.g:addNode(d.x+150,d.y+150,"terminal").haven="highway"
   local mill
   for dx=0,600,60 do mill=c:build(d.x+300+dx,d.y+300,"works","maltings"); if mill then break end end
   assert(mill,"somewhere for a maltings")
@@ -200,7 +181,7 @@ do
   assert(c:orderImport(wharf.id,"steel",30))
   assert(c:orderImport(rail.id,"panels",20))
   c:endDay()
-  check(c:materialStock("steel")==30 and c:materialStock("panels")==20,"with no yard, what they land is on their quays the next morning")
+  check(c:materialStock("steel")==30 and c:materialStock("panels")==20,"what they land is in store the next morning")
   local _,landedW=c:havenShipments(wharf.id)
   local _,landedR=c:havenShipments(rail.id)
   check(landedW.steel==30 and landedR.panels==20,"and each shows what it landed")
@@ -210,47 +191,25 @@ do
   check(math.abs(ux*ux+uy*uy-1)<1e-9,"a rail terminal lies on a main line")
 end
 
-print("rail lines carry imports inland from the rail terminal")
+print("rail lines run on through havens")
 do
   local c=T.sandbox(24,true)
-  c.stock.steel=2000; c.stock.glass=0
   local d=c.districts[City.MAP.start]
   local x0,y0=d.x+150,d.y+200
   local rail=assert(c:build(x0,y0,"terminal","railhead"))
-  local mid=c.g:addNode(x0+500,y0,"dc")
-  local far=c.g:addNode(x0+500,y0+400,"dc")
+  local mid=c.g:addNode(x0+500,y0,"terminal"); mid.haven="highway"
+  local far=c.g:addNode(x0+500,y0+400,"terminal"); far.haven="highway"
   c:refresh()
   assert(c:layPipe(rail.id,mid.id,"steel",1,"rail"))
   assert(c:layPipe(mid.id,far.id,"steel",1,"rail"))
   c:refresh()
   local stops,cap=c:railPath(rail,far)
-  check(stops and #stops==3 and stops[2]==mid and cap>0,"the railway runs on through the yard between")
-  assert(c:setImportYard(rail.id,far.id))
-  assert(c:orderImport(rail.id,"glass",math.min(cap,20)))
-  c:endDay()
-  local cv=c.convoys[#c.convoys]
-  check(cv.mode=="train" and #cv.pts==6 and cv.to==far.id,"an order goes inland by train, stop by stop")
-  c:endDay()
-  check(c:materialStock("glass")==math.min(cap,20),"and is in the far yard the next morning")
-
-  -- More than the line has room for in a day goes up a trainload a day.
-  c:refresh()
-  local _,room=c:railPath(rail,far)
-  local units=room*2+5
-  assert(c:orderImport(rail.id,"glass",units))
-  c:endDay()
-  local loads={}
-  for _,v in ipairs(c.convoys) do if v.key=="glass" and v.stock then loads[#loads+1]=v end end
-  check(#loads==3,"a big order is split into trainloads ("..#loads..")")
-  check(loads[1].arrive+1==loads[2].arrive and loads[2].arrive+1==loads[3].arrive,"one a day")
-  local before=c:materialStock("glass")
-  c:endDay()
-  check(c:materialStock("glass")==before+loads[1].units,"the first trainload is in the next morning")
-  c:endDay(); c:endDay()
-  check(c:materialStock("glass")==before+units,"and the last two days later")
+  check(stops and #stops==3 and stops[2]==mid and cap>0,"the railway runs on through the haven between")
+  local route=c:haulRoute(rail,far.x,far.y,far)
+  check(route and route.mode=="train","a load from one haven to another goes by train")
 end
 
-print("river barges carry imports inland from the wharf")
+print("river barges carry loads between wharves")
 do
   local c=T.sandbox(24)
   c.stock={}
@@ -267,28 +226,20 @@ do
   assert(#banks>=2,"two stretches of river bank")
   local up,down=banks[1],banks[2]
   local wharf=assert(c:build(up.x,up.y,"terminal","wharf"))
-  -- A yard on the bank downriver: the barge takes it all the way.
-  local bankYard=c.g:addNode(down.x-60,down.y,"dc")
+  local bankHaven=c.g:addNode(down.x-60,down.y,"terminal"); bankHaven.haven="highway"
   c:refresh()
-  assert(c:orderImport(wharf.id,"steel",40,bankYard.id))
-  c:endDay()
-  local cv=c.convoys[#c.convoys]
-  check(cv.mode=="barge" and not cv.legs and cv.to==bankYard.id,"to a yard by the river it goes all the way by barge")
+  local cv=c:haulRoute(wharf,bankHaven.x,bankHaven.y,bankHaven)
+  check(cv.mode=="barge" and not cv.legs,"to a haven by the river it goes all the way by barge")
   check(c:riverAt(cv.pts[1],cv.pts[2]) and c:riverAt(cv.pts[#cv.pts-1],cv.pts[#cv.pts]),"and the barge stays on the water, berth to berth")
-  c:endDay()
-  check(c:materialStock("steel")==40,"in the yard the next morning")
 
-  -- A yard away from the river: by barge to the wharf nearest it, then by land.
+  -- Away from the river: by barge to the wharf nearest it, then by land.
   local wharf2=assert(c:build(down.x,down.y+120,"terminal","wharf"))
-  local inland=c.g:addNode(down.x-400,down.y+120,"dc")
+  local inland=c.g:addNode(down.x-400,down.y+120,"terminal"); inland.haven="highway"
   c:refresh()
   local route=c:haulRoute(wharf,inland.x,inland.y,inland)
-  check(route.mode=="barge" and route.legs and #route.legs==2 and route.legs[2].mode~="barge","a yard inland: barge to the next wharf, then on by land")
+  check(route.mode=="barge" and route.legs and #route.legs==2 and route.legs[2].mode~="barge","inland: barge to the next wharf, then on by land")
   local barge=c:haulCost({mode="barge",pts=route.legs[1].pts},100)
   local land=c:haulCost({mode=route.legs[2].mode,pts=route.legs[2].pts},100)
   check(c:haulCost(route,100)<=barge+land+1 and c:haulCost(route,100)>=barge+land-1,"each leg billed at its own rate")
-  assert(c:orderImport(wharf.id,"glass",30,inland.id))
-  c:endDay(); c:endDay()
-  check(c:materialStock("glass")==30,"and it reaches the inland yard the morning after")
 end
 print(T.checks.." import checks passed")
