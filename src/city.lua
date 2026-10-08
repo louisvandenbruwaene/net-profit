@@ -3368,6 +3368,11 @@ function City:refresh()
   local D = City.INFRA
   for _,n in ipairs(self.g:aliveNodes()) do
     n.effectiveOutput=self:shockOutput(n)
+    -- Solar follows the sky: more on a sunny day, far less in the rain.
+    if n.kind=='source' and n.plant=='solar' and n.output then
+      local sun=self:weatherOn(self.day or 1).solar or 1
+      n.effectiveOutput=math.max(0,math.floor((n.effectiveOutput or n.output)*sun+0.5))
+    end
     if n.kind=='source' and (n.commodity=='water' or n.commodity=='wheat') and self:pollutionAt(n.x,n.y)>=D.pollution.stopAt then n.effectiveOutput=0 end
     if n.kind=='source' and n.assembling then
       if n.assembling < self.day then n.assembling=nil else n.effectiveOutput=0 end
@@ -4460,6 +4465,18 @@ function City:migrate()
   self.dispatchRate, self.estateReserve, self.estateMax, self.estateDiscount = nil, nil, nil, nil
   self.stock = self.stock or {}
   self.premiumBought = self.premiumBought or {}
+  -- Older builds added every standing rig, mine and plant to this count again
+  -- on every load, so a company reopened often was quoted rigs in the
+  -- billions. Counted once more from what actually stands, then left alone.
+  if not self.premiumRecounted then
+    self.premiumBought = {}
+    for _, n in ipairs(self.g.nodes) do
+      if n.alive and n.kind == "source" and n.commodity and n.commodity ~= "water" and not n.intake then
+        self.premiumBought[n.commodity] = (self.premiumBought[n.commodity] or 0) + 1
+      end
+    end
+    self.premiumRecounted = true
+  end
   self.districtsBought = self.districtsBought or 0
   self.loan = self.loan or 0
   self.licences = self.licences or { water = true }
@@ -4693,9 +4710,6 @@ function City:migrate()
     if n.kind == "source" then
       n.level = n.level or 1
       n.output = n.output or (City.trade[n.commodity] or City.trade.water).sourceOutput
-      if n.commodity ~= "water" then
-        self.premiumBought[n.commodity] = (self.premiumBought[n.commodity] or 0) + 1
-      end
     elseif n.kind == "client" and n.rate then
       n.rateBase = n.rateBase or (City.CLIENTS[n.clientType] or {}).rate or n.rate
     elseif n.kind == "gate" then

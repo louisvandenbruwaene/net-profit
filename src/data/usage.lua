@@ -30,11 +30,14 @@ Data.BUSINESS = { workshop = true, factory = true, market = true, college = true
 
 -- The weather, drawn once per day from the company's seed, so it can be
 -- forecast. `p` is how often it comes up; the rest is what it does to each trade.
+-- `solar` is what a solar array gives against its rated output: full sun on a
+-- hot day, a grey sky when mild, clear cold light, and little under rain. The
+-- weighted mean is close to 1, so the rating stays a fair daily average.
 Data.WEATHER = {
-  { key = "mild", p = 0.45, water = 1.00, power = 1.00, beer = 1.00 },
-  { key = "hot",  p = 0.20, water = 1.30, power = 1.08, beer = 1.25 },
-  { key = "cold", p = 0.20, water = 0.90, power = 1.28, beer = 0.90 },
-  { key = "wet",  p = 0.15, water = 0.82, power = 1.06, beer = 0.95 },
+  { key = "mild", p = 0.45, water = 1.00, power = 1.00, beer = 1.00, solar = 0.95 },
+  { key = "hot",  p = 0.20, water = 1.30, power = 1.08, beer = 1.25, solar = 1.45 },
+  { key = "cold", p = 0.20, water = 0.90, power = 1.28, beer = 0.90, solar = 1.00 },
+  { key = "wet",  p = 0.15, water = 0.82, power = 1.06, beer = 0.95, solar = 0.45 },
 }
 
 -- How many days ahead the weather is known.
