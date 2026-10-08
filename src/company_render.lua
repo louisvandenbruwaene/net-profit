@@ -926,6 +926,216 @@ function Draw.structureBuilding(kind, x, y, r, accent, level, fill, busy, seed)
   end
 end
 
+-- A haven's freight terminal, drawn with the ground behind the haven, in
+-- metres scaled by `k`: a concrete apron with container stacks under a yard
+-- gantry, a shed for every store the player has raised (bigger with its level,
+-- roofed in the good's colour, a roller door a level), quay cranes working the
+-- berth at a harbour or a wharf, and lorries running between the berth, the
+-- stacks and the sheds. The stacks fill as the stores do, and more lorries run
+-- on a day the haven lands something.
+local BOX_COLOURS = { { 0.74, 0.30, 0.24 }, { 0.22, 0.46, 0.66 }, { 0.86, 0.62, 0.22 },
+  { 0.30, 0.56, 0.38 }, { 0.82, 0.82, 0.80 }, { 0.48, 0.34, 0.56 } }
+
+local function container(cx, cy, w, h, col, k)
+  lg.setColor(col[1], col[2], col[3]); lg.rectangle("fill", cx - w / 2, cy - h / 2, w, h)
+  lg.setColor(col[1] * 0.72, col[2] * 0.72, col[3] * 0.72)
+  for rx = cx - w / 2 + 1.4 * k, cx + w / 2 - 0.6 * k, 1.4 * k do lg.rectangle("fill", rx, cy - h / 2, 0.4 * k, h) end
+  lg.setColor(0.10, 0.10, 0.10, 0.55); lg.setLineWidth(math.max(1, 0.35 * k)); lg.rectangle("line", cx - w / 2, cy - h / 2, w, h)
+end
+
+local function lorry(cx, cy, angle, k, cargo)
+  lg.push(); lg.translate(cx, cy); lg.rotate(angle); k = k * 1.3
+  lg.setColor(0, 0, 0, 0.25); lg.rectangle("fill", -6 * k + 1, -1.6 * k + 1, 12 * k, 3.2 * k)
+  if cargo then container(-1.4 * k, 0, 8.4 * k, 3 * k, cargo, k)
+  else lg.setColor(0.24, 0.25, 0.27); lg.rectangle("fill", -5.6 * k, -1.1 * k, 8.4 * k, 2.2 * k) end
+  lg.setColor(0.90, 0.88, 0.80); lg.rectangle("fill", 3.4 * k, -1.5 * k, 2.8 * k, 3 * k, 0.5 * k)
+  lg.setColor(0.25, 0.35, 0.45); lg.rectangle("fill", 5.2 * k, -1.1 * k, 0.8 * k, 2.2 * k)
+  lg.pop()
+end
+
+-- A ship-to-shore crane in its own frame, boom along -y out over the water:
+-- the portal on its rails, the boom, and the trolley running out and back
+-- with a box on the hook.
+local function quayCrane(k, phase, col)
+  k = k * 1.8
+  local reach = 30 * k
+  lg.setColor(0, 0, 0, 0.22); lg.rectangle("fill", -5 * k + 2, -reach + 2, 10 * k, reach + 8 * k)
+  lg.setColor(0.86, 0.36, 0.20)
+  lg.rectangle("fill", -5 * k, -1 * k, 2.2 * k, 9 * k); lg.rectangle("fill", 2.8 * k, -1 * k, 2.2 * k, 9 * k)
+  lg.rectangle("fill", -5 * k, -1 * k, 10 * k, 2 * k)
+  lg.setColor(0.92, 0.46, 0.26); lg.rectangle("fill", -1.6 * k, -reach, 3.2 * k, reach + 4 * k)
+  lg.setColor(0.10, 0.10, 0.10, 0.55); lg.setLineWidth(math.max(1, 0.35 * k)); lg.rectangle("line", -1.6 * k, -reach, 3.2 * k, reach + 4 * k)
+  -- The A-frame over the portal and its stays out along the boom.
+  lg.setColor(0.70, 0.28, 0.16); lg.setLineWidth(math.max(1, 0.5 * k))
+  lg.line(0, 1 * k, 0, -reach * 0.55); lg.line(0, 1 * k, 0, 6 * k)
+  lg.setColor(0.30, 0.31, 0.33); lg.rectangle("fill", -2.6 * k, 2 * k, 5.2 * k, 4 * k)
+  local t = (math.sin(phase) + 1) / 2
+  local ty = -reach + 3 * k + t * (reach - 2 * k)
+  lg.setColor(0.20, 0.21, 0.23); lg.rectangle("fill", -2.2 * k, ty - 1.4 * k, 4.4 * k, 2.8 * k)
+  if col then container(0, ty + 2.6 * k, 3 * k, 6 * k, col, k) end
+end
+
+function Draw.havenYard(city, n, cam)
+  local x, y = cam:toScreen(n.x, n.y)
+  -- Drawn a third over true size, so a terminal reads as one at a glance.
+  local k = cam.scale * 1.35
+  local haven = n.haven or "port"
+  local seed = Shape.hash(n.x, n.y, 93)
+  local busy = Traffic.landedToday(city, n) > 0
+  local t = R.t
+  local sheds = {}
+  for _, key in ipairs(Graph.ALL) do
+    local level = (n.store or {})[key] or 0
+    if level > 0 then sheds[#sheds + 1] = { key = key, level = level } end
+  end
+  -- How full the company's stores are, which is how high the boxes stand.
+  local held, room = 0, 0
+  for _, key in ipairs(Graph.ALL) do
+    if City.storable(key) then held = held + city:materialStock(key); room = room + city:storeCap(key) end
+  end
+  local fill = room > 0 and math.min(1, held / room) or 0
+
+  local per = 4
+  local rows = math.max(1, math.ceil(#sheds / per))
+  local cols = math.min(#sheds, per)
+  local top = (haven == "highway" or haven == "airfield") and 76 or 52
+  local stackW, shedW = 58, #sheds > 0 and cols * 32 + 4 or 0
+  local width = stackW + (shedW > 0 and shedW + 6 or 0)
+  local height = math.max(rows * 30 + 12, 50) + 18
+  local left = -width / 2
+  local ay = top - 8
+  local slate = { 0.30, 0.31, 0.32 }
+
+  -- The drive from the berth, then the apron with its painted lane.
+  lg.setColor(slate); lg.rectangle("fill", x - 6 * k, y + 8 * k, 12 * k, (ay - 6) * k)
+  lg.setColor(0, 0, 0, 0.22); lg.rectangle("fill", x + left * k + 2, y + ay * k + 3, width * k, height * k, 4 * k)
+  lg.setColor(slate); lg.rectangle("fill", x + left * k, y + ay * k, width * k, height * k, 4 * k)
+  lg.setColor(0.86, 0.78, 0.40, 0.55); lg.setLineWidth(math.max(1, 0.6 * k))
+  for dx = left + 3, left + width - 6, 7 do lg.line(x + dx * k, y + (ay + 3) * k, x + (dx + 3.5) * k, y + (ay + 3) * k) end
+
+  -- Container stacks: five bays of three rows, two boxes a bay and some two
+  -- high, filled as the stores fill (never empty: a terminal always has
+  -- boxes waiting).
+  local sx, sy = left + 4, ay + 8
+  local slots = 30
+  local shown = math.floor((0.35 + 0.65 * fill) * slots + 0.5)
+  for i = 0, slots - 1 do
+    local bay = math.floor(i / 2)
+    local c, r, side = bay % 5, math.floor(bay / 5), i % 2
+    local cx, cy = x + (sx + 5 + c * 10.4) * k, y + (sy + 4 + r * 13) * k
+    if side == 0 then
+      lg.setColor(0.24, 0.25, 0.26); lg.rectangle("fill", cx - 4.9 * k, cy - 5.9 * k, 9.8 * k, 11.8 * k)
+    end
+    local order = (bay * 7 + side * 11 + math.floor(seed * 97)) % slots
+    if order < shown then
+      local bx = cx + (side - 0.5) * 4.6 * k
+      local col = BOX_COLOURS[(i * 7 + math.floor(seed * 60)) % #BOX_COLOURS + 1]
+      container(bx, cy, 4.2 * k, 11 * k, col, k)
+      if (i + math.floor(seed * 10)) % 3 == 0 then
+        container(bx + 0.7 * k, cy - 0.9 * k, 4.2 * k, 11 * k, BOX_COLOURS[(i * 3 + 2) % #BOX_COLOURS + 1], k)
+      end
+    end
+  end
+  -- The yard gantry: legs on rails either side of the stacks, the bridge
+  -- travelling along them and its trolley across.
+  local gx0, gx1 = x + (sx - 1) * k, x + (sx + 52) * k
+  lg.setColor(0.16, 0.16, 0.17); lg.setLineWidth(math.max(1, 1.1 * k))
+  lg.line(gx0, y + (sy - 3) * k, gx0, y + (sy + 36) * k); lg.line(gx1, y + (sy - 3) * k, gx1, y + (sy + 36) * k)
+  local gt = (math.sin(t * 0.35 + seed * 6) + 1) / 2
+  local gy = y + (sy + 1 + gt * 30) * k
+  lg.setColor(0, 0, 0, 0.25); lg.rectangle("fill", gx0 + 2, gy - 1.2 * k + 3, gx1 - gx0, 2.4 * k)
+  lg.setColor(0.94, 0.76, 0.18); lg.rectangle("fill", gx0, gy - 1.6 * k, gx1 - gx0, 3.2 * k)
+  lg.rectangle("fill", gx0 - 2 * k, gy - 3.4 * k, 4 * k, 6.8 * k); lg.rectangle("fill", gx1 - 2 * k, gy - 3.4 * k, 4 * k, 6.8 * k)
+  lg.setColor(0.10, 0.10, 0.10, 0.5); lg.setLineWidth(math.max(1, 0.4 * k)); lg.rectangle("line", gx0, gy - 1.6 * k, gx1 - gx0, 3.2 * k)
+  local tx = gx0 + (gx1 - gx0) * ((math.sin(t * 0.9 + seed * 3) + 1) / 2)
+  lg.setColor(0.20, 0.21, 0.23); lg.rectangle("fill", tx - 2 * k, gy - 1.6 * k, 4 * k, 3.2 * k)
+  if math.sin(t * 0.9 + seed * 3) > 0 then container(tx, gy + 3 * k, 3.6 * k, 9 * k, BOX_COLOURS[math.floor(seed * 6) % #BOX_COLOURS + 1], k) end
+
+  -- The stores: a shed a good, as before.
+  local shedLeft = left + stackW + 6
+  for i, shed in ipairs(sheds) do
+    local col, row = (i - 1) % per, math.floor((i - 1) / per)
+    local cx, cy = x + (shedLeft + 18 + col * 32) * k, y + (top + 10 + row * 30) * k
+    local w, h = (16 + 2.4 * shed.level) * k, (12 + 1.6 * shed.level) * k
+    local c = Graph.COMMODITIES[shed.key].fill or Graph.COMMODITIES[shed.key].color
+    lg.setColor(0, 0, 0, 0.25); lg.rectangle("fill", cx - w / 2 + 2, cy - h / 2 + 3, w, h)
+    lg.setColor(0.58, 0.58, 0.56); lg.rectangle("fill", cx - w / 2, cy - h / 2 + h * 0.35, w, h * 0.65)
+    lg.setColor(c[1], c[2], c[3]); lg.rectangle("fill", cx - w / 2, cy - h / 2, w, h * 0.45, 1.5 * k)
+    lg.setColor(0.12, 0.12, 0.12, 0.6); lg.setLineWidth(math.max(1, 0.6 * k))
+    lg.rectangle("line", cx - w / 2, cy - h / 2, w, h)
+    lg.setColor(0.22, 0.23, 0.25)
+    for d = 1, shed.level do
+      local dx = cx - w / 2 + (d - 0.5) * w / shed.level
+      lg.rectangle("fill", dx - 1.6 * k, cy + h * 0.12, 3.2 * k, h * 0.38)
+    end
+  end
+
+  -- The lorry park along the foot of the apron: tractors and trailers waiting
+  -- for a load, more of them standing when the stores are full.
+  local parkY = y + (ay + height - 9) * k
+  local bays = math.floor((width - 8) / 9)
+  for b = 0, bays - 1 do
+    if Shape.hash(n.x + b * 13, n.y, 94) < 0.35 + 0.5 * fill then
+      local px = x + (left + 8 + b * 9) * k
+      local cargo = Shape.hash(n.x, n.y + b * 7, 95) < 0.7 and BOX_COLOURS[(b * 5 + math.floor(seed * 40)) % #BOX_COLOURS + 1] or nil
+      lorry(px, parkY, -math.pi / 2, k * 0.92, cargo)
+    end
+  end
+  lg.setColor(0.86, 0.86, 0.82, 0.35); lg.setLineWidth(math.max(1, 0.4 * k))
+  for b = 0, bays do
+    local px = x + (left + 3.5 + b * 9) * k
+    lg.line(px, parkY - 8 * k, px, parkY + 8 * k)
+  end
+
+  -- Lorries: down the drive from the berth, along the lane to the stacks or
+  -- a shed's doors, and back. Two always run; four on a day freight lands.
+  local stops = { (sx + 26) }
+  for i = 1, #sheds do stops[#stops + 1] = shedLeft + 18 + ((i - 1) % per) * 32 end
+  local lane = ay + 3
+  local trucks = busy and 4 or 2
+  for i = 1, trucks do
+    local dest = stops[(i - 1) % #stops + 1]
+    local leg1, leg2 = lane - 8, math.abs(dest)
+    local total = leg1 + leg2
+    local ph = (t * 0.07 + i / trucks + seed) % 2
+    local out = ph < 1
+    local d = (out and ph or 2 - ph) * total
+    local px, py, ang
+    if d < leg1 then px, py, ang = 0, 8 + d, math.pi / 2
+    else px, py, ang = (dest >= 0 and 1 or -1) * (d - leg1), lane, dest >= 0 and 0 or math.pi end
+    if not out then ang = ang + math.pi end
+    local cargo = out == (i % 2 == 1) and BOX_COLOURS[(i * 5 + math.floor(seed * 30)) % #BOX_COLOURS + 1] or nil
+    lorry(x + (px + (out and 2 or -2) * math.cos(ang + math.pi / 2)) * k, y + py * k, ang, k, cargo)
+  end
+
+  -- Quay cranes at the berth, booms out over where the ship lies: on a
+  -- widened head at the end of a harbour's jetty, or at a wharf's river berth.
+  local function cranes(cx, cy, angle, gap)
+    for j = -1, 1, 2 do
+      lg.push(); lg.translate(cx, cy); lg.rotate(angle); lg.translate(j * gap * k, 0)
+      quayCrane(k, t * (busy and 0.8 or 0.3) + j * 1.7 + seed * 5,
+        busy and BOX_COLOURS[(j + 3 + math.floor(seed * 8)) % #BOX_COLOURS + 1] or nil)
+      lg.pop()
+    end
+  end
+  if haven == "port" and n.y < City.havenReach + 60 then
+    local hx, hy = cam:toScreen(n.x, City.JETTY_HEAD)
+    local m = cam.scale
+    lg.setColor(0, 0, 0, 0.3); lg.rectangle("fill", hx - 14 * m + 2, hy + 3, 28 * m, 150 * m)
+    lg.setColor(0.52, 0.52, 0.50); lg.rectangle("fill", hx - 14 * m, hy, 28 * m, 150 * m)
+    lg.setColor(0.86, 0.78, 0.40, 0.6); lg.setLineWidth(math.max(1, 0.6 * m))
+    lg.line(hx + 11 * m, hy + 4 * m, hx + 11 * m, hy + 146 * m)
+    -- The ship moors on the east side (traffic.lua): the booms reach over it.
+    cranes(hx + 6 * m, hy + 72 * m, math.pi / 2, 22)
+  elseif haven == "wharf" and city.wharfBerth then
+    local bx, by = city:wharfBerth(n)
+    if bx ~= n.x or by ~= n.y then
+      local sx2, sy2 = cam:toScreen(bx, by)
+      cranes(sx2, sy2, math.atan2(bx - n.x, -(by - n.y)), 12)
+    end
+  end
+end
+
 -- Fittings and plant buildings close up, so nothing built on the map is left
 -- as a bare icon. A T split is a concrete valve chamber; a hub a pump house
 -- that grows with its level, up to a distribution hub's depot with its trade
@@ -2208,47 +2418,11 @@ function Draw.world(city, cam, state)
       lg.pop()
     end
   end
-  -- A haven's stores stand behind it: one shed for every good whose store has
-  -- been raised, bigger with its level and roofed in the colour of the good,
-  -- on a hard standing that grows with the yard.
+  -- Every haven is a working freight terminal on the ground behind it.
   if cam.scale > 0.3 then
     for _, n in ipairs(city.g:nodesOfKind("terminal")) do
-      local sheds = {}
-      for _, key in ipairs(Graph.ALL) do
-        local level = (n.store or {})[key] or 0
-        if level > 0 then sheds[#sheds + 1] = { key = key, level = level } end
-      end
-      if #sheds > 0 and cam:sees(n.x, n.y + 90, 160 * cam.scale + 20) then
-        local x, y = cam:toScreen(n.x, n.y)
-        local k = cam.scale
-        local per = 4
-        local rows = math.ceil(#sheds / per)
-        local cols = math.min(#sheds, per)
-        local top = (n.haven == "highway" or n.haven == "airfield") and 76 or 52
-        local half = (cols * 32 + 4) / 2
-        -- The drive from the berth down to the stores, then the standing.
-        lg.setColor(0.30, 0.31, 0.32)
-        lg.rectangle("fill", x - 5 * k, y + 8 * k, 10 * k, (top - 14) * k)
-        lg.setColor(0, 0, 0, 0.22)
-        lg.rectangle("fill", x - half * k + 2, y + (top - 8) * k + 3, 2 * half * k, (rows * 30 + 12) * k, 4 * k)
-        lg.setColor(0.30, 0.31, 0.32)
-        lg.rectangle("fill", x - half * k, y + (top - 8) * k, 2 * half * k, (rows * 30 + 12) * k, 4 * k)
-        for i, shed in ipairs(sheds) do
-          local col, row = (i - 1) % per, math.floor((i - 1) / per)
-          local cx, cy = x + (col - (cols - 1) / 2) * 32 * k, y + (top + 10 + row * 30) * k
-          local w, h = (16 + 2.4 * shed.level) * k, (12 + 1.6 * shed.level) * k
-          local c = Graph.COMMODITIES[shed.key].fill or Graph.COMMODITIES[shed.key].color
-          lg.setColor(0.58, 0.58, 0.56); lg.rectangle("fill", cx - w / 2, cy - h / 2 + h * 0.35, w, h * 0.65)
-          lg.setColor(c[1], c[2], c[3]); lg.rectangle("fill", cx - w / 2, cy - h / 2, w, h * 0.45, 1.5 * k)
-          lg.setColor(0.12, 0.12, 0.12, 0.6); lg.setLineWidth(math.max(1, 0.6 * k))
-          lg.rectangle("line", cx - w / 2, cy - h / 2, w, h)
-          -- One roller door for every level.
-          lg.setColor(0.22, 0.23, 0.25)
-          for d = 1, shed.level do
-            local dx = cx - w / 2 + (d - 0.5) * w / shed.level
-            lg.rectangle("fill", dx - 1.6 * k, cy + h * 0.12, 3.2 * k, h * 0.38)
-          end
-        end
+      if cam:sees(n.x, n.y + 80, 220 * cam.scale + 40) or cam:sees(n.x, City.JETTY_HEAD + 80, 120 * cam.scale + 40) then
+        Draw.havenYard(city, n, cam)
       end
     end
   end
