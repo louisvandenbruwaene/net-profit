@@ -958,25 +958,66 @@ end
 -- with a box on the hook.
 local function quayCrane(k, phase, col)
   k = k * 1.8
-  local reach = 30 * k
-  lg.setColor(0, 0, 0, 0.22); lg.rectangle("fill", -5 * k + 2, -reach + 2, 10 * k, reach + 8 * k)
+  -- A ship-to-shore crane balances: the boom reaches out over the ship about
+  -- twice as far as it runs back over the quay, where the machinery house and
+  -- the counterweight sit behind the portal.
+  -- The portal straddles the middle of the quay, legs either side of 0.
+  local out, back = 15 * k, 7 * k
+  lg.setColor(0, 0, 0, 0.22); lg.rectangle("fill", -5 * k + 2, -out + 2, 10 * k, out + back + 2)
   lg.setColor(0.86, 0.36, 0.20)
-  lg.rectangle("fill", -5 * k, -1 * k, 2.2 * k, 9 * k); lg.rectangle("fill", 2.8 * k, -1 * k, 2.2 * k, 9 * k)
-  lg.rectangle("fill", -5 * k, -1 * k, 10 * k, 2 * k)
-  lg.setColor(0.92, 0.46, 0.26); lg.rectangle("fill", -1.6 * k, -reach, 3.2 * k, reach + 4 * k)
-  lg.setColor(0.10, 0.10, 0.10, 0.55); lg.setLineWidth(math.max(1, 0.35 * k)); lg.rectangle("line", -1.6 * k, -reach, 3.2 * k, reach + 4 * k)
-  -- The A-frame over the portal and its stays out along the boom.
+  lg.rectangle("fill", -5 * k, -4.5 * k, 2.2 * k, 9 * k); lg.rectangle("fill", 2.8 * k, -4.5 * k, 2.2 * k, 9 * k)
+  lg.rectangle("fill", -5 * k, -4.5 * k, 10 * k, 2 * k); lg.rectangle("fill", -5 * k, 2.5 * k, 10 * k, 2 * k)
+  lg.setColor(0.92, 0.46, 0.26); lg.rectangle("fill", -1.6 * k, -out, 3.2 * k, out + back)
+  lg.setColor(0.10, 0.10, 0.10, 0.55); lg.setLineWidth(math.max(1, 0.35 * k)); lg.rectangle("line", -1.6 * k, -out, 3.2 * k, out + back)
+  -- Machinery house and counterweight on the back end.
+  lg.setColor(0.30, 0.31, 0.33); lg.rectangle("fill", -3 * k, back - 4.6 * k, 6 * k, 2.6 * k)
+  lg.setColor(0.55, 0.55, 0.53); lg.rectangle("fill", -3.4 * k, back - 2 * k, 6.8 * k, 2.4 * k)
+  lg.setColor(0.10, 0.10, 0.10, 0.55); lg.rectangle("line", -3.4 * k, back - 2 * k, 6.8 * k, 2.4 * k)
+  -- The A-frame over the portal and its stays, forward to the tip, back to the weight.
   lg.setColor(0.70, 0.28, 0.16); lg.setLineWidth(math.max(1, 0.5 * k))
-  lg.line(0, 1 * k, 0, -reach * 0.55); lg.line(0, 1 * k, 0, 6 * k)
-  lg.setColor(0.30, 0.31, 0.33); lg.rectangle("fill", -2.6 * k, 2 * k, 5.2 * k, 4 * k)
+  lg.line(0, 0, 0, -out * 0.95); lg.line(0, 0, 0, back - 2 * k)
+  lg.setColor(0.70, 0.28, 0.16); lg.rectangle("fill", -2 * k, -1 * k, 4 * k, 2 * k)
   local t = (math.sin(phase) + 1) / 2
-  local ty = -reach + 3 * k + t * (reach - 2 * k)
+  local ty = -out + 3 * k + t * (out - 1 * k)
   lg.setColor(0.20, 0.21, 0.23); lg.rectangle("fill", -2.2 * k, ty - 1.4 * k, 4.4 * k, 2.8 * k)
   if col then container(0, ty + 2.6 * k, 3 * k, 6 * k, col, k) end
 end
 
 -- Drawn a third over true size, so a terminal reads as one at a glance.
 local YARD_K = 1.35
+
+-- Which way a land gateway's trunk road or runway lies.
+function Draw.headAngle(n)
+  return (math.floor(Shape.hash(n.x, n.y, 90) * 4) - 1.5) * 0.35
+end
+
+-- A yard keeps off woods, water, ranges and parks, and off anything built
+-- other than its haven. Sampled on a grid fine enough for a fitting.
+local function yardGroundClear(city, r, self)
+  local cx, cy = (r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2
+  local half = math.sqrt((r.x1 - r.x0) ^ 2 + (r.y1 - r.y0) ^ 2) / 2
+  local near = {}
+  for _, o in ipairs(city.obstacles or {}) do
+    if math.abs(o.x - cx) < half + o.r * 1.4 and math.abs(o.y - cy) < half + o.r * 1.4 then near[#near + 1] = o end
+  end
+  local step = 10
+  for px = r.x0, r.x1 + step - 1, step do
+    for py = r.y0, r.y1 + step - 1, step do
+      local qx, qy = math.min(px, r.x1), math.min(py, r.y1)
+      for _, o in ipairs(near) do
+        if Shape.contains(o, qx, qy) then return false end
+      end
+      if city.riverEdge then
+        local edge = city:riverEdge(qx, qy)
+        if edge and edge <= 6 then return false end
+      end
+    end
+  end
+  for _, m in ipairs(city.g:aliveNodes()) do
+    if m ~= self and m.x > r.x0 - 8 and m.x < r.x1 + 8 and m.y > r.y0 - 8 and m.y < r.y1 + 8 then return false end
+  end
+  return true
+end
 
 -- A yard's sheds and outline, in yard units below its haven.
 local function yardShape(n)
@@ -1001,13 +1042,18 @@ end
 -- drive still entering from the top, until it is clear of every yard and
 -- drive placed before it; failing that it drops below them. Recomputed once a
 -- frame: a new shed widens a yard and may move its neighbour.
-local yardCache = { t = nil }
+local yardCache = {}
 local function yardPlacement(city, n)
-  if yardCache.t ~= R.t or yardCache.city ~= city then
-    yardCache = { t = R.t, city = city, at = {} }
-    local havens = {}
-    for _, h in ipairs(city.g:nodesOfKind("terminal")) do havens[#havens + 1] = h end
-    table.sort(havens, function(a, b) return a.id < b.id end)
+  local havens = {}
+  for _, h in ipairs(city.g:nodesOfKind("terminal")) do havens[#havens + 1] = h end
+  table.sort(havens, function(a, b) return a.id < b.id end)
+  -- Placing costs a ground survey, so it is redone only when something that
+  -- could move a yard changed: a haven, a shed, an obstacle or a building.
+  local sig = { #city.obstacles, #city.g:aliveNodes() }
+  for _, h in ipairs(havens) do sig[#sig + 1] = h.id .. ":" .. #yardShape(h).sheds end
+  sig = table.concat(sig, ",")
+  if yardCache.sig ~= sig or yardCache.city ~= city then
+    yardCache = { sig = sig, city = city, at = {} }
     local taken, gap = {}, 6 * YARD_K
     local function clear(r)
       for _, o in ipairs(taken) do
@@ -1025,7 +1071,7 @@ local function yardPlacement(city, n)
         return apron, drive
       end
       local best
-      for drop = 0, 600, 20 do
+      for drop = 0, 400, 20 do
         -- Centred first, then outward a step at a time either way, as long as
         -- the drive still meets the apron.
         local centre, lo, hi = -shape.width / 2, -shape.width + 14, -14
@@ -1033,7 +1079,7 @@ local function yardPlacement(city, n)
           for _, left in ipairs(step == 0 and { centre } or { centre - step, centre + step }) do
             if left >= lo and left <= hi then
               local apron, drive = rects(left, drop)
-              if clear(apron) and clear(drive) then best = { left = left, drop = drop, apron = apron, drive = drive }; break end
+              if clear(apron) and clear(drive) and yardGroundClear(city, apron, h) and yardGroundClear(city, drive, h) then best = { left = left, drop = drop, apron = apron, drive = drive }; break end
             end
           end
           if best then break end
@@ -1070,8 +1116,29 @@ function Draw.havenYard(city, n, cam)
   local ay = top - 8
   local slate = { 0.30, 0.31, 0.32 }
 
-  -- The drive from the berth, then the apron with its painted lane.
-  lg.setColor(slate); lg.rectangle("fill", x - 6 * k, y + 8 * k, 12 * k, (ay - 6) * k)
+  -- The drive from the berth, then the apron with its painted lane. A road
+  -- head's drive leaves the trunk road at a T, kerbs rounded either side.
+  if haven == "highway" then
+    local asphalt = { 0.20, 0.21, 0.23 }
+    local a, m = Draw.headAngle(n), cam.scale
+    local hwT, rr = math.max(1, 7 * m), 22 * m
+    lg.setColor(asphalt); lg.rectangle("fill", x - 6 * k, y, 12 * k, (ay + 2) * k)
+    for side = -1, 1, 2 do
+      local cx = x + side * 6 * k
+      local cy = y + math.tan(a) * side * 6 * k + hwT / math.cos(a)
+      local ax, ay2 = cx + side * rr * math.cos(a), cy + side * rr * math.sin(a)
+      local bx, by = cx, cy + rr
+      local pts = { cx, cy }
+      for i = 0, 8 do
+        local u = i / 8
+        pts[#pts + 1] = (1 - u) ^ 2 * ax + 2 * u * (1 - u) * cx + u * u * bx
+        pts[#pts + 1] = (1 - u) ^ 2 * ay2 + 2 * u * (1 - u) * cy + u * u * by
+      end
+      lg.polygon("fill", pts)
+    end
+  else
+    lg.setColor(slate); lg.rectangle("fill", x - 6 * k, y + 8 * k, 12 * k, (ay - 6) * k)
+  end
   lg.setColor(0, 0, 0, 0.22); lg.rectangle("fill", x + left * k + 2, y + ay * k + 3, width * k, height * k, 4 * k)
   lg.setColor(slate); lg.rectangle("fill", x + left * k, y + ay * k, width * k, height * k, 4 * k)
   lg.setColor(0.86, 0.78, 0.40, 0.55); lg.setLineWidth(math.max(1, 0.6 * k))
@@ -1190,7 +1257,7 @@ function Draw.havenYard(city, n, cam)
     lg.setColor(0.86, 0.78, 0.40, 0.6); lg.setLineWidth(math.max(1, 0.6 * m))
     lg.line(hx + 11 * m, hy + 4 * m, hx + 11 * m, hy + 146 * m)
     -- The ship moors on the east side (traffic.lua): the booms reach over it.
-    cranes(hx + 6 * m, hy + 72 * m, math.pi / 2, 22)
+    cranes(hx, hy + 72 * m, math.pi / 2, 22)
   elseif haven == "wharf" and city.wharfBerth then
     local bx, by = city:wharfBerth(n)
     if bx ~= n.x or by ~= n.y then
@@ -2370,18 +2437,20 @@ function Draw.world(city, cam, state)
       local x0, y0 = cam:toScreen(n.x, n.y)
       local _, y1 = cam:toScreen(n.x, City.JETTY_HEAD)
       local w = math.max(3, 16 * cam.scale)
-      -- Pilings, then the deck over them.
-      lg.setColor(0.18, 0.13, 0.09)
+      -- A concrete causeway, the same slab as the quay head it runs out to:
+      -- piers either side, the deck over them cast in bays.
+      lg.setColor(0.40, 0.40, 0.39)
       for wy = n.y - 20, City.JETTY_HEAD, -24 do
         local px, py = cam:toScreen(n.x, wy)
-        lg.circle("fill", px - w * 0.55, py, math.max(1, 2.2 * cam.scale))
-        lg.circle("fill", px + w * 0.55, py, math.max(1, 2.2 * cam.scale))
+        lg.rectangle("fill", px - w * 0.62, py - 2 * cam.scale, w * 1.24, 4 * cam.scale)
       end
       lg.setColor(0, 0, 0, 0.3); lg.rectangle("fill", x0 - w / 2 + 2, y1 + 3, w, y0 - y1)
-      lg.setColor(0.46, 0.35, 0.24); lg.rectangle("fill", x0 - w / 2, y1, w, y0 - y1)
-      lg.setColor(0.30, 0.22, 0.15); lg.setLineWidth(1)
-      local plank = math.max(3, 6 * cam.scale)
-      for py = y1 + plank, y0, plank do lg.line(x0 - w / 2, py, x0 + w / 2, py) end
+      lg.setColor(0.52, 0.52, 0.50); lg.rectangle("fill", x0 - w / 2, y1, w, y0 - y1)
+      lg.setColor(0.44, 0.44, 0.42); lg.setLineWidth(1)
+      local bay = math.max(6, 24 * cam.scale)
+      for py = y0 - bay, y1, -bay do lg.line(x0 - w / 2, py, x0 + w / 2, py) end
+      lg.setColor(0.86, 0.78, 0.40, 0.6); lg.setLineWidth(math.max(1, 0.6 * cam.scale))
+      lg.line(x0 + w * 0.36, y1, x0 + w * 0.36, y0)
     end
   end
   -- A rail terminal: the main line running through it and off the map both
@@ -2437,24 +2506,38 @@ function Draw.world(city, cam, state)
       local x, y = cam:toScreen(n.x, n.y)
       local k = cam.scale
       lg.push(); lg.translate(x, y)
-      lg.rotate((math.floor(Shape.hash(n.x, n.y, 90) * 4) - 1.5) * 0.35)
+      lg.rotate(Draw.headAngle(n))
       if kind == "highway" then
         local w = math.max(2, 14 * k)
-        -- The trunk road running through, then the loop and its slips.
-        lg.setColor(0, 0, 0, 0.25); lg.setLineWidth(w + 4); lg.line(-130 * k, 2, 130 * k, 2)
-        lg.setColor(0.20, 0.21, 0.23); lg.setLineWidth(w); lg.line(-130 * k, 0, 130 * k, 0)
-        lg.setLineWidth(math.max(1.5, 9 * k))
-        lg.circle("line", 0, -34 * k, 26 * k)
-        lg.circle("line", 0, 34 * k, 26 * k)
+        -- The trunk road running through. The yard's drive leaves it at a
+        -- plain T with kerbs rounded on both sides (Draw.havenYard).
+        -- It stops short of a neighbouring haven rather than running through it.
+        local a = Draw.headAngle(n)
+        local ux, uy = math.cos(a), math.sin(a)
+        local reach = { [-1] = 130, [1] = 130 }
+        for _, o in ipairs(city.g:nodesOfKind("terminal")) do
+          if o ~= n and o.alive then
+            local along = (o.x - n.x) * ux + (o.y - n.y) * uy
+            local across = -(o.x - n.x) * uy + (o.y - n.y) * ux
+            if math.abs(across) < 40 then
+              local side = along < 0 and -1 or 1
+              reach[side] = math.max(40, math.min(reach[side], math.abs(along) - 34))
+            end
+          end
+        end
+        local x0, x1 = -reach[-1] * k, reach[1] * k
+        lg.setColor(0, 0, 0, 0.25); lg.setLineWidth(w + 4); lg.line(x0, 2, x1, 2)
+        lg.setColor(0.20, 0.21, 0.23); lg.setLineWidth(w); lg.line(x0, 0, x1, 0)
+        lg.circle("fill", x0, 0, w / 2); lg.circle("fill", x1, 0, w / 2)
         lg.setColor(0.82, 0.72, 0.36, 0.7); lg.setLineWidth(math.max(1, 1.2 * k))
-        for dx = -124, 116, 16 do lg.line(dx * k, 0, (dx + 8) * k, 0) end
+        for dx = -reach[-1] + 6, reach[1] - 14, 16 do lg.line(dx * k, 0, (dx + 8) * k, 0) end
         -- Trucks along the trunk road, both ways, only on a day this road
         -- head lands freight: one for every load it brought in.
         local loads = math.min(4, math.ceil(Traffic.landedToday(city, n) / City.MODES.highway.wagonCap))
         for i = 0, loads - 1 do
           local ph = ((R.t * 0.12 + i / 4 + Shape.hash(n.x, n.y, 91)) % 1) * 2 - 1
           local dir = i % 2 == 0 and 1 or -1
-          local cx = ph * 130 * k * dir
+          local cx = math.max(-reach[-1], math.min(reach[1], ph * 130 * dir)) * k
           lg.setColor(i % 2 == 0 and { 0.90, 0.88, 0.80 } or { 0.85, 0.45, 0.30 })
           lg.rectangle("fill", cx - 4 * k, (dir * 3.5 - 1.5) * k, 8 * k, 3 * k, 1)
         end
