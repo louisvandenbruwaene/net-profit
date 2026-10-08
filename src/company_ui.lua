@@ -506,6 +506,12 @@ local function inspectSource(n,y)
   lg.setColor(maxed and P.warn or Graph.COMMODITIES[n.commodity].color)
   lg.rectangle("fill",M,y+22,bw,6,2)
   y=y+40
+  if n.plant=="solar" then
+    local w=city:weatherOn(city.day)
+    local sun=w.solar or 1
+    row("Sky",w.key..string.format("  %d%%",math.floor(sun*100+0.5)),y,sun>=1 and P.good or P.warn,
+      "Sun on a hot day lifts the arrays, rain cuts them to under half."); y=y+26
+  end
   if range and city:rockLeft(range)>0 then
     local left=city:rockLeft(range)
     local days=drawn>0 and math.ceil(left/drawn) or nil
