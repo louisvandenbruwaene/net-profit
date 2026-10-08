@@ -175,7 +175,7 @@ ground to see what crossing it costs; while dragging a main, every wood and
 range on the run lights up red (closed), amber (dearer) or green (open).
 
 Zoomed in, customers, wells, works, towers, tanks, pumps, stops, stations,
-resorts and depot yards stand as small buildings in the same footprint as their
+resorts and havens stand as small buildings in the same footprint as their
 disc (same click); zoomed out they return to flat icons that stay readable.
 Plants spread over their sites (a turbine per wind row, a panel bank per solar
 array, reactor domes beside a cooling tower, a headrace to the river), a
@@ -267,8 +267,8 @@ closing a day is final.
   are bought outright rather than next door, and need a harbour to reach. What
   they are for is the wind: a wind park burns nothing at all and will stand
   nowhere else.
-- **Bulk freight.** A depot yard is the only thing inland a railway, a highway or
-  a ship can terminate at. Rail is enormous to lay and nearly free to run;
+- **Bulk freight.** A haven is the only thing a railway, a highway or a ship can
+  terminate at; a road head or rail terminal is one inland. Rail is enormous to lay and nearly free to run;
   a highway is the opposite and is paid for in drivers and diesel; shipping is
   the cheapest freight there is and only calls at the coast; air costs more than
   most freight is worth and flies one aircraft type per route. Beer, oil and
@@ -305,23 +305,23 @@ closing a day is final.
   about seven. Below that, connecting directly is still the right answer.
 - **Materials.** A hub is twenty steel, a works is forty steel and twenty
   concrete, a railway is twelve steel a kilometre, a solar array twelve panels.
-  Materials are imported or made, taken in at the yards, and spent from there. A
+  Materials are imported or made, taken into a haven's stores, and spent from there. A
   highway needs none, which is how the first steel ever reaches the city.
 - **Importing.** Every haven has an import menu: pick a good and a quantity and
   pay the landed price now. The freighter (a ship at a harbour, lorries at a road
   head, a plane at an air apron, a freight train at a rail terminal, a barge at
   a river wharf) sets out at once and lands overnight. Freight rates: harbour
   x1.00, river wharf x1.05 (on a river bank), rail terminal x1.10, road head
-  x1.20, air x1.55. From there
-  the load is hauled on to the nearest yard by the best way you have built: your
-  own rail lines first (a train a day, as much as the line has room for, through
-  other yards if need be); from a river wharf, a barge down or up the river,
-  on to another of your wharves and by land from there if the yard is inland;
-  your own freight line, a semi along your roads, a barge on the river, a plane from
-  an air apron, or a lorry overland. Haulage is billed at that mode's rate and the
-  goods are in stock the morning after. Whatever a building is made of is driven
+  x1.20, air x1.55. It goes straight into that haven's store and is in stock the
+  morning after. What a haven lands only ever leaves it by bulk line; a main or a
+  goods road tied into it brings made goods into store and carries on what came
+  in by line. Whatever a building is made of is driven
   out to its site, and a works or a power plant built of materials goes up from
   it overnight: it starts working the next day.
+- **Stores.** Every haven keeps a store for every solid good, each raised on its
+  own from room on the quay (60) through five sheds (200 to 6,000), and the sheds
+  stand behind the haven on the map. A good's room is what all havens hold of
+  it; a full store takes nothing more in and lets nothing more be ordered.
 - **Land and roads.** Land is one continuous field; plots are survey lines, and
   woods and ranges may lie across them. There are no streets until you lay them:
   every road on the map is yours, and only a **bridge** crosses water. A bridge
@@ -356,8 +356,8 @@ closing a day is final.
   the car when that is cheaper, and everyone else takes the seats.
 - **Petrol and cars.** A petrol works refines oil into gasoline, and a filling
   station on a road sells it to every driver passing at the price you set. A car
-  works turns steel, glass, imported rubber and power into cars, which reach the
-  yards and are sold at the close to the districts with room for more drivers.
+  works turns steel, glass, imported rubber and power into cars, which reach a
+  haven and are sold at the close to the districts with room for more drivers.
 - **Resorts.** Once a passenger route has carried somebody, a resort can stand on
   the coast, an island or the riverbank. It pulls day trips from every town in
   reach and takes their money when they arrive.

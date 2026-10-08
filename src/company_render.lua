@@ -2208,6 +2208,50 @@ function Draw.world(city, cam, state)
       lg.pop()
     end
   end
+  -- A haven's stores stand behind it: one shed for every good whose store has
+  -- been raised, bigger with its level and roofed in the colour of the good,
+  -- on a hard standing that grows with the yard.
+  if cam.scale > 0.3 then
+    for _, n in ipairs(city.g:nodesOfKind("terminal")) do
+      local sheds = {}
+      for _, key in ipairs(Graph.ALL) do
+        local level = (n.store or {})[key] or 0
+        if level > 0 then sheds[#sheds + 1] = { key = key, level = level } end
+      end
+      if #sheds > 0 and cam:sees(n.x, n.y + 90, 160 * cam.scale + 20) then
+        local x, y = cam:toScreen(n.x, n.y)
+        local k = cam.scale
+        local per = 4
+        local rows = math.ceil(#sheds / per)
+        local cols = math.min(#sheds, per)
+        local top = (n.haven == "highway" or n.haven == "airfield") and 76 or 52
+        local half = (cols * 32 + 4) / 2
+        -- The drive from the berth down to the stores, then the standing.
+        lg.setColor(0.30, 0.31, 0.32)
+        lg.rectangle("fill", x - 5 * k, y + 8 * k, 10 * k, (top - 14) * k)
+        lg.setColor(0, 0, 0, 0.22)
+        lg.rectangle("fill", x - half * k + 2, y + (top - 8) * k + 3, 2 * half * k, (rows * 30 + 12) * k, 4 * k)
+        lg.setColor(0.30, 0.31, 0.32)
+        lg.rectangle("fill", x - half * k, y + (top - 8) * k, 2 * half * k, (rows * 30 + 12) * k, 4 * k)
+        for i, shed in ipairs(sheds) do
+          local col, row = (i - 1) % per, math.floor((i - 1) / per)
+          local cx, cy = x + (col - (cols - 1) / 2) * 32 * k, y + (top + 10 + row * 30) * k
+          local w, h = (16 + 2.4 * shed.level) * k, (12 + 1.6 * shed.level) * k
+          local c = Graph.COMMODITIES[shed.key].fill or Graph.COMMODITIES[shed.key].color
+          lg.setColor(0.58, 0.58, 0.56); lg.rectangle("fill", cx - w / 2, cy - h / 2 + h * 0.35, w, h * 0.65)
+          lg.setColor(c[1], c[2], c[3]); lg.rectangle("fill", cx - w / 2, cy - h / 2, w, h * 0.45, 1.5 * k)
+          lg.setColor(0.12, 0.12, 0.12, 0.6); lg.setLineWidth(math.max(1, 0.6 * k))
+          lg.rectangle("line", cx - w / 2, cy - h / 2, w, h)
+          -- One roller door for every level.
+          lg.setColor(0.22, 0.23, 0.25)
+          for d = 1, shed.level do
+            local dx = cx - w / 2 + (d - 0.5) * w / shed.level
+            lg.rectangle("fill", dx - 1.6 * k, cy + h * 0.12, 3.2 * k, h * 0.38)
+          end
+        end
+      end
+    end
+  end
   -- Power plants spread over their site: a turbine for every row of a wind
   -- park, a bank of panels for every array, a cooling tower beside the
   -- reactors, turbine housings along a weir. Drawn with the ground, under the

@@ -147,7 +147,7 @@ return function(app,capture,click,scrollTo,check)
     {'client',{clientType='factory',commodity='oil',demand=2}},{'client',{clientType='market',commodity='food',demand=2}},
     {'source',{commodity='water',output=10}},{'source',{commodity='oil',output=10}},
     {'pylon',{level=3,commodity='power'}},{'depot',{level=4,commodity='water',stored=10}},{'pump',{}},
-    {'stop',{}},{'station',{}},{'resort',{level=2}},{'dc',{}},
+    {'stop',{}},{'station',{}},{'resort',{level=2}},{'terminal',{haven='highway',store={steel=2,glass=1}}},
   }
   for i,spec in ipairs(row) do
     local f=spec[2]; f.patience=f.patience or 3; f.grace=f.grace or 3; f.rate=f.rate or 7

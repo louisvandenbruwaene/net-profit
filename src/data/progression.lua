@@ -9,7 +9,7 @@ Data.UNLOCKS = {
   seawater = { clients = 6, name = "Sea pumps and purifiers" },
   works    = { licences = 2, name = "Works" },
   haven    = { clients = 9,  name = "Havens" },
-  yard     = { haven = true, name = "Depot yards and bulk freight" },
+  yard     = { haven = true, name = "Bulk freight" },
   orders   = { clients = 6,  name = "Departments" },
   massive  = { clients = 15, name = "Massive mains" },
   -- A trunk main is what a company lays when it has one source big enough to

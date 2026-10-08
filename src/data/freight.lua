@@ -69,9 +69,15 @@ Data.MATERIALS = {
   resort   = { concrete = 40, glass = 20 },
 }
 
-Data.yardStock = 400
-
-Data.yardIntakeRate = 25
+-- A haven's stores. Every good it can hold has a store of its own, raised on
+-- its own: level 0 is room on the quay, each level after it a bigger shed.
+-- `cap` is what one haven holds of that good at each level, `intake` what it
+-- takes in a day off the network at that level, `cost` the price of the next.
+Data.STORE = {
+  cap    = { [0] = 60, 200, 500, 1200, 2800, 6000 },
+  intake = { [0] = 10, 25, 45, 80, 140, 240 },
+  cost   = { 260, 620, 1400, 3200, 7000 },
+}
 
 Data.HAVENS = {
   port     = { name = "HARBOUR",      gate = "coast", import = 1.00, price = 2200,

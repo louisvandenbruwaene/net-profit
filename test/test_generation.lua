@@ -136,10 +136,10 @@ do
   check("with one, the island is for sale", c:districtError(island.id), nil)
   assert(c:buyDistrict(island.id))
 
-  -- A turbine is built out of steel and concrete, which have to be in a yard.
+  -- A turbine is built out of steel and concrete, which have to be in store.
   ok("a wind park cannot be built out of nothing",
     (select(2, c:buySource("power", island.x + island.w / 2, island.y + island.h / 2, "wind")))
-      :find("yards hold") ~= nil)
+      :find("stores hold") ~= nil)
   c.stock.steel, c.stock.concrete = 200, 200
 
   ok("a wind park can stand on owned mainland",

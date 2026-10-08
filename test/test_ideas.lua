@@ -181,7 +181,7 @@ do
  local gems=assert(c:build(1400,1100,'depot','gems')); c.stock.gems=4; c:loadDepot(gems.id)
  local works=assert(c:build(1470,1100,'works','jeweler'))
  local power=node(c,'source',1470,1170,'power',20)
- local yard=assert(c:build(1540,1100,'dc'))
+ local yard=assert(c:build(1540,1100,'terminal','highway'))
  edge(c,gems,works,'gems'); edge(c,power,works,'power'); edge(c,works,yard,'jewelry')
  c:refresh(); check((c.detail.yard.jewelry or 0)==2,'jeweler consumes gems and power and delivers two jewelry')
  local revenue=c:dailyRevenue(); c.leakChance=function() return 0 end

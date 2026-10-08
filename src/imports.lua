@@ -5,8 +5,8 @@
 -- the player picks a good and a quantity, pays the landed price up front (list
 -- price times that haven's freight multiplier), and the cargo comes in on the
 -- next day's tide: a freighter for a harbour, lorries for a road head, a plane
--- for an air apron. From there it is hauled on to the nearest yard (haulage.lua)
--- and is in stock the morning after; with no yard, the quay is the store.
+-- for an air apron. It goes straight into the haven's store for that good,
+-- which has to have room for it.
 --
 -- An order is a row in `city.shipments` until it lands (`city.orders` is the
 -- departments, a different thing); what landed on a day stays
@@ -39,12 +39,10 @@ return function(City)
     return total
   end
 
-  -- Room left in the yards for a good, counting what is already on its way. A
-  -- company with no yard keeps one yard's worth on the quay.
+  -- Room left in the havens' stores for a good, counting what is already on
+  -- its way.
   function City:storeRoom(key)
-    local yards = #self.g:nodesOfKind("dc")
-    local cap = yards > 0 and yards * City.yardStock or City.IMPORT.quayStock
-    return math.max(0, cap - self:materialStock(key) - self:shippedUnits(key) - (self.inlandUnits and self:inlandUnits(key) or 0))
+    return math.max(0, self:storeCap(key) - self:materialStock(key) - self:shippedUnits(key) - (self.inlandUnits and self:inlandUnits(key) or 0))
   end
 
   function City:shipmentCost(havenId, key, units)
@@ -60,42 +58,19 @@ return function(City)
     for _, k in ipairs(self:importable()) do if k == key then ok = true end end
     if not ok then return "not for sale abroad" end
     if type(units) ~= "number" or units ~= units or units < 1 then return "order at least one" end
-    if units > self:storeRoom(key) then return "no room in the yards" end
+    if units > self:storeRoom(key) then return "no room in store: raise the " .. string.lower(Graph.COMMODITIES[key].name) .. " store" end
     if self:shipmentCost(havenId, key, units) > self.money then return "not enough cash" end
     return nil
   end
 
-  -- The yard a haven's orders go on to unless an order says otherwise. Kept
-  -- on the haven, so it holds across days and saves; nil is the nearest yard
-  -- there is a way to.
-  function City:importYardOf(haven)
-    local y = haven and haven.importYard and self.g.nodes[haven.importYard]
-    return y and y.alive and y.kind == "dc" and y or nil
-  end
-
-  function City:setImportYard(havenId, yardId)
-    local haven = self.g.nodes[havenId]
-    if not (haven and haven.alive and haven.kind == "terminal") then return nil, "choose a haven" end
-    if yardId then
-      local y = self.g.nodes[yardId]
-      if not (y and y.alive and y.kind == "dc") then return nil, "choose a yard" end
-    end
-    haven.importYard = yardId
-    return haven
-  end
-
-  -- `yardId`: the yard it is hauled on to; the haven's own choice when left
-  -- out, and the nearest when the haven has none.
-  function City:orderImport(havenId, key, units, yardId)
+  function City:orderImport(havenId, key, units)
     units = math.floor(units or 0)
     local why = self:shipmentError(havenId, key, units)
     if why then return nil, why end
     local cost = self:shipmentCost(havenId, key, units)
     self:spend(cost)
     self.shipments = self.shipments or {}
-    local yard = yardId and self.g.nodes[yardId] or self:importYardOf(self.g.nodes[havenId])
-    local o = { haven = havenId, key = key, units = units, cost = cost, day = self.day, arrive = self.day + City.IMPORT.leadDays,
-      yard = yard and yard.alive and yard.kind == "dc" and yard.id or nil }
+    local o = { haven = havenId, key = key, units = units, cost = cost, day = self.day, arrive = self.day + City.IMPORT.leadDays }
     self.shipments[#self.shipments + 1] = o
     self:note("Ordered %d %s for $%d: lands tomorrow", units, string.lower(Graph.COMMODITIES[key].name), cost)
     return o
@@ -114,9 +89,10 @@ return function(City)
         landed[o.key] = (landed[o.key] or 0) + o.units
         self.landings[#self.landings + 1] = { haven = o.haven, key = o.key, units = o.units, day = today }
         self:note("Landed %d %s", o.units, string.lower(Graph.COMMODITIES[o.key].name))
-        -- On to the yards; with none, the quay is the store.
-        local cv = self:haulInland(o.haven, o.key, o.units, today, o.yard)
-        haulage = haulage + (cv and cv.cost or 0)
+        -- Straight into the haven's store: room for it was kept when it was
+        -- ordered.
+        self.stock = self.stock or {}
+        self.stock[o.key] = (self.stock[o.key] or 0) + o.units
       else
         keep[#keep + 1] = o
       end
