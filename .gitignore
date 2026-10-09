@@ -5,3 +5,4 @@ luac.out
 
 # Personal save backups kept alongside the source, never committed.
 net-profit-save-backups/
+net-profit-save-backups-*/
