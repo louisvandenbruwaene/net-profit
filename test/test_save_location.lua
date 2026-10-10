@@ -85,5 +85,23 @@ do
   ok("and an untouched slot stays empty",text==nil)
 end
 
+-- Windows refuses to rename onto an existing file, so the second save of a slot
+-- used to fail there. It must fall back to writing the slot in place.
+do
+  local disk,rename,mirror,cur={}, os.rename, Save.mirror, Save.writeCurrent
+  love.filesystem={
+    write=function(n,t) disk[n]=t; return true end,
+    remove=function(n) disk[n]=nil; return true end,
+    getSaveDirectory=function() return "/win" end,
+  }
+  os.rename=function() return nil,"File exists" end
+  Save.mirror=function() end
+  Save.writeCurrent=function() return true end
+  Save.pack=function() return "COMPANY" end
+  local saved=Save.writeSlot({},2)
+  ok("a save still lands where rename cannot replace the file",
+    saved==true and disk[Save.slotName(2)]=="COMPANY" and disk["company.tmp"]==nil)
+  os.rename,Save.mirror,Save.writeCurrent=rename,mirror,cur
+end
 print(pass.." passed, "..fail.." failed")
 os.exit(fail==0 and 0 or 1)
