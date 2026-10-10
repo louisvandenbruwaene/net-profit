@@ -193,8 +193,14 @@ function Save.writeSlot(city, slot)
   local ok, err = love.filesystem.write("company.tmp", text)
   if not ok then return nil, err end
   local root = love.filesystem.getSaveDirectory()
-  local moved, moveErr = os.rename(root .. "/company.tmp", root .. "/" .. name)
-  if not moved then return nil, moveErr end
+  -- Windows will not rename onto a file that exists, and its C library cannot
+  -- open a non-ASCII AppData path, so there the slot is written in place
+  -- through LOVE instead. The temporary copy is only dropped once that worked.
+  if not os.rename(root .. "/company.tmp", root .. "/" .. name) then
+    local wrote, writeErr = love.filesystem.write(name, text)
+    if not wrote then return nil, writeErr end
+    love.filesystem.remove("company.tmp")
+  end
   Save.mirror(text, root, name)
   Save.writeCurrent(slot)
   return true
