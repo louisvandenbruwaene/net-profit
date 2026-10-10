@@ -49,6 +49,13 @@ The loop is: sign customers, the network chokes, find the choke and fix it for l
 
 ## Play
 
+On Windows, download `net-profit-windows.zip` from the
+[latest release](https://github.com/louisvandenbruwaene/net-profit/releases/latest),
+unzip it anywhere and run `NetProfit.exe`. Nothing else needs installing. Windows
+may warn that the app is from an unknown publisher: choose *More info*, then
+*Run anyway*. Saves live in `%APPDATA%\net-profit`. To build the zip yourself,
+run `make windows` (it downloads LÖVE 11.5 for Windows once).
+
 On macOS, download the macOS build of LÖVE 11.x from [love2d.org](https://love2d.org/),
 move `love.app` to `/Applications`, then run `make mac-install`. Open
 **Net Profit** from Launchpad, Finder, or Spotlight.
@@ -568,7 +575,7 @@ slots is called `company.lua` and is picked up as the first slot:
 | Platform | Save folder |
 | --- | --- |
 | Linux | `~/.local/share/love/net-profit/` (or your XDG data directory) |
-| Windows | `%APPDATA%\\LOVE\\net-profit\\` |
+| Windows | `%APPDATA%\LOVE\net-profit\`, or `%APPDATA%\net-profit\` for the downloaded build |
 | macOS | `~/Library/Application Support/LOVE/net-profit/`, or `~/Library/Application Support/net-profit/` for the installed app |
 
 The installer preserves saved companies. Simulation randomness is stored with
