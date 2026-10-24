@@ -93,10 +93,10 @@ end
 -- contents when the window mode changes (going fullscreen, a new display), and
 -- an image cannot, so every tree would otherwise vanish on the first resize.
 local function bake(canvas)
-  local image = lg.newImage(canvas:newImageData(), { mipmaps = true, dpiscale = canvas:getDPIScale() })
+  local image = lg.newImage(canvas:newImageData(), { mipmaps = love.system.getOS() ~= "Web", dpiscale = canvas:getDPIScale() })   -- the browser build (WebGL 1) cannot mipmap this atlas
   canvas:release()
   image:setFilter("linear", "linear")
-  image:setMipmapFilter("linear")
+  if image:getMipmapCount() > 1 then image:setMipmapFilter("linear") end
   return image
 end
 
