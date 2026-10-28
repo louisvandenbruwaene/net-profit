@@ -138,10 +138,21 @@ return function(City)
     return keep
   end
 
-  -- A change in money, always with its sign in front: "+$30", "-$10".
+  -- Whole dollars with a comma every three digits, no sign: 95951 -> "95,951".
+  function City.grouped(v)
+    local digits = tostring(math.floor(math.abs(v) + 0.5))
+    return (digits:reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", ""))
+  end
+
+  -- A balance: "$95,951", "-$120".
+  function City.dollars(v)
+    return (v < -0.5 and "-$" or "$") .. City.grouped(v)
+  end
+
+  -- A change in money, always with its sign in front: "+$30", "-$1,200".
   function City.signed(v)
     local n = math.floor(v + 0.5)
-    return (n < 0 and "-$" or "+$") .. math.abs(n)
+    return (n < 0 and "-$" or "+$") .. City.grouped(n)
   end
 
   -- Money as it reads everywhere: whole dollars when it is big, cents when a
@@ -149,7 +160,7 @@ return function(City)
   function City.money2(v)
     if v == nil then return "-" end
     local a = math.abs(v)
-    if a == math.floor(a) or a >= 100 then return string.format("%s$%d", v < 0 and "-" or "", math.floor(a + 0.5)) end
+    if a == math.floor(a) or a >= 100 then return (v < 0 and "-$" or "$") .. City.grouped(a) end
     if a >= 10 then return string.format("%s$%.1f", v < 0 and "-" or "", a) end
     return string.format("%s$%.2f", v < 0 and "-" or "", a)
   end
