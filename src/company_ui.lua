@@ -1779,7 +1779,7 @@ local function company()
       row("$"..inv.amount.." on deposit",city:daysToMaturity(inv).." days left",y,P.energy); y=y+24
     end
     local limit,avail=city:loanLimit(),city:loanAvailable()
-    row("Credit line","$"..(city.loan or 0).." / $"..limit,y+6,
+    row("Credit line",City.dollars(city.loan or 0).." / "..City.dollars(limit),y+6,
       (city.loan or 0)>0 and P.warn or P.textDim,
       "Up to "..City.loanLeverage.."x your own capital ($"..city:ownCapital().."). "..(City.loanRate*100).."% a week, paid daily.")
     y=y+32
@@ -2134,7 +2134,7 @@ local function slotsPanel(x,y,w,h)
       for _,name in ipairs(info.trades or {}) do
         drop(name,tx,ry+21,8); tx=tx+19
       end
-      local bits={"Day "..info.day,"$"..info.money,info.clients.." clients"}
+      local bits={"Day "..info.day,City.dollars(info.money),info.clients.." clients"}
       if info.bankrupt then table.insert(bits,1,"INSOLVENT") end
       text(table.concat(bits,"   "),x+72,ry+36,"small",
         info.bankrupt and P.bad or P.textDim,w-300)
@@ -2354,7 +2354,7 @@ local function report()
   local reward=r.bonus or 0
   text(city.bankrupt and "Insolvent" or "Day "..r.day,x+32,y+24,"big")
   single(City.signed(profit),x+32,y+80,"big",profit>=0 and P.good or P.bad,246)
-  single("$"..(r.money or city.money),x+310,y+80,"big",P.energy,w-342)
+  single(City.dollars(r.money or city.money),x+310,y+80,"big",P.energy,w-342)
   single("profit",x+32,y+66,"tiny",P.textFaint,120)
   single("cash",x+310,y+66,"tiny",P.textFaint,120)
   local ly=y+136
@@ -2449,8 +2449,8 @@ local function stats()
   local open
   y,open=fold("overview","Company",y,"")
   if open then
-  for _,v in ipairs({{"Value","$"..city:valuation()},{"Reputation",city.reputation.."%"},
-    (city.loan or 0)>0 and {"Debt","$"..city.loan} or nil}) do row(v[1],v[2],y); y=y+30 end
+  for _,v in ipairs({{"Value",City.dollars(city:valuation())},{"Reputation",city.reputation.."%"},
+    (city.loan or 0)>0 and {"Debt",City.dollars(city.loan)} or nil}) do row(v[1],v[2],y); y=y+30 end
   y=y+8
   end
   y,open=fold("recent","Recent profit",y,#city.history>0 and City.signed(
@@ -2484,12 +2484,12 @@ local function stats()
     end
   end
   local costs=city:expenseBreakdown()
-  y,open=fold("costs","Daily costs",y,"$"..costs.total)
+  y,open=fold("costs","Daily costs",y,City.money2(costs.total))
   if open then
   for _,v in ipairs({{"Office",costs.office},{"Sources",costs.sources},{"Buildings",costs.structures},
     {"Pipes",costs.pipes},{"Staff",costs.crews},{"Imports",costs.imports},{"Freight",costs.haulage},
     {"Distribution hubs",costs.hubs},{"Pumping",costs.pumping},{"Fuel",costs.fuel},{"Travel",costs.transit},{"Interest",costs.interest}}) do
-    if (v[2] or 0)>0 then row(v[1],string.format("$%.1f",v[2]),y); y=y+26 end
+    if (v[2] or 0)>0 then row(v[1],City.money2(v[2]),y); y=y+26 end
   end
   y=y+16
   end
@@ -2669,7 +2669,7 @@ local function topBar(open)
     local step=math.max(1,math.abs(diff)*(state.coins and 0.035 or 0.12))
     UI.cashShown=math.abs(diff)<=step and target or UI.cashShown+(diff>0 and step or -step)
   end
-  local cash="$"..math.floor(UI.cashShown+0.5)
+  local cash=City.dollars(UI.cashShown)
   local flash=UI.cashFlash and math.max(0,1-(R.t-UI.cashFlash)/0.9) or 0
   local cashColor=flash>0 and P.mix and P.mix(P.energy,UI.cashFlashUp and P.good or P.bad,flash)
     or (flash>0.3 and (UI.cashFlashUp and P.good or P.bad)) or P.energy
