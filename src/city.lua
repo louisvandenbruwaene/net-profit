@@ -1330,9 +1330,21 @@ function City:buyPermit(kind)
   return true
 end
 
+-- The company log keeps the newest LOG_LENGTH lines. The same line twice in a
+-- row on one day is counted ("Request declined. Reputation -1. x4") rather than
+-- repeated, so a busy close cannot push the rest of the day out of the log.
+City.LOG_LENGTH = 40
 function City:note(fmt, ...)
-  table.insert(self.log, 1, { text = string.format(fmt, ...), day = self.day })
-  for i = #self.log, 40, -1 do self.log[i] = nil end
+  local text = string.format(fmt, ...)
+  local newest = self.log[1]
+  if newest and newest.day == self.day and (newest.base or newest.text) == text then
+    newest.base = text
+    newest.count = (newest.count or 1) + 1
+    newest.text = text .. " x" .. newest.count
+    return
+  end
+  table.insert(self.log, 1, { text = text, day = self.day })
+  for i = #self.log, City.LOG_LENGTH, -1 do self.log[i] = nil end
 end
 
 --------------------------------------------------------------------------------

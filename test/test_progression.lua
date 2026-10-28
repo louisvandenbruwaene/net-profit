@@ -30,4 +30,14 @@ for trial=1,200 do
   if calm:random()<calm:leakChance({commodity="water",alive=true})*math.min(1,calm.day/City.PROGRESSION.GENTLE_DAYS) then late=late+1 end
 end
 check(early<late,"day one leaks less than day thirty ("..early.." against "..late..")")
+print("the log counts a repeated line instead of repeating it")
+local quiet=City.new({seed=24,obstacles=0})
+quiet.log={}
+quiet:note("Request declined. Reputation -%d.",1)
+quiet:note("Request declined. Reputation -%d.",1)
+quiet:note("Request declined. Reputation -%d.",1)
+check(#quiet.log==1 and quiet.log[1].text=="Request declined. Reputation -1. x3","three declines in a row are one line, x3")
+quiet.day=quiet.day+1
+quiet:note("Request declined. Reputation -%d.",1)
+check(#quiet.log==2 and quiet.log[1].text=="Request declined. Reputation -1.","a new day starts a new line")
 print(T.checks.." progression checks passed")
