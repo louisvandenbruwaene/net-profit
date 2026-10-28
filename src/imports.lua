@@ -83,12 +83,13 @@ return function(City)
   function City:landShipments(today)
     today = today or self.day
     local landed, keep, haulage = {}, {}, 0
+    local lines = {}
     self.landings = {}
     for _, o in ipairs(self.shipments or {}) do
       if o.arrive <= today then
         landed[o.key] = (landed[o.key] or 0) + o.units
         self.landings[#self.landings + 1] = { haven = o.haven, key = o.key, units = o.units, day = today }
-        self:note("Landed %d %s", o.units, string.lower(Graph.COMMODITIES[o.key].name))
+        lines[#lines + 1] = o.units .. " " .. string.lower(Graph.COMMODITIES[o.key].name)
         -- Straight into the haven's store: room for it was kept when it was
         -- ordered.
         self.stock = self.stock or {}
@@ -98,6 +99,8 @@ return function(City)
       end
     end
     self.shipments = keep
+    -- One log line for the whole morning's cargo, however many goods came in.
+    if #lines > 0 then self:note("Landed %s", table.concat(lines, ", ")) end
     return landed, haulage
   end
 

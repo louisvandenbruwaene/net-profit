@@ -1896,9 +1896,11 @@ local function offerRow(c,x,y,w,h,prefix,onAccept)
     if prefix=="bar-" then act("focusRequest",c.id) else act("openClient",c.id) end
   end,true,tip,state.node==c.id,Graph.COMMODITIES[key].color)
   local premium=city:requestPremium(c)
-  local pct=string.format("%+.0f%%",premium*100)
+  -- Against the going rate; an offer at the going rate shows no figure.
+  local pct=math.abs(premium)<0.005 and "" or string.format("%+.0f%%",premium*100)
   local font=h>=40 and "mid" or "body"
-  local pctW=SF.width(pct,R.fonts[font])
+  -- A fixed slot, so the money beside it sits in the same place on every offer.
+  local pctW=math.max(SF.width(pct,R.fonts[font]),SF.width("+00%",R.fonts[font]))
   local ty=y+(h-R.fonts[font]:getHeight())/2
   -- What it asks, what it pays a day, and how that compares to the going rate:
   -- on one line where the row is wide, the asking on top and the money under
