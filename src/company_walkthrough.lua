@@ -1365,7 +1365,14 @@ function Walk.update(app,mode,frame)
             local n=c.g.nodes[from]
             local far=math.sqrt((n.x-mill.x)^2+(n.y-mill.y)^2)
             if far<=300 then assert(c:layPipe(from,mill.id,"water","large")); break end
-            local j=assert(c:build(n.x+(mill.x-n.x)/far*280,n.y+(mill.y-n.y)/far*280,"junction"))
+            -- Step 280m toward the mill, sliding sideways off any road that runs there.
+            local ux,uy=(mill.x-n.x)/far,(mill.y-n.y)/far
+            local j,why
+            for _,side in ipairs({0,40,-40,80,-80}) do
+              j,why=c:build(n.x+ux*280-uy*side,n.y+uy*280+ux*side,"junction")
+              if j then break end
+            end
+            assert(j,why)
             assert(c:layPipe(from,j.id,"water","large")); from=j.id
           end
           assert(c:layPipe(mill.id,brew.id,"water","large"))
@@ -1413,11 +1420,13 @@ function Walk.update(app,mode,frame)
       home.population,west.population=820,640
       c:refresh()
       local function place(x,y,kind)
+        local why
         for i=0,60 do
-          local n=c:build(x+((i*137)%240)-120,y+((i*89)%200)-100,kind)
+          local n
+          n,why=c:build(x+((i*137)%240)-120,y+((i*89)%200)-100,kind)
           if n then return n end
         end
-        error("nowhere to put a "..kind)
+        error("nowhere to put a "..kind..": "..tostring(why))
       end
       local a=place(home.x+320,home.y+220,"stop")
       local b=place(west.x+620,west.y+220,"stop")
@@ -1428,6 +1437,9 @@ function Walk.update(app,mode,frame)
       assert(c:demolishLink(direct.id))
       assert(c:layLink(a.id,b.id,"road"))
       local bus=assert(c:layLink(a.id,b.id,"bus"))
+      -- Resorts open once a route has carried somebody; this fixture's towns
+      -- need not produce a rider on the day, so the ride is booked by hand.
+      c:refresh(); c.transit.byLink[bus.id]={trips=1,income=0}
       local resort=place(coast.x+coast.w/2-200,coast.y+90,"resort")
       assert(c:layLink(a.id,resort.id,"road"))
       c:refresh()
